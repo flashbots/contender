@@ -18,6 +18,29 @@ enum ContenderSubcommand {
         #[arg(short, long, default_value = "10", long_help = "Number of txs to send per second", visible_aliases = &["tps"])]
         intensity: Option<usize>,
     },
+
+    #[command(
+        name = "report",
+        long_about = "Export performance reports for data analysis."
+    )]
+    Report {
+        /// The run ID to export reports for. If not provided, the latest run is used.
+        #[arg(
+            short,
+            long,
+            long_help = "The run ID to export reports for. If not provided, the latest run is used."
+        )]
+        id: Option<String>,
+
+        /// The path to save the report to.
+        /// If not provided, the report is saved to the current directory.
+        #[arg(
+            short,
+            long,
+            long_help = "Filename of the saved report. May be a fully-qualified path. If not provided, the report is saved to the current directory."
+        )]
+        out_file: Option<String>,
+    },
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,6 +48,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
         ContenderSubcommand::Spam { rpc_url, intensity } => {
             spam_rpc(&rpc_url, intensity.unwrap_or_default())?;
+        }
+        ContenderSubcommand::Report { id, out_file } => {
+            println!(
+                "Exporting report for run ID {:?} to out_file {:?}",
+                id, out_file
+            );
+            todo!();
         }
     }
     Ok(())
