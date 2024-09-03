@@ -14,3 +14,4 @@ path = "src/bin/cli.rs"
 
 [dependencies]
 clap = { version = "4.5.16", features = ["derive"] }
+sqlite = "0.36.1"
