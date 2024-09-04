@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use contender_core::spam::spam_rpc;
+use contender_core::spammer::spam_rpc;
 
 #[derive(Parser, Debug)]
 struct ContenderCli {
@@ -11,12 +11,24 @@ struct ContenderCli {
 enum ContenderSubcommand {
     #[command(name = "spam", long_about = "Spam the RPC with tx requests.")]
     Spam {
+        /// The path to the test file to use for spamming.
+        testfile: String,
+
         /// The RPC URL to spam with requests.
         rpc_url: String,
 
         /// The number of txs to send per second.
         #[arg(short, long, default_value = "10", long_help = "Number of txs to send per second", visible_aliases = &["tps"])]
         intensity: Option<usize>,
+
+        /// The duration of the spamming run in seconds.
+        #[arg(
+            short,
+            long,
+            default_value = "60",
+            long_help = "Duration of the spamming run in seconds"
+        )]
+        duration: Option<usize>,
     },
 
     #[command(
@@ -46,8 +58,18 @@ enum ContenderSubcommand {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = ContenderCli::parse();
     match args.command {
-        ContenderSubcommand::Spam { rpc_url, intensity } => {
-            spam_rpc(&rpc_url, intensity.unwrap_or_default())?;
+        ContenderSubcommand::Spam {
+            testfile,
+            rpc_url,
+            intensity,
+            duration,
+        } => {
+            spam_rpc(
+                &testfile,
+                &rpc_url,
+                intensity.unwrap_or_default(),
+                duration.unwrap_or_default(),
+            )?;
         }
         ContenderSubcommand::Report { id, out_file } => {
             println!(
