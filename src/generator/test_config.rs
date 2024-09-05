@@ -53,7 +53,7 @@ pub struct FuzzParam {
 }
 
 impl TestConfig {
-    pub fn parse_toml(file_path: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
+    pub fn from_file(file_path: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
         let file_contents = read(file_path)?;
         let file_contents_str = String::from_utf8_lossy(&file_contents).to_string();
         let test_file: TestConfig = toml::from_str(&file_contents_str)?;
@@ -138,8 +138,11 @@ impl SpamTarget for TestConfig {
                             let val = if let Some(fuzz_val) = maybe_fuzz() {
                                 fuzz_val
                             } else {
-                                U256::from_str(&arg.value).map_err(|_e| {
-                                    ContenderError::SpamError("failed to parse uint256")
+                                U256::from_str(&arg.value).map_err(|e| {
+                                    ContenderError::SpamError(
+                                        "failed to parse uint256",
+                                        Some(format!("{:?}", e)),
+                                    )
                                 })?
                             };
                             DynSolValue::Uint(val, 256)
@@ -148,8 +151,11 @@ impl SpamTarget for TestConfig {
                             let val = if let Some(fuzz_val) = maybe_fuzz() {
                                 Address::from_slice(&fuzz_val.as_le_slice()[0..20])
                             } else {
-                                Address::from_str(&arg.value).map_err(|_e| {
-                                    ContenderError::SpamError("failed to parse address")
+                                Address::from_str(&arg.value).map_err(|e| {
+                                    ContenderError::SpamError(
+                                        "failed to parse address",
+                                        Some(format!("{:?}", e)),
+                                    )
                                 })?
                             };
                             DynSolValue::Address(val)
@@ -158,13 +164,21 @@ impl SpamTarget for TestConfig {
                             let val = if let Some(fuzz_val) = maybe_fuzz() {
                                 fuzz_val.to_le_bytes::<32>().into()
                             } else {
-                                Bytes::from_str(&arg.value).map_err(|_e| {
-                                    ContenderError::SpamError("failed to parse bytes")
+                                Bytes::from_str(&arg.value).map_err(|e| {
+                                    ContenderError::SpamError(
+                                        "failed to parse bytes",
+                                        Some(format!("{:?}", e)),
+                                    )
                                 })?
                             };
                             DynSolValue::Bytes(val.to_vec())
                         }
-                        _ => return Err(ContenderError::SpamError("unsupported type")),
+                        _ => {
+                            return Err(ContenderError::SpamError(
+                                "unsupported type",
+                                Some(arg.r#type.to_owned()),
+                            ))
+                        }
                     };
                     args.push(val);
                 }
@@ -267,7 +281,7 @@ mod tests {
 
     #[test]
     fn test_parse_testconfig_toml() {
-        let test_file = TestConfig::parse_toml("univ2ConfigTest.toml").unwrap();
+        let test_file = TestConfig::from_file("univ2ConfigTest.toml").unwrap();
         println!("{:?}", test_file);
         assert_eq!(
             test_file.to,
@@ -284,7 +298,7 @@ mod tests {
         println!("{}", encoded);
 
         test_file.save_toml("cargotest.toml").unwrap();
-        let test_file2 = TestConfig::parse_toml("cargotest.toml").unwrap();
+        let test_file2 = TestConfig::from_file("cargotest.toml").unwrap();
         assert_eq!(test_file.to, test_file2.to);
         let func = test_file.function.unwrap();
         assert_eq!(func.params[0].name, "amount0Out");

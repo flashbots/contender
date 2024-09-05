@@ -1,5 +1,9 @@
 use clap::{Parser, Subcommand};
-use contender_core::spammer::spam_rpc;
+// use contender_core::generator::test_config::TestConfig;
+use contender_core::{
+    generator::{rand_seed::RandSeed, test_config::TestConfig},
+    spammer::Spammer,
+};
 
 #[derive(Parser, Debug)]
 struct ContenderCli {
@@ -29,6 +33,14 @@ enum ContenderSubcommand {
             long_help = "Duration of the spamming run in seconds"
         )]
         duration: Option<usize>,
+
+        /// The seed to use for generating spam transactions. If not provided, one is generated.
+        #[arg(
+            short,
+            long,
+            long_help = "The seed to use for generating spam transactions"
+        )]
+        seed: Option<String>,
     },
 
     #[command(
@@ -55,7 +67,8 @@ enum ContenderSubcommand {
     },
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = ContenderCli::parse();
     match args.command {
         ContenderSubcommand::Spam {
@@ -63,13 +76,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             rpc_url,
             intensity,
             duration,
+            seed,
         } => {
-            spam_rpc(
-                &testfile,
-                &rpc_url,
-                intensity.unwrap_or_default(),
-                duration.unwrap_or_default(),
-            )?;
+            let testfile = TestConfig::from_file(&testfile)?;
+            let spammer = Spammer::new(testfile, rpc_url, seed.map(|s| RandSeed::from_str(&s)));
+            spammer.spam_rpc(intensity.unwrap_or_default(), duration.unwrap_or_default())?;
         }
         ContenderSubcommand::Report { id, out_file } => {
             println!(

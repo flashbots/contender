@@ -20,6 +20,12 @@ impl RandSeed {
         Self { seed: seed_arr }
     }
 
+    pub fn from_str(seed: &str) -> Self {
+        let mut seed_arr = [0u8; 32];
+        seed_arr.copy_from_slice(seed.as_bytes());
+        Self { seed: seed_arr }
+    }
+
     pub fn as_bytes(&self) -> &[u8] {
         &self.seed
     }

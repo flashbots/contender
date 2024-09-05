@@ -8,8 +8,8 @@ pub struct SqliteDb {
 
 impl DbOps for SqliteDb {
     fn new() -> Result<Self> {
-        let conn =
-            sqlite::open(":memory:").map_err(|_| ContenderError::DbError("failed to open DB"))?;
+        let conn = sqlite::open(":memory:")
+            .map_err(|_| ContenderError::DbError("failed to open DB", None))?;
         Ok(Self { conn })
     }
 
@@ -23,17 +23,18 @@ impl DbOps for SqliteDb {
                     duration INTEGER NOT NULL
                 )",
             )
-            .map_err(|_| ContenderError::DbError("failed to create table"))?;
+            .map_err(|_| ContenderError::DbError("failed to create table", None))?;
         Ok(())
     }
 
     fn insert_run(&self, timestamp: &str, tx_count: i64, duration: i64) -> Result<()> {
+        let query = format!(
+            "INSERT INTO runs (timestamp, tx_count, duration) VALUES ({}, {}, {})",
+            timestamp, tx_count, duration
+        );
         self.conn
-            .execute(format!(
-                "INSERT INTO runs (timestamp, tx_count, duration) VALUES ({}, {}, {})",
-                timestamp, tx_count, duration
-            ))
-            .map_err(|_| ContenderError::DbError("failed to insert run"))?;
+            .execute(&query)
+            .map_err(|_| ContenderError::DbError("failed to insert run", Some(query)))?;
         Ok(())
     }
 
@@ -41,12 +42,12 @@ impl DbOps for SqliteDb {
         let mut stmt = self
             .conn
             .prepare("SELECT COUNT(*) FROM runs")
-            .map_err(|_| ContenderError::DbError("failed to prepare query"))?;
+            .map_err(|_| ContenderError::DbError("failed to prepare query", None))?;
         stmt.next()
-            .map_err(|_| ContenderError::DbError("failed to execute query"))?;
+            .map_err(|_| ContenderError::DbError("failed to execute query", None))?;
         let count = stmt
             .read::<i64, _>(0)
-            .map_err(|_| ContenderError::DbError("failed to read result"))?;
+            .map_err(|_| ContenderError::DbError("failed to read result", None))?;
         Ok(count)
     }
 }

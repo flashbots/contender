@@ -13,5 +13,5 @@ params = [
     { name = "deadline", value = "1000000000000000000", type = "uint256" }
 ]
 fuzz = [
-    { name = "amountIn", min = "1000000", max = "1000000000000000000"}
+    { name = "amountIn", min = "1000000", max = "10000000000000000000"}
 ]
