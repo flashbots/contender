@@ -13,4 +13,11 @@ name = "contender_cli"
 path = "src/bin/cli.rs"
 
 [dependencies]
+alloy = { version = "0.3.1", features = ["full"] }
 clap = { version = "4.5.16", features = ["derive"] }
+lazy_static = "1.5.0"
+rand = "0.8.5"
+serde = "1.0.209"
+sqlite = "0.36.1"
+tokio = { version = "1.40.0", features = ["rt-multi-thread"] }
+toml = "0.8.19"
