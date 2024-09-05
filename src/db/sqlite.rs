@@ -57,14 +57,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_create_tables() {
+    fn creates_table() {
         let db = SqliteDb::new().unwrap();
         db.create_tables().unwrap();
         assert_eq!(db.num_runs().unwrap(), 0);
     }
 
     #[test]
-    fn test_insert_run() {
+    fn inserts_runs() {
         let db = SqliteDb::new().unwrap();
         db.create_tables().unwrap();
         db.insert_run("2021-01-01", 100, 10).unwrap();

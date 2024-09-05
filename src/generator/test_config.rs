@@ -297,7 +297,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_testconfig_toml() {
+    fn parses_testconfig_toml() {
         let test_file = TestConfig::from_file("univ2ConfigTest.toml").unwrap();
         println!("{:?}", test_file);
         assert_eq!(
@@ -309,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn test_encode_testconfig_toml() {
+    fn encodes_testconfig_toml() {
         let test_file = get_testconfig();
         let encoded = test_file.encode_toml().unwrap();
         println!("{}", encoded);
@@ -324,7 +324,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_spam_txs() {
+    fn gets_spam_txs() {
         let test_file = get_testconfig();
         // this seed can be used to recreate the same test tx(s)
         let seed = RandSeed::new();
@@ -336,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fuzz_is_deterministic() {
+    fn fuzz_is_deterministic() {
         let test_file = get_fuzzy_testconfig();
         let seed = RandSeed::from_bytes(&[0x01; 32]);
         let num_txs = 3;
