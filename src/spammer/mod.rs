@@ -1,5 +1,5 @@
 use crate::{
-    generator::{rand_seed::RandSeed, test_config::TestConfig, SpamTarget},
+    generator::{rand_seed::RandSeed, Generator},
     Result,
 };
 use alloy::{
@@ -13,16 +13,19 @@ use alloy::{
 };
 use tokio::task::spawn as spawn_task;
 
-pub struct Spammer {
-    testfile: TestConfig,
+pub struct Spammer<G: Generator> {
+    generator: G,
     rpc_client: Box<RootProvider<Http<Client>>>,
     seed: RandSeed,
-    // TODO: add wallet/client to send txs
+    // TODO: add signer for priv_key tx signatures
 }
 
-impl Spammer {
+impl<G> Spammer<G>
+where
+    G: Generator,
+{
     pub fn new(
-        testfile: TestConfig,
+        generator: G,
         rpc_url: String,
         seed: Option<RandSeed>,
         priv_key: Option<FixedBytes<32>>,
@@ -31,7 +34,7 @@ impl Spammer {
         let rpc_client =
             ProviderBuilder::new().on_http(Url::parse(&rpc_url).expect("Invalid RPC URL"));
         Self {
-            testfile,
+            generator,
             rpc_client: Box::new(rpc_client),
             seed,
         }
@@ -40,7 +43,7 @@ impl Spammer {
     /// Send transactions to the RPC at a given rate. Actual rate may vary; this is only the attempted sending rate.
     pub fn spam_rpc(&self, tx_per_second: usize, duration: usize) -> Result<()> {
         let tx_requests = self
-            .testfile
+            .generator
             .get_spam_txs(tx_per_second * duration, Some(self.seed.to_owned()))?;
         let interval = std::time::Duration::from_millis(1_000 / tx_per_second as u64);
 

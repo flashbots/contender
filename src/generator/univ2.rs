@@ -9,7 +9,7 @@ use alloy::sol_types::SolCall;
 use lazy_static::lazy_static;
 
 use super::rand_seed::RandSeed;
-use super::SpamTarget;
+use super::Generator;
 
 pub struct UniV2Spammer;
 
@@ -68,7 +68,7 @@ fn tx_add_liquidity(
     })
 }
 
-impl SpamTarget for UniV2Spammer {
+impl Generator for UniV2Spammer {
     fn get_spam_txs(
         &self,
         // TODO: implement these params

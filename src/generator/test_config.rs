@@ -9,7 +9,7 @@ use std::{fs::read, str::FromStr};
 
 use crate::error::ContenderError;
 
-use super::{rand_seed::RandSeed, SpamTarget};
+use super::{rand_seed::RandSeed, Generator};
 
 /// Testfile
 #[derive(Deserialize, Debug, Serialize)]
@@ -72,7 +72,7 @@ impl TestConfig {
     }
 }
 
-impl SpamTarget for TestConfig {
+impl Generator for TestConfig {
     fn get_spam_txs(
         &self,
         amount: usize,

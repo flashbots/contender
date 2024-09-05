@@ -1,5 +1,4 @@
 use clap::{Parser, Subcommand};
-// use contender_core::generator::test_config::TestConfig;
 use contender_core::{
     generator::{rand_seed::RandSeed, test_config::TestConfig},
     spammer::Spammer,
