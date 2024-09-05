@@ -132,8 +132,8 @@ impl SpamTarget for TestConfig {
                         }
                     };
                     let val = match arg.r#type.as_str() {
-                        // TODO: add more types
-                        // TODO: find a solution for structs/tuples
+                        // TODO: add remaining types from DynSolValue
+                        // TODO: find a general solution for structs/tuples/arrays
                         "uint256" => {
                             let val = if let Some(fuzz_val) = maybe_fuzz() {
                                 fuzz_val
@@ -173,11 +173,28 @@ impl SpamTarget for TestConfig {
                             };
                             DynSolValue::Bytes(val.to_vec())
                         }
+                        "address[]" => {
+                            // temporary measure to get the uniswap example working
+                            // TODO: delete this branch; delete all branches; this is cursed!
+                            let val = if let Some(fuzz_val) = maybe_fuzz() {
+                                let mut addresses = Vec::new();
+                                for _ in 0..3 {
+                                    addresses.push(DynSolValue::Address(Address::from_slice(
+                                        &fuzz_val.as_le_slice()[0..20],
+                                    )));
+                                }
+                                addresses
+                            } else {
+                                Vec::new()
+                            };
+                            DynSolValue::Array(val)
+                        }
                         _ => {
+                            // TODO: handle dynamic types here (?)
                             return Err(ContenderError::SpamError(
                                 "unsupported type",
                                 Some(arg.r#type.to_owned()),
-                            ))
+                            ));
                         }
                     };
                     args.push(val);
