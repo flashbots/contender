@@ -1063,6 +1063,7 @@ dependencies = [
  "alloy",
  "clap",
  "lazy_static",
+ "rand",
  "serde",
  "sqlite",
  "toml",
