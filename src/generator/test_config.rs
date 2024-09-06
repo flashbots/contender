@@ -1,11 +1,10 @@
 use alloy::{
-    dyn_abi::DynSolValue,
-    primitives::{keccak256, Address, Bytes, U256},
+    primitives::{keccak256, Address, U256},
     rpc::types::TransactionRequest,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::{fs::read, str::FromStr};
+use std::fs::read;
 
 use crate::error::ContenderError;
 
@@ -27,19 +26,9 @@ pub struct FunctionDefinition {
     /// Name of the function to call.
     pub name: String,
     /// Parameters to pass to the function.
-    pub params: Vec<Param>,
+    pub args: Vec<String>,
     /// Parameters to fuzz during the test.
     pub fuzz: Option<Vec<FuzzParam>>,
-}
-
-#[derive(Deserialize, Debug, Serialize)]
-pub struct Param {
-    /// Name of the parameter.
-    pub name: String,
-    /// Solidity type of the parameter.
-    pub r#type: String,
-    /// Default value; may be overridden by naming the param in the `fuzz`` section of the config file.
-    pub value: String,
 }
 
 #[derive(Deserialize, Debug, Serialize)]
@@ -81,19 +70,9 @@ impl Generator for TestConfig {
         let mut templates = Vec::new();
 
         if let Some(function) = &self.function {
-            // encode function selector
-            let fn_sig = format!(
-                "{}({})",
-                function.name,
-                function
-                    .params
-                    .iter()
-                    .map(|p| p.r#type.to_owned())
-                    .collect::<Vec<_>>()
-                    .join(",")
-            );
-            let sig_hash = keccak256(fn_sig);
-            let fn_selector = sig_hash.split_at(4).0;
+            let func = alloy_json_abi::Function::parse(&function.name).map_err(|e| {
+                ContenderError::SpamError("failed to parse function name", Some(e.to_string()))
+            })?;
 
             // hashmap to store fuzzy values
             let mut map: HashMap<String, Vec<U256>> = HashMap::new();
@@ -101,8 +80,10 @@ impl Generator for TestConfig {
             let seed = seed.unwrap_or_default();
 
             // pre-generate fuzzy params
-            if let Some(fuz) = function.fuzz.as_ref() {
-                for fparam in fuz.iter() {
+            if let Some(fuzz_params) = function.fuzz.as_ref() {
+                // NOTE: This will only generate a single 32-byte value for each fuzzed parameter. Fuzzing values in arrays/structs is not yet supported.
+                for fparam in fuzz_params.iter() {
+                    // TODO: Plug into an externally-defined fuzz generator. This is too restrictive.
                     let values = (0..amount)
                         .map(|i| {
                             // generate random-looking value between min and max from seed
@@ -115,7 +96,7 @@ impl Generator for TestConfig {
                             val
                         })
                         .collect();
-                    map.insert(fparam.name.clone(), values);
+                    map.insert(fparam.name.to_owned(), values);
                 }
             }
 
@@ -123,86 +104,37 @@ impl Generator for TestConfig {
             for i in 0..amount {
                 // encode function arguments
                 let mut args = Vec::new();
-                for arg in function.params.iter() {
+                for j in 0..function.args.len() {
                     let maybe_fuzz = || {
-                        if map.contains_key(&arg.name) {
-                            Some(map.get(&arg.name).unwrap()[i])
-                        } else {
-                            None
+                        let input_def = func.inputs[j].to_string();
+                        // there's probably a better way to do this, but I haven't found it
+                        let arg_namedefs =
+                            input_def.split_ascii_whitespace().collect::<Vec<&str>>();
+                        if arg_namedefs.len() < 2 {
+                            // can't fuzz unnamed params
+                            return None;
                         }
+                        let arg_name = arg_namedefs[1];
+                        if map.contains_key(arg_name) {
+                            return Some(map.get(arg_name).unwrap()[i].to_string());
+                        }
+                        None
                     };
-                    let val = match arg.r#type.as_str() {
-                        // TODO: add remaining types from DynSolValue
-                        // TODO: find a general solution for structs/tuples/arrays
-                        "uint256" => {
-                            let val = if let Some(fuzz_val) = maybe_fuzz() {
-                                fuzz_val
-                            } else {
-                                U256::from_str(&arg.value).map_err(|e| {
-                                    ContenderError::SpamError(
-                                        "failed to parse uint256",
-                                        Some(format!("{:?}", e)),
-                                    )
-                                })?
-                            };
-                            DynSolValue::Uint(val, 256)
-                        }
-                        "address" => {
-                            let val = if let Some(fuzz_val) = maybe_fuzz() {
-                                Address::from_slice(&fuzz_val.as_le_slice()[0..20])
-                            } else {
-                                Address::from_str(&arg.value).map_err(|e| {
-                                    ContenderError::SpamError(
-                                        "failed to parse address",
-                                        Some(format!("{:?}", e)),
-                                    )
-                                })?
-                            };
-                            DynSolValue::Address(val)
-                        }
-                        "bytes" => {
-                            let val = if let Some(fuzz_val) = maybe_fuzz() {
-                                fuzz_val.to_le_bytes::<32>().into()
-                            } else {
-                                Bytes::from_str(&arg.value).map_err(|e| {
-                                    ContenderError::SpamError(
-                                        "failed to parse bytes",
-                                        Some(format!("{:?}", e)),
-                                    )
-                                })?
-                            };
-                            DynSolValue::Bytes(val.to_vec())
-                        }
-                        "address[]" => {
-                            // temporary measure to get the uniswap example working
-                            // TODO: delete this branch; delete all branches; this is cursed!
-                            let val = if let Some(fuzz_val) = maybe_fuzz() {
-                                let mut addresses = Vec::new();
-                                for _ in 0..3 {
-                                    addresses.push(DynSolValue::Address(Address::from_slice(
-                                        &fuzz_val.as_le_slice()[0..20],
-                                    )));
-                                }
-                                addresses
-                            } else {
-                                Vec::new()
-                            };
-                            DynSolValue::Array(val)
-                        }
-                        _ => {
-                            // TODO: handle dynamic types here (?)
-                            return Err(ContenderError::SpamError(
-                                "unsupported type",
-                                Some(arg.r#type.to_owned()),
-                            ));
-                        }
-                    };
+
+                    let val = maybe_fuzz().unwrap_or_else(|| {
+                        // if fuzzing is not enabled, use default value given in config file
+                        function.args[j].to_owned()
+                    });
                     args.push(val);
                 }
 
-                // encode function call
-                let calldata = DynSolValue::Tuple(args).abi_encode_params();
-                let input = [fn_selector, &calldata].concat();
+                let input =
+                    foundry_common::abi::encode_function_args(&func, args).map_err(|e| {
+                        ContenderError::SpamError(
+                            "failed to encode function arguments.",
+                            Some(e.to_string()),
+                        )
+                    })?;
 
                 let tx = alloy::rpc::types::TransactionRequest {
                     to: Some(alloy::primitives::TxKind::Call(self.to.clone())),
@@ -229,28 +161,12 @@ mod tests {
                 .unwrap(),
             from: None,
             function: Some(FunctionDefinition {
-                name: "swap".to_string(),
-                params: vec![
-                    Param {
-                        name: "amount0Out".to_string(),
-                        r#type: "uint256".to_string(),
-                        value: "0".to_string(),
-                    },
-                    Param {
-                        name: "amount1Out".to_string(),
-                        r#type: "uint256".to_string(),
-                        value: "0".to_string(),
-                    },
-                    Param {
-                        name: "to".to_string(),
-                        r#type: "address".to_string(),
-                        value: Address::repeat_byte(0x11).to_string(),
-                    },
-                    Param {
-                        name: "data".to_string(),
-                        r#type: "bytes".to_string(),
-                        value: "0x".to_string(),
-                    },
+                name: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
+                args: vec![
+                    "1".to_owned(),
+                    "2".to_owned(),
+                    Address::repeat_byte(0x11).to_string(),
+                    "0xdead".to_owned(),
                 ],
                 fuzz: None,
             }),
@@ -264,28 +180,12 @@ mod tests {
                 .unwrap(),
             from: None,
             function: Some(FunctionDefinition {
-                name: "swap".to_string(),
-                params: vec![
-                    Param {
-                        name: "amount0Out".to_string(),
-                        r#type: "uint256".to_string(),
-                        value: "0".to_string(),
-                    },
-                    Param {
-                        name: "amount1Out".to_string(),
-                        r#type: "uint256".to_string(),
-                        value: "0".to_string(),
-                    },
-                    Param {
-                        name: "to".to_string(),
-                        r#type: "address".to_string(),
-                        value: Address::repeat_byte(0x11).to_string(),
-                    },
-                    Param {
-                        name: "data".to_string(),
-                        r#type: "bytes".to_string(),
-                        value: "0x".to_string(),
-                    },
+                name: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
+                args: vec![
+                    "1".to_owned(),
+                    "2".to_owned(),
+                    Address::repeat_byte(0x11).to_string(),
+                    "0xbeef".to_owned(),
                 ],
                 fuzz: Some(vec![FuzzParam {
                     name: "data".to_string(),
@@ -318,8 +218,8 @@ mod tests {
         let test_file2 = TestConfig::from_file("cargotest.toml").unwrap();
         assert_eq!(test_file.to, test_file2.to);
         let func = test_file.function.unwrap();
-        assert_eq!(func.params[0].name, "amount0Out");
-        assert_eq!(func.params[1].name, "amount1Out");
+        assert_eq!(func.args[0], "1");
+        assert_eq!(func.args[1], "2");
         fs::remove_file("cargotest.toml").unwrap();
     }
 
@@ -332,7 +232,7 @@ mod tests {
         println!("generated test tx(s): {:?}", spam_txs);
         assert_eq!(spam_txs.len(), 1);
         let data = spam_txs[0].input.input.to_owned().unwrap().to_string();
-        assert_eq!(data, "0x022c0d9f00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000111111111111111111111111111111111111111100000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000");
+        assert_eq!(data, "0x022c0d9f00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002000000000000000000000000111111111111111111111111111111111111111100000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000002dead000000000000000000000000000000000000000000000000000000000000");
     }
 
     #[test]

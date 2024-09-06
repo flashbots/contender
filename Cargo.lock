@@ -1623,6 +1623,7 @@ name = "contender"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "alloy-json-abi 0.7.7",
  "clap",
  "eyre",
  "foundry-common",
