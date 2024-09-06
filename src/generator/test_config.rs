@@ -24,7 +24,7 @@ pub struct TestConfig {
 #[derive(Deserialize, Debug, Serialize)]
 pub struct FunctionDefinition {
     /// Name of the function to call.
-    pub name: String,
+    pub signature: String,
     /// Parameters to pass to the function.
     pub args: Vec<String>,
     /// Parameters to fuzz during the test.
@@ -70,7 +70,7 @@ impl Generator for TestConfig {
         let mut templates = Vec::new();
 
         if let Some(function) = &self.function {
-            let func = alloy_json_abi::Function::parse(&function.name).map_err(|e| {
+            let func = alloy_json_abi::Function::parse(&function.signature).map_err(|e| {
                 ContenderError::SpamError("failed to parse function name", Some(e.to_string()))
             })?;
 
@@ -161,7 +161,7 @@ mod tests {
                 .unwrap(),
             from: None,
             function: Some(FunctionDefinition {
-                name: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
+                signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
                 args: vec![
                     "1".to_owned(),
                     "2".to_owned(),
@@ -180,7 +180,7 @@ mod tests {
                 .unwrap(),
             from: None,
             function: Some(FunctionDefinition {
-                name: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
+                signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
                 args: vec![
                     "1".to_owned(),
                     "2".to_owned(),
