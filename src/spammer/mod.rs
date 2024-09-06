@@ -26,13 +26,13 @@ where
 {
     pub fn new(
         generator: G,
-        rpc_url: String,
+        rpc_url: impl AsRef<str>,
         seed: Option<RandSeed>,
         priv_key: Option<FixedBytes<32>>,
     ) -> Self {
         let seed = seed.unwrap_or_default();
         let rpc_client =
-            ProviderBuilder::new().on_http(Url::parse(&rpc_url).expect("Invalid RPC URL"));
+            ProviderBuilder::new().on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL"));
         Self {
             generator,
             rpc_client: Box::new(rpc_client),

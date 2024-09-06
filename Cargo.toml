@@ -13,11 +13,15 @@ name = "contender_cli"
 path = "src/bin/cli.rs"
 
 [dependencies]
-alloy = { version = "0.3.1", features = ["full"] }
+alloy = { version = "0.3.1", features = ["full", "rlp"] }
 clap = { version = "4.5.16", features = ["derive"] }
+eyre = "0.6.12"
 lazy_static = "1.5.0"
 rand = "0.8.5"
 serde = "1.0.209"
+serde_json = "1.0.128"
 sqlite = "0.36.1"
 tokio = { version = "1.40.0", features = ["rt-multi-thread"] }
 toml = "0.8.19"
+foundry-common = { git = "https://github.com/foundry-rs/foundry" }
+alloy-json-abi = "0.7.7"
