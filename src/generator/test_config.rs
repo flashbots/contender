@@ -188,7 +188,7 @@ mod tests {
                     "0xbeef".to_owned(),
                 ],
                 fuzz: Some(vec![FuzzParam {
-                    name: "data".to_string(),
+                    name: "x".to_string(),
                     min: None,
                     max: None,
                 }]),
