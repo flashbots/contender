@@ -1,14 +1,13 @@
+use super::{rand_seed::Seeder, Generator};
+use crate::error::ContenderError;
+use crate::generator::rand_seed::SeedValue;
 use alloy::{
-    primitives::{keccak256, Address, U256},
+    primitives::{Address, U256},
     rpc::types::TransactionRequest,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::read;
-
-use crate::error::ContenderError;
-
-use super::{rand_seed::RandSeed, Generator};
 
 /// Testfile
 #[derive(Deserialize, Debug, Serialize)]
@@ -61,11 +60,14 @@ impl TestConfig {
     }
 }
 
-impl Generator for TestConfig {
+impl<T> Generator<T> for TestConfig
+where
+    T: Seeder,
+{
     fn get_spam_txs(
         &self,
         amount: usize,
-        seed: Option<RandSeed>,
+        seed: &T,
     ) -> Result<Vec<TransactionRequest>, ContenderError> {
         let mut templates = Vec::new();
 
@@ -76,26 +78,16 @@ impl Generator for TestConfig {
 
             // hashmap to store fuzzy values
             let mut map: HashMap<String, Vec<U256>> = HashMap::new();
-            // seed for random-looking values
-            let seed = seed.unwrap_or_default();
 
             // pre-generate fuzzy params
             if let Some(fuzz_params) = function.fuzz.as_ref() {
                 // NOTE: This will only generate a single 32-byte value for each fuzzed parameter. Fuzzing values in arrays/structs is not yet supported.
                 for fparam in fuzz_params.iter() {
-                    // TODO: Plug into an externally-defined fuzz generator. This is too restrictive.
-                    let values = (0..amount)
-                        .map(|i| {
-                            // generate random-looking value between min and max from seed
-                            let min = fparam.min.unwrap_or(U256::ZERO);
-                            let max = fparam.max.unwrap_or(U256::MAX);
-                            let seed_num = seed.as_u256() + U256::from(i);
-                            let val = keccak256(seed_num.as_le_slice());
-                            let val = U256::from_le_bytes(val.0);
-                            let val = val % (max - min) + min;
-                            val
-                        })
-                        .collect();
+                    let values = seed
+                        .seed_values(amount, fparam.min, fparam.max)
+                        .into_iter()
+                        .map(|v| v.as_u256())
+                        .collect::<Vec<U256>>();
                     map.insert(fparam.name.to_owned(), values);
                 }
             }
@@ -152,6 +144,7 @@ impl Generator for TestConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::generator::RandSeed;
     use std::fs;
 
     fn get_testconfig() -> TestConfig {
@@ -228,7 +221,7 @@ mod tests {
         let test_file = get_testconfig();
         // this seed can be used to recreate the same test tx(s)
         let seed = RandSeed::new();
-        let spam_txs = test_file.get_spam_txs(1, Some(seed)).unwrap();
+        let spam_txs = test_file.get_spam_txs(1, &seed).unwrap();
         println!("generated test tx(s): {:?}", spam_txs);
         assert_eq!(spam_txs.len(), 1);
         let data = spam_txs[0].input.input.to_owned().unwrap().to_string();
@@ -240,10 +233,8 @@ mod tests {
         let test_file = get_fuzzy_testconfig();
         let seed = RandSeed::from_bytes(&[0x01; 32]);
         let num_txs = 3;
-        let spam_txs_1 = test_file
-            .get_spam_txs(num_txs, Some(seed.to_owned()))
-            .unwrap();
-        let spam_txs_2 = test_file.get_spam_txs(num_txs, Some(seed)).unwrap();
+        let spam_txs_1 = test_file.get_spam_txs(num_txs, &seed).unwrap();
+        let spam_txs_2 = test_file.get_spam_txs(num_txs, &seed).unwrap();
         for i in 0..num_txs {
             let data1 = spam_txs_1[i].input.input.to_owned().unwrap().to_string();
             let data2 = spam_txs_2[i].input.input.to_owned().unwrap().to_string();

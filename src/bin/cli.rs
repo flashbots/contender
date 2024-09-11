@@ -78,7 +78,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             seed,
         } => {
             let testfile = TestConfig::from_file(&testfile)?;
-            let spammer = Spammer::new(testfile, rpc_url, seed.map(|s| RandSeed::from_str(&s)));
+            let rand_seed = seed.map(|s| RandSeed::from_str(&s)).unwrap_or_default();
+            let spammer = Spammer::new(testfile, rpc_url, rand_seed);
             spammer.spam_rpc(intensity.unwrap_or_default(), duration.unwrap_or_default())?;
         }
         ContenderSubcommand::Report { id, out_file } => {

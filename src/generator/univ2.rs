@@ -8,8 +8,7 @@ use alloy::sol;
 use alloy::sol_types::SolCall;
 use lazy_static::lazy_static;
 
-use super::rand_seed::RandSeed;
-use super::Generator;
+use super::{Generator, RandSeed};
 
 pub struct UniV2Spammer;
 
@@ -68,12 +67,12 @@ fn tx_add_liquidity(
     })
 }
 
-impl Generator for UniV2Spammer {
+impl Generator<RandSeed> for UniV2Spammer {
     fn get_spam_txs(
         &self,
         // TODO: implement these params
         _amount: usize,
-        _seed: Option<RandSeed>,
+        _seed: &RandSeed,
     ) -> Result<Vec<TransactionRequest>> {
         let token_a = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
             .parse::<Address>()
