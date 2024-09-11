@@ -3,7 +3,6 @@ use crate::{
     Result,
 };
 use alloy::{
-    primitives::FixedBytes,
     providers::Provider,
     transports::http::{reqwest::Url, Http},
 };
@@ -17,19 +16,13 @@ pub struct Spammer<G: Generator> {
     generator: G,
     rpc_client: Box<RootProvider<Http<Client>>>,
     seed: RandSeed,
-    // TODO: add signer for priv_key tx signatures
 }
 
 impl<G> Spammer<G>
 where
     G: Generator,
 {
-    pub fn new(
-        generator: G,
-        rpc_url: impl AsRef<str>,
-        seed: Option<RandSeed>,
-        priv_key: Option<FixedBytes<32>>,
-    ) -> Self {
+    pub fn new(generator: G, rpc_url: impl AsRef<str>, seed: Option<RandSeed>) -> Self {
         let seed = seed.unwrap_or_default();
         let rpc_client =
             ProviderBuilder::new().on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL"));
