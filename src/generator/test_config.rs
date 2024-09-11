@@ -87,7 +87,6 @@ where
                 for fparam in fuzz_params.iter() {
                     let values = seed
                         .seed_values(amount, fparam.min, fparam.max)
-                        .into_iter()
                         .map(|v| v.as_u256())
                         .collect::<Vec<U256>>();
                     map.insert(fparam.name.to_owned(), values);

@@ -59,19 +59,17 @@ impl Seeder for RandSeed {
         amount: usize,
         min: Option<U256>,
         max: Option<U256>,
-    ) -> Box<Vec<impl SeedValue>> {
+    ) -> Box<impl Iterator<Item = impl SeedValue>> {
         let min = min.unwrap_or(U256::ZERO);
         let max = max.unwrap_or(U256::MAX);
-        let vals = (0..amount)
-            .map(move |i| {
-                // generate random-looking value between min and max from seed
-                let seed_num = self.as_u256() + U256::from(i);
-                let val = keccak256(seed_num.as_le_slice());
-                let val = U256::from_le_bytes(val.0);
-                let val = val % (max - min) + min;
-                RandSeed::from_u256(val)
-            })
-            .collect::<Vec<RandSeed>>();
+        let vals = (0..amount).map(move |i| {
+            // generate random-looking value between min and max from seed
+            let seed_num = self.as_u256() + U256::from(i);
+            let val = keccak256(seed_num.as_le_slice());
+            let val = U256::from_le_bytes(val.0);
+            let val = val % (max - min) + min;
+            RandSeed::from_u256(val)
+        });
         Box::new(vals.to_owned())
     }
 }

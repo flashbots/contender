@@ -7,7 +7,7 @@ pub trait Seeder {
         amount: usize,
         min: Option<U256>,
         max: Option<U256>,
-    ) -> Box<Vec<impl SeedValue>>;
+    ) -> Box<impl Iterator<Item = impl SeedValue>>;
 }
 
 pub trait SeedValue {
