@@ -1,6 +1,8 @@
-use super::{rand_seed::Seeder, Generator};
 use crate::error::ContenderError;
-use crate::generator::rand_seed::SeedValue;
+use crate::generator::{
+    seeder::{SeedValue, Seeder},
+    Generator,
+};
 use alloy::{
     primitives::{Address, U256},
     rpc::types::TransactionRequest,

@@ -1,5 +1,5 @@
 use crate::{
-    generator::{rand_seed::Seeder, Generator},
+    generator::{seeder::Seeder, Generator},
     Result,
 };
 use alloy::{

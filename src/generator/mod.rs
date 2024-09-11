@@ -1,9 +1,9 @@
 use crate::Result;
 use alloy::rpc::types::TransactionRequest;
-pub use rand_seed::RandSeed;
-use rand_seed::Seeder;
+pub use seeder::rand_seed::RandSeed;
+use seeder::Seeder;
 
-pub mod rand_seed;
+pub mod seeder;
 pub mod test_config;
 pub mod univ2;
 
