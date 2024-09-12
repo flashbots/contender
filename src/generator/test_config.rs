@@ -11,6 +11,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::read;
 
+pub struct TestGenerator<'a, T: Seeder> {
+    config: TestConfig,
+    seed: &'a T,
+}
+
 /// Testfile
 #[derive(Deserialize, Debug, Serialize)]
 pub struct TestConfig {
@@ -42,6 +47,15 @@ pub struct FuzzParam {
     pub max: Option<U256>,
 }
 
+impl<'a, T> TestGenerator<'a, T>
+where
+    T: Seeder,
+{
+    pub fn new(config: TestConfig, seed: &'a T) -> Self {
+        Self { config, seed }
+    }
+}
+
 impl TestConfig {
     pub fn from_file(file_path: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
         let file_contents = read(file_path)?;
@@ -62,18 +76,14 @@ impl TestConfig {
     }
 }
 
-impl<T> Generator<T> for TestConfig
+impl<'a, T> Generator for TestGenerator<'a, T>
 where
     T: Seeder,
 {
-    fn get_spam_txs(
-        &self,
-        amount: usize,
-        seed: &T,
-    ) -> Result<Vec<TransactionRequest>, ContenderError> {
+    fn get_spam_txs(&self, amount: usize) -> Result<Vec<TransactionRequest>, ContenderError> {
         let mut templates = Vec::new();
 
-        if let Some(function) = &self.function {
+        if let Some(function) = &self.config.function {
             let func = alloy_json_abi::Function::parse(&function.signature).map_err(|e| {
                 ContenderError::SpamError("failed to parse function name", Some(e.to_string()))
             })?;
@@ -85,7 +95,8 @@ where
             if let Some(fuzz_params) = function.fuzz.as_ref() {
                 // NOTE: This will only generate a single 32-byte value for each fuzzed parameter. Fuzzing values in arrays/structs is not yet supported.
                 for fparam in fuzz_params.iter() {
-                    let values = seed
+                    let values = self
+                        .seed
                         .seed_values(amount, fparam.min, fparam.max)
                         .map(|v| v.as_u256())
                         .collect::<Vec<U256>>();
@@ -130,7 +141,7 @@ where
                     })?;
 
                 let tx = alloy::rpc::types::TransactionRequest {
-                    to: Some(alloy::primitives::TxKind::Call(self.to.clone())),
+                    to: Some(alloy::primitives::TxKind::Call(self.config.to.clone())),
                     input: alloy::rpc::types::TransactionInput::both(input.into()),
                     ..Default::default()
                 };
@@ -220,9 +231,10 @@ mod tests {
     #[test]
     fn gets_spam_txs() {
         let test_file = get_testconfig();
-        // this seed can be used to recreate the same test tx(s)
         let seed = RandSeed::new();
-        let spam_txs = test_file.get_spam_txs(1, &seed).unwrap();
+        let test_gen = TestGenerator::new(test_file, &seed);
+        // this seed can be used to recreate the same test tx(s)
+        let spam_txs = test_gen.get_spam_txs(1).unwrap();
         println!("generated test tx(s): {:?}", spam_txs);
         assert_eq!(spam_txs.len(), 1);
         let data = spam_txs[0].input.input.to_owned().unwrap().to_string();
@@ -233,9 +245,10 @@ mod tests {
     fn fuzz_is_deterministic() {
         let test_file = get_fuzzy_testconfig();
         let seed = RandSeed::from_bytes(&[0x01; 32]);
+        let test_gen = TestGenerator::new(test_file, &seed);
         let num_txs = 3;
-        let spam_txs_1 = test_file.get_spam_txs(num_txs, &seed).unwrap();
-        let spam_txs_2 = test_file.get_spam_txs(num_txs, &seed).unwrap();
+        let spam_txs_1 = test_gen.get_spam_txs(num_txs).unwrap();
+        let spam_txs_2 = test_gen.get_spam_txs(num_txs).unwrap();
         for i in 0..num_txs {
             let data1 = spam_txs_1[i].input.input.to_owned().unwrap().to_string();
             let data2 = spam_txs_2[i].input.input.to_owned().unwrap().to_string();

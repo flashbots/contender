@@ -1,7 +1,4 @@
-use crate::{
-    generator::{seeder::Seeder, Generator},
-    Result,
-};
+use crate::{generator::Generator, Result};
 use alloy::{
     providers::Provider,
     transports::http::{reqwest::Url, Http},
@@ -13,32 +10,30 @@ use alloy::{
 use std::sync::Arc;
 use tokio::task::spawn as spawn_task;
 
-pub struct Spammer<S: Seeder, G: Generator<S>> {
+pub struct Spammer<G>
+where
+    G: Generator,
+{
     generator: G,
     rpc_client: Arc<RootProvider<Http<Client>>>,
-    seed: S,
 }
 
-impl<S, G> Spammer<S, G>
+impl<G> Spammer<G>
 where
-    S: Seeder,
-    G: Generator<S>,
+    G: Generator,
 {
-    pub fn new(generator: G, rpc_url: impl AsRef<str>, seed: S) -> Self {
+    pub fn new(generator: G, rpc_url: impl AsRef<str>) -> Self {
         let rpc_client =
             ProviderBuilder::new().on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL"));
         Self {
             generator,
             rpc_client: Arc::new(rpc_client),
-            seed,
         }
     }
 
     /// Send transactions to the RPC at a given rate. Actual rate may vary; this is only the attempted sending rate.
     pub fn spam_rpc(&self, tx_per_second: usize, duration: usize) -> Result<()> {
-        let tx_requests = self
-            .generator
-            .get_spam_txs(tx_per_second * duration, &self.seed)?;
+        let tx_requests = self.generator.get_spam_txs(tx_per_second * duration)?;
         let interval = std::time::Duration::from_millis(1_000 / tx_per_second as u64);
 
         for tx in tx_requests {

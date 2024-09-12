@@ -1,14 +1,11 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
-/// this module implements an interface for Uniswap V2 Router02 transactions
+use super::Generator;
 use crate::Result;
 use alloy::primitives::{Address, TxKind, U256};
 use alloy::rpc::types::{TransactionInput, TransactionRequest};
 use alloy::sol;
 use alloy::sol_types::SolCall;
 use lazy_static::lazy_static;
-
-use super::{Generator, RandSeed};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct UniV2Spammer;
 
@@ -67,12 +64,11 @@ fn tx_add_liquidity(
     })
 }
 
-impl Generator<RandSeed> for UniV2Spammer {
+impl Generator for UniV2Spammer {
     fn get_spam_txs(
         &self,
         // TODO: implement these params
         _amount: usize,
-        _seed: &RandSeed,
     ) -> Result<Vec<TransactionRequest>> {
         let token_a = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
             .parse::<Address>()
