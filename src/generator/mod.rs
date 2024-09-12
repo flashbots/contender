@@ -3,7 +3,7 @@ use alloy::rpc::types::TransactionRequest;
 pub use seeder::rand_seed::RandSeed;
 
 pub mod seeder;
-pub mod test_config;
+pub mod testfile;
 pub mod univ2;
 
 /// Implement Generator to programmatically

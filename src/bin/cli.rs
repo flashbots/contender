@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use contender_core::{
     generator::{
-        test_config::{SetupGenerator, TestConfig, TestGenerator},
+        testfile::{SetupGenerator, TestConfig, TestGenerator},
         RandSeed,
     },
     spammer::Spammer,
