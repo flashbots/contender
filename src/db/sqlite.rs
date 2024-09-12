@@ -7,13 +7,15 @@ pub struct SqliteDb {
     conn: Connection,
 }
 
-impl DbOps for SqliteDb {
+impl SqliteDb {
     fn new() -> Result<Self> {
         let conn = sqlite::open(":memory:")
             .map_err(|_| ContenderError::DbError("failed to open DB", None))?;
         Ok(Self { conn })
     }
+}
 
+impl DbOps for SqliteDb {
     fn create_tables(&self) -> Result<()> {
         self.conn
             .execute(

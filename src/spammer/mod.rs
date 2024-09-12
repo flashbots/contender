@@ -1,6 +1,5 @@
 use crate::{generator::Generator, Result};
 use alloy::{
-    primitives::{Address, TxHash},
     providers::Provider,
     transports::http::{reqwest::Url, Http},
 };
