@@ -11,24 +11,29 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::read;
 
+/// Implements `Generator` for TOML files.
+/// - `seed` is used to set deterministic sequences of function arguments for the generator
 pub struct TestGenerator<'a, T: Seeder> {
     config: TestConfig,
     seed: &'a T,
 }
 
-/// Testfile
-#[derive(Deserialize, Debug, Serialize)]
+/// TOML file format.
+#[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct TestConfig {
-    /// Address of the contract to call.
-    pub to: Address,
-    /// Address of the account to call the contract from (must be unlocked on RPC endpoint).
-    pub from: Option<Address>,
-    /// Function-specific test configuration.
-    pub function: Option<FunctionDefinition>,
+    /// Setup steps to run before spamming.
+    pub setup: Option<Vec<FunctionCallDefinition>>,
+
+    /// Function to call in spam txs.
+    pub spam: Option<FunctionCallDefinition>,
 }
 
-#[derive(Deserialize, Debug, Serialize)]
-pub struct FunctionDefinition {
+#[derive(Clone, Deserialize, Debug, Serialize)]
+pub struct FunctionCallDefinition {
+    /// Address of the contract to call.
+    pub to: Address,
+    /// Address of the tx sender (must be unlocked on RPC endpoint).
+    pub from: Option<Address>,
     /// Name of the function to call.
     pub signature: String,
     /// Parameters to pass to the function.
@@ -37,7 +42,7 @@ pub struct FunctionDefinition {
     pub fuzz: Option<Vec<FuzzParam>>,
 }
 
-#[derive(Deserialize, Debug, Serialize)]
+#[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct FuzzParam {
     /// Name of the parameter to fuzz.
     pub name: String,
@@ -83,7 +88,7 @@ where
     fn get_spam_txs(&self, amount: usize) -> Result<Vec<TransactionRequest>, ContenderError> {
         let mut templates = Vec::new();
 
-        if let Some(function) = &self.config.function {
+        if let Some(function) = &self.config.spam {
             let func = alloy_json_abi::Function::parse(&function.signature).map_err(|e| {
                 ContenderError::SpamError("failed to parse function name", Some(e.to_string()))
             })?;
@@ -141,7 +146,7 @@ where
                     })?;
 
                 let tx = alloy::rpc::types::TransactionRequest {
-                    to: Some(alloy::primitives::TxKind::Call(self.config.to.clone())),
+                    to: Some(alloy::primitives::TxKind::Call(function.to.clone())),
                     input: alloy::rpc::types::TransactionInput::both(input.into()),
                     ..Default::default()
                 };
@@ -161,11 +166,12 @@ mod tests {
 
     fn get_testconfig() -> TestConfig {
         TestConfig {
-            to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
-                .parse::<Address>()
-                .unwrap(),
-            from: None,
-            function: Some(FunctionDefinition {
+            setup: None,
+            spam: Some(FunctionCallDefinition {
+                to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
+                    .parse::<Address>()
+                    .unwrap(),
+                from: None,
                 signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
                 args: vec![
                     "1".to_owned(),
@@ -180,11 +186,12 @@ mod tests {
 
     fn get_fuzzy_testconfig() -> TestConfig {
         TestConfig {
-            to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
-                .parse::<Address>()
-                .unwrap(),
-            from: None,
-            function: Some(FunctionDefinition {
+            setup: None,
+            spam: Some(FunctionCallDefinition {
+                to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
+                    .parse::<Address>()
+                    .unwrap(),
+                from: None,
                 signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
                 args: vec![
                     "1".to_owned(),
@@ -201,28 +208,78 @@ mod tests {
         }
     }
 
+    fn get_setup_testconfig() -> TestConfig {
+        TestConfig {
+            spam: None,
+            setup: Some(vec![
+                FunctionCallDefinition {
+                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
+                        .parse::<Address>()
+                        .unwrap(),
+                    from: None,
+                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
+                    args: vec![
+                        "1".to_owned(),
+                        "2".to_owned(),
+                        Address::repeat_byte(0x11).to_string(),
+                        "0xdead".to_owned(),
+                    ],
+                    fuzz: None,
+                },
+                FunctionCallDefinition {
+                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
+                        .parse::<Address>()
+                        .unwrap(),
+                    from: None,
+                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
+                    args: vec![
+                        "1".to_owned(),
+                        "2".to_owned(),
+                        Address::repeat_byte(0x11).to_string(),
+                        "0xbeef".to_owned(),
+                    ],
+                    fuzz: None,
+                },
+            ]),
+        }
+    }
+
     #[test]
     fn parses_testconfig_toml() {
         let test_file = TestConfig::from_file("univ2ConfigTest.toml").unwrap();
         println!("{:?}", test_file);
         assert_eq!(
-            test_file.to,
+            test_file.spam.unwrap().to,
             "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
                 .parse::<Address>()
                 .unwrap()
         )
     }
 
+    fn print_testconfig(cfg: &str) {
+        println!("{}", "-".repeat(80));
+        println!("{}", cfg);
+        println!("{}", "-".repeat(80));
+    }
+
     #[test]
     fn encodes_testconfig_toml() {
         let test_file = get_testconfig();
         let encoded = test_file.encode_toml().unwrap();
-        println!("{}", encoded);
+        print_testconfig(&encoded);
+
+        let test_file2: TestConfig = get_fuzzy_testconfig();
+        let encoded = test_file2.encode_toml().unwrap();
+        print_testconfig(&encoded);
+
+        let test_file3: TestConfig = get_setup_testconfig();
+        let encoded = test_file3.encode_toml().unwrap();
+        print_testconfig(&encoded);
 
         test_file.save_toml("cargotest.toml").unwrap();
         let test_file2 = TestConfig::from_file("cargotest.toml").unwrap();
-        assert_eq!(test_file.to, test_file2.to);
-        let func = test_file.function.unwrap();
+        let func = test_file.spam.unwrap();
+        assert_eq!(func.to, test_file2.spam.unwrap().to);
         assert_eq!(func.args[0], "1");
         assert_eq!(func.args[1], "2");
         fs::remove_file("cargotest.toml").unwrap();
