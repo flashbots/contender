@@ -13,15 +13,16 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::read;
 
-/// Implements `Generator` for TOML files.
-/// - `seed` is used to set deterministic sequences of function arguments for the generator
-pub struct TestGenerator<'a, T: Seeder> {
-    config: TestConfig,
-    seed: &'a T,
-}
-
+/// A generator that specifically runs *setup* steps from a TOML file.
 pub struct SetupGenerator {
     config: TestConfig,
+}
+
+/// A generator that specifically runs *spam* steps for TOML files.
+/// - `seed` is used to set deterministic sequences of function arguments for the generator
+pub struct SpamGenerator<'a, T: Seeder> {
+    config: TestConfig,
+    seed: &'a T,
 }
 
 /// TOML file format.
@@ -68,7 +69,7 @@ pub struct FuzzParam {
     pub max: Option<U256>,
 }
 
-impl<'a, T> TestGenerator<'a, T>
+impl<'a, T> SpamGenerator<'a, T>
 where
     T: Seeder,
 {
@@ -128,7 +129,7 @@ impl TestConfig {
     }
 }
 
-impl<'a, T> Generator for TestGenerator<'a, T>
+impl<'a, T> Generator for SpamGenerator<'a, T>
 where
     T: Seeder,
 {
@@ -407,7 +408,7 @@ mod tests {
     fn gets_spam_txs() {
         let test_file = get_testconfig();
         let seed = RandSeed::new();
-        let test_gen = TestGenerator::new(test_file, &seed);
+        let test_gen = SpamGenerator::new(test_file, &seed);
         // this seed can be used to recreate the same test tx(s)
         let spam_txs = test_gen.get_txs(1).unwrap();
         println!("generated test tx(s): {:?}", spam_txs);
@@ -420,7 +421,7 @@ mod tests {
     fn fuzz_is_deterministic() {
         let test_file = get_fuzzy_testconfig();
         let seed = RandSeed::from_bytes(&[0x01; 32]);
-        let test_gen = TestGenerator::new(test_file, &seed);
+        let test_gen = SpamGenerator::new(test_file, &seed);
         let num_txs = 3;
         let spam_txs_1 = test_gen.get_txs(num_txs).unwrap();
         let spam_txs_2 = test_gen.get_txs(num_txs).unwrap();
