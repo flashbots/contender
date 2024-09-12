@@ -1,5 +1,6 @@
 use super::database::DbOps;
 use crate::{error::ContenderError, Result};
+use alloy::primitives::{Address, TxHash};
 use sqlite::{self, Connection};
 
 pub struct SqliteDb {
@@ -21,6 +22,12 @@ impl DbOps for SqliteDb {
                     timestamp TEXT NOT NULL,
                     tx_count INTEGER NOT NULL,
                     duration INTEGER NOT NULL
+                );
+                CREATE TABLE named_txs (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    tx_hash TEXT NOT NULL,
+                    contract_address TEXT
                 )",
             )
             .map_err(|_| ContenderError::DbError("failed to create table", None))?;
@@ -49,6 +56,29 @@ impl DbOps for SqliteDb {
             .read::<i64, _>(0)
             .map_err(|_| ContenderError::DbError("failed to read result", None))?;
         Ok(count)
+    }
+
+    fn insert_named_tx(
+        &self,
+        name: String,
+        tx_hash: TxHash,
+        contract_address: Option<Address>,
+    ) -> Result<()> {
+        let query = if let Some(contract_address) = contract_address {
+            format!(
+                "INSERT INTO named_txs (name, tx_hash, contract_address) VALUES ({}, {}, {})",
+                name, tx_hash, contract_address
+            )
+        } else {
+            format!(
+                "INSERT INTO named_txs (name, tx_hash) VALUES ({}, {})",
+                name, tx_hash
+            )
+        };
+        self.conn
+            .execute(&query)
+            .map_err(|_| ContenderError::DbError("failed to insert named tx", Some(query)))?;
+        Ok(())
     }
 }
 

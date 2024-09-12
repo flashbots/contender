@@ -1,5 +1,6 @@
 use crate::{generator::Generator, Result};
 use alloy::{
+    primitives::{Address, TxHash},
     providers::Provider,
     transports::http::{reqwest::Url, Http},
 };
@@ -47,6 +48,10 @@ where
                 let res = rpc_client.send_transaction(tx.tx).await.unwrap();
                 let receipt = res.get_receipt().await.unwrap();
                 println!("receipt: {:?}", receipt);
+                if tx.name.is_some() {
+                    // save {name, tx_hash, contract_address} to DB
+                    // TODO: get a DB in here
+                }
             });
 
             // sleep for interval
