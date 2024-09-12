@@ -8,6 +8,16 @@ pub struct RandSeed {
     seed: [u8; 32],
 }
 
+fn fill_bytes(seed: &[u8], target: &mut [u8; 32]) {
+    if seed.len() < 32 {
+        // right-pad with one-bytes
+        target[0..seed.len()].copy_from_slice(seed);
+        target[seed.len()..32].fill(0x01);
+    } else {
+        target.copy_from_slice(&seed[0..32]);
+    }
+}
+
 impl RandSeed {
     pub fn new() -> Self {
         let mut rng = rand::thread_rng();
@@ -16,16 +26,14 @@ impl RandSeed {
         Self { seed }
     }
 
-    pub fn from_bytes(seed: &[u8]) -> Self {
+    pub fn from_bytes(seed_bytes: &[u8]) -> Self {
         let mut seed_arr = [0u8; 32];
-        seed_arr.copy_from_slice(seed);
+        fill_bytes(seed_bytes, &mut seed_arr);
         Self { seed: seed_arr }
     }
 
     pub fn from_str(seed: &str) -> Self {
-        let mut seed_arr = [0u8; 32];
-        seed_arr.copy_from_slice(seed.as_bytes());
-        Self { seed: seed_arr }
+        RandSeed::from_bytes(seed.as_bytes())
     }
 
     pub fn from_u256(seed: U256) -> Self {
