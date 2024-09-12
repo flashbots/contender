@@ -44,7 +44,7 @@ where
             spawn_task(async move {
                 // TODO: sign tx if priv_key is provided
                 println!("sending tx: {:?}", tx);
-                let res = rpc_client.send_transaction(tx).await.unwrap();
+                let res = rpc_client.send_transaction(tx.tx).await.unwrap();
                 let receipt = res.get_receipt().await.unwrap();
                 println!("receipt: {:?}", receipt);
             });

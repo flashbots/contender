@@ -1,4 +1,4 @@
-use super::Generator;
+use super::{Generator, NamedTxRequest};
 use crate::Result;
 use alloy::primitives::{Address, TxKind, U256};
 use alloy::rpc::types::{TransactionInput, TransactionRequest};
@@ -69,7 +69,7 @@ impl Generator for UniV2Spammer {
         &self,
         // TODO: implement these params
         _amount: usize,
-    ) -> Result<Vec<TransactionRequest>> {
+    ) -> Result<Vec<NamedTxRequest>> {
         let token_a = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
             .parse::<Address>()
             .unwrap();
@@ -100,7 +100,7 @@ impl Generator for UniV2Spammer {
             to,
             deadline,
         )?;
-        Ok(vec![tx_req])
+        Ok(vec![tx_req.into()])
     }
 }
 

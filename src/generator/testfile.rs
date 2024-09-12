@@ -4,16 +4,16 @@ use crate::generator::{
     Generator,
 };
 use alloy::hex::FromHex;
+use alloy::primitives::{Address, U256};
 use alloy::primitives::{Bytes, TxKind};
-use alloy::{
-    primitives::{Address, U256},
-    rpc::types::TransactionRequest,
-};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::read;
 
-/// A generator that specifically runs *setup* steps from a TOML file.
+use super::NamedTxRequest;
+
+/// A generator that specifically runs *setup* steps (including contract creation) from a TOML file.
+/// // TODO: Contract artifacts are saved into a database, so that they can be accessed by other generators.
 pub struct SetupGenerator {
     config: TestConfig,
 }
@@ -56,6 +56,8 @@ pub struct FunctionCallDefinition {
 pub struct CreateDefinition {
     /// Bytecode of the contract to deploy.
     pub bytecode: String,
+    /// Name to identify the contract later.
+    pub name: String,
     // TODO: support multiple signers
 }
 
@@ -83,7 +85,7 @@ impl SetupGenerator {
         Self { config }
     }
 
-    fn create_txs(&self) -> Vec<TransactionRequest> {
+    fn create_txs(&self) -> Vec<NamedTxRequest> {
         let mut templates = Vec::new();
 
         if let Some(create_steps) = &self.config.create {
@@ -95,7 +97,10 @@ impl SetupGenerator {
                     ),
                     ..Default::default()
                 };
-                templates.push(tx);
+                templates.push(NamedTxRequest {
+                    tx,
+                    name: Some(step.name.clone()),
+                });
             }
         }
 
@@ -133,7 +138,7 @@ impl<'a, T> Generator for SpamGenerator<'a, T>
 where
     T: Seeder,
 {
-    fn get_txs(&self, amount: usize) -> Result<Vec<TransactionRequest>, ContenderError> {
+    fn get_txs(&self, amount: usize) -> Result<Vec<NamedTxRequest>, ContenderError> {
         let mut templates = Vec::new();
 
         if let Some(function) = &self.config.spam {
@@ -198,7 +203,7 @@ where
                     input: alloy::rpc::types::TransactionInput::both(input.into()),
                     ..Default::default()
                 };
-                templates.push(tx);
+                templates.push(tx.into());
             }
         }
 
@@ -207,7 +212,7 @@ where
 }
 
 impl Generator for SetupGenerator {
-    fn get_txs(&self, _amount: usize) -> crate::Result<Vec<TransactionRequest>> {
+    fn get_txs(&self, _amount: usize) -> crate::Result<Vec<NamedTxRequest>> {
         let mut templates = Vec::new();
 
         if self.config.create.is_some() {
@@ -241,7 +246,7 @@ impl Generator for SetupGenerator {
                     input: alloy::rpc::types::TransactionInput::both(input.into()),
                     ..Default::default()
                 };
-                templates.push(tx);
+                templates.push(tx.into());
             }
         }
 
@@ -345,6 +350,7 @@ mod tests {
         TestConfig {
             create: Some(vec![CreateDefinition {
                 bytecode: COUNTER_BYTECODE.to_string(),
+                name: "test_counter".to_string(),
             }]),
             spam: None,
             setup: None,
@@ -369,7 +375,7 @@ mod tests {
         let txs = setup_gen.create_txs();
         println!("{:?}", txs);
         assert_eq!(txs.len(), 1);
-        assert_eq!(txs[0].to, Some(TxKind::Create));
+        assert_eq!(txs[0].tx.to, Some(TxKind::Create));
     }
 
     #[test]
@@ -413,7 +419,7 @@ mod tests {
         let spam_txs = test_gen.get_txs(1).unwrap();
         println!("generated test tx(s): {:?}", spam_txs);
         assert_eq!(spam_txs.len(), 1);
-        let data = spam_txs[0].input.input.to_owned().unwrap().to_string();
+        let data = spam_txs[0].tx.input.input.to_owned().unwrap().to_string();
         assert_eq!(data, "0x022c0d9f00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002000000000000000000000000111111111111111111111111111111111111111100000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000002dead000000000000000000000000000000000000000000000000000000000000");
     }
 
@@ -426,8 +432,8 @@ mod tests {
         let spam_txs_1 = test_gen.get_txs(num_txs).unwrap();
         let spam_txs_2 = test_gen.get_txs(num_txs).unwrap();
         for i in 0..num_txs {
-            let data1 = spam_txs_1[i].input.input.to_owned().unwrap().to_string();
-            let data2 = spam_txs_2[i].input.input.to_owned().unwrap().to_string();
+            let data1 = spam_txs_1[i].tx.input.input.to_owned().unwrap().to_string();
+            let data2 = spam_txs_2[i].tx.input.input.to_owned().unwrap().to_string();
             assert_eq!(data1, data2);
             println!("data1: {}", data1);
             println!("data2: {}", data2);
