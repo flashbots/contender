@@ -1,6 +1,9 @@
 use clap::{Parser, Subcommand};
 use contender_core::{
-    generator::{rand_seed::RandSeed, test_config::TestConfig},
+    generator::{
+        test_config::{TestConfig, TestGenerator},
+        RandSeed,
+    },
     spammer::Spammer,
 };
 
@@ -78,12 +81,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             seed,
         } => {
             let testfile = TestConfig::from_file(&testfile)?;
-            let spammer = Spammer::new(
-                testfile,
-                rpc_url,
-                seed.map(|s| RandSeed::from_str(&s)),
-                None,
-            );
+            let rand_seed = seed.map(|s| RandSeed::from_str(&s)).unwrap_or_default();
+            let testgen = TestGenerator::new(testfile, &rand_seed);
+            let spammer = Spammer::new(testgen, rpc_url);
             spammer.spam_rpc(intensity.unwrap_or_default(), duration.unwrap_or_default())?;
         }
         ContenderSubcommand::Report { id, out_file } => {
