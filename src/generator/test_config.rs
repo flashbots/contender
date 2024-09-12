@@ -3,7 +3,8 @@ use crate::generator::{
     seeder::{SeedValue, Seeder},
     Generator,
 };
-use alloy::primitives::TxKind;
+use alloy::hex::FromHex;
+use alloy::primitives::{Bytes, TxKind};
 use alloy::{
     primitives::{Address, U256},
     rpc::types::TransactionRequest,
@@ -27,7 +28,7 @@ pub struct SetupGenerator {
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct TestConfig {
     /// Contract deployments; array of hex-encoded bytecode strings.
-    pub create: Option<Vec<String>>,
+    pub create: Option<Vec<CreateDefinition>>,
 
     /// Setup steps to run before spamming.
     pub setup: Option<Vec<FunctionCallDefinition>>,
@@ -48,6 +49,13 @@ pub struct FunctionCallDefinition {
     pub args: Vec<String>,
     /// Parameters to fuzz during the test.
     pub fuzz: Option<Vec<FuzzParam>>,
+}
+
+#[derive(Clone, Deserialize, Debug, Serialize)]
+pub struct CreateDefinition {
+    /// Bytecode of the contract to deploy.
+    pub bytecode: String,
+    // TODO: support multiple signers
 }
 
 #[derive(Clone, Deserialize, Debug, Serialize)]
@@ -81,7 +89,9 @@ impl SetupGenerator {
             for step in create_steps.iter() {
                 let tx = alloy::rpc::types::TransactionRequest {
                     to: Some(TxKind::Create),
-                    input: alloy::rpc::types::TransactionInput::both(step.to_owned().into()),
+                    input: alloy::rpc::types::TransactionInput::both(
+                        Bytes::from_hex(&step.bytecode).expect("invalid bytecode hex"),
+                    ),
                     ..Default::default()
                 };
                 templates.push(tx);
@@ -327,12 +337,38 @@ mod tests {
         }
     }
 
+    const COUNTER_BYTECODE: &'static str =
+        "0x608060405234801561001057600080fd5b5060f78061001f6000396000f3fe6080604052348015600f57600080fd5b5060043610603c5760003560e01c80633fb5c1cb1460415780638381f58a146053578063d09de08a14606d575b600080fd5b6051604c3660046083565b600055565b005b605b60005481565b60405190815260200160405180910390f35b6051600080549080607c83609b565b9190505550565b600060208284031215609457600080fd5b5035919050565b60006001820160ba57634e487b7160e01b600052601160045260246000fd5b506001019056fea264697066735822122010f3077836fb83a22ad708a23102f2b487523767e1afef5a93c614619001648b64736f6c63430008170033";
+
     fn get_create_testconfig() -> TestConfig {
         TestConfig {
-            create: Some(vec!["0xTODO".to_owned()]),
+            create: Some(vec![CreateDefinition {
+                bytecode: COUNTER_BYTECODE.to_string(),
+            }]),
             spam: None,
             setup: None,
         }
+    }
+
+    fn get_composite_testconfig() -> TestConfig {
+        let tc_fuzz = get_fuzzy_testconfig();
+        let tc_setup = get_setup_testconfig();
+        let tc_create = get_create_testconfig();
+        TestConfig {
+            create: tc_create.create,
+            spam: tc_fuzz.spam,
+            setup: tc_setup.setup,
+        }
+    }
+
+    #[test]
+    fn creates_contracts() {
+        let test_file = get_create_testconfig();
+        let setup_gen = SetupGenerator::new(test_file);
+        let txs = setup_gen.create_txs();
+        println!("{:?}", txs);
+        assert_eq!(txs.len(), 1);
+        assert_eq!(txs[0].to, Some(TxKind::Create));
     }
 
     #[test]
@@ -355,21 +391,12 @@ mod tests {
 
     #[test]
     fn encodes_testconfig_toml() {
-        let test_file = get_testconfig();
-        let encoded = test_file.encode_toml().unwrap();
+        let cfg = get_composite_testconfig();
+        let encoded = cfg.encode_toml().unwrap();
         print_testconfig(&encoded);
-
-        let test_file2: TestConfig = get_fuzzy_testconfig();
-        let encoded = test_file2.encode_toml().unwrap();
-        print_testconfig(&encoded);
-
-        let test_file3: TestConfig = get_setup_testconfig();
-        let encoded = test_file3.encode_toml().unwrap();
-        print_testconfig(&encoded);
-
-        test_file.save_toml("cargotest.toml").unwrap();
+        cfg.save_toml("cargotest.toml").unwrap();
         let test_file2 = TestConfig::from_file("cargotest.toml").unwrap();
-        let func = test_file.spam.unwrap();
+        let func = cfg.clone().spam.unwrap();
         assert_eq!(func.to, test_file2.spam.unwrap().to);
         assert_eq!(func.args[0], "1");
         assert_eq!(func.args[1], "2");
