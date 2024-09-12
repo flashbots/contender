@@ -3,6 +3,7 @@ use crate::generator::{
     seeder::{SeedValue, Seeder},
     Generator,
 };
+use alloy::primitives::TxKind;
 use alloy::{
     primitives::{Address, U256},
     rpc::types::TransactionRequest,
@@ -25,6 +26,9 @@ pub struct SetupGenerator {
 /// TOML file format.
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct TestConfig {
+    /// Contract deployments; array of hex-encoded bytecode strings.
+    pub create: Option<Vec<String>>,
+
     /// Setup steps to run before spamming.
     pub setup: Option<Vec<FunctionCallDefinition>>,
 
@@ -68,6 +72,23 @@ where
 impl SetupGenerator {
     pub fn new(config: TestConfig) -> Self {
         Self { config }
+    }
+
+    fn create_txs(&self) -> Vec<TransactionRequest> {
+        let mut templates = Vec::new();
+
+        if let Some(create_steps) = &self.config.create {
+            for step in create_steps.iter() {
+                let tx = alloy::rpc::types::TransactionRequest {
+                    to: Some(TxKind::Create),
+                    input: alloy::rpc::types::TransactionInput::both(step.to_owned().into()),
+                    ..Default::default()
+                };
+                templates.push(tx);
+            }
+        }
+
+        templates
     }
 }
 
@@ -162,7 +183,7 @@ where
                     })?;
 
                 let tx = alloy::rpc::types::TransactionRequest {
-                    to: Some(alloy::primitives::TxKind::Call(function.to.clone())),
+                    to: Some(TxKind::Call(function.to.clone())),
                     input: alloy::rpc::types::TransactionInput::both(input.into()),
                     ..Default::default()
                 };
@@ -177,6 +198,10 @@ where
 impl Generator for SetupGenerator {
     fn get_txs(&self, _amount: usize) -> crate::Result<Vec<TransactionRequest>> {
         let mut templates = Vec::new();
+
+        if self.config.create.is_some() {
+            templates.extend(self.create_txs());
+        }
 
         if let Some(setup_steps) = &self.config.setup {
             for step in setup_steps.iter() {
@@ -221,6 +246,7 @@ mod tests {
 
     fn get_testconfig() -> TestConfig {
         TestConfig {
+            create: None,
             setup: None,
             spam: Some(FunctionCallDefinition {
                 to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
@@ -241,6 +267,7 @@ mod tests {
 
     fn get_fuzzy_testconfig() -> TestConfig {
         TestConfig {
+            create: None,
             setup: None,
             spam: Some(FunctionCallDefinition {
                 to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
@@ -265,6 +292,7 @@ mod tests {
 
     fn get_setup_testconfig() -> TestConfig {
         TestConfig {
+            create: None,
             spam: None,
             setup: Some(vec![
                 FunctionCallDefinition {
@@ -296,6 +324,14 @@ mod tests {
                     fuzz: None,
                 },
             ]),
+        }
+    }
+
+    fn get_create_testconfig() -> TestConfig {
+        TestConfig {
+            create: Some(vec!["0xTODO".to_owned()]),
+            spam: None,
+            setup: None,
         }
     }
 
