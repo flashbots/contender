@@ -33,7 +33,7 @@ where
 
     /// Send transactions to the RPC at a given rate. Actual rate may vary; this is only the attempted sending rate.
     pub fn spam_rpc(&self, tx_per_second: usize, duration: usize) -> Result<()> {
-        let tx_requests = self.generator.get_spam_txs(tx_per_second * duration)?;
+        let tx_requests = self.generator.get_txs(tx_per_second * duration)?;
         let interval = std::time::Duration::from_nanos(1_000_000_000 / tx_per_second as u64);
 
         for tx in tx_requests {

@@ -65,7 +65,7 @@ fn tx_add_liquidity(
 }
 
 impl Generator for UniV2Spammer {
-    fn get_spam_txs(
+    fn get_txs(
         &self,
         // TODO: implement these params
         _amount: usize,

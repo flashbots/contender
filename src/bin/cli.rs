@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use contender_core::{
     generator::{
-        test_config::{TestConfig, TestGenerator},
+        test_config::{SetupGenerator, TestConfig, TestGenerator},
         RandSeed,
     },
     spammer::Spammer,
@@ -15,12 +15,15 @@ struct ContenderCli {
 
 #[derive(Debug, Subcommand)]
 enum ContenderSubcommand {
-    #[command(name = "spam", long_about = "Spam the RPC with tx requests.")]
+    #[command(
+        name = "spam",
+        long_about = "Spam the RPC with tx requests as designated in the given testfile."
+    )]
     Spam {
         /// The path to the test file to use for spamming.
         testfile: String,
 
-        /// The RPC URL to spam with requests.
+        /// The HTTP JSON-RPC URL to spam with requests.
         rpc_url: String,
 
         /// The number of txs to send per second.
@@ -43,6 +46,18 @@ enum ContenderSubcommand {
             long_help = "The seed to use for generating spam transactions"
         )]
         seed: Option<String>,
+    },
+
+    #[command(
+        name = "setup",
+        long_about = "Run the setup step(s) in the given testfile."
+    )]
+    Setup {
+        /// The path to the test file to use for setup.
+        testfile: String,
+
+        /// The HTTP JSON-RPC URL to use for setup.
+        rpc_url: String,
     },
 
     #[command(
@@ -85,6 +100,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let testgen = TestGenerator::new(testfile, &rand_seed);
             let spammer = Spammer::new(testgen, rpc_url);
             spammer.spam_rpc(intensity.unwrap_or_default(), duration.unwrap_or_default())?;
+        }
+        ContenderSubcommand::Setup { testfile, rpc_url } => {
+            let gen: SetupGenerator = TestConfig::from_file(&testfile)?.into();
+            let spammer = Spammer::new(gen, rpc_url);
+            spammer.spam_rpc(10, 1)?;
         }
         ContenderSubcommand::Report { id, out_file } => {
             println!(
