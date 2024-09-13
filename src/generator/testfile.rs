@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::read;
 use std::sync::Arc;
-use tokio::task::spawn as spawn_task;
+use tokio::task::{spawn as spawn_task, JoinHandle};
 
 use super::NamedTxRequest;
 
@@ -287,8 +287,9 @@ where
 }
 
 impl SpamCallback for NullCallback {
-    fn on_tx_sent(&self, _rpc_client: Arc<RpcProvider>, _tx_res: TxHash, _name: Option<String>) {
+    fn on_tx_sent(&self, _tx_res: TxHash, _name: Option<String>) -> Option<JoinHandle<()>> {
         // do nothing
+        None
     }
 }
 
@@ -296,26 +297,29 @@ impl<D> SpamCallback for SetupCallback<D>
 where
     D: DbOps + Send + Sync + 'static,
 {
-    fn on_tx_sent(&self, rpc_client: Arc<RpcProvider>, tx_hash: TxHash, name: Option<String>) {
+    fn on_tx_sent(&self, tx_hash: TxHash, name: Option<String>) -> Option<JoinHandle<()>> {
         let db = self.db.clone();
-        spawn_task(async move {
-            let err_msg = format!("failed to get receipt for tx {}", tx_hash);
+        let rpc_client = self.rpc_provider.clone();
+        let handle = spawn_task(async move {
             // poll for receipt (PendingTransactionBuilder isn't thread-safe but would be nice to use that instead)
-            loop {
-                let receipt = rpc_client
-                    .get_transaction_receipt(tx_hash)
-                    .await
-                    .expect(&err_msg);
-                if let Some(receipt) = receipt {
-                    if let Some(name) = name {
+            if let Some(name) = name {
+                loop {
+                    let receipt = rpc_client
+                        .get_transaction_receipt(tx_hash)
+                        .await
+                        .expect(&format!("failed to get receipt for tx {}", tx_hash));
+                    if let Some(receipt) = receipt {
                         db.insert_named_tx(name, tx_hash, receipt.contract_address)
                             .expect("failed to insert tx into db");
+
+                        break;
                     }
-                    break;
+                    println!("waiting for receipt...");
+                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                 }
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
         });
+        Some(handle)
     }
 }
 

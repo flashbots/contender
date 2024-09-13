@@ -34,7 +34,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let gen = SpamGenerator::new(testfile, &rand_seed);
             let callback = NullCallback::new();
             let spammer = Spammer::new(gen, callback, rpc_url);
-            spammer.spam_rpc(intensity.unwrap_or_default(), duration.unwrap_or_default())?;
+            spammer
+                .spam_rpc(intensity.unwrap_or_default(), duration.unwrap_or_default())
+                .await?;
         }
         ContenderSubcommand::Setup { testfile, rpc_url } => {
             let gen: SetupGenerator = TestConfig::from_file(&testfile)?.into();
@@ -42,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL"));
             let callback = SetupCallback::new(Arc::new(DB.clone()), Arc::new(rpc_client));
             let spammer = Spammer::new(gen, callback, rpc_url);
-            spammer.spam_rpc(10, 1)?;
+            spammer.spam_rpc(10, 1).await?;
         }
         ContenderSubcommand::Report { id, out_file } => {
             println!(

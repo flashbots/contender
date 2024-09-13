@@ -9,15 +9,10 @@ use alloy::{
     transports::http::Client,
 };
 use std::sync::Arc;
-use tokio::task::spawn as spawn_task;
+use tokio::task::{spawn as spawn_task, JoinHandle};
 
 pub trait SpamCallback {
-    fn on_tx_sent(
-        &self,
-        rpc_client: Arc<RootProvider<Http<Client>>>,
-        tx_hash: TxHash,
-        name: Option<String>,
-    );
+    fn on_tx_sent(&self, tx_hash: TxHash, name: Option<String>) -> Option<JoinHandle<()>>;
 }
 
 pub struct Spammer<G, F>
@@ -46,24 +41,38 @@ where
     }
 
     /// Send transactions to the RPC at a given rate. Actual rate may vary; this is only the attempted sending rate.
-    pub fn spam_rpc(&self, tx_per_second: usize, duration: usize) -> Result<()> {
+    pub async fn spam_rpc(&self, tx_per_second: usize, duration: usize) -> Result<()> {
         let tx_requests = self.generator.get_txs(tx_per_second * duration)?;
         let interval = std::time::Duration::from_nanos(1_000_000_000 / tx_per_second as u64);
+        let mut tasks = vec![];
 
         for tx in tx_requests {
-            // clone Arc
+            // clone Arcs
             let rpc_client = self.rpc_client.clone();
             let callback_handler = self.callback_handler.clone();
 
             // send tx to the RPC asynchrononsly
-            spawn_task(async move {
+            tasks.push(spawn_task(async move {
                 println!("sending tx. input={:?}", tx.tx.input.input);
                 let res = rpc_client.send_transaction(tx.tx).await.unwrap();
-                callback_handler.on_tx_sent(rpc_client.clone(), *res.tx_hash(), tx.name);
-            });
+                let callback_res = callback_handler.on_tx_sent(*res.tx_hash(), tx.name);
+                if let Some(handle) = callback_res {
+                    handle.await.unwrap();
+                } // ignore None values so we don't attempt to await them
+            }));
 
             // sleep for interval
-            std::thread::sleep(interval);
+            tokio::time::sleep(interval).await;
+        }
+
+        // join on all handles
+        for task in tasks {
+            task.await.map_err(|e| {
+                crate::error::ContenderError::SpamError(
+                    "failed to join task handle",
+                    Some(e.to_string()),
+                )
+            })?;
         }
 
         Ok(())
