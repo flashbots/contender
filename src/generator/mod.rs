@@ -12,6 +12,15 @@ pub struct NamedTxRequest {
     pub tx: TransactionRequest,
 }
 
+impl NamedTxRequest {
+    pub fn with_name(name: &str, tx: TransactionRequest) -> Self {
+        Self {
+            name: Some(name.to_string()),
+            tx,
+        }
+    }
+}
+
 impl From<TransactionRequest> for NamedTxRequest {
     fn from(tx: TransactionRequest) -> Self {
         Self { name: None, tx }

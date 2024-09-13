@@ -1,14 +1,20 @@
+use crate::db::database::DbOps;
 use crate::error::ContenderError;
 use crate::generator::{
     seeder::{SeedValue, Seeder},
     Generator,
 };
+use crate::spammer::SpamCallback;
 use alloy::hex::FromHex;
-use alloy::primitives::{Address, U256};
+use alloy::primitives::{Address, TxHash, U256};
 use alloy::primitives::{Bytes, TxKind};
+use alloy::providers::Provider;
+use rusqlite::types::Null;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::read;
+use std::sync::Arc;
+use tokio::task::spawn as spawn_task;
 
 use super::NamedTxRequest;
 
@@ -97,10 +103,9 @@ impl SetupGenerator {
                     ),
                     ..Default::default()
                 };
-                templates.push(NamedTxRequest {
-                    tx,
-                    name: Some(step.name.clone()),
-                });
+                let ntx = NamedTxRequest::with_name(&step.name, tx);
+                println!("created tx: {:?}", ntx);
+                templates.push(ntx);
             }
         }
 
@@ -251,6 +256,67 @@ impl Generator for SetupGenerator {
         }
 
         Ok(templates)
+    }
+}
+
+pub struct NullCallback;
+
+impl NullCallback {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+pub type RpcProvider =
+    alloy::providers::RootProvider<alloy::transports::http::Http<alloy::transports::http::Client>>;
+
+pub struct SetupCallback<D>
+where
+    D: DbOps,
+{
+    pub db: Arc<D>,
+    pub rpc_provider: Arc<RpcProvider>,
+}
+
+impl<D> SetupCallback<D>
+where
+    D: DbOps + Send + Sync + 'static,
+{
+    pub fn new(db: Arc<D>, rpc_provider: Arc<RpcProvider>) -> Self {
+        Self { db, rpc_provider }
+    }
+}
+
+impl SpamCallback for NullCallback {
+    fn on_tx_sent(&self, _rpc_client: Arc<RpcProvider>, _tx_res: TxHash, _name: Option<String>) {
+        // do nothing
+    }
+}
+
+impl<D> SpamCallback for SetupCallback<D>
+where
+    D: DbOps + Send + Sync + 'static,
+{
+    fn on_tx_sent(&self, rpc_client: Arc<RpcProvider>, tx_hash: TxHash, name: Option<String>) {
+        let db = self.db.clone();
+        spawn_task(async move {
+            let err_msg = format!("failed to get receipt for tx {}", tx_hash);
+            // poll for receipt (PendingTransactionBuilder isn't thread-safe but would be nice to use that instead)
+            loop {
+                let receipt = rpc_client
+                    .get_transaction_receipt(tx_hash)
+                    .await
+                    .expect(&err_msg);
+                if let Some(receipt) = receipt {
+                    if let Some(name) = name {
+                        db.insert_named_tx(name, tx_hash, receipt.contract_address)
+                            .expect("failed to insert tx into db");
+                    }
+                    break;
+                }
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            }
+        });
     }
 }
 
