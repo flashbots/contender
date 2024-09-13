@@ -1,4 +1,4 @@
-use crate::{db::database::DbOps, generator::Generator, Result};
+use crate::{generator::Generator, Result};
 use alloy::{
     primitives::TxHash,
     providers::Provider,
@@ -20,36 +20,27 @@ pub trait SpamCallback {
     );
 }
 
-pub struct Spammer<G, D, C>
+pub struct Spammer<G, F>
 where
     G: Generator,
-    D: DbOps + Send + Sync + 'static,
-    C: SpamCallback + Send + Sync + 'static,
+    F: SpamCallback + Send + Sync + 'static,
 {
     generator: G,
     rpc_client: Arc<RootProvider<Http<Client>>>,
-    db: Arc<&'static D>,
-    callback_handler: Arc<C>,
+    callback_handler: Arc<F>,
 }
 
-impl<G, D, C> Spammer<G, D, C>
+impl<G, F> Spammer<G, F>
 where
     G: Generator,
-    D: DbOps + Send + Sync,
-    C: SpamCallback + Send + Sync + 'static,
+    F: SpamCallback + Send + Sync + 'static,
 {
-    pub fn new(
-        generator: G,
-        db: &'static D,
-        callback_handler: C,
-        rpc_url: impl AsRef<str>,
-    ) -> Self {
+    pub fn new(generator: G, callback_handler: F, rpc_url: impl AsRef<str>) -> Self {
         let rpc_client =
             ProviderBuilder::new().on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL"));
         Self {
             generator,
             rpc_client: Arc::new(rpc_client),
-            db: Arc::new(db),
             callback_handler: Arc::new(callback_handler),
         }
     }
@@ -62,22 +53,13 @@ where
         for tx in tx_requests {
             // clone Arc
             let rpc_client = self.rpc_client.clone();
-            // let db = self.db.clone();
             let callback_handler = self.callback_handler.clone();
-            let name = tx.name;
 
             // send tx to the RPC asynchrononsly
             spawn_task(async move {
-                // TODO: sign tx if priv_key is provided
                 println!("sending tx. input={:?}", tx.tx.input.input);
                 let res = rpc_client.send_transaction(tx.tx).await.unwrap();
-                // if let Some(name) = tx.name {
-                //     let receipt = res.get_receipt().await.unwrap();
-                //     println!("receipt: {:?}", receipt);
-                //     db.insert_named_tx(name, receipt.transaction_hash, receipt.contract_address)
-                //         .unwrap();
-                // }
-                callback_handler.on_tx_sent(rpc_client.clone(), *res.tx_hash(), name);
+                callback_handler.on_tx_sent(rpc_client.clone(), *res.tx_hash(), tx.name);
             });
 
             // sleep for interval

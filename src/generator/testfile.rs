@@ -9,7 +9,6 @@ use alloy::hex::FromHex;
 use alloy::primitives::{Address, TxHash, U256};
 use alloy::primitives::{Bytes, TxKind};
 use alloy::providers::Provider;
-use rusqlite::types::Null;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::read;
