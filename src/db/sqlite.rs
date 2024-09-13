@@ -1,62 +1,82 @@
 use super::database::DbOps;
 use crate::{error::ContenderError, Result};
-use alloy::primitives::{Address, TxHash};
-use sqlite::{self, Connection};
+use alloy::{
+    hex::ToHexExt,
+    primitives::{Address, TxHash},
+};
+use r2d2::{Pool, PooledConnection};
+use r2d2_sqlite::SqliteConnectionManager;
+use rusqlite::params;
 
+#[derive(Clone)]
 pub struct SqliteDb {
-    conn: Connection,
+    pool: Pool<SqliteConnectionManager>,
 }
 
 impl SqliteDb {
-    fn new() -> Result<Self> {
-        let conn = sqlite::open(":memory:")
-            .map_err(|_| ContenderError::DbError("failed to open DB", None))?;
-        Ok(Self { conn })
+    pub fn from_file(file: &str) -> Result<Self> {
+        let manager = SqliteConnectionManager::file(file);
+        let pool = Pool::new(manager).map_err(|e| {
+            ContenderError::DbError("failed to create connection pool", Some(e.to_string()))
+        })?;
+        Ok(Self { pool })
+    }
+
+    pub fn new_memory() -> Self {
+        let manager = SqliteConnectionManager::memory();
+        let pool = Pool::new(manager).expect("failed to create connection pool");
+        Self { pool }
+    }
+
+    fn get_pool(&self) -> Result<PooledConnection<SqliteConnectionManager>> {
+        self.pool.get().map_err(|e| {
+            ContenderError::DbError("failed to get connection from pool", Some(e.to_string()))
+        })
+    }
+
+    fn execute<P: rusqlite::Params>(&self, query: &str, params: P) -> Result<()> {
+        self.get_pool()?
+            .execute(query, params)
+            .map_err(|e| ContenderError::DbError("failed to execute query", Some(e.to_string())))?;
+        Ok(())
     }
 }
 
 impl DbOps for SqliteDb {
     fn create_tables(&self) -> Result<()> {
-        self.conn
-            .execute(
-                "CREATE TABLE runs (
-                    id INTEGER PRIMARY KEY,
-                    timestamp TEXT NOT NULL,
-                    tx_count INTEGER NOT NULL,
-                    duration INTEGER NOT NULL
-                );
-                CREATE TABLE named_txs (
-                    id INTEGER PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    tx_hash TEXT NOT NULL,
-                    contract_address TEXT
-                )",
-            )
-            .map_err(|_| ContenderError::DbError("failed to create table", None))?;
+        self.execute(
+            "CREATE TABLE runs (
+                id INTEGER PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                tx_count INTEGER NOT NULL,
+                duration INTEGER NOT NULL
+            )",
+            params![],
+        )?;
+        self.execute(
+            "CREATE TABLE named_txs (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                tx_hash TEXT NOT NULL,
+                contract_address TEXT
+            )",
+            params![],
+        )?;
         Ok(())
     }
 
     fn insert_run(&self, timestamp: &str, tx_count: i64, duration: i64) -> Result<()> {
-        let query = format!(
-            "INSERT INTO runs (timestamp, tx_count, duration) VALUES ({}, {}, {})",
-            timestamp, tx_count, duration
-        );
-        self.conn
-            .execute(&query)
-            .map_err(|_| ContenderError::DbError("failed to insert run", Some(query)))?;
-        Ok(())
+        self.execute(
+            "INSERT INTO runs (timestamp, tx_count, duration) VALUES (?, ?, ?)",
+            params![timestamp, tx_count, duration],
+        )
     }
 
     fn num_runs(&self) -> Result<i64> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT COUNT(*) FROM runs")
-            .map_err(|_| ContenderError::DbError("failed to prepare query", None))?;
-        stmt.next()
-            .map_err(|_| ContenderError::DbError("failed to execute query", None))?;
-        let count = stmt
-            .read::<i64, _>(0)
-            .map_err(|_| ContenderError::DbError("failed to read result", None))?;
+        let count: i64 = self
+            .get_pool()?
+            .query_row("SELECT COUNT(*) FROM runs", params![], |row| row.get(0))
+            .map_err(|e| ContenderError::DbError("failed to count runs", Some(e.to_string())))?;
         Ok(count)
     }
 
@@ -66,21 +86,14 @@ impl DbOps for SqliteDb {
         tx_hash: TxHash,
         contract_address: Option<Address>,
     ) -> Result<()> {
-        let query = if let Some(contract_address) = contract_address {
-            format!(
-                "INSERT INTO named_txs (name, tx_hash, contract_address) VALUES ({}, {}, {})",
-                name, tx_hash, contract_address
-            )
-        } else {
-            format!(
-                "INSERT INTO named_txs (name, tx_hash) VALUES ({}, {})",
-                name, tx_hash
-            )
-        };
-        self.conn
-            .execute(&query)
-            .map_err(|_| ContenderError::DbError("failed to insert named tx", Some(query)))?;
-        Ok(())
+        self.execute(
+            "INSERT INTO named_txs (name, tx_hash, contract_address) VALUES (?, ?, ?)",
+            params![
+                name,
+                tx_hash.encode_hex(),
+                contract_address.map(|a| a.encode_hex())
+            ],
+        )
     }
 }
 
@@ -90,18 +103,36 @@ mod tests {
 
     #[test]
     fn creates_table() {
-        let db = SqliteDb::new().unwrap();
+        let db = SqliteDb::new_memory();
         db.create_tables().unwrap();
         assert_eq!(db.num_runs().unwrap(), 0);
     }
 
     #[test]
     fn inserts_runs() {
-        let db = SqliteDb::new().unwrap();
+        let db = SqliteDb::new_memory();
         db.create_tables().unwrap();
         db.insert_run("2021-01-01", 100, 10).unwrap();
         db.insert_run("2021-01-01", 101, 10).unwrap();
         db.insert_run("2021-01-01", 102, 10).unwrap();
         assert_eq!(db.num_runs().unwrap(), 3);
+    }
+
+    #[test]
+    fn inserts_named_tx() {
+        let db = SqliteDb::new_memory();
+        db.create_tables().unwrap();
+        let tx_hash = TxHash::from_slice(&[0u8; 32]);
+        let contract_address = Some(Address::from_slice(&[0u8; 20]));
+        db.insert_named_tx("test_tx".to_string(), tx_hash, contract_address)
+            .unwrap();
+        let count: i64 = db
+            .get_pool()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM named_txs", params![], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 1);
     }
 }

@@ -1,4 +1,4 @@
-use crate::{generator::Generator, Result};
+use crate::{db::database::DbOps, generator::Generator, Result};
 use alloy::{
     providers::Provider,
     transports::http::{reqwest::Url, Http},
@@ -10,24 +10,28 @@ use alloy::{
 use std::sync::Arc;
 use tokio::task::spawn as spawn_task;
 
-pub struct Spammer<G>
+pub struct Spammer<G, D>
 where
     G: Generator,
+    D: DbOps + Send + Sync + 'static,
 {
     generator: G,
     rpc_client: Arc<RootProvider<Http<Client>>>,
+    db: Arc<&'static D>,
 }
 
-impl<G> Spammer<G>
+impl<G, D> Spammer<G, D>
 where
     G: Generator,
+    D: DbOps + Send + Sync,
 {
-    pub fn new(generator: G, rpc_url: impl AsRef<str>) -> Self {
+    pub fn new(generator: G, db: &'static D, rpc_url: impl AsRef<str>) -> Self {
         let rpc_client =
             ProviderBuilder::new().on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL"));
         Self {
             generator,
             rpc_client: Arc::new(rpc_client),
+            db: Arc::new(db),
         }
     }
 
@@ -38,18 +42,19 @@ where
 
         for tx in tx_requests {
             // clone Arc
-            let rpc_client = self.rpc_client.to_owned();
+            let rpc_client = self.rpc_client.clone();
+            let db = self.db.clone();
 
             // send tx to the RPC asynchrononsly
             spawn_task(async move {
                 // TODO: sign tx if priv_key is provided
-                println!("sending tx: {:?}", tx);
+                println!("sending tx. input={:?}", tx.tx.input.input);
                 let res = rpc_client.send_transaction(tx.tx).await.unwrap();
-                let receipt = res.get_receipt().await.unwrap();
-                println!("receipt: {:?}", receipt);
-                if tx.name.is_some() {
-                    // save {name, tx_hash, contract_address} to DB
-                    // TODO: get a DB in here
+                if let Some(name) = tx.name {
+                    let receipt = res.get_receipt().await.unwrap();
+                    println!("receipt: {:?}", receipt);
+                    db.insert_named_tx(name, receipt.transaction_hash, receipt.contract_address)
+                        .unwrap();
                 }
             });
 
