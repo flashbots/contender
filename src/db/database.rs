@@ -15,4 +15,6 @@ pub trait DbOps {
         tx_hash: TxHash,
         contract_address: Option<Address>,
     ) -> Result<()>;
+
+    fn get_named_tx(&self, name: &str) -> Result<(TxHash, Option<Address>)>;
 }

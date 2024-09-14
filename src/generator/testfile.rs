@@ -5,7 +5,7 @@ use crate::generator::{
     Generator,
 };
 use crate::spammer::SpamCallback;
-use alloy::hex::FromHex;
+use alloy::hex::{FromHex, ToHexExt};
 use alloy::primitives::{Address, TxHash, U256};
 use alloy::primitives::{Bytes, TxKind};
 use alloy::providers::Provider;
@@ -84,6 +84,17 @@ pub struct FuzzParam {
     pub max: Option<U256>,
 }
 
+/// Find values wrapped in brackets in a string and replace them with values from a hashmap whose key match the value in the brackets.
+/// example: "hello {world}" with hashmap {"world": "earth"} will return "hello earth"
+fn replace_templates(input: &str, values: &HashMap<String, String>) -> String {
+    let mut output = input.to_owned();
+    for (key, value) in values.iter() {
+        let template = format!("{{{}}}", key);
+        output = output.replace(&template, value);
+    }
+    output
+}
+
 impl<'a, T, D> SpamGenerator<'a, T, D>
 where
     T: Seeder,
@@ -157,6 +168,8 @@ impl TestConfig {
     }
 }
 
+// fn populate_map()
+
 impl<T, D> Generator for SpamGenerator<'_, T, D>
 where
     T: Seeder,
@@ -171,7 +184,7 @@ where
             })?;
 
             // hashmap to store fuzzy values
-            let mut map: HashMap<String, Vec<U256>> = HashMap::new();
+            let mut map = HashMap::<String, Vec<U256>>::new();
 
             // pre-generate fuzzy params
             if let Some(fuzz_params) = function.fuzz.as_ref() {
@@ -186,12 +199,50 @@ where
                 }
             }
 
+            // populate template map (// TODO: move this to a separate function so we can use it for more params)
+            let mut template_map = HashMap::<String, String>::new();
+            for arg in function.args.iter() {
+                // count number of templates (by left brace) in arg
+                let num_template_args = arg.chars().filter(|&c| c == '{').count();
+                let mut last_end = 0;
+
+                for _ in 0..num_template_args {
+                    if last_end == arg.len() {
+                        break;
+                    }
+                    if let Some(template_start) = arg.split_at(last_end).1.find("{") {
+                        let template_end = arg.find("}").ok_or_else(|| {
+                            ContenderError::SpamError(
+                                "failed to find end of template value",
+                                Some("missing '}'".to_string()),
+                            )
+                        })?;
+                        last_end = template_end;
+                        let template_name = &arg[template_start + 1..template_end];
+                        // look up template_name in DB
+                        let template_value = self.db.get_named_tx(template_name).map_err(|e| {
+                            ContenderError::SpamError(
+                                "failed to get template value from DB",
+                                Some(e.to_string()),
+                            )
+                        })?;
+                        template_map.insert(
+                            template_name.to_owned(),
+                            template_value.1.map(|a| a.encode_hex()).unwrap_or_default(),
+                        );
+                    }
+                }
+            }
+
+            // replace templates with DB values
+
             // generate spam txs
             for i in 0..amount {
                 // encode function arguments
                 let mut args = Vec::new();
                 for j in 0..function.args.len() {
                     // detect templates and replace with DB values
+
                     // testing DB
                     let _db = self.db.clone(); // arc clone
 
@@ -214,7 +265,12 @@ where
 
                     let val = maybe_fuzz().unwrap_or_else(|| {
                         // if fuzzing is not enabled, use default value given in config file
-                        function.args[j].to_owned()
+                        let arg = function.args[j].to_owned();
+                        if arg.contains("{") {
+                            replace_templates(&arg, &template_map)
+                        } else {
+                            arg
+                        }
                     });
                     args.push(val);
                 }

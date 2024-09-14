@@ -1,12 +1,15 @@
+use std::fmt::Display;
+
 use super::database::DbOps;
 use crate::{error::ContenderError, Result};
 use alloy::{
-    hex::ToHexExt,
+    hex::{FromHex, ToHexExt},
     primitives::{Address, TxHash},
 };
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, types::FromSql, Row};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 pub struct SqliteDb {
@@ -54,6 +57,23 @@ impl SqliteDb {
         self.get_pool()?
             .query_row(query, params, with_row)
             .map_err(|e| ContenderError::DbError("failed to query row", Some(e.to_string())))
+    }
+}
+
+#[derive(Deserialize, Debug, Serialize)]
+struct NamedTxRow {
+    name: String,
+    tx_hash: String,
+    contract_address: Option<String>,
+}
+
+impl NamedTxRow {
+    fn from_row(row: &Row) -> rusqlite::Result<Self> {
+        Ok(Self {
+            name: row.get(0)?,
+            tx_hash: row.get(1)?,
+            contract_address: row.get(2)?,
+        })
     }
 }
 
@@ -107,6 +127,37 @@ impl DbOps for SqliteDb {
                 contract_address.map(|a| a.encode_hex())
             ],
         )
+    }
+
+    fn get_named_tx(&self, name: &str) -> Result<(TxHash, Option<Address>)> {
+        let pool = self.get_pool()?;
+        println!("name: {}", name);
+        let mut stmt = pool
+            .prepare(
+                "SELECT name, tx_hash, contract_address FROM named_txs WHERE name = ?1 ORDER BY id DESC LIMIT 1",
+            )
+            .map_err(|e| {
+                ContenderError::DbError("failed to prepare statement", Some(e.to_string()))
+            })?;
+        println!("stmt: {:?}", stmt);
+        let row = stmt
+            .query_map(params![name], |row| NamedTxRow::from_row(row))
+            .map_err(|e| ContenderError::DbError("failed to map row", Some(e.to_string())))?;
+        let errr = || ContenderError::DbError("no row", None);
+        let res = row.last().ok_or(errr())?.map_err(|_e| {
+            println!("err {}", _e.to_string());
+            errr()
+        })?;
+        // wtf this feels so wrong
+
+        let tx_hash = TxHash::from_hex(&res.tx_hash)
+            .map_err(|e| ContenderError::DbError("invalid tx hash", Some(e.to_string())))?;
+        let contract_address = res
+            .contract_address
+            .map(|a| Address::from_hex(&a))
+            .transpose()
+            .map_err(|e| ContenderError::DbError("invalid address", Some(e.to_string())))?;
+        Ok((tx_hash, contract_address))
     }
 }
 
