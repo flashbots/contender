@@ -89,7 +89,6 @@ pub struct FuzzParam {
 fn replace_templates(input: &str, template_map: &HashMap<String, String>) -> String {
     let mut output = input.to_owned();
     for (key, value) in template_map.iter() {
-        println!("key: {}, value: {}", key, value);
         let template = format!("{{{}}}", key);
         output = output.replace(&template, value);
     }
@@ -123,7 +122,6 @@ where
 
     fn create_txs(&self) -> Vec<NamedTxRequest> {
         let mut templates = Vec::new();
-
         if let Some(create_steps) = &self.config.create {
             for step in create_steps.iter() {
                 let tx = alloy::rpc::types::TransactionRequest {
@@ -133,12 +131,9 @@ where
                     ),
                     ..Default::default()
                 };
-                let ntx = NamedTxRequest::with_name(&step.name, tx);
-                println!("create tx: {:?}", ntx);
-                templates.push(ntx);
+                templates.push(NamedTxRequest::with_name(&step.name, tx));
             }
         }
-
         templates
     }
 }
@@ -203,6 +198,7 @@ where
             for arg in function.args.iter() {
                 find_template_values(&mut template_map, arg, self.db.as_ref())?;
             }
+            find_template_values(&mut template_map, &function.to, self.db.as_ref())?;
 
             // generate spam txs
             for i in 0..amount {
@@ -227,7 +223,6 @@ where
 
                     // !!! args with template values will be overwritten by the fuzzer if it's enabled for this arg
                     let val = maybe_fuzz().unwrap_or_else(|| {
-                        // if fuzzing is not enabled, use default value given in config file
                         let arg = &function.args[j];
                         if arg.contains("{") {
                             replace_templates(arg, &template_map)
@@ -240,7 +235,6 @@ where
 
                 // replace template value(s) for `to` address
                 let to = maybe_replace(&function.to, &template_map);
-                println!("to: {}", to);
                 let to = to.parse::<Address>().map_err(|e| {
                     ContenderError::SpamError("failed to parse address", Some(e.to_string()))
                 })?;
@@ -276,7 +270,6 @@ where
 
         if let Some(create) = &self.config.create {
             for arg in create.iter() {
-                println!("arg: {:?}", arg);
                 find_template_values(&mut template_map, &arg.bytecode, self.db.as_ref())?;
             }
             tx_templates.extend(self.create_txs());
@@ -284,12 +277,8 @@ where
 
         if let Some(setup_steps) = &self.config.setup {
             for step in setup_steps.iter() {
-                let func = alloy_json_abi::Function::parse(&step.signature).map_err(|e| {
-                    ContenderError::SpamError(
-                        "failed to parse setup function name",
-                        Some(e.to_string()),
-                    )
-                })?;
+                // check `to` field for template to finish populating the map
+                find_template_values(&mut template_map, &step.to, self.db.as_ref())?;
 
                 let mut args = Vec::new();
                 for arg in step.args.iter() {
@@ -298,6 +287,12 @@ where
                     args.push(arg);
                 }
 
+                let func = alloy_json_abi::Function::parse(&step.signature).map_err(|e| {
+                    ContenderError::SpamError(
+                        "failed to parse setup function name",
+                        Some(e.to_string()),
+                    )
+                })?;
                 let input =
                     foundry_common::abi::encode_function_args(&func, args).map_err(|e| {
                         ContenderError::SpamError(
@@ -306,8 +301,6 @@ where
                         )
                     })?;
 
-                // check `to` field for template to finish populating the map
-                find_template_values(&mut template_map, &step.to, self.db.as_ref())?;
                 let to = maybe_replace(&step.to, &template_map);
                 let to = to.parse::<Address>().map_err(|e| {
                     ContenderError::SpamError("failed to parse address", Some(e.to_string()))
@@ -432,7 +425,6 @@ fn find_template_values<D: DbOps>(
 
 fn maybe_replace(arg: &str, template_map: &HashMap<String, String>) -> String {
     if arg.contains("{") {
-        println!("found templates in arg: {}", arg);
         replace_templates(arg, &template_map)
     } else {
         arg.to_owned()
@@ -451,7 +443,7 @@ mod tests {
             create: None,
             setup: None,
             spam: Some(FunctionCallDefinition {
-                to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
+                to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD".to_owned(),
                 from: None,
                 signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
                 args: vec![
@@ -560,10 +552,8 @@ mod tests {
     fn parses_testconfig_toml() {
         let test_file = TestConfig::from_file("univ2ConfigTest.toml").unwrap();
         println!("{:?}", test_file);
-        assert_eq!(
-            test_file.spam.unwrap().to,
-            "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned()
-        )
+        // `to` field should be a template; it's [maybe] replaced when processed by a generator
+        assert_eq!(test_file.spam.unwrap().to, "{counter}".to_owned())
     }
 
     fn print_testconfig(cfg: &str) {

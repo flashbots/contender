@@ -1,4 +1,6 @@
-# Uniswap V2 spammer example configuration
+# (to be a) Uniswap V2 spammer example configuration
+
+# this is (currently) a nonsense example that just demonstrates the config format, so the spam transactions will mostly fail
 
 [[create]]
 # TODO: use uniswap bytecode (this is Counter.sol)
@@ -6,7 +8,7 @@ bytecode = "0x608060405234801561001057600080fd5b5060f78061001f6000396000f3fe6080
 name = "counter"
 
 [[setup]]
-to = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+to = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
 from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 signature = "approve(address spender, uint256 amount) returns (bool)"
 args = [
@@ -24,7 +26,7 @@ args = [
 ]
 
 [spam]
-to = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
+to = "{counter}"
 from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 signature = "swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline) external returns (uint256[] memory)"
 args = [
