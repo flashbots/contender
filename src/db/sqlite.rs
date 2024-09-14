@@ -6,7 +6,7 @@ use alloy::{
 };
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::params;
+use rusqlite::{params, types::FromSql, Row};
 
 #[derive(Clone)]
 pub struct SqliteDb {
@@ -39,6 +39,21 @@ impl SqliteDb {
             .execute(query, params)
             .map_err(|e| ContenderError::DbError("failed to execute query", Some(e.to_string())))?;
         Ok(())
+    }
+
+    fn query_row<
+        T: FromSql,
+        P: rusqlite::Params,
+        F: FnOnce(&Row<'_>) -> std::result::Result<T, rusqlite::Error>,
+    >(
+        &self,
+        query: &str,
+        params: P,
+        with_row: F,
+    ) -> Result<T> {
+        self.get_pool()?
+            .query_row(query, params, with_row)
+            .map_err(|e| ContenderError::DbError("failed to query row", Some(e.to_string())))
     }
 }
 
@@ -73,10 +88,8 @@ impl DbOps for SqliteDb {
     }
 
     fn num_runs(&self) -> Result<i64> {
-        let count: i64 = self
-            .get_pool()?
-            .query_row("SELECT COUNT(*) FROM runs", params![], |row| row.get(0))
-            .map_err(|e| ContenderError::DbError("failed to count runs", Some(e.to_string())))?;
+        let count: i64 =
+            self.query_row("SELECT COUNT(*) FROM runs", params![], |row| row.get(0))?;
         Ok(count)
     }
 

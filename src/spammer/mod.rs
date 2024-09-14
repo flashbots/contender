@@ -55,14 +55,14 @@ where
             tasks.push(spawn_task(async move {
                 println!("sending tx. input={:?}", tx.tx.input.input);
                 let res = rpc_client.send_transaction(tx.tx).await.unwrap();
-                let callback_res = callback_handler.on_tx_sent(*res.tx_hash(), tx.name);
-                if let Some(handle) = callback_res {
+                let maybe_handle = callback_handler.on_tx_sent(*res.tx_hash(), tx.name);
+                if let Some(handle) = maybe_handle {
                     handle.await.unwrap();
                 } // ignore None values so we don't attempt to await them
             }));
 
             // sleep for interval
-            tokio::time::sleep(interval).await;
+            std::thread::sleep(interval);
         }
 
         // join on all handles

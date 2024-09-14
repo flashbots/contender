@@ -138,7 +138,7 @@ impl TestConfig {
     }
 }
 
-impl<'a, T> Generator for SpamGenerator<'a, T>
+impl<T> Generator for SpamGenerator<'_, T>
 where
     T: Seeder,
 {
