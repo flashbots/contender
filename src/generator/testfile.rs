@@ -19,15 +19,23 @@ use super::NamedTxRequest;
 
 /// A generator that specifically runs *setup* steps (including contract creation) from a TOML file.
 /// // TODO: Contract artifacts are saved into a database, so that they can be accessed by other generators.
-pub struct SetupGenerator {
+pub struct SetupGenerator<D>
+where
+    D: DbOps + Send + Sync + 'static,
+{
     config: TestConfig,
+    db: Arc<D>,
 }
 
 /// A generator that specifically runs *spam* steps for TOML files.
 /// - `seed` is used to set deterministic sequences of function arguments for the generator
-pub struct SpamGenerator<'a, T: Seeder> {
+pub struct SpamGenerator<'a, T: Seeder, D>
+where
+    D: DbOps + Send + Sync + 'static,
+{
     config: TestConfig,
     seed: &'a T,
+    db: Arc<D>,
 }
 
 /// TOML file format.
@@ -76,18 +84,29 @@ pub struct FuzzParam {
     pub max: Option<U256>,
 }
 
-impl<'a, T> SpamGenerator<'a, T>
+impl<'a, T, D> SpamGenerator<'a, T, D>
 where
     T: Seeder,
+    D: DbOps + Send + Sync + 'static,
 {
-    pub fn new(config: TestConfig, seed: &'a T) -> Self {
-        Self { config, seed }
+    pub fn new(config: TestConfig, seed: &'a T, db: D) -> Self {
+        Self {
+            config,
+            seed,
+            db: Arc::new(db),
+        }
     }
 }
 
-impl SetupGenerator {
-    pub fn new(config: TestConfig) -> Self {
-        Self { config }
+impl<D> SetupGenerator<D>
+where
+    D: DbOps + Send + Sync + 'static,
+{
+    pub fn new(config: TestConfig, db: D) -> Self {
+        Self {
+            config,
+            db: Arc::new(db),
+        }
     }
 
     fn create_txs(&self) -> Vec<NamedTxRequest> {
@@ -112,9 +131,9 @@ impl SetupGenerator {
     }
 }
 
-impl From<TestConfig> for SetupGenerator {
+impl<D: DbOps + Send + Sync + Default> From<TestConfig> for SetupGenerator<D> {
     fn from(config: TestConfig) -> Self {
-        Self::new(config)
+        Self::new(config, D::default())
     }
 }
 
@@ -138,9 +157,10 @@ impl TestConfig {
     }
 }
 
-impl<T> Generator for SpamGenerator<'_, T>
+impl<T, D> Generator for SpamGenerator<'_, T, D>
 where
     T: Seeder,
+    D: DbOps + Send + Sync + 'static,
 {
     fn get_txs(&self, amount: usize) -> Result<Vec<NamedTxRequest>, ContenderError> {
         let mut templates = Vec::new();
@@ -171,6 +191,11 @@ where
                 // encode function arguments
                 let mut args = Vec::new();
                 for j in 0..function.args.len() {
+                    // detect templates and replace with DB values
+                    // testing DB
+                    let _db = self.db.clone(); // arc clone
+
+                    // !!! args with template values will be overwritten by the fuzzer if it's enabled
                     let maybe_fuzz = || {
                         let input_def = func.inputs[j].to_string();
                         // there's probably a better way to do this, but I haven't found it
@@ -215,7 +240,10 @@ where
     }
 }
 
-impl Generator for SetupGenerator {
+impl<D> Generator for SetupGenerator<D>
+where
+    D: DbOps + Send + Sync + 'static,
+{
     fn get_txs(&self, _amount: usize) -> crate::Result<Vec<NamedTxRequest>> {
         let mut templates = Vec::new();
 
@@ -258,9 +286,9 @@ impl Generator for SetupGenerator {
     }
 }
 
-pub struct NullCallback;
+pub struct NilCallback;
 
-impl NullCallback {
+impl NilCallback {
     pub fn new() -> Self {
         Self {}
     }
@@ -286,7 +314,7 @@ where
     }
 }
 
-impl SpamCallback for NullCallback {
+impl SpamCallback for NilCallback {
     fn on_tx_sent(&self, _tx_res: TxHash, _name: Option<String>) -> Option<JoinHandle<()>> {
         // do nothing
         None
@@ -326,6 +354,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::sqlite::SqliteDb;
     use crate::generator::RandSeed;
     use std::fs;
 
@@ -440,7 +469,7 @@ mod tests {
     #[test]
     fn creates_contracts() {
         let test_file = get_create_testconfig();
-        let setup_gen = SetupGenerator::new(test_file);
+        let setup_gen = SetupGenerator::new(test_file, SqliteDb::new_memory());
         let txs = setup_gen.create_txs();
         println!("{:?}", txs);
         assert_eq!(txs.len(), 1);
@@ -483,7 +512,7 @@ mod tests {
     fn gets_spam_txs() {
         let test_file = get_testconfig();
         let seed = RandSeed::new();
-        let test_gen = SpamGenerator::new(test_file, &seed);
+        let test_gen = SpamGenerator::new(test_file, &seed, SqliteDb::new_memory());
         // this seed can be used to recreate the same test tx(s)
         let spam_txs = test_gen.get_txs(1).unwrap();
         println!("generated test tx(s): {:?}", spam_txs);
@@ -496,7 +525,7 @@ mod tests {
     fn fuzz_is_deterministic() {
         let test_file = get_fuzzy_testconfig();
         let seed = RandSeed::from_bytes(&[0x01; 32]);
-        let test_gen = SpamGenerator::new(test_file, &seed);
+        let test_gen = SpamGenerator::new(test_file, &seed, SqliteDb::new_memory());
         let num_txs = 3;
         let spam_txs_1 = test_gen.get_txs(num_txs).unwrap();
         let spam_txs_2 = test_gen.get_txs(num_txs).unwrap();

@@ -6,7 +6,7 @@ bytecode = "0x608060405234801561001057600080fd5b5060f78061001f6000396000f3fe6080
 name = "counter"
 
 [[setup]]
-to = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
+to = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 signature = "approve(address spender, uint256 amount) returns (bool)"
 args = [
@@ -34,6 +34,8 @@ args = [
      "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
      "1000000000000000000"
 ]
-fuzz = [
-    { name = "amountIn", min = "1", max = "10000000000000000000"}
-]
+
+[[spam.fuzz]]
+name = "amountIn"
+min = "1"
+max = "10000000000000000000"

@@ -5,7 +5,7 @@ use cli_lib::{ContenderCli, ContenderSubcommand};
 use contender_core::{
     db::{database::DbOps, sqlite::SqliteDb},
     generator::{
-        testfile::{NullCallback, SetupCallback, SetupGenerator, SpamGenerator, TestConfig},
+        testfile::{NilCallback, SetupCallback, SetupGenerator, SpamGenerator, TestConfig},
         RandSeed,
     },
     spammer::Spammer,
@@ -31,15 +31,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             let testfile = TestConfig::from_file(&testfile)?;
             let rand_seed = seed.map(|s| RandSeed::from_str(&s)).unwrap_or_default();
-            let gen = SpamGenerator::new(testfile, &rand_seed);
-            let callback = NullCallback::new();
+            let gen = SpamGenerator::new(testfile, &rand_seed, DB.clone());
+            let callback = NilCallback::new();
             let spammer = Spammer::new(gen, callback, rpc_url);
             spammer
                 .spam_rpc(intensity.unwrap_or_default(), duration.unwrap_or_default())
                 .await?;
         }
         ContenderSubcommand::Setup { testfile, rpc_url } => {
-            let gen: SetupGenerator = TestConfig::from_file(&testfile)?.into();
+            let testconfig = TestConfig::from_file(&testfile)?.into();
+            let gen = SetupGenerator::<SqliteDb>::new(testconfig, DB.clone());
             let rpc_client = ProviderBuilder::new()
                 .on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL"));
             let callback = SetupCallback::new(Arc::new(DB.clone()), Arc::new(rpc_client));
