@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use super::database::DbOps;
 use crate::{error::ContenderError, Result};
 use alloy::{

@@ -54,9 +54,9 @@ pub struct TestConfig {
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct FunctionCallDefinition {
     /// Address of the contract to call.
-    pub to: Address,
+    pub to: String,
     /// Address of the tx sender (must be unlocked on RPC endpoint).
-    pub from: Option<Address>,
+    pub from: Option<String>,
     /// Name of the function to call.
     pub signature: String,
     /// Parameters to pass to the function.
@@ -86,9 +86,10 @@ pub struct FuzzParam {
 
 /// Find values wrapped in brackets in a string and replace them with values from a hashmap whose key match the value in the brackets.
 /// example: "hello {world}" with hashmap {"world": "earth"} will return "hello earth"
-fn replace_templates(input: &str, values: &HashMap<String, String>) -> String {
+fn replace_templates(input: &str, template_map: &HashMap<String, String>) -> String {
     let mut output = input.to_owned();
-    for (key, value) in values.iter() {
+    for (key, value) in template_map.iter() {
+        println!("key: {}, value: {}", key, value);
         let template = format!("{{{}}}", key);
         output = output.replace(&template, value);
     }
@@ -133,7 +134,7 @@ where
                     ..Default::default()
                 };
                 let ntx = NamedTxRequest::with_name(&step.name, tx);
-                println!("created tx: {:?}", ntx);
+                println!("create tx: {:?}", ntx);
                 templates.push(ntx);
             }
         }
@@ -168,8 +169,6 @@ impl TestConfig {
     }
 }
 
-// fn populate_map()
-
 impl<T, D> Generator for SpamGenerator<'_, T, D>
 where
     T: Seeder,
@@ -199,54 +198,17 @@ where
                 }
             }
 
-            // populate template map (// TODO: move this to a separate function so we can use it for more params)
+            // find all {templates} and fetch their values from the DB
             let mut template_map = HashMap::<String, String>::new();
             for arg in function.args.iter() {
-                // count number of templates (by left brace) in arg
-                let num_template_args = arg.chars().filter(|&c| c == '{').count();
-                let mut last_end = 0;
-
-                for _ in 0..num_template_args {
-                    if last_end == arg.len() {
-                        break;
-                    }
-                    if let Some(template_start) = arg.split_at(last_end).1.find("{") {
-                        let template_end = arg.find("}").ok_or_else(|| {
-                            ContenderError::SpamError(
-                                "failed to find end of template value",
-                                Some("missing '}'".to_string()),
-                            )
-                        })?;
-                        last_end = template_end;
-                        let template_name = &arg[template_start + 1..template_end];
-                        // look up template_name in DB
-                        let template_value = self.db.get_named_tx(template_name).map_err(|e| {
-                            ContenderError::SpamError(
-                                "failed to get template value from DB",
-                                Some(e.to_string()),
-                            )
-                        })?;
-                        template_map.insert(
-                            template_name.to_owned(),
-                            template_value.1.map(|a| a.encode_hex()).unwrap_or_default(),
-                        );
-                    }
-                }
+                find_template_values(&mut template_map, arg, self.db.as_ref())?;
             }
-
-            // replace templates with DB values
 
             // generate spam txs
             for i in 0..amount {
                 // encode function arguments
                 let mut args = Vec::new();
                 for j in 0..function.args.len() {
-                    // detect templates and replace with DB values
-
-                    // testing DB
-                    let _db = self.db.clone(); // arc clone
-
-                    // !!! args with template values will be overwritten by the fuzzer if it's enabled
                     let maybe_fuzz = || {
                         let input_def = func.inputs[j].to_string();
                         // there's probably a better way to do this, but I haven't found it
@@ -263,18 +225,27 @@ where
                         None
                     };
 
+                    // !!! args with template values will be overwritten by the fuzzer if it's enabled for this arg
                     let val = maybe_fuzz().unwrap_or_else(|| {
                         // if fuzzing is not enabled, use default value given in config file
-                        let arg = function.args[j].to_owned();
+                        let arg = &function.args[j];
                         if arg.contains("{") {
-                            replace_templates(&arg, &template_map)
+                            replace_templates(arg, &template_map)
                         } else {
-                            arg
+                            arg.to_owned()
                         }
                     });
                     args.push(val);
                 }
 
+                // replace template value(s) for `to` address
+                let to = maybe_replace(&function.to, &template_map);
+                println!("to: {}", to);
+                let to = to.parse::<Address>().map_err(|e| {
+                    ContenderError::SpamError("failed to parse address", Some(e.to_string()))
+                })?;
+
+                // input should have all template data filled now
                 let input =
                     foundry_common::abi::encode_function_args(&func, args).map_err(|e| {
                         ContenderError::SpamError(
@@ -282,9 +253,8 @@ where
                             Some(e.to_string()),
                         )
                     })?;
-
                 let tx = alloy::rpc::types::TransactionRequest {
-                    to: Some(TxKind::Call(function.to.clone())),
+                    to: Some(TxKind::Call(to)),
                     input: alloy::rpc::types::TransactionInput::both(input.into()),
                     ..Default::default()
                 };
@@ -301,10 +271,15 @@ where
     D: DbOps + Send + Sync + 'static,
 {
     fn get_txs(&self, _amount: usize) -> crate::Result<Vec<NamedTxRequest>> {
-        let mut templates = Vec::new();
+        let mut tx_templates = Vec::new();
+        let mut template_map = HashMap::<String, String>::new();
 
-        if self.config.create.is_some() {
-            templates.extend(self.create_txs());
+        if let Some(create) = &self.config.create {
+            for arg in create.iter() {
+                println!("arg: {:?}", arg);
+                find_template_values(&mut template_map, &arg.bytecode, self.db.as_ref())?;
+            }
+            tx_templates.extend(self.create_txs());
         }
 
         if let Some(setup_steps) = &self.config.setup {
@@ -317,8 +292,10 @@ where
                 })?;
 
                 let mut args = Vec::new();
-                for j in 0..step.args.len() {
-                    args.push(step.args[j].to_owned());
+                for arg in step.args.iter() {
+                    find_template_values(&mut template_map, arg, self.db.as_ref())?;
+                    let arg = maybe_replace(arg, &template_map);
+                    args.push(arg);
                 }
 
                 let input =
@@ -329,16 +306,23 @@ where
                         )
                     })?;
 
+                // check `to` field for template to finish populating the map
+                find_template_values(&mut template_map, &step.to, self.db.as_ref())?;
+                let to = maybe_replace(&step.to, &template_map);
+                let to = to.parse::<Address>().map_err(|e| {
+                    ContenderError::SpamError("failed to parse address", Some(e.to_string()))
+                })?;
+
                 let tx = alloy::rpc::types::TransactionRequest {
-                    to: Some(alloy::primitives::TxKind::Call(step.to.clone())),
+                    to: Some(alloy::primitives::TxKind::Call(to)),
                     input: alloy::rpc::types::TransactionInput::both(input.into()),
                     ..Default::default()
                 };
-                templates.push(tx.into());
+                tx_templates.push(tx.into());
             }
         }
 
-        Ok(templates)
+        Ok(tx_templates)
     }
 }
 
@@ -407,6 +391,54 @@ where
     }
 }
 
+/// Finds all template-value instances in `arg` with values from the DB whose `name` match the {template_name} and saves them into `map`.
+fn find_template_values<D: DbOps>(
+    map: &mut HashMap<String, String>,
+    arg: &str,
+    db: &D,
+) -> crate::Result<()> {
+    // count number of templates (by left brace) in arg
+    let num_template_vals = arg.chars().filter(|&c| c == '{').count();
+    let mut last_end = 0;
+
+    for _ in 0..num_template_vals {
+        if last_end == arg.len() {
+            break;
+        }
+        if let Some(template_start) = arg.split_at(last_end).1.find("{") {
+            let template_end = arg.find("}").ok_or_else(|| {
+                ContenderError::SpamError(
+                    "failed to find end of template value",
+                    Some("missing '}'".to_string()),
+                )
+            })?;
+            last_end = template_end;
+            let template_name = &arg[template_start + 1..template_end];
+            // look up template_name in DB
+            let template_value = db.get_named_tx(template_name).map_err(|e| {
+                ContenderError::SpamError(
+                    "failed to get template value from DB",
+                    Some(e.to_string()),
+                )
+            })?;
+            map.insert(
+                template_name.to_owned(),
+                template_value.1.map(|a| a.encode_hex()).unwrap_or_default(),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn maybe_replace(arg: &str, template_map: &HashMap<String, String>) -> String {
+    if arg.contains("{") {
+        println!("found templates in arg: {}", arg);
+        replace_templates(arg, &template_map)
+    } else {
+        arg.to_owned()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -419,9 +451,7 @@ mod tests {
             create: None,
             setup: None,
             spam: Some(FunctionCallDefinition {
-                to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
-                    .parse::<Address>()
-                    .unwrap(),
+                to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                 from: None,
                 signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
                 args: vec![
@@ -440,9 +470,7 @@ mod tests {
             create: None,
             setup: None,
             spam: Some(FunctionCallDefinition {
-                to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
-                    .parse::<Address>()
-                    .unwrap(),
+                to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                 from: None,
                 signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
                 args: vec![
@@ -466,9 +494,7 @@ mod tests {
             spam: None,
             setup: Some(vec![
                 FunctionCallDefinition {
-                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
-                        .parse::<Address>()
-                        .unwrap(),
+                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                     from: None,
                     signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
                     args: vec![
@@ -480,9 +506,7 @@ mod tests {
                     fuzz: None,
                 },
                 FunctionCallDefinition {
-                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
-                        .parse::<Address>()
-                        .unwrap(),
+                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                     from: None,
                     signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
                     args: vec![
@@ -538,9 +562,7 @@ mod tests {
         println!("{:?}", test_file);
         assert_eq!(
             test_file.spam.unwrap().to,
-            "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
-                .parse::<Address>()
-                .unwrap()
+            "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned()
         )
     }
 
