@@ -129,7 +129,6 @@ impl DbOps for SqliteDb {
 
     fn get_named_tx(&self, name: &str) -> Result<(TxHash, Option<Address>)> {
         let pool = self.get_pool()?;
-        println!("name: {}", name);
         let mut stmt = pool
             .prepare(
                 "SELECT name, tx_hash, contract_address FROM named_txs WHERE name = ?1 ORDER BY id DESC LIMIT 1",
@@ -137,15 +136,11 @@ impl DbOps for SqliteDb {
             .map_err(|e| {
                 ContenderError::DbError("failed to prepare statement", Some(e.to_string()))
             })?;
-        println!("stmt: {:?}", stmt);
         let row = stmt
             .query_map(params![name], |row| NamedTxRow::from_row(row))
             .map_err(|e| ContenderError::DbError("failed to map row", Some(e.to_string())))?;
         let errr = || ContenderError::DbError("no row", None);
-        let res = row.last().ok_or(errr())?.map_err(|_e| {
-            println!("err {}", _e.to_string());
-            errr()
-        })?;
+        let res = row.last().ok_or(errr())?.map_err(|_e| errr())?;
         // wtf this feels so wrong
 
         let tx_hash = TxHash::from_hex(&res.tx_hash)

@@ -18,7 +18,6 @@ use tokio::task::{spawn as spawn_task, JoinHandle};
 use super::NamedTxRequest;
 
 /// A generator that specifically runs *setup* steps (including contract creation) from a TOML file.
-/// // TODO: Contract artifacts are saved into a database, so that they can be accessed by other generators.
 pub struct SetupGenerator<D>
 where
     D: DbOps + Send + Sync + 'static,
