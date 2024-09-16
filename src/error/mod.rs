@@ -3,6 +3,7 @@ use std::error::Error;
 pub enum ContenderError {
     DbError(&'static str, Option<String>),
     SpamError(&'static str, Option<String>),
+    SetupError(&'static str, Option<String>),
 }
 
 impl std::fmt::Display for ContenderError {
@@ -10,6 +11,7 @@ impl std::fmt::Display for ContenderError {
         match self {
             ContenderError::SpamError(msg, _) => write!(f, "SpamError: {}", msg),
             ContenderError::DbError(msg, _) => write!(f, "DatabaseError: {}", msg),
+            ContenderError::SetupError(msg, _) => write!(f, "SetupError: {}", msg),
         }
     }
 }
@@ -23,6 +25,9 @@ impl std::fmt::Debug for ContenderError {
             }
             ContenderError::DbError(msg, e) => {
                 write!(f, "DatabaseError: {} {}", msg, err(e.to_owned()))
+            }
+            ContenderError::SetupError(msg, e) => {
+                write!(f, "SetupError: {} {}", msg, err(e.to_owned()))
             }
         }
     }

@@ -5,7 +5,9 @@ use cli_lib::{ContenderCli, ContenderSubcommand};
 use contender_core::{
     db::{database::DbOps, sqlite::SqliteDb},
     generator::{
-        testfile::{NilCallback, SetupCallback, SetupGenerator, SpamGenerator, TestConfig},
+        testfile::{
+            CreateGenerator, NilCallback, SetupCallback, SetupGenerator, SpamGenerator, TestConfig,
+        },
         RandSeed,
     },
     spammer::Spammer,
@@ -39,11 +41,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .await?;
         }
         ContenderSubcommand::Setup { testfile, rpc_url } => {
-            let testconfig = TestConfig::from_file(&testfile)?.into();
+            let rpc_client = Arc::new(
+                ProviderBuilder::new()
+                    .on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL")),
+            );
+            let testconfig: TestConfig = TestConfig::from_file(&testfile)?;
+
+            // process [[create]] steps; deploys contracts one at a time, updating the DB with each address
+            // so that subsequent steps can reference them
+            let create_gen = CreateGenerator::<SqliteDb>::new(
+                testconfig.to_owned(),
+                Arc::new(DB.clone()),
+                rpc_client.clone(),
+            );
+            create_gen.run().await?;
+
+            // process [[setup]] steps; generates transactions and sends them to the RPC via a Spammer
             let gen = SetupGenerator::<SqliteDb>::new(testconfig, DB.clone());
-            let rpc_client = ProviderBuilder::new()
-                .on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL"));
-            let callback = SetupCallback::new(Arc::new(DB.clone()), Arc::new(rpc_client));
+            let callback = SetupCallback::new(Arc::new(DB.clone()), rpc_client.clone());
             let spammer = Spammer::new(gen, callback, rpc_url);
             spammer.spam_rpc(10, 1).await?;
         }

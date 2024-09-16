@@ -8,7 +8,8 @@ use crate::spammer::SpamCallback;
 use alloy::hex::{FromHex, ToHexExt};
 use alloy::primitives::{Address, TxHash, U256};
 use alloy::primitives::{Bytes, TxKind};
-use alloy::providers::Provider;
+use alloy::providers::{Provider, RootProvider};
+use alloy::transports::http::{Client, Http};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::read;
@@ -16,6 +17,15 @@ use std::sync::Arc;
 use tokio::task::{spawn as spawn_task, JoinHandle};
 
 use super::NamedTxRequest;
+
+pub struct CreateGenerator<D>
+where
+    D: DbOps + Send + Sync + 'static,
+{
+    config: TestConfig,
+    db: Arc<D>,
+    rpc_provider: Arc<RootProvider<Http<Client>>>,
+}
 
 /// A generator that specifically runs *setup* steps (including contract creation) from a TOML file.
 pub struct SetupGenerator<D>
@@ -71,6 +81,7 @@ pub struct CreateDefinition {
     /// Name to identify the contract later.
     pub name: String,
     // TODO: support multiple signers
+    pub from: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Debug, Serialize)]
@@ -108,6 +119,58 @@ where
     }
 }
 
+impl<D> CreateGenerator<D>
+where
+    D: DbOps + Send + Sync + 'static,
+{
+    pub fn new(
+        config: TestConfig,
+        db: Arc<D>,
+        rpc_provider: Arc<RootProvider<Http<Client>>>,
+    ) -> Self {
+        Self {
+            config,
+            db,
+            rpc_provider,
+        }
+    }
+
+    pub async fn run(&self) -> Result<(), ContenderError> {
+        let mut template_map = HashMap::<String, String>::new();
+
+        if let Some(create_steps) = &self.config.create {
+            for step in create_steps.iter() {
+                // find & replace templates in bytecode
+                find_template_values(&mut template_map, &step.bytecode, self.db.as_ref())?;
+                let full_bytecode = replace_templates(&step.bytecode, &template_map);
+
+                let tx = alloy::rpc::types::TransactionRequest {
+                    to: Some(TxKind::Create),
+                    input: alloy::rpc::types::TransactionInput::both(
+                        Bytes::from_hex(&full_bytecode).expect("invalid bytecode hex"),
+                    ),
+                    ..Default::default()
+                };
+                let res = self.rpc_provider.send_transaction(tx).await.map_err(|e| {
+                    ContenderError::SetupError("failed to send setup tx", Some(e.to_string()))
+                })?;
+                let receipt = res.get_receipt().await.map_err(|e| {
+                    ContenderError::SetupError("failed to get receipt for tx", Some(e.to_string()))
+                })?;
+
+                self.db
+                    .insert_named_tx(
+                        step.name.to_owned(),
+                        receipt.transaction_hash,
+                        receipt.contract_address,
+                    )
+                    .expect("failed to insert tx into db");
+            }
+        }
+        Ok(())
+    }
+}
+
 impl<D> SetupGenerator<D>
 where
     D: DbOps + Send + Sync + 'static,
@@ -117,29 +180,6 @@ where
             config,
             db: Arc::new(db),
         }
-    }
-
-    fn create_txs(&self) -> Vec<NamedTxRequest> {
-        let mut templates = Vec::new();
-        if let Some(create_steps) = &self.config.create {
-            for step in create_steps.iter() {
-                let tx = alloy::rpc::types::TransactionRequest {
-                    to: Some(TxKind::Create),
-                    input: alloy::rpc::types::TransactionInput::both(
-                        Bytes::from_hex(&step.bytecode).expect("invalid bytecode hex"),
-                    ),
-                    ..Default::default()
-                };
-                templates.push(NamedTxRequest::with_name(&step.name, tx));
-            }
-        }
-        templates
-    }
-}
-
-impl<D: DbOps + Send + Sync + Default> From<TestConfig> for SetupGenerator<D> {
-    fn from(config: TestConfig) -> Self {
-        Self::new(config, D::default())
     }
 }
 
@@ -264,15 +304,9 @@ where
     D: DbOps + Send + Sync + 'static,
 {
     fn get_txs(&self, _amount: usize) -> crate::Result<Vec<NamedTxRequest>> {
+        // let mut contract_deployments = Vec::new();
         let mut tx_templates = Vec::new();
         let mut template_map = HashMap::<String, String>::new();
-
-        if let Some(create) = &self.config.create {
-            for arg in create.iter() {
-                find_template_values(&mut template_map, &arg.bytecode, self.db.as_ref())?;
-            }
-            tx_templates.extend(self.create_txs());
-        }
 
         if let Some(setup_steps) = &self.config.setup {
             for step in setup_steps.iter() {
@@ -432,6 +466,9 @@ fn maybe_replace(arg: &str, template_map: &HashMap<String, String>) -> String {
 
 #[cfg(test)]
 mod tests {
+    use alloy::providers::ProviderBuilder;
+    use alloy::transports::http::reqwest::Url;
+
     use super::*;
     use crate::db::sqlite::SqliteDb;
     use crate::generator::RandSeed;
@@ -520,6 +557,7 @@ mod tests {
             create: Some(vec![CreateDefinition {
                 bytecode: COUNTER_BYTECODE.to_string(),
                 name: "test_counter".to_string(),
+                from: None,
             }]),
             spam: None,
             setup: None,
@@ -537,22 +575,33 @@ mod tests {
         }
     }
 
-    #[test]
-    fn creates_contracts() {
+    #[tokio::test]
+    #[ignore = "reason: requires node running on localhost:8545"]
+    async fn creates_contracts() -> Result<(), Box<dyn std::error::Error>> {
         let test_file = get_create_testconfig();
-        let setup_gen = SetupGenerator::new(test_file, SqliteDb::new_memory());
-        let txs = setup_gen.create_txs();
-        println!("{:?}", txs);
-        assert_eq!(txs.len(), 1);
-        assert_eq!(txs[0].tx.to, Some(TxKind::Create));
+        let db = Arc::new(SqliteDb::new_memory());
+        db.create_tables().unwrap();
+        // TODO: spawn an anvil instance here instead
+        let rpc_client = ProviderBuilder::new()
+            .on_http(Url::parse("http://localhost:8545").expect("Invalid RPC URL"));
+        let gen = CreateGenerator::new(test_file, db.clone(), Arc::new(rpc_client));
+        let res = gen.run().await;
+        assert!(res.is_ok());
+        // read the contract address from the DB
+        let contract = db.get_named_tx("test_counter")?;
+        assert!(contract.1.is_some());
+
+        Ok(())
     }
 
     #[test]
     fn parses_testconfig_toml() {
         let test_file = TestConfig::from_file("univ2ConfigTest.toml").unwrap();
         println!("{:?}", test_file);
-        // `to` field should be a template; it's [maybe] replaced when processed by a generator
-        assert_eq!(test_file.spam.unwrap().to, "{counter}".to_owned())
+        assert_eq!(
+            test_file.spam.unwrap().from,
+            Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned())
+        )
     }
 
     fn print_testconfig(cfg: &str) {
