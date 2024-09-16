@@ -6,7 +6,7 @@ use contender_core::{
     db::{database::DbOps, sqlite::SqliteDb},
     generator::{
         testfile::{
-            CreateGenerator, NilCallback, SetupCallback, SetupGenerator, SpamGenerator, TestConfig,
+            ContractDeployer, NilCallback, SetupCallback, SetupGenerator, SpamGenerator, TestConfig,
         },
         RandSeed,
     },
@@ -49,12 +49,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // process [[create]] steps; deploys contracts one at a time, updating the DB with each address
             // so that subsequent steps can reference them
-            let create_gen = CreateGenerator::<SqliteDb>::new(
+            let deployer = ContractDeployer::<SqliteDb>::new(
                 testconfig.to_owned(),
                 Arc::new(DB.clone()),
                 rpc_client.clone(),
             );
-            create_gen.run().await?;
+            deployer.run().await?;
 
             // process [[setup]] steps; generates transactions and sends them to the RPC via a Spammer
             let gen = SetupGenerator::<SqliteDb>::new(testconfig, DB.clone());

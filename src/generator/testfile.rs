@@ -18,7 +18,7 @@ use tokio::task::{spawn as spawn_task, JoinHandle};
 
 use super::NamedTxRequest;
 
-pub struct CreateGenerator<D>
+pub struct ContractDeployer<D>
 where
     D: DbOps + Send + Sync + 'static,
 {
@@ -119,7 +119,7 @@ where
     }
 }
 
-impl<D> CreateGenerator<D>
+impl<D> ContractDeployer<D>
 where
     D: DbOps + Send + Sync + 'static,
 {
@@ -299,6 +299,14 @@ where
     }
 }
 
+fn encode_calldata(args: &[String], sig: &str) -> Result<Vec<u8>, ContenderError> {
+    let func = alloy_json_abi::Function::parse(sig).map_err(|e| {
+        ContenderError::SpamError("failed to parse setup function name", Some(e.to_string()))
+    })?;
+    let input = foundry_common::abi::encode_function_args(&func, args).unwrap();
+    Ok(input)
+}
+
 impl<D> Generator for SetupGenerator<D>
 where
     D: DbOps + Send + Sync + 'static,
@@ -310,30 +318,22 @@ where
 
         if let Some(setup_steps) = &self.config.setup {
             for step in setup_steps.iter() {
-                // check `to` field for template to finish populating the map
+                // check `to` field for templates
                 find_template_values(&mut template_map, &step.to, self.db.as_ref())?;
-
-                let mut args = Vec::new();
+                // check all args for templates
                 for arg in step.args.iter() {
                     find_template_values(&mut template_map, arg, self.db.as_ref())?;
-                    let arg = maybe_replace(arg, &template_map);
-                    args.push(arg);
                 }
+                // map should be fully populated now with all the template values we need for our txs
 
-                let func = alloy_json_abi::Function::parse(&step.signature).map_err(|e| {
-                    ContenderError::SpamError(
-                        "failed to parse setup function name",
-                        Some(e.to_string()),
-                    )
-                })?;
-                let input =
-                    foundry_common::abi::encode_function_args(&func, args).map_err(|e| {
-                        ContenderError::SpamError(
-                            "failed to encode setup function arguments.",
-                            Some(e.to_string()),
-                        )
-                    })?;
+                // rebuild args with template values
+                let args = step
+                    .args
+                    .iter()
+                    .map(|arg| maybe_replace(arg, &template_map))
+                    .collect::<Vec<String>>();
 
+                let input = encode_calldata(&args, &step.signature)?;
                 let to = maybe_replace(&step.to, &template_map);
                 let to = to.parse::<Address>().map_err(|e| {
                     ContenderError::SpamError("failed to parse address", Some(e.to_string()))
@@ -584,7 +584,7 @@ mod tests {
         // TODO: spawn an anvil instance here instead
         let rpc_client = ProviderBuilder::new()
             .on_http(Url::parse("http://localhost:8545").expect("Invalid RPC URL"));
-        let gen = CreateGenerator::new(test_file, db.clone(), Arc::new(rpc_client));
+        let gen = ContractDeployer::new(test_file, db.clone(), Arc::new(rpc_client));
         let res = gen.run().await;
         assert!(res.is_ok());
         // read the contract address from the DB
