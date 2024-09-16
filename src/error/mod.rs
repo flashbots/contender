@@ -6,6 +6,12 @@ pub enum ContenderError {
     SetupError(&'static str, Option<String>),
 }
 
+impl ContenderError {
+    pub fn with_err(msg: &'static str, err: &dyn Error) -> Self {
+        ContenderError::DbError(msg, Some(err.to_string()))
+    }
+}
+
 impl std::fmt::Display for ContenderError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
