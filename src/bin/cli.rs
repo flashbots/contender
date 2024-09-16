@@ -1,77 +1,28 @@
-use clap::{Parser, Subcommand};
+mod cli_lib;
+
+use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
+use cli_lib::{ContenderCli, ContenderSubcommand};
 use contender_core::{
+    db::{database::DbOps, sqlite::SqliteDb},
     generator::{
-        test_config::{TestConfig, TestGenerator},
+        testfile::{
+            ContractDeployer, NilCallback, SetupCallback, SetupGenerator, SpamGenerator, TestConfig,
+        },
         RandSeed,
     },
     spammer::Spammer,
 };
+use std::sync::{Arc, LazyLock};
 
-#[derive(Parser, Debug)]
-struct ContenderCli {
-    #[command(subcommand)]
-    command: ContenderSubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-enum ContenderSubcommand {
-    #[command(name = "spam", long_about = "Spam the RPC with tx requests.")]
-    Spam {
-        /// The path to the test file to use for spamming.
-        testfile: String,
-
-        /// The RPC URL to spam with requests.
-        rpc_url: String,
-
-        /// The number of txs to send per second.
-        #[arg(short, long, default_value = "10", long_help = "Number of txs to send per second", visible_aliases = &["tps"])]
-        intensity: Option<usize>,
-
-        /// The duration of the spamming run in seconds.
-        #[arg(
-            short,
-            long,
-            default_value = "60",
-            long_help = "Duration of the spamming run in seconds"
-        )]
-        duration: Option<usize>,
-
-        /// The seed to use for generating spam transactions. If not provided, one is generated.
-        #[arg(
-            short,
-            long,
-            long_help = "The seed to use for generating spam transactions"
-        )]
-        seed: Option<String>,
-    },
-
-    #[command(
-        name = "report",
-        long_about = "Export performance reports for data analysis."
-    )]
-    Report {
-        /// The run ID to export reports for. If not provided, the latest run is used.
-        #[arg(
-            short,
-            long,
-            long_help = "The run ID to export reports for. If not provided, the latest run is used."
-        )]
-        id: Option<String>,
-
-        /// The path to save the report to.
-        /// If not provided, the report is saved to the current directory.
-        #[arg(
-            short,
-            long,
-            long_help = "Filename of the saved report. May be a fully-qualified path. If not provided, the report is saved to the current directory."
-        )]
-        out_file: Option<String>,
-    },
-}
+// TODO: is this the best solution? feels like there's something better out there lmao
+static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
+    SqliteDb::from_file("contender.db").expect("failed to open contender.db")
+});
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = ContenderCli::parse();
+    let args = ContenderCli::parse_args();
+    let _ = DB.create_tables(); // ignore error; tables already exist
     match args.command {
         ContenderSubcommand::Spam {
             testfile,
@@ -82,9 +33,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             let testfile = TestConfig::from_file(&testfile)?;
             let rand_seed = seed.map(|s| RandSeed::from_str(&s)).unwrap_or_default();
-            let testgen = TestGenerator::new(testfile, &rand_seed);
-            let spammer = Spammer::new(testgen, rpc_url);
-            spammer.spam_rpc(intensity.unwrap_or_default(), duration.unwrap_or_default())?;
+            let gen = SpamGenerator::new(testfile, &rand_seed, DB.clone());
+            let callback = NilCallback::new();
+            let spammer = Spammer::new(gen, callback, rpc_url);
+            spammer
+                .spam_rpc(intensity.unwrap_or_default(), duration.unwrap_or_default())
+                .await?;
+        }
+        ContenderSubcommand::Setup { testfile, rpc_url } => {
+            let rpc_client = Arc::new(
+                ProviderBuilder::new()
+                    .on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL")),
+            );
+            let testconfig: TestConfig = TestConfig::from_file(&testfile)?;
+
+            // process [[create]] steps; deploys contracts one at a time, updating the DB with each address
+            // so that subsequent steps can reference them
+            let deployer = ContractDeployer::<SqliteDb>::new(
+                testconfig.to_owned(),
+                Arc::new(DB.clone()),
+                rpc_client.clone(),
+            );
+            deployer.run().await?;
+
+            // process [[setup]] steps; generates transactions and sends them to the RPC via a Spammer
+            let gen = SetupGenerator::<SqliteDb>::new(testconfig, DB.clone());
+            let callback = SetupCallback::new(Arc::new(DB.clone()), rpc_client.clone());
+            let spammer = Spammer::new(gen, callback, rpc_url);
+            spammer.spam_rpc(10, 1).await?;
         }
         ContenderSubcommand::Report { id, out_file } => {
             println!(

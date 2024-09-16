@@ -1,17 +1,44 @@
-# Uniswap V2 spammer example configuration
+# (to be a) Uniswap V2 spammer example configuration
 
-to = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
+### create contracts, refer to them by their names in latter steps using curly braces
+[[create]]
+# TODO: use uniswap bytecode (this is actually Counter.sol)
+bytecode = "0x608060405234801561001057600080fd5b5060f78061001f6000396000f3fe6080604052348015600f57600080fd5b5060043610603c5760003560e01c80633fb5c1cb1460415780638381f58a146053578063d09de08a14606d575b600080fd5b6051604c3660046083565b600055565b005b605b60005481565b60405190815260200160405180910390f35b6051600080549080607c83609b565b9190505550565b600060208284031215609457600080fd5b5035919050565b60006001820160ba57634e487b7160e01b600052601160045260246000fd5b506001019056fea264697066735822122010f3077836fb83a22ad708a23102f2b487523767e1afef5a93c614619001648b64736f6c63430008170033"
+name = "uniRouterV2"
+
+### setup contracts
+[[setup]]
+to = "{uniRouterV2}"
 from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+signature = "approve(address spender, uint256 amount) returns (bool)"
+args = [
+     "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+     "100000000000000000"
+]
 
-[function]
+[[setup]]
+to = "{uniRouterV2}"
+from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+signature = "approve(address spender, uint256 amount) returns (bool)"
+args = [
+     "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+     "100000000000000000"
+]
+
+### the spam step will be repeated
+[spam]
+to = "{uniRouterV2}"
+from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 signature = "swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline) external returns (uint256[] memory)"
 args = [
      "10",
      "1",
      '[0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2, 0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48]',
-     "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
+     "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
      "1000000000000000000"
 ]
-fuzz = [
-    { name = "amountIn", min = "1", max = "10000000000000000000"}
-]
+
+[[spam.fuzz]]
+name = "amountIn"
+min = "1"
+max = "10000000000000000000"
