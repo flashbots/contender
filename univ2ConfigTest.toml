@@ -1,5 +1,4 @@
 # (to be a) Uniswap V2 spammer example configuration
-# this is (currently) a nonsense example that just demonstrates the config format, so the spam transactions will mostly fail
 
 ### create contracts, refer to them by their names in latter steps using curly braces
 [[create]]
@@ -26,10 +25,9 @@ args = [
      "100000000000000000"
 ]
 
-### the spam step will be repeated with the `spam` command
+### the spam step will be repeated
 [spam]
 to = "{uniRouterV2}"
-# TODO: the `to` address should be {uniRouterV2} but we're in dev mode until we get some proper uniswap bytecode
 from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 signature = "swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline) external returns (uint256[] memory)"
 args = [
