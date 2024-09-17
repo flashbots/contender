@@ -90,7 +90,7 @@ pub struct CreateDefinition {
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct FuzzParam {
     /// Name of the parameter to fuzz.
-    pub name: String,
+    pub param: String,
     /// Minimum value fuzzer will use.
     pub min: Option<U256>,
     /// Maximum value fuzzer will use.
@@ -239,15 +239,15 @@ where
             let mut map = HashMap::<String, Vec<U256>>::new();
 
             // pre-generate fuzzy params
-            if let Some(fuzz_params) = function.fuzz.as_ref() {
+            if let Some(fuzz_args) = function.fuzz.as_ref() {
                 // NOTE: This will only generate a single 32-byte value for each fuzzed parameter. Fuzzing values in arrays/structs is not yet supported.
-                for fparam in fuzz_params.iter() {
+                for fuzz_arg in fuzz_args.iter() {
                     let values = self
                         .seed
-                        .seed_values(amount, fparam.min, fparam.max)
+                        .seed_values(amount, fuzz_arg.min, fuzz_arg.max)
                         .map(|v| v.as_u256())
                         .collect::<Vec<U256>>();
-                    map.insert(fparam.name.to_owned(), values);
+                    map.insert(fuzz_arg.param.to_owned(), values);
                 }
             }
 
@@ -537,7 +537,7 @@ mod tests {
                     "0xbeef".to_owned(),
                 ],
                 fuzz: Some(vec![FuzzParam {
-                    name: "x".to_string(),
+                    param: "x".to_string(),
                     min: None,
                     max: None,
                 }]),
