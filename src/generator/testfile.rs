@@ -72,7 +72,7 @@ pub struct FunctionCallDefinition {
     /// Name of the function to call.
     pub signature: String,
     /// Parameters to pass to the function.
-    pub args: Vec<String>,
+    pub args: Option<Vec<String>>,
     /// Parameters to fuzz during the test.
     pub fuzz: Option<Vec<FuzzParam>>,
 }
@@ -251,7 +251,8 @@ where
                 }
             }
 
-            for arg in function.args.iter() {
+            let fn_args = function.args.to_owned().unwrap_or_default();
+            for arg in fn_args.iter() {
                 find_template_values(&mut template_map, arg, self.db.as_ref())?;
             }
             find_template_values(&mut template_map, &function.to, self.db.as_ref())?;
@@ -260,7 +261,7 @@ where
             for i in 0..amount {
                 // encode function arguments
                 let mut args = Vec::new();
-                for j in 0..function.args.len() {
+                for j in 0..fn_args.len() {
                     let maybe_fuzz = || {
                         let input_def = func.inputs[j].to_string();
                         // there's probably a better way to do this, but I haven't found it
@@ -279,7 +280,7 @@ where
 
                     // !!! args with template values will be overwritten by the fuzzer if it's enabled for this arg
                     let val = maybe_fuzz().unwrap_or_else(|| {
-                        let arg = &function.args[j];
+                        let arg = &fn_args[j];
                         if arg.contains("{") {
                             replace_templates(arg, &template_map)
                         } else {
@@ -342,17 +343,17 @@ where
 
         if let Some(setup_steps) = &self.config.setup {
             for step in setup_steps.iter() {
+                let step_args = step.args.to_owned().unwrap_or_default();
                 // check `to` field for templates
                 find_template_values(&mut template_map, &step.to, self.db.as_ref())?;
                 // check all args for templates
-                for arg in step.args.iter() {
+                for arg in step_args.iter() {
                     find_template_values(&mut template_map, arg, self.db.as_ref())?;
                 }
                 // map should be fully populated now with all the template values we need for our txs
 
                 // rebuild args with template values
-                let args = step
-                    .args
+                let args = step_args
                     .iter()
                     .map(|arg| maybe_replace(arg, &template_map))
                     .collect::<Vec<String>>();
@@ -515,7 +516,8 @@ mod tests {
                     "2".to_owned(),
                     Address::repeat_byte(0x11).encode_hex(),
                     "0xdead".to_owned(),
-                ],
+                ]
+                .into(),
                 fuzz: None,
             }),
         }
@@ -535,12 +537,14 @@ mod tests {
                     "2".to_owned(),
                     Address::repeat_byte(0x11).encode_hex(),
                     "0xbeef".to_owned(),
-                ],
-                fuzz: Some(vec![FuzzParam {
+                ]
+                .into(),
+                fuzz: vec![FuzzParam {
                     param: "x".to_string(),
                     min: None,
                     max: None,
-                }]),
+                }]
+                .into(),
             }),
         }
     }
@@ -550,7 +554,7 @@ mod tests {
             env: None,
             create: None,
             spam: None,
-            setup: Some(vec![
+            setup: vec![
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                     from: None,
@@ -560,7 +564,8 @@ mod tests {
                         "2".to_owned(),
                         Address::repeat_byte(0x11).encode_hex(),
                         "0xdead".to_owned(),
-                    ],
+                    ]
+                    .into(),
                     fuzz: None,
                 },
                 FunctionCallDefinition {
@@ -572,10 +577,12 @@ mod tests {
                         "2".to_owned(),
                         Address::repeat_byte(0x11).encode_hex(),
                         "0xbeef".to_owned(),
-                    ],
+                    ]
+                    .into(),
                     fuzz: None,
                 },
-            ]),
+            ]
+            .into(),
         }
     }
 
@@ -657,9 +664,10 @@ mod tests {
         cfg.save_toml("cargotest.toml").unwrap();
         let test_file2 = TestConfig::from_file("cargotest.toml").unwrap();
         let func = cfg.clone().spam.unwrap();
+        let args = func.args.unwrap();
         assert_eq!(func.to, test_file2.spam.unwrap().to);
-        assert_eq!(func.args[0], "1");
-        assert_eq!(func.args[1], "2");
+        assert_eq!(args[0], "1");
+        assert_eq!(args[1], "2");
         fs::remove_file("cargotest.toml").unwrap();
     }
 
