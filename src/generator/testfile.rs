@@ -451,15 +451,17 @@ fn find_template_values<D: DbOps>(
     let num_template_vals = arg.chars().filter(|&c| c == '{').count();
     let mut last_end = 0;
 
-    for i in 0..num_template_vals {
-        if let Some(template_start) = arg.split_at(last_end).1.find("{") {
-            let template_end = arg.split_at(last_end).1.find("}").ok_or_else(|| {
+    for _ in 0..num_template_vals {
+        let template_value = arg.split_at(last_end).1;
+        if let Some(template_start) = template_value.find("{") {
+            let template_end = template_value.find("}").ok_or_else(|| {
                 ContenderError::SpamError(
                     "failed to find end of template value",
                     Some("missing '}'".to_string()),
                 )
             })?;
-            let template_name = &arg.split_at(last_end).1[template_start + 1..template_end];
+            let template_name = &template_value[template_start + 1..template_end];
+            last_end = template_end + 1;
 
             // if value not already in map, look up in DB
             if map.contains_key(template_name) {
@@ -476,7 +478,6 @@ fn find_template_values<D: DbOps>(
                 template_name.to_owned(),
                 template_value.1.map(|a| a.encode_hex()).unwrap_or_default(),
             );
-            last_end = template_end + 1;
         }
     }
     Ok(())
