@@ -50,6 +50,9 @@ where
 /// TOML file format.
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct TestConfig {
+    /// Template variables
+    pub env: Option<HashMap<String, String>>,
+
     /// Contract deployments; array of hex-encoded bytecode strings.
     pub create: Option<Vec<CreateDefinition>>,
 
@@ -138,6 +141,13 @@ where
     pub async fn run(&self) -> Result<(), ContenderError> {
         let mut template_map = HashMap::<String, String>::new();
 
+        // load values from [env] section
+        if let Some(env) = &self.config.env {
+            for (key, value) in env.iter() {
+                template_map.insert(key.to_owned(), value.to_owned());
+            }
+        }
+
         if let Some(create_steps) = &self.config.create {
             for step in create_steps.iter() {
                 // find & replace templates in bytecode
@@ -210,6 +220,15 @@ where
 {
     fn get_txs(&self, amount: usize) -> Result<Vec<NamedTxRequest>, ContenderError> {
         let mut templates = Vec::new();
+        // find all {templates} and fetch their values from the DB
+        let mut template_map = HashMap::<String, String>::new();
+
+        // load values from [env] section
+        if let Some(env) = &self.config.env {
+            for (key, value) in env.iter() {
+                template_map.insert(key.to_owned(), value.to_owned());
+            }
+        }
 
         if let Some(function) = &self.config.spam {
             let func = alloy_json_abi::Function::parse(&function.signature).map_err(|e| {
@@ -232,8 +251,6 @@ where
                 }
             }
 
-            // find all {templates} and fetch their values from the DB
-            let mut template_map = HashMap::<String, String>::new();
             for arg in function.args.iter() {
                 find_template_values(&mut template_map, arg, self.db.as_ref())?;
             }
@@ -315,6 +332,13 @@ where
         // let mut contract_deployments = Vec::new();
         let mut tx_templates = Vec::new();
         let mut template_map = HashMap::<String, String>::new();
+
+        // load values from [env] section
+        if let Some(env) = &self.config.env {
+            for (key, value) in env.iter() {
+                template_map.insert(key.to_owned(), value.to_owned());
+            }
+        }
 
         if let Some(setup_steps) = &self.config.setup {
             for step in setup_steps.iter() {
@@ -427,30 +451,32 @@ fn find_template_values<D: DbOps>(
     let num_template_vals = arg.chars().filter(|&c| c == '{').count();
     let mut last_end = 0;
 
-    for _ in 0..num_template_vals {
-        if last_end == arg.len() {
-            break;
-        }
+    for i in 0..num_template_vals {
         if let Some(template_start) = arg.split_at(last_end).1.find("{") {
-            let template_end = arg.find("}").ok_or_else(|| {
+            let template_end = arg.split_at(last_end).1.find("}").ok_or_else(|| {
                 ContenderError::SpamError(
                     "failed to find end of template value",
                     Some("missing '}'".to_string()),
                 )
             })?;
-            last_end = template_end;
-            let template_name = &arg[template_start + 1..template_end];
-            // look up template_name in DB
+            let template_name = &arg.split_at(last_end).1[template_start + 1..template_end];
+
+            // if value not already in map, look up in DB
+            if map.contains_key(template_name) {
+                continue;
+            }
+
             let template_value = db.get_named_tx(template_name).map_err(|e| {
                 ContenderError::SpamError(
                     "failed to get template value from DB",
-                    Some(e.to_string()),
+                    Some(format!("value={} ({})", template_name, e)),
                 )
             })?;
             map.insert(
                 template_name.to_owned(),
                 template_value.1.map(|a| a.encode_hex()).unwrap_or_default(),
             );
+            last_end = template_end + 1;
         }
     }
     Ok(())
@@ -476,16 +502,17 @@ mod tests {
 
     fn get_testconfig() -> TestConfig {
         TestConfig {
+            env: None,
             create: None,
             setup: None,
             spam: Some(FunctionCallDefinition {
                 to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD".to_owned(),
                 from: None,
-                signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
+                signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
                 args: vec![
                     "1".to_owned(),
                     "2".to_owned(),
-                    Address::repeat_byte(0x11).to_string(),
+                    Address::repeat_byte(0x11).encode_hex(),
                     "0xdead".to_owned(),
                 ],
                 fuzz: None,
@@ -495,16 +522,17 @@ mod tests {
 
     fn get_fuzzy_testconfig() -> TestConfig {
         TestConfig {
+            env: None,
             create: None,
             setup: None,
             spam: Some(FunctionCallDefinition {
                 to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                 from: None,
-                signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
+                signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
                 args: vec![
                     "1".to_owned(),
                     "2".to_owned(),
-                    Address::repeat_byte(0x11).to_string(),
+                    Address::repeat_byte(0x11).encode_hex(),
                     "0xbeef".to_owned(),
                 ],
                 fuzz: Some(vec![FuzzParam {
@@ -518,17 +546,18 @@ mod tests {
 
     fn get_setup_testconfig() -> TestConfig {
         TestConfig {
+            env: None,
             create: None,
             spam: None,
             setup: Some(vec![
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                     from: None,
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
+                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
-                        Address::repeat_byte(0x11).to_string(),
+                        Address::repeat_byte(0x11).encode_hex(),
                         "0xdead".to_owned(),
                     ],
                     fuzz: None,
@@ -536,11 +565,11 @@ mod tests {
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                     from: None,
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
+                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
-                        Address::repeat_byte(0x11).to_string(),
+                        Address::repeat_byte(0x11).encode_hex(),
                         "0xbeef".to_owned(),
                     ],
                     fuzz: None,
@@ -553,7 +582,11 @@ mod tests {
         "0x608060405234801561001057600080fd5b5060f78061001f6000396000f3fe6080604052348015600f57600080fd5b5060043610603c5760003560e01c80633fb5c1cb1460415780638381f58a146053578063d09de08a14606d575b600080fd5b6051604c3660046083565b600055565b005b605b60005481565b60405190815260200160405180910390f35b6051600080549080607c83609b565b9190505550565b600060208284031215609457600080fd5b5035919050565b60006001820160ba57634e487b7160e01b600052601160045260246000fd5b506001019056fea264697066735822122010f3077836fb83a22ad708a23102f2b487523767e1afef5a93c614619001648b64736f6c63430008170033";
 
     fn get_create_testconfig() -> TestConfig {
+        let mut env = HashMap::new();
+        env.insert("test1".to_owned(), "0xbeef".to_owned());
+        env.insert("test2".to_owned(), "0x9001".to_owned());
         TestConfig {
+            env: Some(env),
             create: Some(vec![CreateDefinition {
                 bytecode: COUNTER_BYTECODE.to_string(),
                 name: "test_counter".to_string(),
@@ -569,6 +602,7 @@ mod tests {
         let tc_setup = get_setup_testconfig();
         let tc_create = get_create_testconfig();
         TestConfig {
+            env: tc_create.env, // TODO: add something here
             create: tc_create.create,
             spam: tc_fuzz.spam,
             setup: tc_setup.setup,
@@ -597,7 +631,11 @@ mod tests {
     #[test]
     fn parses_testconfig_toml() {
         let test_file = TestConfig::from_file("univ2ConfigTest.toml").unwrap();
-        println!("{:?}", test_file);
+        let env = test_file.env.unwrap();
+        assert_eq!(
+            env.get("feeToSetter").unwrap(),
+            "0000000000000000000000000000000000000000"
+        );
         assert_eq!(
             test_file.spam.unwrap().from,
             Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned())
