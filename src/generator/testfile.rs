@@ -73,6 +73,8 @@ pub struct FunctionCallDefinition {
     pub signature: String,
     /// Parameters to pass to the function.
     pub args: Option<Vec<String>>,
+    /// Value in wei to send with the tx.
+    pub value: Option<String>,
     /// Parameters to fuzz during the test.
     pub fuzz: Option<Vec<FuzzParam>>,
 }
@@ -295,6 +297,12 @@ where
                 let to = to.parse::<Address>().map_err(|e| {
                     ContenderError::SpamError("failed to parse address", Some(e.to_string()))
                 })?;
+                let value = function
+                    .value
+                    .as_ref()
+                    .map(|s| maybe_replace(s, &template_map))
+                    .map(|s| s.parse::<U256>().ok())
+                    .flatten();
 
                 // input should have all template data filled now
                 let input =
@@ -307,6 +315,7 @@ where
                 let tx = alloy::rpc::types::TransactionRequest {
                     to: Some(TxKind::Call(to)),
                     input: alloy::rpc::types::TransactionInput::both(input.into()),
+                    value,
                     ..Default::default()
                 };
                 templates.push(tx.into());
@@ -363,10 +372,17 @@ where
                 let to = to.parse::<Address>().map_err(|e| {
                     ContenderError::SpamError("failed to parse address", Some(e.to_string()))
                 })?;
+                let value = step
+                    .value
+                    .as_ref()
+                    .map(|s| maybe_replace(s, &template_map))
+                    .map(|s| s.parse::<U256>().ok())
+                    .flatten();
 
                 let tx = alloy::rpc::types::TransactionRequest {
                     to: Some(alloy::primitives::TxKind::Call(to)),
                     input: alloy::rpc::types::TransactionInput::both(input.into()),
+                    value,
                     ..Default::default()
                 };
                 tx_templates.push(tx.into());
@@ -519,6 +535,7 @@ mod tests {
                 ]
                 .into(),
                 fuzz: None,
+                value: None,
             }),
         }
     }
@@ -531,6 +548,7 @@ mod tests {
             spam: Some(FunctionCallDefinition {
                 to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                 from: None,
+                value: None,
                 signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
                 args: vec![
                     "1".to_owned(),
@@ -558,6 +576,7 @@ mod tests {
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                     from: None,
+                    value: Some("4096".to_owned()),
                     signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
                     args: vec![
                         "1".to_owned(),
@@ -571,6 +590,7 @@ mod tests {
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                     from: None,
+                    value: Some("0x1000".to_owned()),
                     signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
                     args: vec![
                         "1".to_owned(),
@@ -647,7 +667,11 @@ mod tests {
         assert_eq!(
             test_file.spam.unwrap().from,
             Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned())
-        )
+        );
+        assert!(test_file.setup.is_some());
+        let setup = test_file.setup.unwrap();
+        assert_eq!(setup.len(), 2);
+        assert_eq!(setup[0].value, Some("1000000000000000000".to_owned()));
     }
 
     fn print_testconfig(cfg: &str) {
