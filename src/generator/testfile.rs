@@ -60,7 +60,7 @@ pub struct TestConfig {
     pub setup: Option<Vec<FunctionCallDefinition>>,
 
     /// Function to call in spam txs.
-    pub spam: Option<FunctionCallDefinition>,
+    pub spam: Option<Vec<FunctionCallDefinition>>,
 }
 
 #[derive(Clone, Deserialize, Debug, Serialize)]
@@ -221,7 +221,7 @@ where
     D: DbOps + Send + Sync + 'static,
 {
     fn get_txs(&self, amount: usize) -> Result<Vec<NamedTxRequest>, ContenderError> {
-        let mut templates = Vec::new();
+        let mut templates: Vec<NamedTxRequest> = vec![];
         // find all {templates} and fetch their values from the DB
         let mut template_map = HashMap::<String, String>::new();
 
@@ -231,8 +231,12 @@ where
                 template_map.insert(key.to_owned(), value.to_owned());
             }
         }
+        let spam = self.config.spam.as_ref().ok_or(ContenderError::SpamError(
+            "no spam configuration found",
+            None,
+        ))?;
 
-        if let Some(function) = &self.config.spam {
+        for function in spam.iter() {
             let func = alloy_json_abi::Function::parse(&function.signature).map_err(|e| {
                 ContenderError::SpamError("failed to parse function name", Some(e.to_string()))
             })?;
@@ -246,7 +250,7 @@ where
                 for fuzz_arg in fuzz_args.iter() {
                     let values = self
                         .seed
-                        .seed_values(amount, fuzz_arg.min, fuzz_arg.max)
+                        .seed_values(amount / spam.len(), fuzz_arg.min, fuzz_arg.max)
                         .map(|v| v.as_u256())
                         .collect::<Vec<U256>>();
                     map.insert(fuzz_arg.param.to_owned(), values);
@@ -259,8 +263,8 @@ where
             }
             find_template_values(&mut template_map, &function.to, self.db.as_ref())?;
 
-            // generate spam txs
-            for i in 0..amount {
+            // generate spam txs; split total amount by number of spam steps
+            for i in 0..(amount / spam.len()) {
                 // encode function arguments
                 let mut args = Vec::new();
                 for j in 0..fn_args.len() {
@@ -297,6 +301,10 @@ where
                 let to = to.parse::<Address>().map_err(|e| {
                     ContenderError::SpamError("failed to parse address", Some(e.to_string()))
                 })?;
+                let from = function
+                    .from
+                    .as_ref()
+                    .map(|s| s.parse().expect("failed to parse 'from' address"));
                 let value = function
                     .value
                     .as_ref()
@@ -314,6 +322,7 @@ where
                     })?;
                 let tx = alloy::rpc::types::TransactionRequest {
                     to: Some(TxKind::Call(to)),
+                    from,
                     input: alloy::rpc::types::TransactionInput::both(input.into()),
                     value,
                     ..Default::default()
@@ -322,7 +331,17 @@ where
             }
         }
 
-        Ok(templates)
+        // interleave spam txs to evenly distribute various calls
+        // this may create contention if different senders are specified for each call
+        let spam_len = spam.len();
+        let chunksize = templates.len() / spam_len;
+        let mut new_templates = vec![];
+        for i in 0..templates.len() {
+            let idx = i + (chunksize * (i % spam_len)) - ((i + 1) / spam_len);
+            new_templates.push(templates[idx].to_owned());
+        }
+
+        Ok(new_templates)
     }
 }
 
@@ -372,6 +391,10 @@ where
                 let to = to.parse::<Address>().map_err(|e| {
                     ContenderError::SpamError("failed to parse address", Some(e.to_string()))
                 })?;
+                let from = step
+                    .from
+                    .as_ref()
+                    .map(|s| s.parse().expect("failed to parse 'from' address"));
                 let value = step
                     .value
                     .as_ref()
@@ -382,6 +405,7 @@ where
                 let tx = alloy::rpc::types::TransactionRequest {
                     to: Some(alloy::primitives::TxKind::Call(to)),
                     input: alloy::rpc::types::TransactionInput::both(input.into()),
+                    from,
                     value,
                     ..Default::default()
                 };
@@ -523,7 +547,7 @@ mod tests {
             env: None,
             create: None,
             setup: None,
-            spam: Some(FunctionCallDefinition {
+            spam: vec![FunctionCallDefinition {
                 to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD".to_owned(),
                 from: None,
                 signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
@@ -536,7 +560,8 @@ mod tests {
                 .into(),
                 fuzz: None,
                 value: None,
-            }),
+            }]
+            .into(),
         }
     }
 
@@ -545,7 +570,7 @@ mod tests {
             env: None,
             create: None,
             setup: None,
-            spam: Some(FunctionCallDefinition {
+            spam: vec![FunctionCallDefinition {
                 to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                 from: None,
                 value: None,
@@ -563,7 +588,8 @@ mod tests {
                     max: None,
                 }]
                 .into(),
-            }),
+            }]
+            .into(),
         }
     }
 
@@ -659,19 +685,28 @@ mod tests {
     #[test]
     fn parses_testconfig_toml() {
         let test_file = TestConfig::from_file("univ2ConfigTest.toml").unwrap();
+        assert!(test_file.env.is_some());
+        assert!(test_file.setup.is_some());
+        assert!(test_file.spam.is_some());
         let env = test_file.env.unwrap();
+        let setup = test_file.setup.unwrap();
+        let spam = test_file.spam.unwrap();
+
         assert_eq!(
             env.get("feeToSetter").unwrap(),
-            "0000000000000000000000000000000000000000"
+            "f39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
         );
         assert_eq!(
-            test_file.spam.unwrap().from,
-            Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned())
+            spam[0].from,
+            Some("0x70997970C51812dc3A010C7d01b50e0d17dc79C8".to_owned())
         );
-        assert!(test_file.setup.is_some());
-        let setup = test_file.setup.unwrap();
-        assert_eq!(setup.len(), 2);
-        assert_eq!(setup[0].value, Some("1000000000000000000".to_owned()));
+        assert_eq!(setup.len(), 11);
+        assert_eq!(setup[0].value, Some("100000000000000000000".to_owned()));
+        assert_eq!(spam[0].fuzz.as_ref().unwrap()[0].param, "amountIn");
+        assert_eq!(
+            spam[1].fuzz.as_ref().unwrap()[0].min,
+            Some(U256::from(100000000))
+        );
     }
 
     fn print_testconfig(cfg: &str) {
@@ -687,9 +722,9 @@ mod tests {
         print_testconfig(&encoded);
         cfg.save_toml("cargotest.toml").unwrap();
         let test_file2 = TestConfig::from_file("cargotest.toml").unwrap();
-        let func = cfg.clone().spam.unwrap();
-        let args = func.args.unwrap();
-        assert_eq!(func.to, test_file2.spam.unwrap().to);
+        let spam = cfg.clone().spam.unwrap();
+        let args = spam[0].args.as_ref().unwrap();
+        assert_eq!(spam[0].to, test_file2.spam.unwrap()[0].to);
         assert_eq!(args[0], "1");
         assert_eq!(args[1], "2");
         fs::remove_file("cargotest.toml").unwrap();
