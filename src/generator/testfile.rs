@@ -336,8 +336,14 @@ where
         let spam_len = spam.len();
         let chunksize = templates.len() / spam_len;
         let mut new_templates = vec![];
-        for i in 0..templates.len() {
-            let idx = i + (chunksize * (i % spam_len)) - ((i + 1) / spam_len);
+        let max_idx = if templates.len() % spam_len != 0 {
+            templates.len() - (templates.len() % spam_len)
+        } else {
+            templates.len() - 1
+        };
+        for i in 0..max_idx {
+            let chunk_idx = chunksize * (i % spam_len);
+            let idx = (i / spam_len) + chunk_idx;
             new_templates.push(templates[idx].to_owned());
         }
 
@@ -566,30 +572,30 @@ mod tests {
     }
 
     fn get_fuzzy_testconfig() -> TestConfig {
+        let fn_call = |data: &str| FunctionCallDefinition {
+            to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
+            from: None,
+            value: None,
+            signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+            args: vec![
+                "1".to_owned(),
+                "2".to_owned(),
+                Address::repeat_byte(0x11).encode_hex(),
+                data.to_owned(),
+            ]
+            .into(),
+            fuzz: vec![FuzzParam {
+                param: "x".to_string(),
+                min: None,
+                max: None,
+            }]
+            .into(),
+        };
         TestConfig {
             env: None,
             create: None,
             setup: None,
-            spam: vec![FunctionCallDefinition {
-                to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                from: None,
-                value: None,
-                signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
-                args: vec![
-                    "1".to_owned(),
-                    "2".to_owned(),
-                    Address::repeat_byte(0x11).encode_hex(),
-                    "0xbeef".to_owned(),
-                ]
-                .into(),
-                fuzz: vec![FuzzParam {
-                    param: "x".to_string(),
-                    min: None,
-                    max: None,
-                }]
-                .into(),
-            }]
-            .into(),
+            spam: vec![fn_call("0xbeef"), fn_call("0xea75"), fn_call("0xf00d")].into(),
         }
     }
 
@@ -737,7 +743,6 @@ mod tests {
         let test_gen = SpamGenerator::new(test_file, &seed, SqliteDb::new_memory());
         // this seed can be used to recreate the same test tx(s)
         let spam_txs = test_gen.get_txs(1).unwrap();
-        println!("generated test tx(s): {:?}", spam_txs);
         assert_eq!(spam_txs.len(), 1);
         let data = spam_txs[0].tx.input.input.to_owned().unwrap().to_string();
         assert_eq!(data, "0x022c0d9f00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002000000000000000000000000111111111111111111111111111111111111111100000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000002dead000000000000000000000000000000000000000000000000000000000000");
@@ -748,15 +753,13 @@ mod tests {
         let test_file = get_fuzzy_testconfig();
         let seed = RandSeed::from_bytes(&[0x01; 32]);
         let test_gen = SpamGenerator::new(test_file, &seed, SqliteDb::new_memory());
-        let num_txs = 3;
+        let num_txs = 12;
         let spam_txs_1 = test_gen.get_txs(num_txs).unwrap();
         let spam_txs_2 = test_gen.get_txs(num_txs).unwrap();
-        for i in 0..num_txs {
+        for i in 0..spam_txs_1.len() {
             let data1 = spam_txs_1[i].tx.input.input.to_owned().unwrap().to_string();
             let data2 = spam_txs_2[i].tx.input.input.to_owned().unwrap().to_string();
             assert_eq!(data1, data2);
-            println!("data1: {}", data1);
-            println!("data2: {}", data2);
         }
     }
 }
