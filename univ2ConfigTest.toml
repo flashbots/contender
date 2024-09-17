@@ -1,9 +1,9 @@
 # Uniswap V2 spammer example configuration
 
 ### template variables can be set here, but may be overridden by command line options
-### also note: it's up to you to correctly pad these values to the required length, otherwise contract deployments may fail
+### also note: it's up to you to correctly pad these values to the required length and omit a leading 0x, otherwise contract deployments may fail
 [env]
-feeToSetter = "0000000000000000000000000000000000000000"
+feeToSetter = "f39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 initialSupply = "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 
 ### create contracts, refer to them by their names in latter steps using curly braces
@@ -33,6 +33,24 @@ signature = "function deposit() public payable"
 value = "10000000000000000000"
 
 [[setup]]
+to = "{uniV2Factory}"
+from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+signature = "function createPair(address tokenA, address tokenB) external returns (address pair)"
+args = [
+     "{weth}",
+     "{testToken}"
+]
+
+[[setup]]
+to = "{weth}"
+from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+signature = "approve(address spender, uint256 amount) returns (bool)"
+args = [
+     "{uniRouterV2}",
+     "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+]
+
+[[setup]]
 to = "{testToken}"
 from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 signature = "approve(address spender, uint256 amount) returns (bool)"
@@ -42,17 +60,19 @@ args = [
 ]
 
 [[setup]]
-to = "{uniV2Factory}"
+to = "{uniRouterV2}"
 from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-signature = "function createPair(address tokenA, address tokenB) external returns (address pair)"
+signature = "addLiquidity(address tokenA, address tokenB, uint amountADesired, uint amountBDesired, uint amountAMin, uint amountBMin, address to, uint deadline) returns (uint amountA, uint amountB, uint liquidity)"
 args = [
      "{weth}",
-     "{testToken}"
+     "{testToken}",
+     "100000000000000000",
+     "100000000000000000000",
+     "10000000000000000",
+     "10000000000000000000",
+     "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+     "10000000000000" # deadline
 ]
-# TODO: need a way to get the contract address returned from this call
-
-
-# TODO: add setup step to create univ2 pool
 
 ### the spam step will be repeated
 [spam]
