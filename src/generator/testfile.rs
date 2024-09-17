@@ -50,6 +50,9 @@ where
 /// TOML file format.
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct TestConfig {
+    /// Template variables
+    pub env: Option<HashMap<String, String>>,
+
     /// Contract deployments; array of hex-encoded bytecode strings.
     pub create: Option<Vec<CreateDefinition>>,
 
@@ -57,7 +60,7 @@ pub struct TestConfig {
     pub setup: Option<Vec<FunctionCallDefinition>>,
 
     /// Function to call in spam txs.
-    pub spam: Option<FunctionCallDefinition>,
+    pub spam: Option<Vec<FunctionCallDefinition>>,
 }
 
 #[derive(Clone, Deserialize, Debug, Serialize)]
@@ -69,7 +72,9 @@ pub struct FunctionCallDefinition {
     /// Name of the function to call.
     pub signature: String,
     /// Parameters to pass to the function.
-    pub args: Vec<String>,
+    pub args: Option<Vec<String>>,
+    /// Value in wei to send with the tx.
+    pub value: Option<String>,
     /// Parameters to fuzz during the test.
     pub fuzz: Option<Vec<FuzzParam>>,
 }
@@ -87,7 +92,7 @@ pub struct CreateDefinition {
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct FuzzParam {
     /// Name of the parameter to fuzz.
-    pub name: String,
+    pub param: String,
     /// Minimum value fuzzer will use.
     pub min: Option<U256>,
     /// Maximum value fuzzer will use.
@@ -137,6 +142,13 @@ where
 
     pub async fn run(&self) -> Result<(), ContenderError> {
         let mut template_map = HashMap::<String, String>::new();
+
+        // load values from [env] section
+        if let Some(env) = &self.config.env {
+            for (key, value) in env.iter() {
+                template_map.insert(key.to_owned(), value.to_owned());
+            }
+        }
 
         if let Some(create_steps) = &self.config.create {
             for step in create_steps.iter() {
@@ -209,9 +221,22 @@ where
     D: DbOps + Send + Sync + 'static,
 {
     fn get_txs(&self, amount: usize) -> Result<Vec<NamedTxRequest>, ContenderError> {
-        let mut templates = Vec::new();
+        let mut templates: Vec<NamedTxRequest> = vec![];
+        // find all {templates} and fetch their values from the DB
+        let mut template_map = HashMap::<String, String>::new();
 
-        if let Some(function) = &self.config.spam {
+        // load values from [env] section
+        if let Some(env) = &self.config.env {
+            for (key, value) in env.iter() {
+                template_map.insert(key.to_owned(), value.to_owned());
+            }
+        }
+        let spam = self.config.spam.as_ref().ok_or(ContenderError::SpamError(
+            "no spam configuration found",
+            None,
+        ))?;
+
+        for function in spam.iter() {
             let func = alloy_json_abi::Function::parse(&function.signature).map_err(|e| {
                 ContenderError::SpamError("failed to parse function name", Some(e.to_string()))
             })?;
@@ -220,30 +245,29 @@ where
             let mut map = HashMap::<String, Vec<U256>>::new();
 
             // pre-generate fuzzy params
-            if let Some(fuzz_params) = function.fuzz.as_ref() {
+            if let Some(fuzz_args) = function.fuzz.as_ref() {
                 // NOTE: This will only generate a single 32-byte value for each fuzzed parameter. Fuzzing values in arrays/structs is not yet supported.
-                for fparam in fuzz_params.iter() {
+                for fuzz_arg in fuzz_args.iter() {
                     let values = self
                         .seed
-                        .seed_values(amount, fparam.min, fparam.max)
+                        .seed_values(amount / spam.len(), fuzz_arg.min, fuzz_arg.max)
                         .map(|v| v.as_u256())
                         .collect::<Vec<U256>>();
-                    map.insert(fparam.name.to_owned(), values);
+                    map.insert(fuzz_arg.param.to_owned(), values);
                 }
             }
 
-            // find all {templates} and fetch their values from the DB
-            let mut template_map = HashMap::<String, String>::new();
-            for arg in function.args.iter() {
+            let fn_args = function.args.to_owned().unwrap_or_default();
+            for arg in fn_args.iter() {
                 find_template_values(&mut template_map, arg, self.db.as_ref())?;
             }
             find_template_values(&mut template_map, &function.to, self.db.as_ref())?;
 
-            // generate spam txs
-            for i in 0..amount {
+            // generate spam txs; split total amount by number of spam steps
+            for i in 0..(amount / spam.len()) {
                 // encode function arguments
                 let mut args = Vec::new();
-                for j in 0..function.args.len() {
+                for j in 0..fn_args.len() {
                     let maybe_fuzz = || {
                         let input_def = func.inputs[j].to_string();
                         // there's probably a better way to do this, but I haven't found it
@@ -262,7 +286,7 @@ where
 
                     // !!! args with template values will be overwritten by the fuzzer if it's enabled for this arg
                     let val = maybe_fuzz().unwrap_or_else(|| {
-                        let arg = &function.args[j];
+                        let arg = &fn_args[j];
                         if arg.contains("{") {
                             replace_templates(arg, &template_map)
                         } else {
@@ -277,6 +301,16 @@ where
                 let to = to.parse::<Address>().map_err(|e| {
                     ContenderError::SpamError("failed to parse address", Some(e.to_string()))
                 })?;
+                let from = function
+                    .from
+                    .as_ref()
+                    .map(|s| s.parse().expect("failed to parse 'from' address"));
+                let value = function
+                    .value
+                    .as_ref()
+                    .map(|s| maybe_replace(s, &template_map))
+                    .map(|s| s.parse::<U256>().ok())
+                    .flatten();
 
                 // input should have all template data filled now
                 let input =
@@ -288,14 +322,26 @@ where
                     })?;
                 let tx = alloy::rpc::types::TransactionRequest {
                     to: Some(TxKind::Call(to)),
+                    from,
                     input: alloy::rpc::types::TransactionInput::both(input.into()),
+                    value,
                     ..Default::default()
                 };
                 templates.push(tx.into());
             }
         }
 
-        Ok(templates)
+        // interleave spam txs to evenly distribute various calls
+        // this may create contention if different senders are specified for each call
+        let spam_len = spam.len();
+        let chunksize = templates.len() / spam_len;
+        let mut new_templates = vec![];
+        for i in 0..templates.len() {
+            let idx = i + (chunksize * (i % spam_len)) - ((i + 1) / spam_len);
+            new_templates.push(templates[idx].to_owned());
+        }
+
+        Ok(new_templates)
     }
 }
 
@@ -316,19 +362,26 @@ where
         let mut tx_templates = Vec::new();
         let mut template_map = HashMap::<String, String>::new();
 
+        // load values from [env] section
+        if let Some(env) = &self.config.env {
+            for (key, value) in env.iter() {
+                template_map.insert(key.to_owned(), value.to_owned());
+            }
+        }
+
         if let Some(setup_steps) = &self.config.setup {
             for step in setup_steps.iter() {
+                let step_args = step.args.to_owned().unwrap_or_default();
                 // check `to` field for templates
                 find_template_values(&mut template_map, &step.to, self.db.as_ref())?;
                 // check all args for templates
-                for arg in step.args.iter() {
+                for arg in step_args.iter() {
                     find_template_values(&mut template_map, arg, self.db.as_ref())?;
                 }
                 // map should be fully populated now with all the template values we need for our txs
 
                 // rebuild args with template values
-                let args = step
-                    .args
+                let args = step_args
                     .iter()
                     .map(|arg| maybe_replace(arg, &template_map))
                     .collect::<Vec<String>>();
@@ -338,10 +391,22 @@ where
                 let to = to.parse::<Address>().map_err(|e| {
                     ContenderError::SpamError("failed to parse address", Some(e.to_string()))
                 })?;
+                let from = step
+                    .from
+                    .as_ref()
+                    .map(|s| s.parse().expect("failed to parse 'from' address"));
+                let value = step
+                    .value
+                    .as_ref()
+                    .map(|s| maybe_replace(s, &template_map))
+                    .map(|s| s.parse::<U256>().ok())
+                    .flatten();
 
                 let tx = alloy::rpc::types::TransactionRequest {
                     to: Some(alloy::primitives::TxKind::Call(to)),
                     input: alloy::rpc::types::TransactionInput::both(input.into()),
+                    from,
+                    value,
                     ..Default::default()
                 };
                 tx_templates.push(tx.into());
@@ -428,23 +493,26 @@ fn find_template_values<D: DbOps>(
     let mut last_end = 0;
 
     for _ in 0..num_template_vals {
-        if last_end == arg.len() {
-            break;
-        }
-        if let Some(template_start) = arg.split_at(last_end).1.find("{") {
-            let template_end = arg.find("}").ok_or_else(|| {
+        let template_value = arg.split_at(last_end).1;
+        if let Some(template_start) = template_value.find("{") {
+            let template_end = template_value.find("}").ok_or_else(|| {
                 ContenderError::SpamError(
                     "failed to find end of template value",
                     Some("missing '}'".to_string()),
                 )
             })?;
-            last_end = template_end;
-            let template_name = &arg[template_start + 1..template_end];
-            // look up template_name in DB
+            let template_name = &template_value[template_start + 1..template_end];
+            last_end = template_end + 1;
+
+            // if value not already in map, look up in DB
+            if map.contains_key(template_name) {
+                continue;
+            }
+
             let template_value = db.get_named_tx(template_name).map_err(|e| {
                 ContenderError::SpamError(
                     "failed to get template value from DB",
-                    Some(e.to_string()),
+                    Some(format!("value={} ({})", template_name, e)),
                 )
             })?;
             map.insert(
@@ -476,76 +544,91 @@ mod tests {
 
     fn get_testconfig() -> TestConfig {
         TestConfig {
+            env: None,
             create: None,
             setup: None,
-            spam: Some(FunctionCallDefinition {
+            spam: vec![FunctionCallDefinition {
                 to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD".to_owned(),
                 from: None,
-                signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
+                signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
                 args: vec![
                     "1".to_owned(),
                     "2".to_owned(),
-                    Address::repeat_byte(0x11).to_string(),
+                    Address::repeat_byte(0x11).encode_hex(),
                     "0xdead".to_owned(),
-                ],
+                ]
+                .into(),
                 fuzz: None,
-            }),
+                value: None,
+            }]
+            .into(),
         }
     }
 
     fn get_fuzzy_testconfig() -> TestConfig {
         TestConfig {
+            env: None,
             create: None,
             setup: None,
-            spam: Some(FunctionCallDefinition {
+            spam: vec![FunctionCallDefinition {
                 to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                 from: None,
-                signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
+                value: None,
+                signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
                 args: vec![
                     "1".to_owned(),
                     "2".to_owned(),
-                    Address::repeat_byte(0x11).to_string(),
+                    Address::repeat_byte(0x11).encode_hex(),
                     "0xbeef".to_owned(),
-                ],
-                fuzz: Some(vec![FuzzParam {
-                    name: "x".to_string(),
+                ]
+                .into(),
+                fuzz: vec![FuzzParam {
+                    param: "x".to_string(),
                     min: None,
                     max: None,
-                }]),
-            }),
+                }]
+                .into(),
+            }]
+            .into(),
         }
     }
 
     fn get_setup_testconfig() -> TestConfig {
         TestConfig {
+            env: None,
             create: None,
             spam: None,
-            setup: Some(vec![
+            setup: vec![
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                     from: None,
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
+                    value: Some("4096".to_owned()),
+                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
-                        Address::repeat_byte(0x11).to_string(),
+                        Address::repeat_byte(0x11).encode_hex(),
                         "0xdead".to_owned(),
-                    ],
+                    ]
+                    .into(),
                     fuzz: None,
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                     from: None,
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_string(),
+                    value: Some("0x1000".to_owned()),
+                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
-                        Address::repeat_byte(0x11).to_string(),
+                        Address::repeat_byte(0x11).encode_hex(),
                         "0xbeef".to_owned(),
-                    ],
+                    ]
+                    .into(),
                     fuzz: None,
                 },
-            ]),
+            ]
+            .into(),
         }
     }
 
@@ -553,7 +636,11 @@ mod tests {
         "0x608060405234801561001057600080fd5b5060f78061001f6000396000f3fe6080604052348015600f57600080fd5b5060043610603c5760003560e01c80633fb5c1cb1460415780638381f58a146053578063d09de08a14606d575b600080fd5b6051604c3660046083565b600055565b005b605b60005481565b60405190815260200160405180910390f35b6051600080549080607c83609b565b9190505550565b600060208284031215609457600080fd5b5035919050565b60006001820160ba57634e487b7160e01b600052601160045260246000fd5b506001019056fea264697066735822122010f3077836fb83a22ad708a23102f2b487523767e1afef5a93c614619001648b64736f6c63430008170033";
 
     fn get_create_testconfig() -> TestConfig {
+        let mut env = HashMap::new();
+        env.insert("test1".to_owned(), "0xbeef".to_owned());
+        env.insert("test2".to_owned(), "0x9001".to_owned());
         TestConfig {
+            env: Some(env),
             create: Some(vec![CreateDefinition {
                 bytecode: COUNTER_BYTECODE.to_string(),
                 name: "test_counter".to_string(),
@@ -569,6 +656,7 @@ mod tests {
         let tc_setup = get_setup_testconfig();
         let tc_create = get_create_testconfig();
         TestConfig {
+            env: tc_create.env, // TODO: add something here
             create: tc_create.create,
             spam: tc_fuzz.spam,
             setup: tc_setup.setup,
@@ -597,11 +685,28 @@ mod tests {
     #[test]
     fn parses_testconfig_toml() {
         let test_file = TestConfig::from_file("univ2ConfigTest.toml").unwrap();
-        println!("{:?}", test_file);
+        assert!(test_file.env.is_some());
+        assert!(test_file.setup.is_some());
+        assert!(test_file.spam.is_some());
+        let env = test_file.env.unwrap();
+        let setup = test_file.setup.unwrap();
+        let spam = test_file.spam.unwrap();
+
         assert_eq!(
-            test_file.spam.unwrap().from,
-            Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned())
-        )
+            env.get("feeToSetter").unwrap(),
+            "f39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+        );
+        assert_eq!(
+            spam[0].from,
+            Some("0x70997970C51812dc3A010C7d01b50e0d17dc79C8".to_owned())
+        );
+        assert_eq!(setup.len(), 11);
+        assert_eq!(setup[0].value, Some("100000000000000000000".to_owned()));
+        assert_eq!(spam[0].fuzz.as_ref().unwrap()[0].param, "amountIn");
+        assert_eq!(
+            spam[1].fuzz.as_ref().unwrap()[0].min,
+            Some(U256::from(100000000))
+        );
     }
 
     fn print_testconfig(cfg: &str) {
@@ -617,10 +722,11 @@ mod tests {
         print_testconfig(&encoded);
         cfg.save_toml("cargotest.toml").unwrap();
         let test_file2 = TestConfig::from_file("cargotest.toml").unwrap();
-        let func = cfg.clone().spam.unwrap();
-        assert_eq!(func.to, test_file2.spam.unwrap().to);
-        assert_eq!(func.args[0], "1");
-        assert_eq!(func.args[1], "2");
+        let spam = cfg.clone().spam.unwrap();
+        let args = spam[0].args.as_ref().unwrap();
+        assert_eq!(spam[0].to, test_file2.spam.unwrap()[0].to);
+        assert_eq!(args[0], "1");
+        assert_eq!(args[1], "2");
         fs::remove_file("cargotest.toml").unwrap();
     }
 

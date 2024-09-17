@@ -53,7 +53,10 @@ where
 
             // send tx to the RPC asynchrononsly
             tasks.push(spawn_task(async move {
-                println!("sending tx. input={:?}", tx.tx.input.input);
+                println!(
+                    "sending tx. from={:#?} input={:?}",
+                    tx.tx.from, tx.tx.input.input
+                );
                 let res = rpc_client.send_transaction(tx.tx).await.unwrap();
                 let maybe_handle = callback_handler.on_tx_sent(*res.tx_hash(), tx.name);
                 if let Some(handle) = maybe_handle {
