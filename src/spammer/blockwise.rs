@@ -1,16 +1,11 @@
-use std::sync::Arc;
-
+use crate::{generator::Generator, Result};
 use alloy::hex::ToHexExt;
-use alloy::signers::k256::elliptic_curve::rand_core::block;
 use alloy::{
     providers::{Provider, ProviderBuilder},
     transports::http::reqwest::Url,
 };
 use futures::StreamExt;
-use std::borrow::BorrowMut;
-
-use crate::generator::NamedTxRequest;
-use crate::{generator::Generator, Result};
+use std::sync::Arc;
 
 use super::{util::RpcProvider, SpamCallback};
 
@@ -61,8 +56,6 @@ where
         let mut tasks = vec![];
 
         while let Some(block_hash) = stream.next().await {
-            // let block_txs = tx_req_chunks.next();
-            // let block_txs = &tx_req_slices[block_offset];
             let block_txs = tx_req_chunks[block_offset].clone();
             block_offset += 1;
 
@@ -93,7 +86,7 @@ where
                     let res = rpc_client.send_transaction(tx_req).await.unwrap();
                     let maybe_handle = callback_handler.on_tx_sent(*res.tx_hash(), tx.name.clone());
                     if let Some(handle) = maybe_handle {
-                        handle.await.unwrap();
+                        handle.await.expect("callback task failed");
                     } // ignore None values so we don't attempt to await them
                 }));
             }
@@ -101,12 +94,7 @@ where
         }
 
         for task in tasks {
-            task.await.map_err(|e| {
-                crate::error::ContenderError::SpamError(
-                    "failed to join task handle",
-                    Some(e.to_string()),
-                )
-            })?;
+            let _ = task.await;
         }
         Ok(())
     }
