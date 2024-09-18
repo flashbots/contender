@@ -574,7 +574,9 @@ pub mod tests {
     pub fn get_fuzzy_testconfig() -> TestConfig {
         let fn_call = |data: &str| FunctionCallDefinition {
             to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-            from: None,
+            from: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+                .to_owned()
+                .into(),
             value: None,
             signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
             args: vec![

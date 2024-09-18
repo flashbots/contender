@@ -1,10 +1,16 @@
+use crate::error::ContenderError;
 use crate::{generator::Generator, Result};
 use alloy::hex::ToHexExt;
+use alloy::network::{EthereumWallet, TransactionBuilder};
+use alloy::primitives::{Address, FixedBytes};
+use alloy::signers::local::PrivateKeySigner;
 use alloy::{
     providers::{Provider, ProviderBuilder},
     transports::http::reqwest::Url,
 };
 use futures::StreamExt;
+use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use super::{util::RpcProvider, SpamCallback};
@@ -17,6 +23,7 @@ where
     generator: G,
     rpc_client: Arc<RpcProvider>,
     callback_handler: Arc<F>,
+    signers: HashMap<Address, EthereumWallet>,
 }
 
 impl<G, F> BlockwiseSpammer<G, F>
@@ -24,13 +31,32 @@ where
     G: Generator,
     F: SpamCallback + Send + Sync + 'static,
 {
-    pub fn new(generator: G, callback_handler: F, rpc_url: impl AsRef<str>) -> Self {
+    pub fn new(
+        generator: G,
+        callback_handler: F,
+        rpc_url: impl AsRef<str>,
+        prv_keys: &[impl AsRef<str>],
+    ) -> Self {
         let rpc_client =
             ProviderBuilder::new().on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL"));
+
+        let signers = prv_keys.iter().map(|k| {
+            let key = k.as_ref();
+            let signer = PrivateKeySigner::from_str(key).expect("Invalid private key");
+            let addr = signer.address();
+            (addr, signer)
+        });
+        // populate hashmap with signers where address is the key, signer is the value
+        let mut signer_map: HashMap<Address, EthereumWallet> = HashMap::new();
+        for (addr, signer) in signers {
+            signer_map.insert(addr, signer.into());
+        }
+
         Self {
             generator,
             rpc_client: Arc::new(rpc_client),
             callback_handler: Arc::new(callback_handler),
+            signers: signer_map,
         }
     }
 
@@ -54,12 +80,31 @@ where
             .take(num_blocks);
 
         let mut tasks = vec![];
+        let signers = Arc::new(self.signers.clone());
+        let mut gas_limits = HashMap::<FixedBytes<4>, u128>::new();
 
         while let Some(block_hash) = stream.next().await {
             let block_txs = tx_req_chunks[block_offset].clone();
             block_offset += 1;
 
-            for tx in block_txs {
+            // get gas price
+            let gas_price = self.rpc_client.get_gas_price().await.map_err(|e| {
+                ContenderError::SpamError("failed to get gas price", e.to_string().into())
+            })?;
+            // get nonce for each signer and put it into a hashmap
+            let mut nonces = HashMap::new();
+            for (addr, _signer) in signers.iter() {
+                println!("getting nonce for {}", addr.encode_hex());
+                let nonce = self
+                    .rpc_client
+                    .get_transaction_count(*addr)
+                    .await
+                    .map_err(|_| ContenderError::SpamError("failed to get nonce", None))?;
+                nonces.insert(*addr, nonce);
+            }
+
+            for (idx, tx) in block_txs.into_iter().enumerate() {
+                let gas_price = gas_price + (idx as u128 * 1e9 as u128);
                 let tx_req = tx.tx.to_owned();
                 println!(
                     "sending tx. from={} to={} input={}",
@@ -78,12 +123,59 @@ where
                         .unwrap_or_default(),
                 );
 
+                let from = &tx_req.from.expect("missing from address");
+                let nonce = nonces.get(from).expect("failed to get nonce").to_owned();
+                nonces.insert(from.to_owned(), nonce + 1);
+
+                let fn_sig = FixedBytes::<4>::from_slice(
+                    tx.tx
+                        .to_owned()
+                        .input
+                        .input
+                        .map(|b| b.split_at(4).0.to_owned())
+                        .expect("invalid function call")
+                        .as_slice(),
+                );
+
+                if !gas_limits.contains_key(fn_sig.as_slice()) {
+                    let gas_limit = self
+                        .rpc_client
+                        .estimate_gas(&tx.tx.to_owned())
+                        .await
+                        .map_err(|e| {
+                            ContenderError::SpamError(
+                                "failed to estimate gas",
+                                e.to_string().into(),
+                            )
+                        })?;
+                    gas_limits.insert(fn_sig, gas_limit);
+                }
+
                 // clone muh Arcs
                 let rpc_client = self.rpc_client.clone();
                 let callback_handler = self.callback_handler.clone();
+                let signers = signers.clone();
+                let gas_limits = gas_limits.clone(); // not an arc but I need it cloned anyways
 
                 tasks.push(tokio::task::spawn(async move {
-                    let res = rpc_client.send_transaction(tx_req).await.unwrap();
+                    let signer = signers
+                        .get(&tx_req.from.expect("missing from address"))
+                        .expect("failed to create signer");
+                    let provider = ProviderBuilder::new()
+                        .wallet(signer)
+                        .on_provider(rpc_client);
+                    let gas_limit = gas_limits
+                        .get(&fn_sig)
+                        .expect("failed to get gas limit")
+                        .to_owned();
+
+                    let full_tx = tx_req
+                        .clone()
+                        .with_nonce(nonce)
+                        .with_gas_price(gas_price)
+                        .with_gas_limit(gas_limit);
+
+                    let res = provider.send_transaction(full_tx).await.unwrap();
                     let maybe_handle = callback_handler.on_tx_sent(*res.tx_hash(), tx.name.clone());
                     if let Some(handle) = maybe_handle {
                         handle.await.expect("callback task failed");
@@ -115,9 +207,19 @@ mod tests {
         let generator = crate::generator::testfile::SpamGenerator::new(conf, &seed, db.clone());
         let callback_handler = MockCallback;
         let rpc_url = "http://localhost:8545";
-        let spammer = BlockwiseSpammer::new(generator, callback_handler, rpc_url);
+        let spammer = BlockwiseSpammer::new(
+            generator,
+            callback_handler,
+            rpc_url,
+            &vec![
+                "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+                "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+                "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
+            ],
+        );
 
         let result = spammer.spam_rpc(10, 10).await;
+        println!("{:?}", result);
         assert!(result.is_ok());
     }
 }
