@@ -10,7 +10,7 @@ use contender_core::{
         },
         RandSeed,
     },
-    spammer::Spammer,
+    spammer::timed::TimedSpammer,
 };
 use std::sync::{Arc, LazyLock};
 
@@ -24,22 +24,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = ContenderCli::parse_args();
     let _ = DB.create_tables(); // ignore error; tables already exist
     match args.command {
-        ContenderSubcommand::Spam {
-            testfile,
-            rpc_url,
-            intensity,
-            duration,
-            seed,
-        } => {
-            let testfile = TestConfig::from_file(&testfile)?;
-            let rand_seed = seed.map(|s| RandSeed::from_str(&s)).unwrap_or_default();
-            let gen = SpamGenerator::new(testfile, &rand_seed, DB.clone());
-            let callback = NilCallback::new();
-            let spammer = Spammer::new(gen, callback, rpc_url);
-            spammer
-                .spam_rpc(intensity.unwrap_or_default(), duration.unwrap_or_default())
-                .await?;
-        }
         ContenderSubcommand::Setup { testfile, rpc_url } => {
             let rpc_client = Arc::new(
                 ProviderBuilder::new()
@@ -59,8 +43,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // process [[setup]] steps; generates transactions and sends them to the RPC via a Spammer
             let gen = SetupGenerator::<SqliteDb>::new(testconfig, DB.clone());
             let callback = SetupCallback::new(Arc::new(DB.clone()), rpc_client.clone());
-            let spammer = Spammer::new(gen, callback, rpc_url);
+            let spammer = TimedSpammer::new(gen, callback, rpc_url);
             spammer.spam_rpc(10, 1).await?;
+        }
+        ContenderSubcommand::Spam {
+            testfile,
+            rpc_url,
+            intensity,
+            duration,
+            seed,
+        } => {
+            let testfile = TestConfig::from_file(&testfile)?;
+            let rand_seed = seed.map(|s| RandSeed::from_str(&s)).unwrap_or_default();
+            let gen = SpamGenerator::new(testfile, &rand_seed, DB.clone());
+            let callback = NilCallback::new();
+            let spammer = TimedSpammer::new(gen, callback, rpc_url);
+            spammer
+                .spam_rpc(intensity.unwrap_or_default(), duration.unwrap_or_default())
+                .await?;
         }
         ContenderSubcommand::Report { id, out_file } => {
             println!(
