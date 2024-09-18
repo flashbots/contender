@@ -742,8 +742,9 @@ mod tests {
         let seed = RandSeed::new();
         let test_gen = SpamGenerator::new(test_file, &seed, SqliteDb::new_memory());
         // this seed can be used to recreate the same test tx(s)
-        let spam_txs = test_gen.get_txs(1).unwrap();
-        assert_eq!(spam_txs.len(), 1);
+        let spam_txs = test_gen.get_txs(10).unwrap();
+        // amount may be truncated if it doesn't divide evenly with the number of spam steps
+        assert_eq!(spam_txs.len(), 9);
         let data = spam_txs[0].tx.input.input.to_owned().unwrap().to_string();
         assert_eq!(data, "0x022c0d9f00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002000000000000000000000000111111111111111111111111111111111111111100000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000002dead000000000000000000000000000000000000000000000000000000000000");
     }
