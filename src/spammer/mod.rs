@@ -1,4 +1,5 @@
 use crate::{generator::Generator, Result};
+use alloy::hex::ToHexExt;
 use alloy::{
     primitives::TxHash,
     providers::Provider,
@@ -53,9 +54,22 @@ where
 
             // send tx to the RPC asynchrononsly
             tasks.push(spawn_task(async move {
+                let tx_req = &tx.tx;
                 println!(
-                    "sending tx. from={:#?} input={:?}",
-                    tx.tx.from, tx.tx.input.input
+                    "sending tx. from={} to={} input={}",
+                    tx_req.from.map(|s| s.encode_hex()).unwrap_or_default(),
+                    tx_req
+                        .to
+                        .map(|s| s.to().map(|s| *s))
+                        .flatten()
+                        .map(|s| s.encode_hex())
+                        .unwrap_or_default(),
+                    tx_req
+                        .input
+                        .input
+                        .as_ref()
+                        .map(|s| s.encode_hex())
+                        .unwrap_or_default(),
                 );
                 let res = rpc_client.send_transaction(tx.tx).await.unwrap();
                 let maybe_handle = callback_handler.on_tx_sent(*res.tx_hash(), tx.name);
