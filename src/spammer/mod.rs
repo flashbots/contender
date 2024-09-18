@@ -1,4 +1,6 @@
+pub mod blockwise;
 pub mod timed;
+pub mod util;
 
 use alloy::primitives::TxHash;
 use tokio::task::JoinHandle;
