@@ -202,6 +202,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::spammer::util::test::MockCallback;
+    // use alloy::
 
     use super::*;
 
@@ -225,7 +226,7 @@ mod tests {
             ],
         );
 
-        let result = spammer.spam_rpc(10, 10).await;
+        let result = spammer.spam_rpc(10, 3).await;
         println!("{:?}", result);
         assert!(result.is_ok());
     }

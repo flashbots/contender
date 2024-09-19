@@ -237,7 +237,7 @@ where
         ))?;
 
         for function in spam.iter() {
-            let func = alloy_json_abi::Function::parse(&function.signature).map_err(|e| {
+            let func = alloy::json_abi::Function::parse(&function.signature).map_err(|e| {
                 ContenderError::SpamError("failed to parse function name", Some(e.to_string()))
             })?;
 
@@ -257,6 +257,7 @@ where
                 }
             }
 
+            // find templates in fn args & `to`
             let fn_args = function.args.to_owned().unwrap_or_default();
             for arg in fn_args.iter() {
                 find_template_values(&mut template_map, arg, self.db.as_ref())?;
@@ -294,9 +295,10 @@ where
                         }
                     });
                     args.push(val);
-                }
+                } // args should have all template data filled now
+                let input = self.encode_calldata(&args, &function.signature)?;
 
-                // replace template value(s) for `to` address
+                // replace template value(s) for tx params
                 let to = maybe_replace(&function.to, &template_map);
                 let to = to.parse::<Address>().map_err(|e| {
                     ContenderError::SpamError("failed to parse address", Some(e.to_string()))
@@ -312,14 +314,6 @@ where
                     .map(|s| s.parse::<U256>().ok())
                     .flatten();
 
-                // input should have all template data filled now
-                let input =
-                    foundry_common::abi::encode_function_args(&func, args).map_err(|e| {
-                        ContenderError::SpamError(
-                            "failed to encode function arguments.",
-                            Some(e.to_string()),
-                        )
-                    })?;
                 let tx = alloy::rpc::types::TransactionRequest {
                     to: Some(TxKind::Call(to)),
                     from,
@@ -349,14 +343,6 @@ where
 
         Ok(new_templates)
     }
-}
-
-fn encode_calldata(args: &[String], sig: &str) -> Result<Vec<u8>, ContenderError> {
-    let func = alloy_json_abi::Function::parse(sig).map_err(|e| {
-        ContenderError::SpamError("failed to parse setup function name", Some(e.to_string()))
-    })?;
-    let input = foundry_common::abi::encode_function_args(&func, args).unwrap();
-    Ok(input)
 }
 
 impl<D> Generator for SetupGenerator<D>
@@ -392,7 +378,7 @@ where
                     .map(|arg| maybe_replace(arg, &template_map))
                     .collect::<Vec<String>>();
 
-                let input = encode_calldata(&args, &step.signature)?;
+                let input = self.encode_calldata(&args, &step.signature)?;
                 let to = maybe_replace(&step.to, &template_map);
                 let to = to.parse::<Address>().map_err(|e| {
                     ContenderError::SpamError("failed to parse address", Some(e.to_string()))
