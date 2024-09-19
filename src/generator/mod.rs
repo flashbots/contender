@@ -63,7 +63,7 @@ pub trait Generator {
     /// ```
     fn encode_calldata(&self, args: &[impl AsRef<str>], sig: &str) -> Result<Vec<u8>> {
         let func = json_abi::Function::parse(&sig).map_err(|e| {
-            ContenderError::SpamError("failed to parse setup function name", Some(e.to_string()))
+            ContenderError::SpamError("failed to parse function name", Some(e.to_string()))
         })?;
         let values: Vec<DynSolValue> = args
             .iter()
@@ -72,14 +72,11 @@ pub trait Generator {
                 let mut argtype = String::new();
                 func.inputs[idx].full_selector_type_raw(&mut argtype);
                 let r#type = DynSolType::parse(&argtype).map_err(|e| {
-                    ContenderError::SpamError(
-                        "failed to parse function signature",
-                        Some(e.to_string()),
-                    )
+                    ContenderError::SpamError("failed to parse function type", Some(e.to_string()))
                 })?;
                 r#type.coerce_str(arg.as_ref()).map_err(|e| {
                     ContenderError::SpamError(
-                        "failed to coerce args to function signature",
+                        "failed to coerce arg to DynSolValue",
                         Some(e.to_string()),
                     )
                 })
