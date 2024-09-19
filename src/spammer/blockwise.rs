@@ -1,4 +1,5 @@
 use crate::error::ContenderError;
+use crate::generator::util::RpcProvider;
 use crate::{generator::Generator, Result};
 use alloy::hex::ToHexExt;
 use alloy::network::{EthereumWallet, TransactionBuilder};
@@ -14,7 +15,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::task;
 
-use super::{util::RpcProvider, SpamCallback};
+use super::SpamCallback;
 
 pub struct BlockwiseSpammer<G, F>
 where
@@ -201,23 +202,23 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::spammer::util::test::MockCallback;
+    use crate::{generator::util::test::spawn_anvil, spammer::util::test::MockCallback};
 
     use super::*;
 
     #[tokio::test]
-    #[ignore = "reason: requires a running RPC node on localhost:8545"]
-    async fn watch_blocks() {
+    async fn watches_blocks_and_spams_them() {
+        let anvil = spawn_anvil();
+        println!("anvil url: {}", anvil.endpoint_url());
         let conf = crate::generator::testfile::tests::get_composite_testconfig();
         let db = crate::db::sqlite::SqliteDb::new_memory();
         let seed = crate::generator::RandSeed::from_str("444444444444");
         let generator = crate::generator::testfile::SpamGenerator::new(conf, &seed, db.clone());
         let callback_handler = MockCallback;
-        let rpc_url = "http://localhost:8545";
         let spammer = BlockwiseSpammer::new(
             generator,
             callback_handler,
-            rpc_url,
+            anvil.endpoint_url().as_str(),
             &vec![
                 "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
                 "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
@@ -225,7 +226,7 @@ mod tests {
             ],
         );
 
-        let result = spammer.spam_rpc(10, 10).await;
+        let result = spammer.spam_rpc(10, 3).await;
         println!("{:?}", result);
         assert!(result.is_ok());
     }

@@ -1,6 +1,6 @@
 use crate::{
-    generator::Generator,
-    spammer::{util::RpcProvider, SpamCallback},
+    generator::{util::RpcProvider, Generator},
+    spammer::SpamCallback,
     Result,
 };
 use alloy::hex::ToHexExt;

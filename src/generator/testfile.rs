@@ -8,14 +8,14 @@ use crate::spammer::SpamCallback;
 use alloy::hex::{FromHex, ToHexExt};
 use alloy::primitives::{Address, TxHash, U256};
 use alloy::primitives::{Bytes, TxKind};
-use alloy::providers::{Provider, RootProvider};
-use alloy::transports::http::{Client, Http};
+use alloy::providers::Provider;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::read;
 use std::sync::Arc;
 use tokio::task::{spawn as spawn_task, JoinHandle};
 
+use super::util::RpcProvider;
 use super::NamedTxRequest;
 
 pub struct ContractDeployer<D>
@@ -24,7 +24,7 @@ where
 {
     config: TestConfig,
     db: Arc<D>,
-    rpc_provider: Arc<RootProvider<Http<Client>>>,
+    rpc_provider: Arc<RpcProvider>,
 }
 
 /// A generator that specifically runs *setup* steps (including contract creation) from a TOML file.
@@ -128,11 +128,7 @@ impl<D> ContractDeployer<D>
 where
     D: DbOps + Send + Sync + 'static,
 {
-    pub fn new(
-        config: TestConfig,
-        db: Arc<D>,
-        rpc_provider: Arc<RootProvider<Http<Client>>>,
-    ) -> Self {
+    pub fn new(config: TestConfig, db: Arc<D>, rpc_provider: Arc<RpcProvider>) -> Self {
         Self {
             config,
             db,
@@ -237,7 +233,7 @@ where
         ))?;
 
         for function in spam.iter() {
-            let func = alloy_json_abi::Function::parse(&function.signature).map_err(|e| {
+            let func = alloy::json_abi::Function::parse(&function.signature).map_err(|e| {
                 ContenderError::SpamError("failed to parse function name", Some(e.to_string()))
             })?;
 
@@ -257,6 +253,7 @@ where
                 }
             }
 
+            // find templates in fn args & `to`
             let fn_args = function.args.to_owned().unwrap_or_default();
             for arg in fn_args.iter() {
                 find_template_values(&mut template_map, arg, self.db.as_ref())?;
@@ -294,9 +291,10 @@ where
                         }
                     });
                     args.push(val);
-                }
+                } // args should have all template data filled now
+                let input = self.encode_calldata(&args, &function.signature)?;
 
-                // replace template value(s) for `to` address
+                // replace template value(s) for tx params
                 let to = maybe_replace(&function.to, &template_map);
                 let to = to.parse::<Address>().map_err(|e| {
                     ContenderError::SpamError("failed to parse address", Some(e.to_string()))
@@ -312,14 +310,6 @@ where
                     .map(|s| s.parse::<U256>().ok())
                     .flatten();
 
-                // input should have all template data filled now
-                let input =
-                    foundry_common::abi::encode_function_args(&func, args).map_err(|e| {
-                        ContenderError::SpamError(
-                            "failed to encode function arguments.",
-                            Some(e.to_string()),
-                        )
-                    })?;
                 let tx = alloy::rpc::types::TransactionRequest {
                     to: Some(TxKind::Call(to)),
                     from,
@@ -349,14 +339,6 @@ where
 
         Ok(new_templates)
     }
-}
-
-fn encode_calldata(args: &[String], sig: &str) -> Result<Vec<u8>, ContenderError> {
-    let func = alloy_json_abi::Function::parse(sig).map_err(|e| {
-        ContenderError::SpamError("failed to parse setup function name", Some(e.to_string()))
-    })?;
-    let input = foundry_common::abi::encode_function_args(&func, args).unwrap();
-    Ok(input)
 }
 
 impl<D> Generator for SetupGenerator<D>
@@ -392,7 +374,7 @@ where
                     .map(|arg| maybe_replace(arg, &template_map))
                     .collect::<Vec<String>>();
 
-                let input = encode_calldata(&args, &step.signature)?;
+                let input = self.encode_calldata(&args, &step.signature)?;
                 let to = maybe_replace(&step.to, &template_map);
                 let to = to.parse::<Address>().map_err(|e| {
                     ContenderError::SpamError("failed to parse address", Some(e.to_string()))
@@ -430,9 +412,6 @@ impl NilCallback {
         Self {}
     }
 }
-
-pub type RpcProvider =
-    alloy::providers::RootProvider<alloy::transports::http::Http<alloy::transports::http::Client>>;
 
 pub struct SetupCallback<D>
 where
@@ -540,12 +519,11 @@ fn maybe_replace(arg: &str, template_map: &HashMap<String, String>) -> String {
 
 #[cfg(test)]
 pub mod tests {
-    use alloy::providers::ProviderBuilder;
-    use alloy::transports::http::reqwest::Url;
-
     use super::*;
     use crate::db::sqlite::SqliteDb;
+    use crate::generator::util::test::spawn_anvil;
     use crate::generator::RandSeed;
+    use alloy::providers::ProviderBuilder;
     use std::fs;
 
     pub fn get_testconfig() -> TestConfig {
@@ -572,11 +550,9 @@ pub mod tests {
     }
 
     pub fn get_fuzzy_testconfig() -> TestConfig {
-        let fn_call = |data: &str| FunctionCallDefinition {
+        let fn_call = |data: &str, from_addr: &str| FunctionCallDefinition {
             to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-            from: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-                .to_owned()
-                .into(),
+            from: Some(from_addr.to_owned()),
             value: None,
             signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
             args: vec![
@@ -597,7 +573,12 @@ pub mod tests {
             env: None,
             create: None,
             setup: None,
-            spam: vec![fn_call("0xbeef"), fn_call("0xea75"), fn_call("0xf00d")].into(),
+            spam: vec![
+                fn_call("0xbeef", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
+                fn_call("0xea75", "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
+                fn_call("0xf00d", "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
+            ]
+            .into(),
         }
     }
 
@@ -672,14 +653,12 @@ pub mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "reason: requires node running on localhost:8545"]
     async fn creates_contracts() -> Result<(), Box<dyn std::error::Error>> {
+        let anvil = spawn_anvil();
         let test_file = get_create_testconfig();
         let db = Arc::new(SqliteDb::new_memory());
         db.create_tables().unwrap();
-        // TODO: spawn an anvil instance here instead
-        let rpc_client = ProviderBuilder::new()
-            .on_http(Url::parse("http://localhost:8545").expect("Invalid RPC URL"));
+        let rpc_client = ProviderBuilder::new().on_http(anvil.endpoint_url());
         let gen = ContractDeployer::new(test_file, db.clone(), Arc::new(rpc_client));
         let res = gen.run().await;
         assert!(res.is_ok());
