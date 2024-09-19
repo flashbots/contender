@@ -126,7 +126,6 @@ where
 
                 let from = &tx_req.from.expect("missing from address");
                 let nonce = nonces.get(from).expect("failed to get nonce").to_owned();
-                nonces.insert(from.to_owned(), nonce + 1);
 
                 let fn_sig = FixedBytes::<4>::from_slice(
                     tx.tx
@@ -166,6 +165,9 @@ where
                     .get(from)
                     .expect("failed to create signer")
                     .to_owned();
+
+                // optimistically update nonce since we've succeeded so far
+                nonces.insert(from.to_owned(), nonce + 1);
 
                 // build, sign, and send tx in a new task (green thread)
                 tasks.push(task::spawn(async move {
