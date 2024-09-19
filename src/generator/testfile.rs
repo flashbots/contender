@@ -539,7 +539,7 @@ fn maybe_replace(arg: &str, template_map: &HashMap<String, String>) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use alloy::providers::ProviderBuilder;
     use alloy::transports::http::reqwest::Url;
 
@@ -548,7 +548,7 @@ mod tests {
     use crate::generator::RandSeed;
     use std::fs;
 
-    fn get_testconfig() -> TestConfig {
+    pub fn get_testconfig() -> TestConfig {
         TestConfig {
             env: None,
             create: None,
@@ -571,10 +571,12 @@ mod tests {
         }
     }
 
-    fn get_fuzzy_testconfig() -> TestConfig {
+    pub fn get_fuzzy_testconfig() -> TestConfig {
         let fn_call = |data: &str| FunctionCallDefinition {
             to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-            from: None,
+            from: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+                .to_owned()
+                .into(),
             value: None,
             signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
             args: vec![
@@ -599,7 +601,7 @@ mod tests {
         }
     }
 
-    fn get_setup_testconfig() -> TestConfig {
+    pub fn get_setup_testconfig() -> TestConfig {
         TestConfig {
             env: None,
             create: None,
@@ -638,10 +640,10 @@ mod tests {
         }
     }
 
-    const COUNTER_BYTECODE: &'static str =
+    pub const COUNTER_BYTECODE: &'static str =
         "0x608060405234801561001057600080fd5b5060f78061001f6000396000f3fe6080604052348015600f57600080fd5b5060043610603c5760003560e01c80633fb5c1cb1460415780638381f58a146053578063d09de08a14606d575b600080fd5b6051604c3660046083565b600055565b005b605b60005481565b60405190815260200160405180910390f35b6051600080549080607c83609b565b9190505550565b600060208284031215609457600080fd5b5035919050565b60006001820160ba57634e487b7160e01b600052601160045260246000fd5b506001019056fea264697066735822122010f3077836fb83a22ad708a23102f2b487523767e1afef5a93c614619001648b64736f6c63430008170033";
 
-    fn get_create_testconfig() -> TestConfig {
+    pub fn get_create_testconfig() -> TestConfig {
         let mut env = HashMap::new();
         env.insert("test1".to_owned(), "0xbeef".to_owned());
         env.insert("test2".to_owned(), "0x9001".to_owned());
@@ -657,7 +659,7 @@ mod tests {
         }
     }
 
-    fn get_composite_testconfig() -> TestConfig {
+    pub fn get_composite_testconfig() -> TestConfig {
         let tc_fuzz = get_fuzzy_testconfig();
         let tc_setup = get_setup_testconfig();
         let tc_create = get_create_testconfig();
