@@ -14,7 +14,6 @@ use contender_core::{
 };
 use std::sync::{Arc, LazyLock};
 
-// TODO: is this the best solution? feels like there's something better out there lmao
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     SqliteDb::from_file("contender.db").expect("failed to open contender.db")
 });

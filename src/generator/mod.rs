@@ -8,6 +8,7 @@ pub use seeder::rand_seed::RandSeed;
 pub mod seeder;
 pub mod testfile;
 pub mod univ2;
+pub mod util;
 
 #[derive(Clone, Debug)]
 pub struct NamedTxRequest {

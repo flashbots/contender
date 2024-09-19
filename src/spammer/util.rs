@@ -1,10 +1,3 @@
-use alloy::{
-    providers::RootProvider,
-    transports::http::{Client, Http},
-};
-
-pub type RpcProvider = RootProvider<Http<Client>>;
-
 #[cfg(test)]
 pub mod test {
     use alloy::primitives::TxHash;
