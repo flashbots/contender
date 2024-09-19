@@ -13,12 +13,7 @@ name = "contender_cli"
 path = "src/bin/cli.rs"
 
 [dependencies]
-alloy = { version = "0.3.6", features = [
-    "full", "rlp", "json-abi",
-    "node-bindings",
-    "json-rpc",
-    "rpc-client"
-    ] }
+alloy = { version = "0.3.6", features = ["full", "node-bindings"] }
 clap = { version = "4.5.16", features = ["derive"] }
 eyre = "0.6.12"
 lazy_static = "1.5.0"

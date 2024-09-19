@@ -46,7 +46,6 @@ dependencies = [
  "alloy-core",
  "alloy-eips",
  "alloy-genesis",
- "alloy-json-rpc",
  "alloy-network",
  "alloy-node-bindings",
  "alloy-provider",
@@ -116,7 +115,6 @@ dependencies = [
  "alloy-dyn-abi",
  "alloy-json-abi",
  "alloy-primitives",
- "alloy-rlp",
  "alloy-sol-types",
 ]
 
