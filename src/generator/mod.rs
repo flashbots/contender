@@ -31,11 +31,37 @@ impl From<TransactionRequest> for NamedTxRequest {
     }
 }
 
+pub struct MockGenerator;
+
+impl Generator for MockGenerator {
+    fn get_txs(&self, amount: usize) -> Result<Vec<NamedTxRequest>> {
+        let mut txs = vec![];
+        for _ in 0..amount {
+            txs.push(NamedTxRequest::from(TransactionRequest::default()));
+        }
+        Ok(txs)
+    }
+}
+
 /// Implement Generator to programmatically
 /// generate transactions for advanced testing scenarios.
 pub trait Generator {
     fn get_txs(&self, amount: usize) -> Result<Vec<NamedTxRequest>>;
-    fn encode_calldata(&self, args: &[String], sig: &str) -> Result<Vec<u8>> {
+
+    /// Encode the calldata for a function signature given an array of string arguments.
+    ///
+    /// ## Example
+    /// ```
+    /// use contender_core::generator::{Generator, MockGenerator};
+    /// use alloy::hex::ToHexExt;
+    ///
+    /// let args = vec!["0x12345678"];
+    /// let sig = "set(uint256 x)";
+    /// let generator = MockGenerator; // you should use a real generator here
+    /// let calldata = generator.encode_calldata(&args, sig).unwrap();
+    /// assert_eq!(calldata.encode_hex(), "60fe47b10000000000000000000000000000000000000000000000000000000012345678");
+    /// ```
+    fn encode_calldata(&self, args: &[impl AsRef<str>], sig: &str) -> Result<Vec<u8>> {
         let func = json_abi::Function::parse(&sig).map_err(|e| {
             ContenderError::SpamError("failed to parse setup function name", Some(e.to_string()))
         })?;
@@ -51,7 +77,7 @@ pub trait Generator {
                         Some(e.to_string()),
                     )
                 })?;
-                r#type.coerce_str(arg).map_err(|e| {
+                r#type.coerce_str(arg.as_ref()).map_err(|e| {
                     ContenderError::SpamError(
                         "failed to coerce args to function signature",
                         Some(e.to_string()),
