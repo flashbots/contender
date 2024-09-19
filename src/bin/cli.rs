@@ -10,7 +10,7 @@ use contender_core::{
         },
         RandSeed,
     },
-    spammer::timed::TimedSpammer,
+    spammer::{BlockwiseSpammer, TimedSpammer},
 };
 use std::sync::{Arc, LazyLock};
 
@@ -49,18 +49,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ContenderSubcommand::Spam {
             testfile,
             rpc_url,
-            intensity,
+            txs_per_block,
+            txs_per_second,
             duration,
             seed,
+            private_keys,
         } => {
             let testfile = TestConfig::from_file(&testfile)?;
             let rand_seed = seed.map(|s| RandSeed::from_str(&s)).unwrap_or_default();
             let gen = SpamGenerator::new(testfile, &rand_seed, DB.clone());
             let callback = NilCallback::new();
+
+            if txs_per_block.is_some() && txs_per_second.is_some() {
+                panic!("Cannot set both --txs-per-block and --txs-per-second");
+            }
+
+            if let Some(txs_per_block) = txs_per_block {
+                if let Some(private_keys) = private_keys {
+                    println!("Blockwise spamming with {} txs per block", txs_per_block);
+                    let spammer = BlockwiseSpammer::new(gen, callback, rpc_url, &private_keys);
+                    spammer
+                        .spam_rpc(txs_per_block, duration.unwrap_or_default())
+                        .await?;
+                } else {
+                    panic!("Must provide private keys for blockwise spamming");
+                }
+                return Ok(());
+            }
+
+            let tps = txs_per_second.unwrap_or(10);
+            println!("Timed spamming with {} txs per second", tps);
             let spammer = TimedSpammer::new(gen, callback, rpc_url);
-            spammer
-                .spam_rpc(intensity.unwrap_or_default(), duration.unwrap_or_default())
-                .await?;
+            spammer.spam_rpc(tps, duration.unwrap_or_default()).await?;
         }
         ContenderSubcommand::Report { id, out_file } => {
             println!(

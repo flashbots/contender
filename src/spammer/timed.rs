@@ -7,7 +7,7 @@ use alloy::hex::ToHexExt;
 use alloy::providers::ProviderBuilder;
 use alloy::{providers::Provider, transports::http::reqwest::Url};
 use std::sync::Arc;
-use tokio::task::spawn as spawn_task;
+use tokio::task;
 
 pub struct TimedSpammer<G, F>
 where
@@ -46,7 +46,7 @@ where
             let callback_handler = self.callback_handler.clone();
 
             // send tx to the RPC asynchrononsly
-            tasks.push(spawn_task(async move {
+            tasks.push(task::spawn(async move {
                 let tx_req = &tx.tx;
                 println!(
                     "sending tx. from={} to={} input={}",

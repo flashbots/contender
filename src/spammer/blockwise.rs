@@ -12,6 +12,7 @@ use futures::StreamExt;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
+use tokio::task;
 
 use super::{util::RpcProvider, SpamCallback};
 
@@ -95,7 +96,6 @@ where
             // get nonce for each signer and put it into a hashmap
             let mut nonces = HashMap::new();
             for (addr, _signer) in self.signers.iter() {
-                println!("getting nonce for {}", addr.encode_hex());
                 let nonce = self
                     .rpc_client
                     .get_transaction_count(*addr)
@@ -168,7 +168,7 @@ where
                     .to_owned();
 
                 // build, sign, and send tx in a new task (green thread)
-                tasks.push(tokio::task::spawn(async move {
+                tasks.push(task::spawn(async move {
                     let provider = ProviderBuilder::new()
                         .wallet(signer)
                         .on_provider(rpc_client);
