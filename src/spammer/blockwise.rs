@@ -63,8 +63,10 @@ where
     pub async fn spam_rpc(&self, txs_per_block: usize, num_blocks: usize) -> Result<()> {
         // generate tx requests
         let tx_requests = self.generator.get_txs(txs_per_block * num_blocks)?;
-        let tx_req_chunks = tx_requests.chunks(txs_per_block);
-        let tx_req_chunks: Vec<_> = tx_req_chunks.map(|slice| slice.to_vec()).collect();
+        let tx_req_chunks: Vec<_> = tx_requests
+            .chunks(txs_per_block)
+            .map(|slice| slice.to_vec())
+            .collect();
         let mut block_offset = 0;
 
         // init block stream
@@ -80,7 +82,6 @@ where
             .take(num_blocks);
 
         let mut tasks = vec![];
-        let signers = Arc::new(self.signers.clone());
         let mut gas_limits = HashMap::<FixedBytes<4>, u128>::new();
 
         while let Some(block_hash) = stream.next().await {
@@ -93,7 +94,7 @@ where
             })?;
             // get nonce for each signer and put it into a hashmap
             let mut nonces = HashMap::new();
-            for (addr, _signer) in signers.iter() {
+            for (addr, _signer) in self.signers.iter() {
                 println!("getting nonce for {}", addr.encode_hex());
                 let nonce = self
                     .rpc_client
@@ -154,20 +155,23 @@ where
                 // clone muh Arcs
                 let rpc_client = self.rpc_client.clone();
                 let callback_handler = self.callback_handler.clone();
-                let signers = signers.clone();
-                let gas_limits = gas_limits.clone(); // not an arc but I need it cloned anyways
 
+                // query hashmaps for gaslimit & signer of this tx
+                let gas_limit = gas_limits
+                    .get(&fn_sig)
+                    .expect("failed to get gas limit")
+                    .to_owned();
+                let signer = self
+                    .signers
+                    .get(from)
+                    .expect("failed to create signer")
+                    .to_owned();
+
+                // build, sign, and send tx in a new task (green thread)
                 tasks.push(tokio::task::spawn(async move {
-                    let signer = signers
-                        .get(&tx_req.from.expect("missing from address"))
-                        .expect("failed to create signer");
                     let provider = ProviderBuilder::new()
                         .wallet(signer)
                         .on_provider(rpc_client);
-                    let gas_limit = gas_limits
-                        .get(&fn_sig)
-                        .expect("failed to get gas limit")
-                        .to_owned();
 
                     let full_tx = tx_req
                         .clone()
@@ -179,7 +183,8 @@ where
                     let maybe_handle = callback_handler.on_tx_sent(*res.tx_hash(), tx.name.clone());
                     if let Some(handle) = maybe_handle {
                         handle.await.expect("callback task failed");
-                    } // ignore None values so we don't attempt to await them
+                    }
+                    // ignore None values so we don't attempt to await them
                 }));
             }
             println!("new block: {block_hash}");
