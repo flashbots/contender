@@ -1,14 +1,11 @@
-use super::SpamCallback;
-use crate::{generator::Generator, Result};
+use crate::{
+    generator::Generator,
+    spammer::{util::RpcProvider, SpamCallback},
+    Result,
+};
 use alloy::hex::ToHexExt;
-use alloy::{
-    providers::Provider,
-    transports::http::{reqwest::Url, Http},
-};
-use alloy::{
-    providers::{ProviderBuilder, RootProvider},
-    transports::http::Client,
-};
+use alloy::providers::ProviderBuilder;
+use alloy::{providers::Provider, transports::http::reqwest::Url};
 use std::sync::Arc;
 use tokio::task::spawn as spawn_task;
 
@@ -18,7 +15,7 @@ where
     F: SpamCallback + Send + Sync + 'static,
 {
     generator: G,
-    rpc_client: Arc<RootProvider<Http<Client>>>,
+    rpc_client: Arc<RpcProvider>,
     callback_handler: Arc<F>,
 }
 
