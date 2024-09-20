@@ -65,172 +65,19 @@ spammer.spam_rpc(100, 60).await?;
 
 ## Configuration
 
-Contender uses TOML files for test configuration. Here's a basic example:
+Contender uses TOML files for test configuration. The key directives are:
 
+- `[env]`: Defines environment variables that can be used throughout the configuration.
 
-```1:165:univ2ConfigTest.toml
-# Uniswap V2 spammer example configuration
+- `[[create]]`: Specifies contracts to be deployed. Each entry represents a contract creation.
 
-### template variables can be set here, but may be overridden by command line options
-### also note: it's up to you to correctly pad these values to the required length and omit a leading 0x, otherwise contract deployments may fail
-[env]
-feeToSetter = "f39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-initialSupply = "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+- `[[setup]]`: Defines setup transactions to be executed before the main spam test. These are typically used for initializing contracts or setting up test conditions.
 
-### create contracts, refer to them by their names in latter steps using curly braces
-[[create]]
-name = "weth"
+- `[[spam]]`: Describes the transactions to be repeatedly sent during the spam test. These form the core of the network stress test.
 
-[[create]]
-name = "testToken"
+- `[[spam.fuzz]]`: (Sub-directive of `spam`) Configures fuzzing parameters for specific fields in spam transactions, allowing for randomized inputs within defined ranges.
 
-[[create]]
-# requires {feeToSetter}
-name = "uniV2Factory"
-
-[[create]]
-name = "uniRouterV2"
-# requires {univ2Factory} and {weth}
-
-### setup contracts
-
-## weth deposits ###############################################################
-
-[[setup]]
-to = "{weth}"
-from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-signature = "function deposit() public payable"
-value = "100000000000000000000"
-
-[[setup]]
-to = "{weth}"
-from = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
-signature = "function deposit() public payable"
-value = "100000000000000000000"
-
-[[setup]]
-to = "{weth}"
-from = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
-signature = "function deposit() public payable"
-value = "100000000000000000000"
-
-## uniV2 pair: weth/token ######################################################
-
-[[setup]]
-to = "{uniV2Factory}"
-from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-signature = "function createPair(address tokenA, address tokenB) external returns (address pair)"
-args = [
-     "{weth}",
-     "{testToken}"
-]
-
-## token approvals #############################################################
-
-#admin
-[[setup]]
-to = "{weth}"
-from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-signature = "approve(address spender, uint256 amount) returns (bool)"
-args = [
-     "{uniRouterV2}",
-     "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-]
-
-[[setup]]
-to = "{testToken}"
-from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-signature = "approve(address spender, uint256 amount) returns (bool)"
-args = [
-     "{uniRouterV2}",
-     "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-]
-
-# contender1
-[[setup]]
-to = "{weth}"
-from = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
-signature = "approve(address spender, uint256 amount) returns (bool)"
-args = [
-     "{uniRouterV2}",
-     "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-]
-
-[[setup]]
-to = "{testToken}"
-from = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
-signature = "approve(address spender, uint256 amount) returns (bool)"
-args = [
-     "{uniRouterV2}",
-     "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-]
-
-# contender2
-[[setup]]
-to = "{weth}"
-from = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
-signature = "approve(address spender, uint256 amount) returns (bool)"
-args = [
-     "{uniRouterV2}",
-     "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-]
-
-[[setup]]
-to = "{testToken}"
-from = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
-signature = "approve(address spender, uint256 amount) returns (bool)"
-args = [
-     "{uniRouterV2}",
-     "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-]
-
-## add liquidity ###############################################################
-
-[[setup]]
-to = "{uniRouterV2}"
-from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-signature = "addLiquidity(address tokenA, address tokenB, uint amountADesired, uint amountBDesired, uint amountAMin, uint amountBMin, address to, uint deadline) returns (uint amountA, uint amountB, uint liquidity)"
-args = [
-     "{weth}",
-     "{testToken}",
-     "100000000000000000",
-     "100000000000000000000",
-     "10000000000000000",
-     "10000000000000000000",
-     "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-     "10000000000000"
-]
-
-### the spam step will be repeated
-[[spam]]
-to = "{uniRouterV2}"
-from = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
-signature = "swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline) external returns (uint256[] memory)"
-args = [
-     "1000000000000000000",
-     "1000",
-     '[{weth}, {testToken}]',
-     "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-     "10000000000000" # TODO: implement block-aware variables for dynamic values like `deadline`. For now, this is just so far in the future I won't be alive to hear about it reverting.
-]
-
-[[spam.fuzz]]
-param = "amountIn"
-min = "1"
-max = "100000000000000000"
-
-[[spam]]
-to = "{uniRouterV2}"
-from = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
-signature = "swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline) external returns (uint256[] memory)"
-args = [
-     "1000000000000000000",
-     "1000",
-     '[{weth}, {testToken}]',
-     "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
-     "10000000000000"
-]
-```
+Each directive can include various fields such as `to`, `from`, `signature`, `args`, and `value` to specify the details of the transactions or contract interactions.
 
 
 ## Architecture
