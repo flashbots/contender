@@ -17,24 +17,24 @@ use tokio::task;
 
 use super::SpamCallback;
 
-pub struct BlockwiseSpammer<G, F>
+pub struct BlockwiseSpammer<'a, G, F>
 where
     G: Generator,
     F: SpamCallback + Send + Sync + 'static,
 {
-    generator: G,
+    generator: &'a G,
     rpc_client: Arc<RpcProvider>,
     callback_handler: Arc<F>,
     signers: HashMap<Address, EthereumWallet>,
 }
 
-impl<G, F> BlockwiseSpammer<G, F>
+impl<'a, G, F> BlockwiseSpammer<'a, G, F>
 where
     G: Generator,
     F: SpamCallback + Send + Sync + 'static,
 {
     pub fn new(
-        generator: G,
+        generator: &'a G,
         callback_handler: F,
         rpc_url: impl AsRef<str>,
         prv_keys: &[impl AsRef<str>],
@@ -62,7 +62,12 @@ where
         }
     }
 
-    pub async fn spam_rpc(&self, txs_per_block: usize, num_blocks: usize) -> Result<()> {
+    pub async fn spam_rpc(
+        &self,
+        txs_per_block: usize,
+        num_blocks: usize,
+        run_id: Option<usize>,
+    ) -> Result<()> {
         // generate tx requests
         let tx_requests = self.generator.get_txs(txs_per_block * num_blocks)?;
         let tx_req_chunks: Vec<_> = tx_requests
@@ -183,7 +188,8 @@ where
                         .with_gas_limit(gas_limit);
 
                     let res = provider.send_transaction(full_tx).await.unwrap();
-                    let maybe_handle = callback_handler.on_tx_sent(*res.tx_hash(), tx.name.clone());
+                    let maybe_handle = callback_handler
+                        .on_tx_sent(*res.tx_hash(), run_id.map(|id| id.to_string()));
                     if let Some(handle) = maybe_handle {
                         handle.await.expect("callback task failed");
                     }
@@ -216,7 +222,7 @@ mod tests {
         let generator = crate::generator::testfile::SpamGenerator::new(conf, &seed, db.clone());
         let callback_handler = MockCallback;
         let spammer = BlockwiseSpammer::new(
-            generator,
+            &generator,
             callback_handler,
             anvil.endpoint_url().as_str(),
             &vec![
@@ -226,7 +232,7 @@ mod tests {
             ],
         );
 
-        let result = spammer.spam_rpc(10, 3).await;
+        let result = spammer.spam_rpc(10, 3, None).await;
         println!("{:?}", result);
         assert!(result.is_ok());
     }

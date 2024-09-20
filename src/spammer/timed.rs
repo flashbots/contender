@@ -9,22 +9,22 @@ use alloy::{providers::Provider, transports::http::reqwest::Url};
 use std::sync::Arc;
 use tokio::task;
 
-pub struct TimedSpammer<G, F>
+pub struct TimedSpammer<'a, G, F>
 where
     G: Generator,
     F: SpamCallback + Send + Sync + 'static,
 {
-    generator: G,
+    generator: &'a G,
     rpc_client: Arc<RpcProvider>,
     callback_handler: Arc<F>,
 }
 
-impl<G, F> TimedSpammer<G, F>
+impl<'a, G, F> TimedSpammer<'a, G, F>
 where
     G: Generator,
     F: SpamCallback + Send + Sync + 'static,
 {
-    pub fn new(generator: G, callback_handler: F, rpc_url: impl AsRef<str>) -> Self {
+    pub fn new(generator: &'a G, callback_handler: F, rpc_url: impl AsRef<str>) -> Self {
         let rpc_client =
             ProviderBuilder::new().on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL"));
         Self {
