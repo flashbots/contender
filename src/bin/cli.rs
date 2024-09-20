@@ -89,6 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             spammer
                                 .spam_rpc(txs_per_block, duration, Some(run_id.into()))
                                 .await?;
+                            println!("Saved run. run_id = {}", run_id);
                         }
                         SpamCallbackType::Nil(cback) => {
                             let spammer = BlockwiseSpammer::new(gen, cback, rpc_url, &private_keys);
