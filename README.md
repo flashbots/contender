@@ -1,5 +1,7 @@
 # Contender
 
+[![CI status](https://github.com/flashbots/contender/workflows/unit/badge.svg)][gh-ci]
+
 Contender is a high-performance Ethereum network spammer and testing tool designed for benchmarking and stress-testing Ethereum clients and networks.
 
 ## Features
