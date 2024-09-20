@@ -421,7 +421,21 @@ where
     pub rpc_provider: Arc<RpcProvider>,
 }
 
+pub struct LogCallback<D> {
+    pub db: Arc<D>,
+    pub rpc_provider: Arc<RpcProvider>,
+}
+
 impl<D> SetupCallback<D>
+where
+    D: DbOps + Send + Sync + 'static,
+{
+    pub fn new(db: Arc<D>, rpc_provider: Arc<RpcProvider>) -> Self {
+        Self { db, rpc_provider }
+    }
+}
+
+impl<D> LogCallback<D>
 where
     D: DbOps + Send + Sync + 'static,
 {
@@ -462,6 +476,27 @@ where
                     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                 }
             }
+        });
+        Some(handle)
+    }
+}
+
+impl<D> SpamCallback for LogCallback<D>
+where
+    D: DbOps + Send + Sync + 'static,
+{
+    fn on_tx_sent(&self, tx_hash: TxHash, _name: Option<String>) -> Option<JoinHandle<()>> {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("failed to get timestamp")
+            .as_millis() as usize;
+        let db = self.db.clone();
+        let handle = spawn_task(async move {
+            // TODO: get run ID to associate with `runs` table
+            let run_id = 1;
+
+            db.insert_run_tx(run_id, tx_hash, timestamp)
+                .expect("failed to insert tx into db");
         });
         Some(handle)
     }

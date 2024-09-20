@@ -17,4 +17,6 @@ pub trait DbOps {
     ) -> Result<()>;
 
     fn get_named_tx(&self, name: &str) -> Result<(TxHash, Option<Address>)>;
+
+    fn insert_run_tx(&self, run_id: i64, tx_hash: TxHash, timestamp: usize) -> Result<()>;
 }

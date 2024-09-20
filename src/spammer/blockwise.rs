@@ -17,24 +17,24 @@ use tokio::task;
 
 use super::SpamCallback;
 
-pub struct BlockwiseSpammer<G, F>
+pub struct BlockwiseSpammer<'a, G, F>
 where
     G: Generator,
     F: SpamCallback + Send + Sync + 'static,
 {
-    generator: G,
+    generator: &'a G,
     rpc_client: Arc<RpcProvider>,
     callback_handler: Arc<F>,
     signers: HashMap<Address, EthereumWallet>,
 }
 
-impl<G, F> BlockwiseSpammer<G, F>
+impl<'a, G, F> BlockwiseSpammer<'a, G, F>
 where
     G: Generator,
     F: SpamCallback + Send + Sync + 'static,
 {
     pub fn new(
-        generator: G,
+        generator: &'a G,
         callback_handler: F,
         rpc_url: impl AsRef<str>,
         prv_keys: &[impl AsRef<str>],
@@ -216,7 +216,7 @@ mod tests {
         let generator = crate::generator::testfile::SpamGenerator::new(conf, &seed, db.clone());
         let callback_handler = MockCallback;
         let spammer = BlockwiseSpammer::new(
-            generator,
+            &generator,
             callback_handler,
             anvil.endpoint_url().as_str(),
             &vec![

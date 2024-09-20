@@ -95,6 +95,16 @@ impl DbOps for SqliteDb {
             )",
             params![],
         )?;
+        self.execute(
+            "CREATE TABLE run_txs (
+                id INTEGER PRIMARY KEY,
+                run_id INTEGER NOT NULL,
+                tx_hash TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                FOREIGN KEY(run_id) REFERENCES runs(runid)
+            )",
+            params![],
+        )?;
         Ok(())
     }
 
@@ -152,6 +162,13 @@ impl DbOps for SqliteDb {
             .transpose()
             .map_err(|e| ContenderError::DbError("invalid address", Some(e.to_string())))?;
         Ok((tx_hash, contract_address))
+    }
+
+    fn insert_run_tx(&self, run_id: i64, tx_hash: TxHash, timestamp: usize) -> Result<()> {
+        self.execute(
+            "INSERT INTO run_txs (run_id, tx_hash, timestamp) VALUES (?, ?, ?)",
+            params![run_id, tx_hash.encode_hex(), timestamp],
+        )
     }
 }
 

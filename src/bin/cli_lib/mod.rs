@@ -66,6 +66,14 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
 May be specified multiple times."
         )]
         private_keys: Option<Vec<String>>,
+
+        /// Whether to log reports for the spamming run.
+        #[arg(
+            long,
+            long_help = "Whether to log reports for the spamming run.",
+            visible_aliases = &["dr"]
+        )]
+        disable_reports: bool,
     },
 
     #[command(
