@@ -485,7 +485,7 @@ impl<D> SpamCallback for LogCallback<D>
 where
     D: DbOps + Send + Sync + 'static,
 {
-    fn on_tx_sent(&self, tx_hash: TxHash, _name: Option<String>) -> Option<JoinHandle<()>> {
+    fn on_tx_sent(&self, tx_hash: TxHash, run_id: Option<String>) -> Option<JoinHandle<()>> {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("failed to get timestamp")
@@ -493,10 +493,14 @@ where
         let db = self.db.clone();
         let handle = spawn_task(async move {
             // TODO: get run ID to associate with `runs` table
-            let run_id = 1;
+            // let run_id = 1;
 
-            db.insert_run_tx(run_id, tx_hash, timestamp)
-                .expect("failed to insert tx into db");
+            db.insert_run_tx(
+                run_id.map(|s| s.parse::<i64>().ok()).flatten().unwrap_or(0),
+                tx_hash,
+                timestamp,
+            )
+            .expect("failed to insert tx into db");
         });
         Some(handle)
     }

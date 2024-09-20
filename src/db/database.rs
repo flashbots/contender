@@ -5,7 +5,7 @@ use crate::Result;
 pub trait DbOps {
     fn create_tables(&self) -> Result<()>;
 
-    fn insert_run(&self, timestamp: &str, tx_count: i64, duration: i64) -> Result<()>;
+    fn insert_run(&self, timestamp: u64, tx_count: usize) -> Result<usize>;
 
     fn num_runs(&self) -> Result<i64>;
 

@@ -81,8 +81,7 @@ impl DbOps for SqliteDb {
             "CREATE TABLE runs (
                 id INTEGER PRIMARY KEY,
                 timestamp TEXT NOT NULL,
-                tx_count INTEGER NOT NULL,
-                duration INTEGER NOT NULL
+                tx_count INTEGER NOT NULL
             )",
             params![],
         )?;
@@ -108,11 +107,15 @@ impl DbOps for SqliteDb {
         Ok(())
     }
 
-    fn insert_run(&self, timestamp: &str, tx_count: i64, duration: i64) -> Result<()> {
+    fn insert_run(&self, timestamp: u64, tx_count: usize) -> Result<usize> {
         self.execute(
-            "INSERT INTO runs (timestamp, tx_count, duration) VALUES (?, ?, ?)",
-            params![timestamp, tx_count, duration],
-        )
+            "INSERT INTO runs (timestamp, tx_count) VALUES (?, ?)",
+            params![timestamp, tx_count],
+        )?;
+        // get ID from newly inserted row
+        let id: usize =
+            self.query_row("SELECT last_insert_rowid()", params![], |row| row.get(0))?;
+        Ok(id)
     }
 
     fn num_runs(&self) -> Result<i64> {
@@ -187,9 +190,11 @@ mod tests {
     fn inserts_runs() {
         let db = SqliteDb::new_memory();
         db.create_tables().unwrap();
-        db.insert_run("2021-01-01", 100, 10).unwrap();
-        db.insert_run("2021-01-01", 101, 10).unwrap();
-        db.insert_run("2021-01-01", 102, 10).unwrap();
+        let do_it = |num| db.insert_run(100000, num).unwrap();
+
+        println!("id: {}", do_it(100));
+        println!("id: {}", do_it(101));
+        println!("id: {}", do_it(102));
         assert_eq!(db.num_runs().unwrap(), 3);
     }
 

@@ -70,22 +70,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if txs_per_block.is_some() && txs_per_second.is_some() {
                 panic!("Cannot set both --txs-per-block and --txs-per-second");
             }
+            let duration = duration.unwrap_or_default();
 
             if let Some(txs_per_block) = txs_per_block {
                 if let Some(private_keys) = private_keys {
                     println!("Blockwise spamming with {} txs per block", txs_per_block);
                     match spam_callback_default(!disable_reports, rpc_client.into()).await {
                         SpamCallbackType::Log(cback) => {
+                            let timestamp = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .expect("Time went backwards")
+                                .as_millis();
+                            let run_id = cback
+                                .db
+                                .clone()
+                                .insert_run(timestamp as u64, txs_per_block * duration)?;
                             let spammer = BlockwiseSpammer::new(gen, cback, rpc_url, &private_keys);
                             spammer
-                                .spam_rpc(txs_per_block, duration.unwrap_or_default())
+                                .spam_rpc(txs_per_block, duration, Some(run_id.into()))
                                 .await?;
                         }
                         SpamCallbackType::Nil(cback) => {
                             let spammer = BlockwiseSpammer::new(gen, cback, rpc_url, &private_keys);
-                            spammer
-                                .spam_rpc(txs_per_block, duration.unwrap_or_default())
-                                .await?;
+                            spammer.spam_rpc(txs_per_block, duration, None).await?;
                         }
                     };
                 } else {
@@ -97,7 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let tps = txs_per_second.unwrap_or(10);
             println!("Timed spamming with {} txs per second", tps);
             let spammer = TimedSpammer::new(gen, NilCallback::new(), rpc_url);
-            spammer.spam_rpc(tps, duration.unwrap_or_default()).await?;
+            spammer.spam_rpc(tps, duration).await?;
         }
         ContenderSubcommand::Report { id, out_file } => {
             println!(

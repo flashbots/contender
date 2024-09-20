@@ -62,7 +62,12 @@ where
         }
     }
 
-    pub async fn spam_rpc(&self, txs_per_block: usize, num_blocks: usize) -> Result<()> {
+    pub async fn spam_rpc(
+        &self,
+        txs_per_block: usize,
+        num_blocks: usize,
+        run_id: Option<usize>,
+    ) -> Result<()> {
         // generate tx requests
         let tx_requests = self.generator.get_txs(txs_per_block * num_blocks)?;
         let tx_req_chunks: Vec<_> = tx_requests
@@ -183,7 +188,8 @@ where
                         .with_gas_limit(gas_limit);
 
                     let res = provider.send_transaction(full_tx).await.unwrap();
-                    let maybe_handle = callback_handler.on_tx_sent(*res.tx_hash(), tx.name.clone());
+                    let maybe_handle = callback_handler
+                        .on_tx_sent(*res.tx_hash(), run_id.map(|id| id.to_string()));
                     if let Some(handle) = maybe_handle {
                         handle.await.expect("callback task failed");
                     }
@@ -226,7 +232,7 @@ mod tests {
             ],
         );
 
-        let result = spammer.spam_rpc(10, 3).await;
+        let result = spammer.spam_rpc(10, 3, None).await;
         println!("{:?}", result);
         assert!(result.is_ok());
     }
