@@ -32,7 +32,6 @@ where
         db: &impl DbOps,
     ) -> Result<()> {
         // count number of placeholders (by left brace) in arg
-        // let num_template_vals = arg.chars().filter(|&c| c == '{').count();
         let num_template_vals = self.num_placeholders(arg);
         let mut last_end = 0;
 
@@ -42,7 +41,7 @@ where
                 self.find_key(&template_value)
                     .ok_or(ContenderError::SpamError(
                         "failed to find placeholder key",
-                        Some("missing placeholder key".to_string()),
+                        Some(arg.to_string()),
                     ))?;
             last_end = template_end + 1;
 
@@ -68,11 +67,13 @@ where
         Ok(())
     }
 
+    /// Finds {placeholders} in `fncall` and looks them up in `db`,
+    /// then inserts the values it finds into `placeholder_map`.
     fn find_fncall_placeholders(
         &self,
         fncall: &FunctionCallDefinition,
-        placeholder_map: &mut HashMap<K, String>,
         db: &impl DbOps,
+        placeholder_map: &mut HashMap<K, String>,
     ) -> Result<()> {
         // find templates in fn args & `to`
         let fn_args = fncall.args.to_owned().unwrap_or_default();
@@ -98,9 +99,9 @@ where
         }
         let input = encode_calldata(&args, &funcdef.signature)?;
         let to = self.replace_placeholders(&funcdef.to, placeholder_map);
-        let to = to.parse::<Address>().map_err(|e| {
-            ContenderError::SpamError("failed to parse address", Some(e.to_string()))
-        })?;
+        let to = to
+            .parse::<Address>()
+            .map_err(|e| ContenderError::with_err(e, "failed to parse address"))?;
         let value = funcdef
             .value
             .as_ref()
@@ -108,9 +109,10 @@ where
             .map(|s| s.parse::<U256>().ok())
             .flatten();
 
-        let from = funcdef.from.parse::<Address>().map_err(|e| {
-            ContenderError::SpamError("failed to parse from address", Some(e.to_string()))
-        })?;
+        let from = funcdef
+            .from
+            .parse::<Address>()
+            .map_err(|e| ContenderError::with_err(e, "failed to parse from address"))?;
 
         Ok(TransactionRequest {
             to: Some(TxKind::Call(to)),
@@ -126,9 +128,11 @@ where
         createdef: &CreateDefinition,
         placeholder_map: &HashMap<K, String>,
     ) -> Result<TransactionRequest> {
-        let from = createdef.from.to_owned().parse::<Address>().map_err(|e| {
-            ContenderError::SetupError("failed to parse from address", Some(e.to_string()))
-        })?;
+        let from = createdef
+            .from
+            .to_owned()
+            .parse::<Address>()
+            .map_err(|e| ContenderError::with_err(e, "failed to parse from address"))?;
 
         let full_bytecode = self.replace_placeholders(&createdef.bytecode, &placeholder_map);
         let tx = alloy::rpc::types::TransactionRequest {

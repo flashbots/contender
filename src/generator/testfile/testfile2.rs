@@ -111,7 +111,7 @@ where
                 let setup_steps = conf.get_setup_steps()?;
                 for step in setup_steps.iter() {
                     // lookup placeholders in DB & update map before templating
-                    templater.find_fncall_placeholders(step, &mut placeholder_map, db)?;
+                    templater.find_fncall_placeholders(step, db, &mut placeholder_map)?;
 
                     // create txs with template values
                     let tx = templater
@@ -134,7 +134,7 @@ where
 
                 for step in spam_steps.iter() {
                     // find templates from fn call
-                    templater.find_fncall_placeholders(step, &mut placeholder_map, db)?;
+                    templater.find_fncall_placeholders(step, db, &mut placeholder_map)?;
                     let fn_args = step.args.to_owned().unwrap_or_default();
 
                     // parse fn signature, used to check for fuzzed args later (to make sure they're named)
