@@ -6,17 +6,26 @@ use crate::generator::{
 };
 use crate::spammer::SpamCallback;
 use alloy::hex::{FromHex, ToHexExt};
+use alloy::network::EthereumWallet;
 use alloy::primitives::{Address, TxHash, U256};
 use alloy::primitives::{Bytes, TxKind};
-use alloy::providers::Provider;
-use serde::{Deserialize, Serialize};
+use alloy::providers::{Provider, ProviderBuilder};
+use alloy::signers::local::PrivateKeySigner;
 use std::collections::HashMap;
 use std::fs::read;
+use std::hash::Hash;
+use std::str::FromStr;
 use std::sync::Arc;
+use testfile2::{Generator2, PlanConfig};
 use tokio::task::{spawn as spawn_task, JoinHandle};
+use types::{CreateDefinition, FunctionCallDefinition, TestConfig};
 
+use super::templater::Templater;
 use super::util::RpcProvider;
-use super::NamedTxRequest;
+use super::{NamedTxRequest, RandSeed};
+pub mod testfile2;
+pub mod types;
+pub mod util;
 
 pub struct ContractDeployer<D>
 where
@@ -25,6 +34,7 @@ where
     config: TestConfig,
     db: Arc<D>,
     rpc_provider: Arc<RpcProvider>,
+    signers: HashMap<Address, EthereumWallet>,
 }
 
 /// A generator that specifically runs *setup* steps (including contract creation) from a TOML file.
@@ -45,58 +55,6 @@ where
     config: TestConfig,
     seed: &'a T,
     db: Arc<D>,
-}
-
-/// TOML file format.
-#[derive(Clone, Deserialize, Debug, Serialize)]
-pub struct TestConfig {
-    /// Template variables
-    pub env: Option<HashMap<String, String>>,
-
-    /// Contract deployments; array of hex-encoded bytecode strings.
-    pub create: Option<Vec<CreateDefinition>>,
-
-    /// Setup steps to run before spamming.
-    pub setup: Option<Vec<FunctionCallDefinition>>,
-
-    /// Function to call in spam txs.
-    pub spam: Option<Vec<FunctionCallDefinition>>,
-}
-
-#[derive(Clone, Deserialize, Debug, Serialize)]
-pub struct FunctionCallDefinition {
-    /// Address of the contract to call.
-    pub to: String,
-    /// Address of the tx sender (must be unlocked on RPC endpoint).
-    pub from: Option<String>,
-    /// Name of the function to call.
-    pub signature: String,
-    /// Parameters to pass to the function.
-    pub args: Option<Vec<String>>,
-    /// Value in wei to send with the tx.
-    pub value: Option<String>,
-    /// Parameters to fuzz during the test.
-    pub fuzz: Option<Vec<FuzzParam>>,
-}
-
-#[derive(Clone, Deserialize, Debug, Serialize)]
-pub struct CreateDefinition {
-    /// Bytecode of the contract to deploy.
-    pub bytecode: String,
-    /// Name to identify the contract later.
-    pub name: String,
-    // TODO: support multiple signers
-    pub from: Option<String>,
-}
-
-#[derive(Clone, Deserialize, Debug, Serialize)]
-pub struct FuzzParam {
-    /// Name of the parameter to fuzz.
-    pub param: String,
-    /// Minimum value fuzzer will use.
-    pub min: Option<U256>,
-    /// Maximum value fuzzer will use.
-    pub max: Option<U256>,
 }
 
 /// Find values wrapped in brackets in a string and replace them with values from a hashmap whose key match the value in the brackets.
@@ -128,11 +86,29 @@ impl<D> ContractDeployer<D>
 where
     D: DbOps + Send + Sync + 'static,
 {
-    pub fn new(config: TestConfig, db: Arc<D>, rpc_provider: Arc<RpcProvider>) -> Self {
+    pub fn new(
+        config: TestConfig,
+        db: Arc<D>,
+        rpc_provider: Arc<RpcProvider>,
+        private_keys: &[impl AsRef<str>],
+    ) -> Self {
+        let signers = private_keys.iter().map(|k| {
+            let key = k.as_ref();
+            let signer = PrivateKeySigner::from_str(key).expect("Invalid private key");
+            let addr = signer.address();
+            (addr, signer)
+        });
+
+        // populate hashmap with signers where address is the key, signer is the value
+        let mut signer_map: HashMap<Address, EthereumWallet> = HashMap::new();
+        for (addr, signer) in signers {
+            signer_map.insert(addr, signer.into());
+        }
         Self {
             config,
             db,
             rpc_provider,
+            signers: signer_map,
         }
     }
 
@@ -147,13 +123,43 @@ where
         }
 
         if let Some(create_steps) = &self.config.create {
+            let mut provider_map = HashMap::new();
+            for signer in self.signers.iter() {
+                let provider = ProviderBuilder::new()
+                    .wallet(signer.1)
+                    .on_provider(self.rpc_provider.clone());
+                provider_map.insert(signer.0, provider);
+            }
             for step in create_steps.iter() {
+                let from = step
+                    .from
+                    .to_owned()
+                    .ok_or(ContenderError::SetupError(
+                        "from address required",
+                        step.name.to_owned().into(),
+                    ))?
+                    .parse::<Address>()
+                    .map_err(|e| {
+                        ContenderError::SetupError(
+                            "failed to parse from address",
+                            Some(e.to_string()),
+                        )
+                    })?;
+
+                let provider = provider_map.get(&from).ok_or(ContenderError::SetupError(
+                    "failed to get provider for given 'from' address",
+                    Some(from.encode_hex()),
+                ))?;
                 // find & replace templates in bytecode
                 find_template_values(&mut template_map, &step.bytecode, self.db.as_ref())?;
                 let full_bytecode = replace_templates(&step.bytecode, &template_map);
 
                 let tx = alloy::rpc::types::TransactionRequest {
+                    from: Some(from),
                     to: Some(TxKind::Create),
+                    // TODO: gas_price,
+                    // TODO: gas limit
+                    // TODO: nonce
                     input: alloy::rpc::types::TransactionInput::both(
                         Bytes::from_hex(&full_bytecode).expect("invalid bytecode hex"),
                     ),
@@ -208,6 +214,70 @@ impl TestConfig {
         let encoded = self.encode_toml()?;
         std::fs::write(file_path, encoded)?;
         Ok(())
+    }
+}
+
+impl PlanConfig<String> for TestConfig {
+    fn get_spam_steps(&self) -> Result<Vec<FunctionCallDefinition>, ContenderError> {
+        self.spam
+            .to_owned()
+            .ok_or(ContenderError::SpamError("no spam steps found", None))
+    }
+
+    fn get_setup_steps(&self) -> Result<Vec<FunctionCallDefinition>, ContenderError> {
+        self.setup
+            .to_owned()
+            .ok_or(ContenderError::SetupError("no setup steps found", None))
+    }
+
+    fn get_create_steps(&self) -> Result<Vec<CreateDefinition>, ContenderError> {
+        self.create
+            .to_owned()
+            .ok_or(ContenderError::SetupError("no create steps found", None))
+    }
+
+    fn get_env(&self) -> Result<HashMap<String, String>, ContenderError> {
+        self.env.to_owned().ok_or(ContenderError::SetupError(
+            "no environment variables found",
+            None,
+        ))
+    }
+}
+
+impl Templater<String> for TestConfig {
+    fn replace_placeholders(&self, input: &str, template_map: &HashMap<String, String>) -> String {
+        replace_templates(&input, template_map)
+    }
+
+    fn terminator_start(&self, input: &str) -> Option<usize> {
+        input.find("{")
+    }
+
+    fn terminator_end(&self, input: &str) -> Option<usize> {
+        input.find("}")
+    }
+
+    fn num_placeholders(&self, input: &str) -> usize {
+        input.chars().filter(|&c| c == '{').count()
+    }
+
+    fn copy_end(&self, input: &str, last_end: usize) -> String {
+        input.split_at(last_end).1.to_owned()
+    }
+
+    fn find_key(&self, input: &str) -> Option<(String, usize)> {
+        if let Some(template_start) = self.terminator_start(input) {
+            let template_end = self.terminator_end(input);
+            if let Some(template_end) = template_end {
+                let template_name = &input[template_start + 1..template_end];
+                return Some((template_name.to_owned(), template_end));
+            }
+        }
+        None
+    }
+
+    fn encode_contract_address(&self, input: &Address) -> String {
+        input.encode_hex()
     }
 }
 
@@ -556,6 +626,56 @@ fn maybe_replace(arg: &str, template_map: &HashMap<String, String>) -> String {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
+pub struct TestScenario<D, S>
+where
+    D: DbOps + Send + Sync + ToOwned<Owned = D>,
+    S: Seeder,
+{
+    config: TestConfig,
+    db: Arc<D>,
+    rpc_provider: Arc<RpcProvider>,
+    rand_seed: S,
+}
+
+impl<D, S> TestScenario<D, S>
+where
+    D: DbOps + Send + Sync + ToOwned<Owned = D>,
+    S: Seeder,
+{
+    pub fn new(config: TestConfig, db: &D, rpc_provider: &RpcProvider, rand_seed: S) -> Self {
+        Self {
+            config,
+            db: Arc::new(db.to_owned()),
+            rpc_provider: Arc::new(rpc_provider.to_owned()),
+            rand_seed,
+        }
+    }
+}
+
+impl<D, S> Generator2<String> for TestScenario<D, S>
+where
+    D: DbOps + Send + Sync + ToOwned<Owned = D>,
+    S: Seeder,
+{
+    fn get_db(&self) -> &impl DbOps {
+        self.db.as_ref()
+    }
+
+    fn get_templater(&self) -> &impl Templater<String> {
+        &self.config
+    }
+
+    fn get_plan_conf(&self) -> &impl PlanConfig<String> {
+        &self.config
+    }
+
+    fn get_fuzz_seeder(&self) -> &impl Seeder {
+        &self.rand_seed
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;
@@ -564,6 +684,8 @@ pub mod tests {
     use crate::generator::RandSeed;
     use alloy::providers::ProviderBuilder;
     use std::fs;
+    use testfile2::PlanType;
+    use types::{CreateDefinition, FunctionCallDefinition, FuzzParam};
 
     pub fn get_testconfig() -> TestConfig {
         TestConfig {
@@ -672,7 +794,7 @@ pub mod tests {
             create: Some(vec![CreateDefinition {
                 bytecode: COUNTER_BYTECODE.to_string(),
                 name: "test_counter".to_string(),
-                from: None,
+                from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
             }]),
             spam: None,
             setup: None,
@@ -698,7 +820,12 @@ pub mod tests {
         let db = Arc::new(SqliteDb::new_memory());
         db.create_tables().unwrap();
         let rpc_client = ProviderBuilder::new().on_http(anvil.endpoint_url());
-        let gen = ContractDeployer::new(test_file, db.clone(), Arc::new(rpc_client));
+        let prv_keys = &vec![
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+            "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+            "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
+        ];
+        let gen = ContractDeployer::new(test_file, db.clone(), Arc::new(rpc_client), &prv_keys);
         let res = gen.run().await;
         assert!(res.is_ok());
         // read the contract address from the DB
@@ -782,5 +909,34 @@ pub mod tests {
             let data2 = spam_txs_2[i].tx.input.input.to_owned().unwrap().to_string();
             assert_eq!(data1, data2);
         }
+    }
+
+    #[test]
+    fn it_creates_scenarios() {
+        let anvil = spawn_anvil();
+        let test_file = get_composite_testconfig();
+        let seed = RandSeed::from_bytes(&[0x01; 32]);
+        let db = SqliteDb::new_memory();
+        let rpc_client = ProviderBuilder::new().on_http(anvil.endpoint_url());
+        let scenario = TestScenario::new(test_file, &db, &rpc_client, seed);
+
+        let create_txs = scenario
+            .get_txs(PlanType::Create(|tx| {
+                println!("create tx callback triggered! {:?}\n", tx);
+                Ok(())
+            }))
+            .unwrap();
+        assert_eq!(create_txs.len(), 1);
+
+        let setup_txs = scenario
+            .get_txs(PlanType::Setup(|tx| {
+                println!("setup tx callback triggered! {:?}\n", tx);
+                Ok(())
+            }))
+            .unwrap();
+        assert_eq!(setup_txs.len(), 2);
+
+        let spam_txs = scenario.get_txs(PlanType::Spam(20)).unwrap();
+        assert!(spam_txs.len() >= 20);
     }
 }

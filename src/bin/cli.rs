@@ -6,11 +6,11 @@ use contender_core::{
     db::{database::DbOps, sqlite::SqliteDb},
     generator::{
         testfile::{
-            ContractDeployer, LogCallback, NilCallback, SetupCallback, SetupGenerator,
-            SpamGenerator, TestConfig,
+            types::TestConfig, ContractDeployer, LogCallback, NilCallback, SetupCallback,
+            SetupGenerator, SpamGenerator,
         },
         util::RpcProvider,
-        RandSeed,
+        Generator, RandSeed,
     },
     spammer::{BlockwiseSpammer, TimedSpammer},
 };
@@ -26,12 +26,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = ContenderCli::parse_args();
     let _ = DB.lock().await.create_tables(); // ignore error; tables already exist
     match args.command {
-        ContenderSubcommand::Setup { testfile, rpc_url } => {
+        ContenderSubcommand::Setup {
+            testfile,
+            rpc_url,
+            private_keys,
+        } => {
             let rpc_client = Arc::new(
                 ProviderBuilder::new()
                     .on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL")),
             );
             let testconfig: TestConfig = TestConfig::from_file(&testfile)?;
+
+            let private_keys = private_keys.expect("Must provide private keys for setup");
 
             // process [[create]] steps; deploys contracts one at a time, updating the DB with each address
             // so that subsequent steps can reference them
@@ -39,15 +45,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 testconfig.to_owned(),
                 Arc::new(DB.lock().await.clone()),
                 rpc_client.clone(),
+                private_keys.as_ref(),
             );
             deployer.run().await?;
 
             // process [[setup]] steps; generates transactions and sends them to the RPC via a Spammer
             let gen = SetupGenerator::new(testconfig, DB.lock().await.clone());
+            let steps = gen.get_txs(0)?; // amount is ignored by this generator
+            println!("Setting up with {} txs", steps.len());
+            // TODO: something closer to ContractDeployer is probably more appropriate here
             let callback =
                 SetupCallback::new(Arc::new(DB.lock().await.clone()), rpc_client.clone());
-            let spammer = TimedSpammer::new(&gen, callback, rpc_url);
-            spammer.spam_rpc(10, 1).await?;
+            let spammer = BlockwiseSpammer::new(&gen, callback, rpc_url, private_keys.as_ref());
+            spammer.spam_rpc(1, steps.len(), None).await?;
         }
         ContenderSubcommand::Spam {
             testfile,
@@ -73,32 +83,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let duration = duration.unwrap_or_default();
 
             if let Some(txs_per_block) = txs_per_block {
-                if let Some(private_keys) = private_keys {
-                    println!("Blockwise spamming with {} txs per block", txs_per_block);
-                    match spam_callback_default(!disable_reports, rpc_client.into()).await {
-                        SpamCallbackType::Log(cback) => {
-                            let timestamp = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .expect("Time went backwards")
-                                .as_millis();
-                            let run_id = cback
-                                .db
-                                .clone()
-                                .insert_run(timestamp as u64, txs_per_block * duration)?;
-                            let spammer = BlockwiseSpammer::new(gen, cback, rpc_url, &private_keys);
-                            spammer
-                                .spam_rpc(txs_per_block, duration, Some(run_id.into()))
-                                .await?;
-                            println!("Saved run. run_id = {}", run_id);
-                        }
-                        SpamCallbackType::Nil(cback) => {
-                            let spammer = BlockwiseSpammer::new(gen, cback, rpc_url, &private_keys);
-                            spammer.spam_rpc(txs_per_block, duration, None).await?;
-                        }
-                    };
-                } else {
-                    panic!("Must provide private keys for blockwise spamming");
-                }
+                let private_keys =
+                    private_keys.expect("Must provide private keys for blockwise spamming");
+
+                println!("Blockwise spamming with {} txs per block", txs_per_block);
+                match spam_callback_default(!disable_reports, rpc_client.into()).await {
+                    SpamCallbackType::Log(cback) => {
+                        let timestamp = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .expect("Time went backwards")
+                            .as_millis();
+                        let run_id = cback
+                            .db
+                            .clone()
+                            .insert_run(timestamp as u64, txs_per_block * duration)?;
+                        let spammer = BlockwiseSpammer::new(gen, cback, rpc_url, &private_keys);
+                        spammer
+                            .spam_rpc(txs_per_block, duration, Some(run_id.into()))
+                            .await?;
+                        println!("Saved run. run_id = {}", run_id);
+                    }
+                    SpamCallbackType::Nil(cback) => {
+                        let spammer = BlockwiseSpammer::new(gen, cback, rpc_url, &private_keys);
+                        spammer.spam_rpc(txs_per_block, duration, None).await?;
+                    }
+                };
                 return Ok(());
             }
 
