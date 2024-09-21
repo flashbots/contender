@@ -15,12 +15,12 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::task;
 
-use super::SpamCallback;
+use super::OnTxSent;
 
 pub struct BlockwiseSpammer<'a, G, F>
 where
     G: Generator,
-    F: SpamCallback + Send + Sync + 'static,
+    F: OnTxSent + Send + Sync + 'static,
 {
     generator: &'a G,
     rpc_client: Arc<RpcProvider>,
@@ -31,7 +31,7 @@ where
 impl<'a, G, F> BlockwiseSpammer<'a, G, F>
 where
     G: Generator,
-    F: SpamCallback + Send + Sync + 'static,
+    F: OnTxSent + Send + Sync + 'static,
 {
     pub fn new(
         generator: &'a G,

@@ -7,7 +7,7 @@ use crate::generator::{
     util::RpcProvider,
     Generator, Generator2, PlanConfig, PlanType,
 };
-use crate::spammer::SpamCallback;
+use crate::spammer::OnTxSent;
 use alloy::hex::ToHexExt;
 use alloy::network::{EthereumWallet, TransactionBuilder};
 use alloy::primitives::TxKind;
@@ -398,14 +398,14 @@ where
     }
 }
 
-impl SpamCallback for NilCallback {
+impl OnTxSent for NilCallback {
     fn on_tx_sent(&self, _tx_res: TxHash, _name: Option<String>) -> Option<JoinHandle<()>> {
         // do nothing
         None
     }
 }
 
-impl<D> SpamCallback for SetupCallback<D>
+impl<D> OnTxSent for SetupCallback<D>
 where
     D: DbOps + Send + Sync + 'static,
 {
@@ -435,7 +435,7 @@ where
     }
 }
 
-impl<D> SpamCallback for LogCallback<D>
+impl<D> OnTxSent for LogCallback<D>
 where
     D: DbOps + Send + Sync + 'static,
 {

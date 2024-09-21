@@ -1,6 +1,6 @@
 use crate::{
     generator::{util::RpcProvider, Generator},
-    spammer::SpamCallback,
+    spammer::OnTxSent,
     Result,
 };
 use alloy::hex::ToHexExt;
@@ -12,7 +12,7 @@ use tokio::task;
 pub struct TimedSpammer<'a, G, F>
 where
     G: Generator,
-    F: SpamCallback + Send + Sync + 'static,
+    F: OnTxSent + Send + Sync + 'static,
 {
     generator: &'a G,
     rpc_client: Arc<RpcProvider>,
@@ -22,7 +22,7 @@ where
 impl<'a, G, F> TimedSpammer<'a, G, F>
 where
     G: Generator,
-    F: SpamCallback + Send + Sync + 'static,
+    F: OnTxSent + Send + Sync + 'static,
 {
     pub fn new(generator: &'a G, callback_handler: F, rpc_url: impl AsRef<str>) -> Self {
         let rpc_client =
