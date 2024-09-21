@@ -5,7 +5,6 @@ use alloy::json_abi;
 use alloy::rpc::types::TransactionRequest;
 pub use seeder::rand_seed::RandSeed;
 
-pub mod execution_plan;
 pub mod seeder;
 pub mod templater;
 pub mod testfile;

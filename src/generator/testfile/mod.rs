@@ -6,23 +6,24 @@ use crate::generator::{
 };
 use crate::spammer::SpamCallback;
 use alloy::hex::{FromHex, ToHexExt};
-use alloy::network::EthereumWallet;
+use alloy::network::{EthereumWallet, TransactionBuilder};
 use alloy::primitives::{Address, TxHash, U256};
 use alloy::primitives::{Bytes, TxKind};
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::signers::local::PrivateKeySigner;
+use alloy::transports::http::reqwest::Url;
 use std::collections::HashMap;
 use std::fs::read;
-use std::hash::Hash;
+
 use std::str::FromStr;
 use std::sync::Arc;
-use testfile2::{Generator2, PlanConfig};
+use testfile2::{Generator2, PlanConfig, PlanType};
 use tokio::task::{spawn as spawn_task, JoinHandle};
 use types::{CreateDefinition, FunctionCallDefinition, TestConfig};
 
 use super::templater::Templater;
 use super::util::RpcProvider;
-use super::{NamedTxRequest, RandSeed};
+use super::NamedTxRequest;
 pub mod testfile2;
 pub mod types;
 pub mod util;
@@ -131,20 +132,9 @@ where
                 provider_map.insert(signer.0, provider);
             }
             for step in create_steps.iter() {
-                let from = step
-                    .from
-                    .to_owned()
-                    .ok_or(ContenderError::SetupError(
-                        "from address required",
-                        step.name.to_owned().into(),
-                    ))?
-                    .parse::<Address>()
-                    .map_err(|e| {
-                        ContenderError::SetupError(
-                            "failed to parse from address",
-                            Some(e.to_string()),
-                        )
-                    })?;
+                let from = step.from.to_owned().parse::<Address>().map_err(|e| {
+                    ContenderError::SetupError("failed to parse from address", Some(e.to_string()))
+                })?;
 
                 let provider = provider_map.get(&from).ok_or(ContenderError::SetupError(
                     "failed to get provider for given 'from' address",
@@ -369,10 +359,9 @@ where
                 let to = to.parse::<Address>().map_err(|e| {
                     ContenderError::SpamError("failed to parse address", Some(e.to_string()))
                 })?;
-                let from = function
-                    .from
-                    .as_ref()
-                    .map(|s| s.parse().expect("failed to parse 'from' address"));
+                let from = function.from.parse::<Address>().map_err(|e| {
+                    ContenderError::SpamError("failed to parse 'from' address", Some(e.to_string()))
+                })?;
                 let value = function
                     .value
                     .as_ref()
@@ -382,7 +371,7 @@ where
 
                 let tx = alloy::rpc::types::TransactionRequest {
                     to: Some(TxKind::Call(to)),
-                    from,
+                    from: from.into(),
                     input: alloy::rpc::types::TransactionInput::both(input.into()),
                     value,
                     ..Default::default()
@@ -447,12 +436,14 @@ where
                 let input = self.encode_calldata(&args, &step.signature)?;
                 let to = maybe_replace(&step.to, &template_map);
                 let to = to.parse::<Address>().map_err(|e| {
-                    ContenderError::SpamError("failed to parse address", Some(e.to_string()))
+                    ContenderError::SpamError("failed to parse 'to' address", Some(e.to_string()))
                 })?;
-                let from = step
-                    .from
-                    .as_ref()
-                    .map(|s| s.parse().expect("failed to parse 'from' address"));
+                let from = step.from.parse::<Address>().map_err(|e| {
+                    ContenderError::SetupError(
+                        "failed to parse 'from' address",
+                        Some(e.to_string()),
+                    )
+                })?;
                 let value = step
                     .value
                     .as_ref()
@@ -463,7 +454,7 @@ where
                 let tx = alloy::rpc::types::TransactionRequest {
                     to: Some(alloy::primitives::TxKind::Call(to)),
                     input: alloy::rpc::types::TransactionInput::both(input.into()),
-                    from,
+                    from: from.into(),
                     value,
                     ..Default::default()
                 };
@@ -628,6 +619,7 @@ fn maybe_replace(arg: &str, template_map: &HashMap<String, String>) -> String {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// A test scenario can be used to run a test with a specific configuration, database, and RPC provider.
 pub struct TestScenario<D, S>
 where
     D: DbOps + Send + Sync + ToOwned<Owned = D>,
@@ -635,35 +627,111 @@ where
 {
     config: TestConfig,
     db: Arc<D>,
-    rpc_provider: Arc<RpcProvider>,
+    rpc_url: Url,
     rand_seed: S,
+    wallet_map: HashMap<Address, EthereumWallet>,
 }
 
 impl<D, S> TestScenario<D, S>
 where
-    D: DbOps + Send + Sync + ToOwned<Owned = D>,
-    S: Seeder,
+    D: DbOps + Send + Sync + ToOwned<Owned = D> + 'static,
+    S: Seeder + Send + Sync,
 {
-    pub fn new(config: TestConfig, db: &D, rpc_provider: &RpcProvider, rand_seed: S) -> Self {
+    pub fn new(
+        config: TestConfig,
+        db: &D,
+        rpc_url: Url,
+        rand_seed: S,
+        signers: &[PrivateKeySigner],
+    ) -> Self {
+        let mut wallet_map = HashMap::new();
+        let wallets = signers.iter().map(|s| {
+            let w = EthereumWallet::new(s.clone());
+            (s.address(), w)
+        });
+        for (addr, wallet) in wallets {
+            wallet_map.insert(addr, wallet);
+        }
+
         Self {
             config,
             db: Arc::new(db.to_owned()),
-            rpc_provider: Arc::new(rpc_provider.to_owned()),
+            rpc_url,
             rand_seed,
+            wallet_map,
         }
+    }
+
+    pub async fn deploy_contracts(
+        &self,
+        // only_with_names: Option<&[impl AsRef<str>]>,
+    ) -> Result<(), ContenderError> {
+        let pub_provider = ProviderBuilder::new().on_http(self.rpc_url.clone());
+        let gas_price = pub_provider.get_gas_price().await.map_err(|e| {
+            ContenderError::SetupError("failed to get gas price", Some(e.to_string()))
+        })?;
+
+        // we do everything in the callback so no need to actually capture the returned txs
+        self.load_txs(PlanType::Create(|tx_req| {
+            /* callback */
+            // copy data/refs from self before spawning the task
+            let from = tx_req.tx.from.as_ref().ok_or(ContenderError::SetupError(
+                "failed to get 'from' address",
+                None,
+            ))?;
+            let wallet = self.wallet_map.get(from).unwrap().clone();
+            let tx_req = tx_req.to_owned();
+            let rpc_url = self.rpc_url.clone();
+            let db = self.db.clone();
+            let provider = ProviderBuilder::new()
+                // simple_nonce_management is unperformant but it's OK bc we're just deploying
+                .with_simple_nonce_management()
+                .wallet(wallet)
+                .on_http(rpc_url);
+
+            println!("deploying contract: {:?}", tx_req.name);
+            let handle = tokio::task::spawn(async move {
+                // estimate gas limit
+                let gas_limit = provider
+                    .estimate_gas(&tx_req.tx)
+                    .await
+                    .expect("failed to estimate gas");
+
+                // inject missing fields into tx_req.tx
+                let tx = tx_req
+                    .tx
+                    .with_gas_price(gas_price)
+                    .with_gas_limit(gas_limit);
+
+                let res = provider.send_transaction(tx).await.unwrap();
+                let receipt = res.get_receipt().await.unwrap();
+                println!("contract address: {:?}", receipt.contract_address);
+                let contract_address = receipt.contract_address;
+                db.insert_named_tx(
+                    tx_req.name.unwrap_or_default(),
+                    receipt.transaction_hash,
+                    contract_address,
+                )
+                .expect("failed to insert tx into db");
+            });
+            Ok(Some(handle))
+        }))
+        .await?;
+
+        Ok(())
     }
 }
 
-impl<D, S> Generator2<String> for TestScenario<D, S>
+impl<D, S> Generator2<String, D, TestConfig> for TestScenario<D, S>
 where
     D: DbOps + Send + Sync + ToOwned<Owned = D>,
     S: Seeder,
 {
-    fn get_db(&self) -> &impl DbOps {
+    fn get_db(&self) -> &D {
         self.db.as_ref()
     }
 
-    fn get_templater(&self) -> &impl Templater<String> {
+    fn get_templater(&self) -> &TestConfig {
         &self.config
     }
 
@@ -679,13 +747,20 @@ where
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use super::{
+        testfile2::PlanType,
+        types::{CreateDefinition, FunctionCallDefinition, FuzzParam},
+        TestConfig,
+    };
     use crate::db::sqlite::SqliteDb;
     use crate::generator::util::test::spawn_anvil;
+    // use crate::generator::
     use crate::generator::RandSeed;
-    use alloy::providers::ProviderBuilder;
-    use std::fs;
-    use testfile2::PlanType;
-    use types::{CreateDefinition, FunctionCallDefinition, FuzzParam};
+    use alloy::{
+        hex::ToHexExt, node_bindings::AnvilInstance, primitives::Address,
+        providers::ProviderBuilder,
+    };
+    use std::{collections::HashMap, fs, sync::Arc};
 
     pub fn get_testconfig() -> TestConfig {
         TestConfig {
@@ -694,7 +769,7 @@ pub mod tests {
             setup: None,
             spam: vec![FunctionCallDefinition {
                 to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD".to_owned(),
-                from: None,
+                from: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD".to_owned(),
                 signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
                 args: vec![
                     "1".to_owned(),
@@ -713,7 +788,7 @@ pub mod tests {
     pub fn get_fuzzy_testconfig() -> TestConfig {
         let fn_call = |data: &str, from_addr: &str| FunctionCallDefinition {
             to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-            from: Some(from_addr.to_owned()),
+            from: from_addr.to_owned(),
             value: None,
             signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
             args: vec![
@@ -751,7 +826,7 @@ pub mod tests {
             setup: vec![
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                    from: None,
+                    from: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD".to_owned(),
                     value: Some("4096".to_owned()),
                     signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
                     args: vec![
@@ -765,7 +840,7 @@ pub mod tests {
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                    from: None,
+                    from: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD".to_owned(),
                     value: Some("0x1000".to_owned()),
                     signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
                     args: vec![
@@ -794,7 +869,7 @@ pub mod tests {
             create: Some(vec![CreateDefinition {
                 bytecode: COUNTER_BYTECODE.to_string(),
                 name: "test_counter".to_string(),
-                from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
+                from: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned(),
             }]),
             spam: None,
             setup: None,
@@ -851,7 +926,7 @@ pub mod tests {
         );
         assert_eq!(
             spam[0].from,
-            Some("0x70997970C51812dc3A010C7d01b50e0d17dc79C8".to_owned())
+            "0x70997970C51812dc3A010C7d01b50e0d17dc79C8".to_owned()
         );
         assert_eq!(setup.len(), 11);
         assert_eq!(setup[0].value, Some("100000000000000000000".to_owned()));
@@ -911,32 +986,61 @@ pub mod tests {
         }
     }
 
-    #[test]
-    fn it_creates_scenarios() {
-        let anvil = spawn_anvil();
+    fn get_test_scenario(anvil: &AnvilInstance) -> TestScenario<SqliteDb, RandSeed> {
         let test_file = get_composite_testconfig();
         let seed = RandSeed::from_bytes(&[0x01; 32]);
         let db = SqliteDb::new_memory();
-        let rpc_client = ProviderBuilder::new().on_http(anvil.endpoint_url());
-        let scenario = TestScenario::new(test_file, &db, &rpc_client, seed);
+        db.create_tables().unwrap();
+        let signers = &vec![
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+            "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+            "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
+        ]
+        .iter()
+        .map(|s| PrivateKeySigner::from_str(s).unwrap())
+        .collect::<Vec<PrivateKeySigner>>();
+
+        TestScenario::new(test_file, &db, anvil.endpoint_url(), seed, &signers)
+    }
+
+    #[tokio::test]
+    async fn it_creates_scenarios() {
+        let anvil = spawn_anvil();
+        let scenario = get_test_scenario(&anvil);
 
         let create_txs = scenario
-            .get_txs(PlanType::Create(|tx| {
+            .load_txs(PlanType::Create(|tx| {
                 println!("create tx callback triggered! {:?}\n", tx);
-                Ok(())
+                Ok(None)
             }))
+            .await
             .unwrap();
         assert_eq!(create_txs.len(), 1);
 
         let setup_txs = scenario
-            .get_txs(PlanType::Setup(|tx| {
+            .load_txs(PlanType::Setup(|tx| {
                 println!("setup tx callback triggered! {:?}\n", tx);
-                Ok(())
+                Ok(None)
             }))
+            .await
             .unwrap();
         assert_eq!(setup_txs.len(), 2);
 
-        let spam_txs = scenario.get_txs(PlanType::Spam(20)).unwrap();
+        let spam_txs = scenario
+            .load_txs(PlanType::Spam(20, |tx| {
+                println!("spam tx callback triggered! {:?}\n", tx);
+                Ok(None)
+            }))
+            .await
+            .unwrap();
         assert!(spam_txs.len() >= 20);
+    }
+
+    #[tokio::test]
+    async fn scenario_creates_contracts() {
+        let anvil = spawn_anvil();
+        let scenario = get_test_scenario(&anvil);
+        let res = scenario.deploy_contracts().await;
+        assert!(res.is_ok());
     }
 }

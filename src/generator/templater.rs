@@ -14,7 +14,7 @@ use super::testfile::{
 
 pub trait Templater<K>
 where
-    K: Eq + std::hash::Hash + ToString + std::fmt::Debug,
+    K: Eq + std::hash::Hash + ToString + std::fmt::Debug + Send + Sync,
 {
     fn replace_placeholders(&self, input: &str, placeholder_map: &HashMap<K, String>) -> String;
     fn terminator_start(&self, input: &str) -> Option<usize>;
@@ -68,6 +68,21 @@ where
         Ok(())
     }
 
+    fn find_fncall_placeholders(
+        &self,
+        fncall: &FunctionCallDefinition,
+        placeholder_map: &mut HashMap<K, String>,
+        db: &impl DbOps,
+    ) -> Result<()> {
+        // find templates in fn args & `to`
+        let fn_args = fncall.args.to_owned().unwrap_or_default();
+        for arg in fn_args.iter() {
+            self.find_placeholder_values(arg, placeholder_map, db)?;
+        }
+        self.find_placeholder_values(&fncall.to, placeholder_map, db)?;
+        Ok(())
+    }
+
     /// Returns a transaction request for a given function call definition with all
     /// {placeholders} filled in using corresponding values from `placeholder_map`.
     fn template_function_call(
@@ -93,15 +108,14 @@ where
             .map(|s| s.parse::<U256>().ok())
             .flatten();
 
-        let from = funcdef
-            .from
-            .as_ref()
-            .map(|s| s.parse().expect("failed to parse 'from' address"));
+        let from = funcdef.from.parse::<Address>().map_err(|e| {
+            ContenderError::SpamError("failed to parse from address", Some(e.to_string()))
+        })?;
 
         Ok(TransactionRequest {
             to: Some(TxKind::Call(to)),
             input: alloy::rpc::types::TransactionInput::both(input.into()),
-            from,
+            from: Some(from),
             value,
             ..Default::default()
         })
@@ -112,17 +126,9 @@ where
         createdef: &CreateDefinition,
         placeholder_map: &HashMap<K, String>,
     ) -> Result<TransactionRequest> {
-        let from = createdef
-            .from
-            .to_owned()
-            .ok_or(ContenderError::SetupError(
-                "from address required",
-                createdef.name.to_owned().into(),
-            ))?
-            .parse::<Address>()
-            .map_err(|e| {
-                ContenderError::SetupError("failed to parse from address", Some(e.to_string()))
-            })?;
+        let from = createdef.from.to_owned().parse::<Address>().map_err(|e| {
+            ContenderError::SetupError("failed to parse from address", Some(e.to_string()))
+        })?;
 
         let full_bytecode = self.replace_placeholders(&createdef.bytecode, &placeholder_map);
         let tx = alloy::rpc::types::TransactionRequest {
@@ -134,20 +140,5 @@ where
             ..Default::default()
         };
         Ok(tx)
-    }
-
-    fn find_fncall_placeholders(
-        &self,
-        fncall: &FunctionCallDefinition,
-        placeholder_map: &mut HashMap<K, String>,
-        db: &impl DbOps,
-    ) -> Result<()> {
-        // find templates in fn args & `to`
-        let fn_args = fncall.args.to_owned().unwrap_or_default();
-        for arg in fn_args.iter() {
-            self.find_placeholder_values(arg, placeholder_map, db)?;
-        }
-        self.find_placeholder_values(&fncall.to, placeholder_map, db)?;
-        Ok(())
     }
 }

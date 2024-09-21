@@ -22,8 +22,8 @@ pub struct TestConfig {
 pub struct FunctionCallDefinition {
     /// Address of the contract to call.
     pub to: String,
-    /// Address of the tx sender (must be unlocked on RPC endpoint).
-    pub from: Option<String>,
+    /// Address of the tx sender.
+    pub from: String,
     /// Name of the function to call.
     pub signature: String,
     /// Parameters to pass to the function.
@@ -40,8 +40,8 @@ pub struct CreateDefinition {
     pub bytecode: String,
     /// Name to identify the contract later.
     pub name: String,
-    // TODO: support multiple signers
-    pub from: Option<String>,
+    /// Address of the tx sender.
+    pub from: String,
 }
 
 #[derive(Clone, Deserialize, Debug, Serialize)]

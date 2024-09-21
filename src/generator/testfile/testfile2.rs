@@ -11,12 +11,14 @@ use crate::{
     },
     Result,
 };
-use alloy::{primitives::U256, rpc::types::TransactionRequest};
+use alloy::primitives::U256;
+use async_trait::async_trait;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
+use tokio::task::JoinHandle;
 
 pub trait PlanConfig<K>
 where
-    K: Eq + Hash + Debug,
+    K: Eq + Hash + Debug + Send + Sync,
 {
     fn get_env(&self) -> Result<HashMap<K, String>>;
     fn get_create_steps(&self) -> Result<Vec<CreateDefinition>>;
@@ -32,19 +34,24 @@ pub struct Plan {
     pub spam_steps: Vec<NamedTxRequest>,
 }
 
-pub enum PlanType {
-    Create(fn(&TransactionRequest) -> Result<()>),
-    Setup(fn(&TransactionRequest) -> Result<()>),
-    Spam(usize),
+type CallbackResult = Result<Option<JoinHandle<()>>>;
+
+pub enum PlanType<F: Fn(&NamedTxRequest) -> CallbackResult> {
+    Create(F),
+    Setup(F),
+    Spam(usize, F),
 }
 
-pub trait Generator2<K>
+#[async_trait]
+pub trait Generator2<K, D, T>
 where
-    K: Eq + Hash + Debug + ToString + ToOwned<Owned = K>,
+    K: Eq + Hash + Debug + ToString + ToOwned<Owned = K> + Send + Sync,
+    D: Send + Sync + DbOps,
+    T: Send + Sync + Templater<K>,
 {
     fn get_plan_conf(&self) -> &impl PlanConfig<K>;
-    fn get_templater(&self) -> &impl Templater<K>;
-    fn get_db(&self) -> &impl DbOps;
+    fn get_templater(&self) -> &T;
+    fn get_db(&self) -> &D;
     fn get_fuzz_seeder(&self) -> &impl Seeder;
 
     fn get_fuzz_map(
@@ -64,7 +71,10 @@ where
         fuzz_map
     }
 
-    fn get_txs(&self, plan_type: PlanType) -> Result<Vec<NamedTxRequest>> {
+    async fn load_txs<F: Send + Sync + Fn(&NamedTxRequest) -> CallbackResult>(
+        &self,
+        plan_type: PlanType<F>,
+    ) -> Result<Vec<NamedTxRequest>> {
         let conf = self.get_plan_conf();
         let env = conf.get_env()?;
         let db = self.get_db();
@@ -84,12 +94,17 @@ where
                     templater.find_placeholder_values(&step.bytecode, &mut placeholder_map, db)?;
 
                     // create txs with template values
-                    let tx = templater.template_contract_deploy(step, &placeholder_map)?;
-                    on_create_step(&tx)?;
-                    txs.push(NamedTxRequest {
+                    let tx = NamedTxRequest {
                         name: Some(step.name.to_owned()),
-                        tx,
-                    });
+                        tx: templater.template_contract_deploy(step, &placeholder_map)?,
+                    };
+                    let handle = on_create_step(&tx)?;
+                    if let Some(handle) = handle {
+                        handle.await.map_err(|e| {
+                            ContenderError::with_err(e, "join error; callback crashed")
+                        })?;
+                    }
+                    txs.push(tx);
                 }
             }
             PlanType::Setup(on_setup_step) => {
@@ -99,12 +114,19 @@ where
                     templater.find_fncall_placeholders(step, &mut placeholder_map, db)?;
 
                     // create txs with template values
-                    let tx = templater.template_function_call(step, &placeholder_map)?;
-                    on_setup_step(&tx)?;
-                    txs.push(tx.into());
+                    let tx = templater
+                        .template_function_call(step, &placeholder_map)?
+                        .into();
+                    let handle = on_setup_step(&tx)?;
+                    if let Some(handle) = handle {
+                        handle.await.map_err(|e| {
+                            ContenderError::with_err(e, "join error; callback crashed")
+                        })?;
+                    }
+                    txs.push(tx);
                 }
             }
-            PlanType::Spam(num_txs) => {
+            PlanType::Spam(num_txs, on_spam_setup) => {
                 let spam_steps = conf.get_spam_steps()?;
                 let num_steps = spam_steps.len();
                 // round num_txs up to the nearest multiple of num_steps to prevent missed steps
@@ -117,10 +139,7 @@ where
 
                     // parse fn signature, used to check for fuzzed args later (to make sure they're named)
                     let func = alloy::json_abi::Function::parse(&step.signature).map_err(|e| {
-                        ContenderError::SpamError(
-                            "failed to parse function name",
-                            Some(e.to_string()),
-                        )
+                        ContenderError::with_err(e, "failed to parse function name")
                     })?;
 
                     // pre-generate fuzzy values for each fuzzed parameter
@@ -155,8 +174,16 @@ where
                         let mut step = step.to_owned();
                         step.args = Some(args);
 
-                        let tx = templater.template_function_call(&step, &placeholder_map)?;
-                        txs.push(tx.into());
+                        let tx: NamedTxRequest = templater
+                            .template_function_call(&step, &placeholder_map)?
+                            .into();
+                        let handle = on_spam_setup(&tx.to_owned())?;
+                        if let Some(handle) = handle {
+                            handle
+                                .await
+                                .map_err(|e| ContenderError::with_err(e, "error from callback"))?;
+                        }
+                        txs.push(tx);
                     }
                 }
             }
