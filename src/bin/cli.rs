@@ -1,61 +1,66 @@
 mod cli_lib;
 
-use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
+use alloy::{
+    providers::ProviderBuilder, signers::local::PrivateKeySigner, transports::http::reqwest::Url,
+};
 use cli_lib::{ContenderCli, ContenderSubcommand};
 use contender_core::{
     db::{database::DbOps, sqlite::SqliteDb},
     generator::{
         testfile::{
-            types::TestConfig, ContractDeployer, LogCallback, NilCallback, SetupCallback,
-            SetupGenerator, SpamGenerator,
+            types::TestConfig, LogCallback, NilCallback, SetupCallback, SetupGenerator,
+            SpamGenerator, TestScenario,
         },
         util::RpcProvider,
         Generator, RandSeed,
     },
     spammer::{BlockwiseSpammer, TimedSpammer},
 };
-use std::sync::{Arc, LazyLock};
-use tokio::sync::Mutex;
+use std::{
+    str::FromStr,
+    sync::{Arc, LazyLock},
+};
 
-static DB: LazyLock<Mutex<SqliteDb>> = std::sync::LazyLock::new(|| {
-    Mutex::new(SqliteDb::from_file("contender.db").expect("failed to open contender.db"))
+static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
+    SqliteDb::from_file("contender.db").expect("failed to open contender.db")
 });
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = ContenderCli::parse_args();
-    let _ = DB.lock().await.create_tables(); // ignore error; tables already exist
+    let _ = DB.create_tables(); // ignore error; tables already exist
     match args.command {
         ContenderSubcommand::Setup {
             testfile,
             rpc_url,
             private_keys,
         } => {
-            let rpc_client = Arc::new(
-                ProviderBuilder::new()
-                    .on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL")),
-            );
+            let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
+            let rpc_client = Arc::new(ProviderBuilder::new().on_http(url.to_owned()));
             let testconfig: TestConfig = TestConfig::from_file(&testfile)?;
 
             let private_keys = private_keys.expect("Must provide private keys for setup");
+            let signers: Vec<PrivateKeySigner> = private_keys
+                .iter()
+                .map(|k| PrivateKeySigner::from_str(k).expect("Invalid private key"))
+                .collect();
 
-            // process [[create]] steps; deploys contracts one at a time, updating the DB with each address
-            // so that subsequent steps can reference them
-            let deployer = ContractDeployer::<SqliteDb>::new(
+            let scenario = TestScenario::new(
                 testconfig.to_owned(),
-                Arc::new(DB.lock().await.clone()),
-                rpc_client.clone(),
-                private_keys.as_ref(),
+                DB.clone(),
+                url,
+                RandSeed::new(),
+                &signers,
             );
-            deployer.run().await?;
+
+            scenario.deploy_contracts().await?;
 
             // process [[setup]] steps; generates transactions and sends them to the RPC via a Spammer
-            let gen = SetupGenerator::new(testconfig, DB.lock().await.clone());
+            let gen = SetupGenerator::new(testconfig, DB.clone());
             let steps = gen.get_txs(0)?; // amount is ignored by this generator
             println!("Setting up with {} txs", steps.len());
             // TODO: something closer to ContractDeployer is probably more appropriate here
-            let callback =
-                SetupCallback::new(Arc::new(DB.lock().await.clone()), rpc_client.clone());
+            let callback = SetupCallback::new(Arc::new(DB.clone()), rpc_client.clone());
             let spammer = BlockwiseSpammer::new(&gen, callback, rpc_url, private_keys.as_ref());
             spammer.spam_rpc(1, steps.len(), None).await?;
         }
@@ -71,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             let testfile = TestConfig::from_file(&testfile)?;
             let rand_seed = seed.map(|s| RandSeed::from_str(&s)).unwrap_or_default();
-            let gen = &SpamGenerator::new(testfile, &rand_seed, DB.lock().await.clone());
+            let gen = &SpamGenerator::new(testfile, &rand_seed, DB.clone());
             let rpc_client = Arc::new(
                 ProviderBuilder::new()
                     .on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL")),
@@ -138,7 +143,7 @@ async fn spam_callback_default(
 ) -> SpamCallbackType<SqliteDb> {
     if log_txs {
         SpamCallbackType::Log(LogCallback::new(
-            Arc::new(DB.lock().await.clone()),
+            Arc::new(DB.clone()),
             rpc_client.unwrap().clone(),
         ))
     } else {

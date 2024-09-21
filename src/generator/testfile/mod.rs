@@ -5,17 +5,16 @@ use crate::generator::{
     Generator,
 };
 use crate::spammer::SpamCallback;
-use alloy::hex::{FromHex, ToHexExt};
+use alloy::hex::ToHexExt;
 use alloy::network::{EthereumWallet, TransactionBuilder};
+use alloy::primitives::TxKind;
 use alloy::primitives::{Address, TxHash, U256};
-use alloy::primitives::{Bytes, TxKind};
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::signers::local::PrivateKeySigner;
 use alloy::transports::http::reqwest::Url;
 use std::collections::HashMap;
 use std::fs::read;
 
-use std::str::FromStr;
 use std::sync::Arc;
 use testfile2::{Generator2, PlanConfig, PlanType};
 use tokio::task::{spawn as spawn_task, JoinHandle};
@@ -27,16 +26,6 @@ use super::NamedTxRequest;
 pub mod testfile2;
 pub mod types;
 pub mod util;
-
-pub struct ContractDeployer<D>
-where
-    D: DbOps + Send + Sync + 'static,
-{
-    config: TestConfig,
-    db: Arc<D>,
-    rpc_provider: Arc<RpcProvider>,
-    signers: HashMap<Address, EthereumWallet>,
-}
 
 /// A generator that specifically runs *setup* steps (including contract creation) from a TOML file.
 pub struct SetupGenerator<D>
@@ -80,98 +69,6 @@ where
             seed,
             db: Arc::new(db),
         }
-    }
-}
-
-impl<D> ContractDeployer<D>
-where
-    D: DbOps + Send + Sync + 'static,
-{
-    pub fn new(
-        config: TestConfig,
-        db: Arc<D>,
-        rpc_provider: Arc<RpcProvider>,
-        private_keys: &[impl AsRef<str>],
-    ) -> Self {
-        let signers = private_keys.iter().map(|k| {
-            let key = k.as_ref();
-            let signer = PrivateKeySigner::from_str(key).expect("Invalid private key");
-            let addr = signer.address();
-            (addr, signer)
-        });
-
-        // populate hashmap with signers where address is the key, signer is the value
-        let mut signer_map: HashMap<Address, EthereumWallet> = HashMap::new();
-        for (addr, signer) in signers {
-            signer_map.insert(addr, signer.into());
-        }
-        Self {
-            config,
-            db,
-            rpc_provider,
-            signers: signer_map,
-        }
-    }
-
-    pub async fn run(&self) -> Result<(), ContenderError> {
-        let mut template_map = HashMap::<String, String>::new();
-
-        // load values from [env] section
-        if let Some(env) = &self.config.env {
-            for (key, value) in env.iter() {
-                template_map.insert(key.to_owned(), value.to_owned());
-            }
-        }
-
-        if let Some(create_steps) = &self.config.create {
-            let mut provider_map = HashMap::new();
-            for signer in self.signers.iter() {
-                let provider = ProviderBuilder::new()
-                    .wallet(signer.1)
-                    .on_provider(self.rpc_provider.clone());
-                provider_map.insert(signer.0, provider);
-            }
-            for step in create_steps.iter() {
-                let from = step.from.to_owned().parse::<Address>().map_err(|e| {
-                    ContenderError::SetupError("failed to parse from address", Some(e.to_string()))
-                })?;
-
-                let provider = provider_map.get(&from).ok_or(ContenderError::SetupError(
-                    "failed to get provider for given 'from' address",
-                    Some(from.encode_hex()),
-                ))?;
-                // find & replace templates in bytecode
-                find_template_values(&mut template_map, &step.bytecode, self.db.as_ref())?;
-                let full_bytecode = replace_templates(&step.bytecode, &template_map);
-
-                let tx = alloy::rpc::types::TransactionRequest {
-                    from: Some(from),
-                    to: Some(TxKind::Create),
-                    // TODO: gas_price,
-                    // TODO: gas limit
-                    // TODO: nonce
-                    input: alloy::rpc::types::TransactionInput::both(
-                        Bytes::from_hex(&full_bytecode).expect("invalid bytecode hex"),
-                    ),
-                    ..Default::default()
-                };
-                let res = self.rpc_provider.send_transaction(tx).await.map_err(|e| {
-                    ContenderError::SetupError("failed to send setup tx", Some(e.to_string()))
-                })?;
-                let receipt = res.get_receipt().await.map_err(|e| {
-                    ContenderError::SetupError("failed to get receipt for tx", Some(e.to_string()))
-                })?;
-
-                self.db
-                    .insert_named_tx(
-                        step.name.to_owned(),
-                        receipt.transaction_hash,
-                        receipt.contract_address,
-                    )
-                    .expect("failed to insert tx into db");
-            }
-        }
-        Ok(())
     }
 }
 
@@ -622,7 +519,7 @@ fn maybe_replace(arg: &str, template_map: &HashMap<String, String>) -> String {
 /// A test scenario can be used to run a test with a specific configuration, database, and RPC provider.
 pub struct TestScenario<D, S>
 where
-    D: DbOps + Send + Sync + ToOwned<Owned = D>,
+    D: DbOps + Send + Sync + 'static,
     S: Seeder,
 {
     config: TestConfig,
@@ -634,12 +531,12 @@ where
 
 impl<D, S> TestScenario<D, S>
 where
-    D: DbOps + Send + Sync + ToOwned<Owned = D> + 'static,
+    D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync,
 {
     pub fn new(
         config: TestConfig,
-        db: &D,
+        db: D,
         rpc_url: Url,
         rand_seed: S,
         signers: &[PrivateKeySigner],
@@ -655,7 +552,7 @@ where
 
         Self {
             config,
-            db: Arc::new(db.to_owned()),
+            db: Arc::new(db),
             rpc_url,
             rand_seed,
             wallet_map,
@@ -724,7 +621,7 @@ where
 
 impl<D, S> Generator2<String, D, TestConfig> for TestScenario<D, S>
 where
-    D: DbOps + Send + Sync + ToOwned<Owned = D>,
+    D: DbOps + Send + Sync,
     S: Seeder,
 {
     fn get_db(&self) -> &D {
@@ -756,11 +653,8 @@ pub mod tests {
     use crate::generator::util::test::spawn_anvil;
     // use crate::generator::
     use crate::generator::RandSeed;
-    use alloy::{
-        hex::ToHexExt, node_bindings::AnvilInstance, primitives::Address,
-        providers::ProviderBuilder,
-    };
-    use std::{collections::HashMap, fs, sync::Arc};
+    use alloy::{hex::ToHexExt, node_bindings::AnvilInstance, primitives::Address};
+    use std::{collections::HashMap, fs, str::FromStr};
 
     pub fn get_testconfig() -> TestConfig {
         TestConfig {
@@ -888,28 +782,6 @@ pub mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn creates_contracts() -> Result<(), Box<dyn std::error::Error>> {
-        let anvil = spawn_anvil();
-        let test_file = get_create_testconfig();
-        let db = Arc::new(SqliteDb::new_memory());
-        db.create_tables().unwrap();
-        let rpc_client = ProviderBuilder::new().on_http(anvil.endpoint_url());
-        let prv_keys = &vec![
-            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-            "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
-            "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
-        ];
-        let gen = ContractDeployer::new(test_file, db.clone(), Arc::new(rpc_client), &prv_keys);
-        let res = gen.run().await;
-        assert!(res.is_ok());
-        // read the contract address from the DB
-        let contract = db.get_named_tx("test_counter")?;
-        assert!(contract.1.is_some());
-
-        Ok(())
-    }
-
     #[test]
     fn parses_testconfig_toml() {
         let test_file = TestConfig::from_file("univ2ConfigTest.toml").unwrap();
@@ -929,7 +801,7 @@ pub mod tests {
             "0x70997970C51812dc3A010C7d01b50e0d17dc79C8".to_owned()
         );
         assert_eq!(setup.len(), 11);
-        assert_eq!(setup[0].value, Some("100000000000000000000".to_owned()));
+        assert_eq!(setup[0].value, Some("10000000000000000000".to_owned()));
         assert_eq!(spam[0].fuzz.as_ref().unwrap()[0].param, "amountIn");
         assert_eq!(
             spam[1].fuzz.as_ref().unwrap()[0].min,
@@ -1000,7 +872,7 @@ pub mod tests {
         .map(|s| PrivateKeySigner::from_str(s).unwrap())
         .collect::<Vec<PrivateKeySigner>>();
 
-        TestScenario::new(test_file, &db, anvil.endpoint_url(), seed, &signers)
+        TestScenario::new(test_file, db, anvil.endpoint_url(), seed, &signers)
     }
 
     #[tokio::test]

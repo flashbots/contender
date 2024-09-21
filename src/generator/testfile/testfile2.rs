@@ -36,7 +36,7 @@ pub struct Plan {
 
 type CallbackResult = Result<Option<JoinHandle<()>>>;
 
-pub enum PlanType<F: Fn(&NamedTxRequest) -> CallbackResult> {
+pub enum PlanType<F: Fn(NamedTxRequest) -> CallbackResult> {
     Create(F),
     Setup(F),
     Spam(usize, F),
@@ -71,7 +71,7 @@ where
         fuzz_map
     }
 
-    async fn load_txs<F: Send + Sync + Fn(&NamedTxRequest) -> CallbackResult>(
+    async fn load_txs<F: Send + Sync + Fn(NamedTxRequest) -> CallbackResult>(
         &self,
         plan_type: PlanType<F>,
     ) -> Result<Vec<NamedTxRequest>> {
@@ -94,11 +94,11 @@ where
                     templater.find_placeholder_values(&step.bytecode, &mut placeholder_map, db)?;
 
                     // create txs with template values
-                    let tx = NamedTxRequest {
-                        name: Some(step.name.to_owned()),
-                        tx: templater.template_contract_deploy(step, &placeholder_map)?,
-                    };
-                    let handle = on_create_step(&tx)?;
+                    let tx = NamedTxRequest::with_name(
+                        &step.name,
+                        templater.template_contract_deploy(step, &placeholder_map)?,
+                    );
+                    let handle = on_create_step(tx.to_owned())?;
                     if let Some(handle) = handle {
                         handle.await.map_err(|e| {
                             ContenderError::with_err(e, "join error; callback crashed")
@@ -114,10 +114,10 @@ where
                     templater.find_fncall_placeholders(step, db, &mut placeholder_map)?;
 
                     // create txs with template values
-                    let tx = templater
+                    let tx: NamedTxRequest = templater
                         .template_function_call(step, &placeholder_map)?
                         .into();
-                    let handle = on_setup_step(&tx)?;
+                    let handle = on_setup_step(tx.to_owned())?;
                     if let Some(handle) = handle {
                         handle.await.map_err(|e| {
                             ContenderError::with_err(e, "join error; callback crashed")
@@ -177,7 +177,7 @@ where
                         let tx: NamedTxRequest = templater
                             .template_function_call(&step, &placeholder_map)?
                             .into();
-                        let handle = on_spam_setup(&tx.to_owned())?;
+                        let handle = on_spam_setup(tx.to_owned())?;
                         if let Some(handle) = handle {
                             handle
                                 .await
