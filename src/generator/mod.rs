@@ -15,11 +15,21 @@ pub use seeder::rand_seed::RandSeed;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
 use types::{CallbackResult, PlanType};
 
+/// The example(s) in this module are meant to demonstrate custom generator implementations.
+/// You might want to implement one in cases where the config file generator isn't cutting it,
+/// but if that's not the case, you should ignore this module. It's probably outdated anyway.
+pub mod examples;
+/// Generates values for fuzzed parameters.
+/// Contains the Seeder trait and an implementation.
 pub mod seeder;
+/// Provides templating for transaction requests, etc.
+/// Contains the Templater trait and an implementation.
 pub mod templater;
+/// Create test scenarios from TOML config files.
 pub mod testfile;
+/// Contains types used by the generator module.
 pub mod types;
-pub mod univ2;
+/// Utility functions used in the generator module.
 pub mod util;
 
 impl NamedTxRequest {

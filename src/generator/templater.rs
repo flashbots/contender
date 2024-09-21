@@ -1,6 +1,12 @@
-use super::testfile::util::encode_calldata;
-use crate::generator::types::{CreateDefinition, FunctionCallDefinition};
-use crate::{db::database::DbOps, error::ContenderError, Result};
+use crate::{
+    db::database::DbOps,
+    error::ContenderError,
+    generator::{
+        types::{CreateDefinition, FunctionCallDefinition},
+        util::encode_calldata,
+    },
+    Result,
+};
 use alloy::{
     hex::FromHex,
     primitives::{Address, Bytes, TxKind, U256},

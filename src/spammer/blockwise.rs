@@ -1,5 +1,5 @@
 use crate::error::ContenderError;
-use crate::generator::util::RpcProvider;
+use crate::generator::types::RpcProvider;
 use crate::{generator::Generator, Result};
 use alloy::hex::ToHexExt;
 use alloy::network::{EthereumWallet, TransactionBuilder};

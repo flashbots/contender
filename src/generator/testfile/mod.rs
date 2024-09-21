@@ -3,8 +3,8 @@ use crate::error::ContenderError;
 use crate::generator::{
     seeder::{SeedValue, Seeder},
     templater::Templater,
-    types::{CreateDefinition, FunctionCallDefinition, NamedTxRequest, TestConfig},
-    util::RpcProvider,
+    types::{CreateDefinition, FunctionCallDefinition, NamedTxRequest, RpcProvider, TestConfig},
+    util::encode_calldata,
     Generator, Generator2, PlanConfig, PlanType,
 };
 use crate::spammer::OnTxSent;
@@ -19,9 +19,6 @@ use std::collections::HashMap;
 use std::fs::read;
 use std::sync::Arc;
 use tokio::task::{spawn as spawn_task, JoinHandle};
-use util::encode_calldata;
-
-pub mod util;
 
 /// A generator that specifically runs *setup* steps (including contract creation) from a TOML file.
 pub struct SetupGenerator<D>

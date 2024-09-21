@@ -1,4 +1,4 @@
-use super::{Generator, NamedTxRequest};
+use crate::generator::{Generator, NamedTxRequest};
 use crate::Result;
 use alloy::primitives::{Address, TxKind, U256};
 use alloy::rpc::types::{TransactionInput, TransactionRequest};

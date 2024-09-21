@@ -1,7 +1,14 @@
-use alloy::{primitives::U256, rpc::types::TransactionRequest};
+use alloy::{
+    primitives::U256,
+    providers::RootProvider,
+    rpc::types::TransactionRequest,
+    transports::http::{Client, Http},
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::task::JoinHandle;
+
+pub type RpcProvider = RootProvider<Http<Client>>;
 
 #[derive(Clone, Debug)]
 pub struct NamedTxRequest {

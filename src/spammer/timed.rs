@@ -1,5 +1,5 @@
 use crate::{
-    generator::{util::RpcProvider, Generator},
+    generator::{types::RpcProvider, Generator},
     spammer::OnTxSent,
     Result,
 };

@@ -10,8 +10,7 @@ use contender_core::{
         testfile::{
             LogCallback, NilCallback, SetupCallback, SetupGenerator, SpamGenerator, TestScenario,
         },
-        types::TestConfig,
-        util::RpcProvider,
+        types::{RpcProvider, TestConfig},
         Generator, RandSeed,
     },
     spammer::{BlockwiseSpammer, TimedSpammer},
