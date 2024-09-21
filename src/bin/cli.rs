@@ -8,9 +8,9 @@ use contender_core::{
     db::{database::DbOps, sqlite::SqliteDb},
     generator::{
         testfile::{
-            types::TestConfig, LogCallback, NilCallback, SetupCallback, SetupGenerator,
-            SpamGenerator, TestScenario,
+            LogCallback, NilCallback, SetupCallback, SetupGenerator, SpamGenerator, TestScenario,
         },
+        types::TestConfig,
         util::RpcProvider,
         Generator, RandSeed,
     },

@@ -1,16 +1,12 @@
+use super::testfile::util::encode_calldata;
+use crate::generator::types::{CreateDefinition, FunctionCallDefinition};
+use crate::{db::database::DbOps, error::ContenderError, Result};
 use alloy::{
     hex::FromHex,
     primitives::{Address, Bytes, TxKind, U256},
     rpc::types::TransactionRequest,
 };
-
-use crate::{db::database::DbOps, error::ContenderError, Result};
 use std::collections::HashMap;
-
-use super::testfile::{
-    types::{CreateDefinition, FunctionCallDefinition},
-    util::encode_calldata,
-};
 
 pub trait Templater<K>
 where

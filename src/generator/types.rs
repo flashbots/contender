@@ -1,8 +1,15 @@
-use alloy::primitives::U256;
+use alloy::{primitives::U256, rpc::types::TransactionRequest};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tokio::task::JoinHandle;
 
-/// TOML file format.
+#[derive(Clone, Debug)]
+pub struct NamedTxRequest {
+    pub name: Option<String>,
+    pub tx: TransactionRequest,
+}
+
+/// Configuration to run a test scenario; used to generate PlanConfigs.
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct TestConfig {
     /// Template variables
@@ -52,4 +59,20 @@ pub struct FuzzParam {
     pub min: Option<U256>,
     /// Maximum value fuzzer will use.
     pub max: Option<U256>,
+}
+
+#[derive(Debug)]
+pub struct Plan {
+    pub env: HashMap<String, String>,
+    pub create_steps: Vec<NamedTxRequest>,
+    pub setup_steps: Vec<NamedTxRequest>,
+    pub spam_steps: Vec<NamedTxRequest>,
+}
+
+pub type CallbackResult = crate::Result<Option<JoinHandle<()>>>;
+
+pub enum PlanType<F: Fn(NamedTxRequest) -> CallbackResult> {
+    Create(F),
+    Setup(F),
+    Spam(usize, F),
 }

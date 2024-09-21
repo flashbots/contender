@@ -2,7 +2,10 @@ use crate::db::database::DbOps;
 use crate::error::ContenderError;
 use crate::generator::{
     seeder::{SeedValue, Seeder},
-    Generator,
+    templater::Templater,
+    types::{CreateDefinition, FunctionCallDefinition, NamedTxRequest, TestConfig},
+    util::RpcProvider,
+    Generator, Generator2, PlanConfig, PlanType,
 };
 use crate::spammer::SpamCallback;
 use alloy::hex::ToHexExt;
@@ -14,17 +17,10 @@ use alloy::signers::local::PrivateKeySigner;
 use alloy::transports::http::reqwest::Url;
 use std::collections::HashMap;
 use std::fs::read;
-
 use std::sync::Arc;
-use testfile2::{Generator2, PlanConfig, PlanType};
 use tokio::task::{spawn as spawn_task, JoinHandle};
-use types::{CreateDefinition, FunctionCallDefinition, TestConfig};
+use util::encode_calldata;
 
-use super::templater::Templater;
-use super::util::RpcProvider;
-use super::NamedTxRequest;
-pub mod testfile2;
-pub mod types;
 pub mod util;
 
 /// A generator that specifically runs *setup* steps (including contract creation) from a TOML file.
@@ -249,7 +245,7 @@ where
                     });
                     args.push(val);
                 } // args should have all template data filled now
-                let input = self.encode_calldata(&args, &function.signature)?;
+                let input = encode_calldata(&args, &function.signature)?;
 
                 // replace template value(s) for tx params
                 let to = maybe_replace(&function.to, &template_map);
@@ -330,7 +326,7 @@ where
                     .map(|arg| maybe_replace(arg, &template_map))
                     .collect::<Vec<String>>();
 
-                let input = self.encode_calldata(&args, &step.signature)?;
+                let input = encode_calldata(&args, &step.signature)?;
                 let to = maybe_replace(&step.to, &template_map);
                 let to = to.parse::<Address>().map_err(|e| {
                     ContenderError::SpamError("failed to parse 'to' address", Some(e.to_string()))
@@ -643,16 +639,14 @@ where
 
 #[cfg(test)]
 pub mod tests {
+    use super::TestConfig;
     use super::*;
-    use super::{
-        testfile2::PlanType,
-        types::{CreateDefinition, FunctionCallDefinition, FuzzParam},
-        TestConfig,
-    };
     use crate::db::sqlite::SqliteDb;
-    use crate::generator::util::test::spawn_anvil;
-    // use crate::generator::
-    use crate::generator::RandSeed;
+    use crate::generator::{
+        types::{CreateDefinition, FunctionCallDefinition, FuzzParam},
+        util::test::spawn_anvil,
+        PlanType, RandSeed,
+    };
     use alloy::{hex::ToHexExt, node_bindings::AnvilInstance, primitives::Address};
     use std::{collections::HashMap, fs, str::FromStr};
 
