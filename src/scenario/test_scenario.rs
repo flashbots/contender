@@ -5,6 +5,7 @@ use crate::generator::{
     types::{PlanType, TestConfig},
     Generator2, PlanConfig,
 };
+use alloy::hex::ToHexExt;
 use alloy::network::{EthereumWallet, TransactionBuilder};
 use alloy::primitives::Address;
 use alloy::providers::{Provider, ProviderBuilder};
@@ -114,6 +115,56 @@ where
 
         Ok(())
     }
+
+    pub async fn run_setup(&self) -> Result<(), ContenderError> {
+        self.load_txs(PlanType::Setup(|tx_req| {
+            /* callback */
+            // copy data/refs from self before spawning the task
+            let from = tx_req.tx.from.as_ref().ok_or(ContenderError::SetupError(
+                "failed to get 'from' address",
+                None,
+            ))?;
+            println!("from: {:?}", from);
+            let wallet = self
+                .wallet_map
+                .get(from)
+                .ok_or(ContenderError::SetupError(
+                    "couldn't find private key for address",
+                    from.encode_hex().into(),
+                ))?
+                .clone();
+            let tx_req = tx_req.to_owned();
+            let rpc_url = self.rpc_url.clone();
+            let db = self.db.clone();
+            let provider = ProviderBuilder::new()
+                .with_simple_nonce_management()
+                .wallet(wallet)
+                .on_http(rpc_url);
+
+            println!("running setup: {:?}", tx_req.name);
+            let handle = tokio::task::spawn(async move {
+                let gas_price = provider.get_gas_price().await.unwrap();
+                let gas_limit = provider
+                    .estimate_gas(&tx_req.tx)
+                    .await
+                    .expect("failed to estimate gas");
+                let tx = tx_req
+                    .tx
+                    .with_gas_price(gas_price)
+                    .with_gas_limit(gas_limit);
+                let res = provider.send_transaction(tx).await.unwrap();
+                let receipt = res.get_receipt().await.unwrap();
+                if let Some(name) = tx_req.name {
+                    db.insert_named_tx(name, receipt.transaction_hash, receipt.contract_address)
+                        .expect("failed to insert tx into db");
+                }
+            });
+            Ok(Some(handle))
+        }))
+        .await?;
+
+        Ok(())
+    }
 }
 
 impl<D, S> Generator2<String, D, TestConfig> for TestScenario<D, S>
@@ -203,6 +254,16 @@ mod tests {
         let anvil = spawn_anvil();
         let scenario = get_test_scenario(&anvil);
         let res = scenario.deploy_contracts().await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn scenario_runs_setup() {
+        let anvil = spawn_anvil();
+        let scenario = get_test_scenario(&anvil);
+        scenario.deploy_contracts().await.unwrap();
+        let res = scenario.run_setup().await;
+        println!("{:?}", res);
         assert!(res.is_ok());
     }
 }

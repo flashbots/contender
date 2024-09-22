@@ -7,9 +7,9 @@ use cli_lib::{ContenderCli, ContenderSubcommand};
 use contender_core::{
     db::{database::DbOps, sqlite::SqliteDb},
     generator::{
-        testfile::{LogCallback, NilCallback, SetupCallback, SetupGenerator, SpamGenerator},
+        testfile::{LogCallback, NilCallback, SpamGenerator},
         types::{RpcProvider, TestConfig},
-        Generator, RandSeed,
+        RandSeed,
     },
     scenario::test_scenario::TestScenario,
     spammer::{BlockwiseSpammer, TimedSpammer},
@@ -34,7 +34,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             private_keys,
         } => {
             let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
-            let rpc_client = Arc::new(ProviderBuilder::new().on_http(url.to_owned()));
             let testconfig: TestConfig = TestConfig::from_file(&testfile)?;
 
             let private_keys = private_keys.expect("Must provide private keys for setup");
@@ -52,15 +51,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
 
             scenario.deploy_contracts().await?;
-
-            // process [[setup]] steps; generates transactions and sends them to the RPC via a Spammer
-            let gen = SetupGenerator::new(testconfig, DB.clone());
-            let steps = gen.get_txs(0)?; // amount is ignored by this generator
-            println!("Setting up with {} txs", steps.len());
-            // TODO: something closer to ContractDeployer is probably more appropriate here
-            let callback = SetupCallback::new(Arc::new(DB.clone()), rpc_client.clone());
-            let spammer = BlockwiseSpammer::new(&gen, callback, rpc_url, private_keys.as_ref());
-            spammer.spam_rpc(1, steps.len(), None).await?;
+            scenario.run_setup().await?;
+            // TODO: catch failures and prompt user to retry specific steps
         }
         ContenderSubcommand::Spam {
             testfile,
