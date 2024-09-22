@@ -88,7 +88,6 @@ May be specified multiple times."
         rpc_url: String,
 
         /// The private keys to use for setup.
-        /// Required if `txs_per_block` is set.
         #[arg(
             short,
             long = "priv-key",
