@@ -1,31 +1,17 @@
 use crate::db::database::DbOps;
 use crate::error::ContenderError;
 use crate::generator::{
-    seeder::{SeedValue, Seeder},
     templater::Templater,
-    types::{CreateDefinition, FunctionCallDefinition, NamedTxRequest, RpcProvider, TestConfig},
-    util::encode_calldata,
-    Generator, PlanConfig,
+    types::{CreateDefinition, FunctionCallDefinition, RpcProvider, TestConfig},
+    PlanConfig,
 };
 use crate::spammer::OnTxSent;
 use alloy::hex::ToHexExt;
-use alloy::primitives::TxKind;
-use alloy::primitives::{Address, TxHash, U256};
+use alloy::primitives::{Address, TxHash};
 use std::collections::HashMap;
 use std::fs::read;
 use std::sync::Arc;
 use tokio::task::{spawn as spawn_task, JoinHandle};
-
-/// A generator that specifically runs *spam* steps for TOML files.
-/// - `seed` is used to set deterministic sequences of function arguments for the generator
-pub struct SpamGenerator<'a, T: Seeder, D>
-where
-    D: DbOps + Send + Sync + 'static,
-{
-    config: TestConfig,
-    seed: &'a T,
-    db: Arc<D>,
-}
 
 /// Find values wrapped in brackets in a string and replace them with values from a hashmap whose key match the value in the brackets.
 /// example: "hello {world}" with hashmap {"world": "earth"} will return "hello earth"
@@ -36,20 +22,6 @@ fn replace_templates(input: &str, template_map: &HashMap<String, String>) -> Str
         output = output.replace(&template, value);
     }
     output
-}
-
-impl<'a, T, D> SpamGenerator<'a, T, D>
-where
-    T: Seeder,
-    D: DbOps + Send + Sync + 'static,
-{
-    pub fn new(config: TestConfig, seed: &'a T, db: D) -> Self {
-        Self {
-            config,
-            seed,
-            db: Arc::new(db),
-        }
-    }
 }
 
 impl TestConfig {
@@ -135,136 +107,6 @@ impl Templater<String> for TestConfig {
         input.encode_hex()
     }
 }
-
-impl<T, D> Generator for SpamGenerator<'_, T, D>
-where
-    T: Seeder,
-    D: DbOps + Send + Sync + 'static,
-{
-    fn get_txs(&self, amount: usize) -> Result<Vec<NamedTxRequest>, ContenderError> {
-        let mut templates: Vec<NamedTxRequest> = vec![];
-        // find all {templates} and fetch their values from the DB
-        let mut template_map = HashMap::<String, String>::new();
-
-        // load values from [env] section
-        if let Some(env) = &self.config.env {
-            for (key, value) in env.iter() {
-                template_map.insert(key.to_owned(), value.to_owned());
-            }
-        }
-        let spam = self.config.spam.as_ref().ok_or(ContenderError::SpamError(
-            "no spam configuration found",
-            None,
-        ))?;
-
-        for function in spam.iter() {
-            let func = alloy::json_abi::Function::parse(&function.signature).map_err(|e| {
-                ContenderError::SpamError("failed to parse function name", Some(e.to_string()))
-            })?;
-
-            // hashmap to store fuzzy values
-            let mut map = HashMap::<String, Vec<U256>>::new();
-
-            // pre-generate fuzzy params
-            if let Some(fuzz_args) = function.fuzz.as_ref() {
-                // NOTE: This will only generate a single 32-byte value for each fuzzed parameter. Fuzzing values in arrays/structs is not yet supported.
-                for fuzz_arg in fuzz_args.iter() {
-                    let values = self
-                        .seed
-                        .seed_values(amount / spam.len(), fuzz_arg.min, fuzz_arg.max)
-                        .map(|v| v.as_u256())
-                        .collect::<Vec<U256>>();
-                    map.insert(fuzz_arg.param.to_owned(), values);
-                }
-            }
-
-            // find templates in fn args & `to`
-            let fn_args = function.args.to_owned().unwrap_or_default();
-            for arg in fn_args.iter() {
-                find_template_values(&mut template_map, arg, self.db.as_ref())?;
-            }
-            find_template_values(&mut template_map, &function.to, self.db.as_ref())?;
-
-            // generate spam txs; split total amount by number of spam steps
-            for i in 0..(amount / spam.len()) {
-                // encode function arguments
-                let mut args = Vec::new();
-                for j in 0..fn_args.len() {
-                    let maybe_fuzz = || {
-                        let input_def = func.inputs[j].to_string();
-                        // there's probably a better way to do this, but I haven't found it
-                        let arg_namedefs =
-                            input_def.split_ascii_whitespace().collect::<Vec<&str>>();
-                        if arg_namedefs.len() < 2 {
-                            // can't fuzz unnamed params
-                            return None;
-                        }
-                        let arg_name = arg_namedefs[1];
-                        if map.contains_key(arg_name) {
-                            return Some(map.get(arg_name).unwrap()[i].to_string());
-                        }
-                        None
-                    };
-
-                    // !!! args with template values will be overwritten by the fuzzer if it's enabled for this arg
-                    let val = maybe_fuzz().unwrap_or_else(|| {
-                        let arg = &fn_args[j];
-                        if arg.contains("{") {
-                            replace_templates(arg, &template_map)
-                        } else {
-                            arg.to_owned()
-                        }
-                    });
-                    args.push(val);
-                } // args should have all template data filled now
-                let input = encode_calldata(&args, &function.signature)?;
-
-                // replace template value(s) for tx params
-                let to = maybe_replace(&function.to, &template_map);
-                let to = to.parse::<Address>().map_err(|e| {
-                    ContenderError::SpamError("failed to parse address", Some(e.to_string()))
-                })?;
-                let from = function.from.parse::<Address>().map_err(|e| {
-                    ContenderError::SpamError("failed to parse 'from' address", Some(e.to_string()))
-                })?;
-                let value = function
-                    .value
-                    .as_ref()
-                    .map(|s| maybe_replace(s, &template_map))
-                    .map(|s| s.parse::<U256>().ok())
-                    .flatten();
-
-                let tx = alloy::rpc::types::TransactionRequest {
-                    to: Some(TxKind::Call(to)),
-                    from: from.into(),
-                    input: alloy::rpc::types::TransactionInput::both(input.into()),
-                    value,
-                    ..Default::default()
-                };
-                templates.push(tx.into());
-            }
-        }
-
-        // interleave spam txs to evenly distribute various calls
-        // this may create contention if different senders are specified for each call
-        let spam_len = spam.len();
-        let chunksize = templates.len() / spam_len;
-        let mut new_templates = vec![];
-        let max_idx = if templates.len() % spam_len != 0 {
-            templates.len() - (templates.len() % spam_len)
-        } else {
-            templates.len() - 1
-        };
-        for i in 0..max_idx {
-            let chunk_idx = chunksize * (i % spam_len);
-            let idx = (i / spam_len) + chunk_idx;
-            new_templates.push(templates[idx].to_owned());
-        }
-
-        Ok(new_templates)
-    }
-}
-
 pub struct NilCallback;
 
 impl NilCallback {
@@ -273,26 +115,9 @@ impl NilCallback {
     }
 }
 
-pub struct SetupCallback<D>
-where
-    D: DbOps,
-{
-    pub db: Arc<D>,
-    pub rpc_provider: Arc<RpcProvider>,
-}
-
 pub struct LogCallback<D> {
     pub db: Arc<D>,
     pub rpc_provider: Arc<RpcProvider>,
-}
-
-impl<D> SetupCallback<D>
-where
-    D: DbOps + Send + Sync + 'static,
-{
-    pub fn new(db: Arc<D>, rpc_provider: Arc<RpcProvider>) -> Self {
-        Self { db, rpc_provider }
-    }
 }
 
 impl<D> LogCallback<D>
@@ -336,67 +161,32 @@ where
     }
 }
 
-/// Finds all template-value instances in `arg` with values from the DB whose `name` match the {template_name} and saves them into `map`.
-fn find_template_values<D: DbOps>(
-    map: &mut HashMap<String, String>,
-    arg: &str,
-    db: &D,
-) -> crate::Result<()> {
-    // count number of templates (by left brace) in arg
-    let num_template_vals = arg.chars().filter(|&c| c == '{').count();
-    let mut last_end = 0;
-
-    for _ in 0..num_template_vals {
-        let template_value = arg.split_at(last_end).1;
-        if let Some(template_start) = template_value.find("{") {
-            let template_end = template_value.find("}").ok_or_else(|| {
-                ContenderError::SpamError(
-                    "failed to find end of template value",
-                    Some("missing '}'".to_string()),
-                )
-            })?;
-            let template_name = &template_value[template_start + 1..template_end];
-            last_end = template_end + 1;
-
-            // if value not already in map, look up in DB
-            if map.contains_key(template_name) {
-                continue;
-            }
-
-            let template_value = db.get_named_tx(template_name).map_err(|e| {
-                ContenderError::SpamError(
-                    "failed to get template value from DB",
-                    Some(format!("value={} ({})", template_name, e)),
-                )
-            })?;
-            map.insert(
-                template_name.to_owned(),
-                template_value.1.map(|a| a.encode_hex()).unwrap_or_default(),
-            );
-        }
-    }
-    Ok(())
-}
-
-fn maybe_replace(arg: &str, template_map: &HashMap<String, String>) -> String {
-    if arg.contains("{") {
-        replace_templates(arg, &template_map)
-    } else {
-        arg.to_owned()
-    }
-}
-
 #[cfg(test)]
 pub mod tests {
     use super::TestConfig;
-    use super::*;
     use crate::db::sqlite::SqliteDb;
     use crate::generator::{
-        types::{CreateDefinition, FunctionCallDefinition, FuzzParam},
-        RandSeed,
+        types::{CreateDefinition, FunctionCallDefinition, FuzzParam, PlanType},
+        util::test::spawn_anvil,
+        Generator2, RandSeed,
     };
+    use crate::scenario::test_scenario::TestScenario;
+    use alloy::primitives::U256;
+    use alloy::signers::local::PrivateKeySigner;
     use alloy::{hex::ToHexExt, primitives::Address};
+    use std::str::FromStr;
     use std::{collections::HashMap, fs};
+
+    pub fn get_test_signers() -> Vec<PrivateKeySigner> {
+        vec![
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+            "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+            "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
+        ]
+        .iter()
+        .map(|s| PrivateKeySigner::from_str(s).unwrap())
+        .collect::<Vec<PrivateKeySigner>>()
+    }
 
     pub fn get_testconfig() -> TestConfig {
         TestConfig {
@@ -572,27 +362,65 @@ pub mod tests {
         fs::remove_file("cargotest.toml").unwrap();
     }
 
-    #[test]
-    fn gets_spam_txs() {
+    #[tokio::test]
+    async fn gets_spam_txs() {
+        let anvil = spawn_anvil();
         let test_file = get_testconfig();
         let seed = RandSeed::new();
-        let test_gen = SpamGenerator::new(test_file, &seed, SqliteDb::new_memory());
+        let test_gen = TestScenario::new(
+            test_file,
+            SqliteDb::new_memory(),
+            anvil.endpoint_url(),
+            seed,
+            &get_test_signers(),
+        );
         // this seed can be used to recreate the same test tx(s)
-        let spam_txs = test_gen.get_txs(10).unwrap();
-        // amount may be truncated if it doesn't divide evenly with the number of spam steps
-        assert_eq!(spam_txs.len(), 9);
+        let spam_txs = test_gen
+            .load_txs(PlanType::Spam(10, |_tx_req| {
+                println!(
+                    "spam tx\n\tfrom={:?}\n\tto={:?}\n\tinput={:?}",
+                    _tx_req.tx.from, _tx_req.tx.to, _tx_req.tx.input.input
+                );
+                Ok(None)
+            }))
+            .await
+            .unwrap();
+        assert_eq!(spam_txs.len(), 10);
         let data = spam_txs[0].tx.input.input.to_owned().unwrap().to_string();
         assert_eq!(data, "0x022c0d9f00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002000000000000000000000000111111111111111111111111111111111111111100000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000002dead000000000000000000000000000000000000000000000000000000000000");
     }
 
-    #[test]
-    fn fuzz_is_deterministic() {
+    #[tokio::test]
+    async fn fuzz_is_deterministic() {
+        let anvil = spawn_anvil();
         let test_file = get_fuzzy_testconfig();
         let seed = RandSeed::from_bytes(&[0x01; 32]);
-        let test_gen = SpamGenerator::new(test_file, &seed, SqliteDb::new_memory());
-        let num_txs = 12;
-        let spam_txs_1 = test_gen.get_txs(num_txs).unwrap();
-        let spam_txs_2 = test_gen.get_txs(num_txs).unwrap();
+        let signers = get_test_signers();
+        let scenario1 = TestScenario::new(
+            test_file.clone(),
+            SqliteDb::new_memory(),
+            anvil.endpoint_url(),
+            seed.to_owned(),
+            &signers,
+        );
+        let scenario2 = TestScenario::new(
+            test_file,
+            SqliteDb::new_memory(),
+            anvil.endpoint_url(),
+            seed,
+            &signers,
+        );
+
+        let num_txs = 13;
+        let spam_txs_1 = scenario1
+            .load_txs(PlanType::Spam(num_txs, |_| Ok(None)))
+            .await
+            .unwrap();
+        let spam_txs_2 = scenario2
+            .load_txs(PlanType::Spam(num_txs, |_| Ok(None)))
+            .await
+            .unwrap();
+        assert_eq!(spam_txs_1.len(), spam_txs_2.len());
         for i in 0..spam_txs_1.len() {
             let data1 = spam_txs_1[i].tx.input.input.to_owned().unwrap().to_string();
             let data2 = spam_txs_2[i].tx.input.input.to_owned().unwrap().to_string();

@@ -20,11 +20,11 @@ where
     D: DbOps + Send + Sync + 'static,
     S: Seeder,
 {
-    config: TestConfig,
+    pub config: TestConfig,
     db: Arc<D>,
-    rpc_url: Url,
-    rand_seed: S,
-    wallet_map: HashMap<Address, EthereumWallet>,
+    pub rpc_url: Url,
+    pub rand_seed: S,
+    pub wallet_map: HashMap<Address, EthereumWallet>,
 }
 
 impl<D, S> TestScenario<D, S>
@@ -70,6 +70,7 @@ where
         self.load_txs(PlanType::Create(|tx_req| {
             /* callback */
             // copy data/refs from self before spawning the task
+            let db = self.db.clone();
             let from = tx_req.tx.from.as_ref().ok_or(ContenderError::SetupError(
                 "failed to get 'from' address",
                 None,
@@ -79,7 +80,6 @@ where
                 .get(from)
                 .expect(&format!("couldn't find wallet for 'from' address {}", from))
                 .to_owned();
-            let db = self.db.clone();
             let provider = ProviderBuilder::new()
                 // simple_nonce_management is unperformant but it's OK bc we're just deploying
                 .with_simple_nonce_management()
@@ -134,14 +134,12 @@ where
                     "couldn't find private key for address",
                     from.encode_hex().into(),
                 ))?
-                .clone();
-            let tx_req = tx_req.to_owned();
-            let rpc_url = self.rpc_url.clone();
+                .to_owned();
             let db = self.db.clone();
             let provider = ProviderBuilder::new()
                 .with_simple_nonce_management()
                 .wallet(wallet)
-                .on_http(rpc_url);
+                .on_http(self.rpc_url.to_owned());
 
             println!("running setup: {:?}", tx_req.name);
             let handle = tokio::task::spawn(async move {
@@ -195,25 +193,17 @@ where
 mod tests {
     use super::*;
     use crate::db::sqlite::SqliteDb;
-    use crate::generator::testfile::tests::get_composite_testconfig;
+    use crate::generator::testfile::tests::{get_composite_testconfig, get_test_signers};
     use crate::generator::{types::PlanType, util::test::spawn_anvil, RandSeed};
     use crate::scenario::test_scenario::TestScenario;
     use alloy::node_bindings::AnvilInstance;
-    use std::str::FromStr;
 
     fn get_test_scenario(anvil: &AnvilInstance) -> TestScenario<SqliteDb, RandSeed> {
         let test_file = get_composite_testconfig();
         let seed = RandSeed::from_bytes(&[0x01; 32]);
         let db = SqliteDb::new_memory();
         db.create_tables().unwrap();
-        let signers = &vec![
-            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-            "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
-            "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
-        ]
-        .iter()
-        .map(|s| PrivateKeySigner::from_str(s).unwrap())
-        .collect::<Vec<PrivateKeySigner>>();
+        let signers = &get_test_signers();
 
         TestScenario::new(test_file, db, anvil.endpoint_url(), seed, &signers)
     }

@@ -7,7 +7,7 @@ use cli_lib::{ContenderCli, ContenderSubcommand};
 use contender_core::{
     db::{database::DbOps, sqlite::SqliteDb},
     generator::{
-        testfile::{LogCallback, NilCallback, SpamGenerator},
+        testfile::{LogCallback, NilCallback},
         types::{RpcProvider, TestConfig},
         RandSeed,
     },
@@ -66,21 +66,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             let testfile = TestConfig::from_file(&testfile)?;
             let rand_seed = seed.map(|s| RandSeed::from_str(&s)).unwrap_or_default();
-            let gen = &SpamGenerator::new(testfile, &rand_seed, DB.clone());
-            let rpc_client = Arc::new(
-                ProviderBuilder::new()
-                    .on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL")),
-            );
+            let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
+            let rpc_client = Arc::new(ProviderBuilder::new().on_http(url.to_owned()));
+            let duration = duration.unwrap_or_default();
+
+            let signers = private_keys.as_ref().map(|keys| {
+                keys.iter()
+                    .map(|k| PrivateKeySigner::from_str(k).expect("Invalid private key"))
+                    .collect::<Vec<PrivateKeySigner>>()
+            });
 
             if txs_per_block.is_some() && txs_per_second.is_some() {
                 panic!("Cannot set both --txs-per-block and --txs-per-second");
             }
-            let duration = duration.unwrap_or_default();
 
             if let Some(txs_per_block) = txs_per_block {
-                let private_keys =
-                    private_keys.expect("Must provide private keys for blockwise spamming");
-
+                let signers = signers.expect("must provide private keys for blockwise spamming");
+                let scenario = TestScenario::new(testfile, DB.clone(), url, rand_seed, &signers);
                 println!("Blockwise spamming with {} txs per block", txs_per_block);
                 match spam_callback_default(!disable_reports, rpc_client.into()).await {
                     SpamCallbackType::Log(cback) => {
@@ -92,23 +94,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .db
                             .clone()
                             .insert_run(timestamp as u64, txs_per_block * duration)?;
-                        let spammer = BlockwiseSpammer::new(gen, cback, rpc_url, &private_keys);
+                        let spammer = BlockwiseSpammer::new(scenario, cback, rpc_url);
                         spammer
                             .spam_rpc(txs_per_block, duration, Some(run_id.into()))
                             .await?;
                         println!("Saved run. run_id = {}", run_id);
                     }
                     SpamCallbackType::Nil(cback) => {
-                        let spammer = BlockwiseSpammer::new(gen, cback, rpc_url, &private_keys);
+                        let spammer = BlockwiseSpammer::new(scenario, cback, rpc_url);
                         spammer.spam_rpc(txs_per_block, duration, None).await?;
                     }
                 };
                 return Ok(());
             }
 
+            // private keys are not used for timed spamming; timed spamming only works with unlocked accounts
+            let scenario = TestScenario::new(testfile, DB.clone(), url, rand_seed, &[]);
             let tps = txs_per_second.unwrap_or(10);
             println!("Timed spamming with {} txs per second", tps);
-            let spammer = TimedSpammer::new(gen, NilCallback::new(), rpc_url);
+            let spammer = TimedSpammer::new(scenario, NilCallback::new(), rpc_url);
             spammer.spam_rpc(tps, duration).await?;
         }
         ContenderSubcommand::Report { id, out_file } => {

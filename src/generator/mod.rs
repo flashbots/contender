@@ -15,10 +15,6 @@ pub use seeder::rand_seed::RandSeed;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
 use types::{CallbackResult, PlanType};
 
-/// The example(s) in this module are meant to demonstrate custom generator implementations.
-/// You might want to implement one in cases where the config file generator isn't cutting it,
-/// but if that's not the case, you should ignore this module. It's probably outdated anyway.
-pub mod examples;
 /// Generates values for fuzzed parameters.
 /// Contains the Seeder trait and an implementation.
 pub mod seeder;
@@ -45,23 +41,6 @@ impl From<TransactionRequest> for NamedTxRequest {
     fn from(tx: TransactionRequest) -> Self {
         Self { name: None, tx }
     }
-}
-
-pub struct MockGenerator;
-impl Generator for MockGenerator {
-    fn get_txs(&self, amount: usize) -> Result<Vec<NamedTxRequest>> {
-        let mut txs = vec![];
-        for _ in 0..amount {
-            txs.push(NamedTxRequest::from(TransactionRequest::default()));
-        }
-        Ok(txs)
-    }
-}
-
-/// Implement Generator to programmatically
-/// generate transactions for advanced testing scenarios.
-pub trait Generator {
-    fn get_txs(&self, amount: usize) -> Result<Vec<NamedTxRequest>>;
 }
 
 pub trait PlanConfig<K>
@@ -108,7 +87,7 @@ where
         plan_type: PlanType<F>,
     ) -> Result<Vec<NamedTxRequest>> {
         let conf = self.get_plan_conf();
-        let env = conf.get_env()?;
+        let env = conf.get_env().unwrap_or_default();
         let db = self.get_db();
         let templater = self.get_templater();
 
@@ -218,6 +197,17 @@ where
                         txs.push(tx);
                     }
                 }
+
+                // interleave spam txs to evenly distribute various calls
+                // this may create contention if different senders are specified for each call
+                let chunksize = txs.len() / num_steps;
+                let mut new_templates = vec![];
+                for i in 0..txs.len() {
+                    let chunk_idx = chunksize * (i % num_steps);
+                    let idx = (i / num_steps) + chunk_idx;
+                    new_templates.push(txs[idx].to_owned());
+                }
+                return Ok(new_templates);
             }
         }
 
