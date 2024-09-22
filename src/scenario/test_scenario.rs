@@ -3,7 +3,7 @@ use crate::error::ContenderError;
 use crate::generator::{
     seeder::Seeder,
     types::{PlanType, TestConfig},
-    Generator2, PlanConfig,
+    Generator, PlanConfig,
 };
 use alloy::hex::ToHexExt;
 use alloy::network::{EthereumWallet, TransactionBuilder};
@@ -167,7 +167,7 @@ where
     }
 }
 
-impl<D, S> Generator2<String, D, TestConfig> for TestScenario<D, S>
+impl<D, S> Generator<String, D, TestConfig> for TestScenario<D, S>
 where
     D: DbOps + Send + Sync,
     S: Seeder,

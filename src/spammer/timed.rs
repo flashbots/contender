@@ -3,7 +3,7 @@ use crate::{
     generator::{
         seeder::Seeder,
         types::{PlanType, RpcProvider},
-        Generator2,
+        Generator,
     },
     scenario::test_scenario::TestScenario,
     spammer::OnTxSent,

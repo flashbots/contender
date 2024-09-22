@@ -54,7 +54,7 @@ where
 }
 
 #[async_trait]
-pub trait Generator2<K, D, T>
+pub trait Generator<K, D, T>
 where
     K: Eq + Hash + Debug + ToString + ToOwned<Owned = K> + Send + Sync,
     D: Send + Sync + DbOps,

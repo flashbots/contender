@@ -168,7 +168,7 @@ pub mod tests {
     use crate::generator::{
         types::{CreateDefinition, FunctionCallDefinition, FuzzParam, PlanType},
         util::test::spawn_anvil,
-        Generator2, RandSeed,
+        Generator, RandSeed,
     };
     use crate::scenario::test_scenario::TestScenario;
     use alloy::primitives::U256;

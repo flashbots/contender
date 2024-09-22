@@ -2,7 +2,7 @@ use crate::db::database::DbOps;
 use crate::error::ContenderError;
 use crate::generator::seeder::Seeder;
 use crate::generator::types::{PlanType, RpcProvider};
-use crate::generator::Generator2;
+use crate::generator::Generator;
 use crate::scenario::test_scenario::TestScenario;
 use crate::Result;
 use alloy::hex::ToHexExt;
