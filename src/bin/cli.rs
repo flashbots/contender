@@ -7,12 +7,11 @@ use cli_lib::{ContenderCli, ContenderSubcommand};
 use contender_core::{
     db::{database::DbOps, sqlite::SqliteDb},
     generator::{
-        testfile::{
-            LogCallback, NilCallback, SetupCallback, SetupGenerator, SpamGenerator, TestScenario,
-        },
+        testfile::{LogCallback, NilCallback, SetupCallback, SetupGenerator, SpamGenerator},
         types::{RpcProvider, TestConfig},
         Generator, RandSeed,
     },
+    scenario::test_scenario::TestScenario,
     spammer::{BlockwiseSpammer, TimedSpammer},
 };
 use std::{
