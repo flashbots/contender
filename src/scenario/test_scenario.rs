@@ -74,15 +74,17 @@ where
                 "failed to get 'from' address",
                 None,
             ))?;
-            let wallet = self.wallet_map.get(from).unwrap().clone();
-            let tx_req = tx_req.to_owned();
-            let rpc_url = self.rpc_url.clone();
+            let wallet = self
+                .wallet_map
+                .get(from)
+                .expect(&format!("couldn't find wallet for 'from' address {}", from))
+                .to_owned();
             let db = self.db.clone();
             let provider = ProviderBuilder::new()
                 // simple_nonce_management is unperformant but it's OK bc we're just deploying
                 .with_simple_nonce_management()
                 .wallet(wallet)
-                .on_http(rpc_url);
+                .on_http(self.rpc_url.to_owned());
 
             println!("deploying contract: {:?}", tx_req.name);
             let handle = tokio::task::spawn(async move {
