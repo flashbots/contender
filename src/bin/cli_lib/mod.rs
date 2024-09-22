@@ -92,7 +92,7 @@ May be specified multiple times."
         #[arg(
             short,
             long = "priv-key",
-            long_help = "Add private keys used to deploy and setup contracts. Required if --txs-per-block is set.
+            long_help = "Add private keys used to deploy and setup contracts.
 May be specified multiple times."
         )]
         private_keys: Option<Vec<String>>,
