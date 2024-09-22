@@ -11,20 +11,10 @@ use crate::spammer::OnTxSent;
 use alloy::hex::ToHexExt;
 use alloy::primitives::TxKind;
 use alloy::primitives::{Address, TxHash, U256};
-use alloy::providers::Provider;
 use std::collections::HashMap;
 use std::fs::read;
 use std::sync::Arc;
 use tokio::task::{spawn as spawn_task, JoinHandle};
-
-/// A generator that specifically runs *setup* steps (including contract creation) from a TOML file.
-pub struct SetupGenerator<D>
-where
-    D: DbOps + Send + Sync + 'static,
-{
-    config: TestConfig,
-    db: Arc<D>,
-}
 
 /// A generator that specifically runs *spam* steps for TOML files.
 /// - `seed` is used to set deterministic sequences of function arguments for the generator
@@ -57,18 +47,6 @@ where
         Self {
             config,
             seed,
-            db: Arc::new(db),
-        }
-    }
-}
-
-impl<D> SetupGenerator<D>
-where
-    D: DbOps + Send + Sync + 'static,
-{
-    pub fn new(config: TestConfig, db: D) -> Self {
-        Self {
-            config,
             db: Arc::new(db),
         }
     }
@@ -287,72 +265,6 @@ where
     }
 }
 
-impl<D> Generator for SetupGenerator<D>
-where
-    D: DbOps + Send + Sync + 'static,
-{
-    fn get_txs(&self, _amount: usize) -> crate::Result<Vec<NamedTxRequest>> {
-        // let mut contract_deployments = Vec::new();
-        let mut tx_templates = Vec::new();
-        let mut template_map = HashMap::<String, String>::new();
-
-        // load values from [env] section
-        if let Some(env) = &self.config.env {
-            for (key, value) in env.iter() {
-                template_map.insert(key.to_owned(), value.to_owned());
-            }
-        }
-
-        if let Some(setup_steps) = &self.config.setup {
-            for step in setup_steps.iter() {
-                let step_args = step.args.to_owned().unwrap_or_default();
-                // check `to` field for templates
-                find_template_values(&mut template_map, &step.to, self.db.as_ref())?;
-                // check all args for templates
-                for arg in step_args.iter() {
-                    find_template_values(&mut template_map, arg, self.db.as_ref())?;
-                }
-                // map should be fully populated now with all the template values we need for our txs
-
-                // rebuild args with template values
-                let args = step_args
-                    .iter()
-                    .map(|arg| maybe_replace(arg, &template_map))
-                    .collect::<Vec<String>>();
-
-                let input = encode_calldata(&args, &step.signature)?;
-                let to = maybe_replace(&step.to, &template_map);
-                let to = to.parse::<Address>().map_err(|e| {
-                    ContenderError::SpamError("failed to parse 'to' address", Some(e.to_string()))
-                })?;
-                let from = step.from.parse::<Address>().map_err(|e| {
-                    ContenderError::SetupError(
-                        "failed to parse 'from' address",
-                        Some(e.to_string()),
-                    )
-                })?;
-                let value = step
-                    .value
-                    .as_ref()
-                    .map(|s| maybe_replace(s, &template_map))
-                    .map(|s| s.parse::<U256>().ok())
-                    .flatten();
-
-                let tx = alloy::rpc::types::TransactionRequest {
-                    to: Some(alloy::primitives::TxKind::Call(to)),
-                    input: alloy::rpc::types::TransactionInput::both(input.into()),
-                    from: from.into(),
-                    value,
-                    ..Default::default()
-                };
-                tx_templates.push(tx.into());
-            }
-        }
-
-        Ok(tx_templates)
-    }
-}
-
 pub struct NilCallback;
 
 impl NilCallback {
@@ -396,36 +308,6 @@ impl OnTxSent for NilCallback {
     fn on_tx_sent(&self, _tx_res: TxHash, _name: Option<String>) -> Option<JoinHandle<()>> {
         // do nothing
         None
-    }
-}
-
-impl<D> OnTxSent for SetupCallback<D>
-where
-    D: DbOps + Send + Sync + 'static,
-{
-    fn on_tx_sent(&self, tx_hash: TxHash, name: Option<String>) -> Option<JoinHandle<()>> {
-        let db = self.db.clone();
-        let rpc_client = self.rpc_provider.clone();
-        let handle = spawn_task(async move {
-            // poll for receipt (PendingTransactionBuilder isn't thread-safe but would be nice to use that instead)
-            if let Some(name) = name {
-                loop {
-                    let receipt = rpc_client
-                        .get_transaction_receipt(tx_hash)
-                        .await
-                        .expect(&format!("failed to get receipt for tx {}", tx_hash));
-                    if let Some(receipt) = receipt {
-                        db.insert_named_tx(name, tx_hash, receipt.contract_address)
-                            .expect("failed to insert tx into db");
-
-                        break;
-                    }
-                    println!("waiting for receipt...");
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                }
-            }
-        });
-        Some(handle)
     }
 }
 
