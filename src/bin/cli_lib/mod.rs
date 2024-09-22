@@ -62,7 +62,7 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         #[arg(
             short,
             long = "priv-key",
-            long_help = "Add private key for blockwise spamming. Required if --txs-per-block is set.
+            long_help = "Add private keys for blockwise spamming. Required if --txs-per-block is set.
 May be specified multiple times."
         )]
         private_keys: Option<Vec<String>>,
@@ -86,6 +86,15 @@ May be specified multiple times."
 
         /// The HTTP JSON-RPC URL to use for setup.
         rpc_url: String,
+
+        /// The private keys to use for setup.
+        #[arg(
+            short,
+            long = "priv-key",
+            long_help = "Add private keys used to deploy and setup contracts.
+May be specified multiple times."
+        )]
+        private_keys: Option<Vec<String>>,
     },
 
     #[command(

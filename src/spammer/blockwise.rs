@@ -1,64 +1,53 @@
+use crate::db::database::DbOps;
 use crate::error::ContenderError;
-use crate::generator::util::RpcProvider;
-use crate::{generator::Generator, Result};
+use crate::generator::seeder::Seeder;
+use crate::generator::types::{PlanType, RpcProvider};
+use crate::generator::Generator;
+use crate::scenario::test_scenario::TestScenario;
+use crate::Result;
 use alloy::hex::ToHexExt;
-use alloy::network::{EthereumWallet, TransactionBuilder};
-use alloy::primitives::{Address, FixedBytes};
-use alloy::signers::local::PrivateKeySigner;
+use alloy::network::TransactionBuilder;
+use alloy::primitives::FixedBytes;
 use alloy::{
     providers::{Provider, ProviderBuilder},
     transports::http::reqwest::Url,
 };
 use futures::StreamExt;
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::Arc;
 use tokio::task;
 
-use super::SpamCallback;
+use super::OnTxSent;
 
-pub struct BlockwiseSpammer<'a, G, F>
+pub struct BlockwiseSpammer<F, D, S>
 where
-    G: Generator,
-    F: SpamCallback + Send + Sync + 'static,
+    D: DbOps + Send + Sync + 'static,
+    S: Seeder + Send + Sync,
+    F: OnTxSent + Send + Sync + 'static,
 {
-    generator: &'a G,
+    scenario: TestScenario<D, S>,
     rpc_client: Arc<RpcProvider>,
     callback_handler: Arc<F>,
-    signers: HashMap<Address, EthereumWallet>,
 }
 
-impl<'a, G, F> BlockwiseSpammer<'a, G, F>
+impl<F, D, S> BlockwiseSpammer<F, D, S>
 where
-    G: Generator,
-    F: SpamCallback + Send + Sync + 'static,
+    F: OnTxSent + Send + Sync + 'static,
+    D: DbOps + Send + Sync + 'static,
+    S: Seeder + Send + Sync,
 {
     pub fn new(
-        generator: &'a G,
+        scenario: TestScenario<D, S>,
         callback_handler: F,
         rpc_url: impl AsRef<str>,
-        prv_keys: &[impl AsRef<str>],
     ) -> Self {
         let rpc_client =
             ProviderBuilder::new().on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL"));
 
-        let signers = prv_keys.iter().map(|k| {
-            let key = k.as_ref();
-            let signer = PrivateKeySigner::from_str(key).expect("Invalid private key");
-            let addr = signer.address();
-            (addr, signer)
-        });
-        // populate hashmap with signers where address is the key, signer is the value
-        let mut signer_map: HashMap<Address, EthereumWallet> = HashMap::new();
-        for (addr, signer) in signers {
-            signer_map.insert(addr, signer.into());
-        }
-
         Self {
-            generator,
+            scenario,
             rpc_client: Arc::new(rpc_client),
             callback_handler: Arc::new(callback_handler),
-            signers: signer_map,
         }
     }
 
@@ -69,7 +58,10 @@ where
         run_id: Option<usize>,
     ) -> Result<()> {
         // generate tx requests
-        let tx_requests = self.generator.get_txs(txs_per_block * num_blocks)?;
+        let tx_requests = self
+            .scenario
+            .load_txs(PlanType::Spam(txs_per_block * num_blocks, |_| Ok(None)))
+            .await?;
         let tx_req_chunks: Vec<_> = tx_requests
             .chunks(txs_per_block)
             .map(|slice| slice.to_vec())
@@ -101,7 +93,7 @@ where
             })?;
             // get nonce for each signer and put it into a hashmap
             let mut nonces = HashMap::new();
-            for (addr, _signer) in self.signers.iter() {
+            for (addr, _) in self.scenario.wallet_map.iter() {
                 let nonce = self
                     .rpc_client
                     .get_transaction_count(*addr)
@@ -167,7 +159,8 @@ where
                     .expect("failed to get gas limit")
                     .to_owned();
                 let signer = self
-                    .signers
+                    .scenario
+                    .wallet_map
                     .get(from)
                     .expect("failed to create signer")
                     .to_owned();
@@ -208,7 +201,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{generator::util::test::spawn_anvil, spammer::util::test::MockCallback};
+    use crate::{
+        generator::{testfile::tests::get_test_signers, util::test::spawn_anvil},
+        spammer::util::test::MockCallback,
+    };
 
     use super::*;
 
@@ -219,18 +215,10 @@ mod tests {
         let conf = crate::generator::testfile::tests::get_composite_testconfig();
         let db = crate::db::sqlite::SqliteDb::new_memory();
         let seed = crate::generator::RandSeed::from_str("444444444444");
-        let generator = crate::generator::testfile::SpamGenerator::new(conf, &seed, db.clone());
+        let scenario = TestScenario::new(conf, db, anvil.endpoint_url(), seed, &get_test_signers());
         let callback_handler = MockCallback;
-        let spammer = BlockwiseSpammer::new(
-            &generator,
-            callback_handler,
-            anvil.endpoint_url().as_str(),
-            &vec![
-                "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-                "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
-                "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
-            ],
-        );
+        let spammer =
+            BlockwiseSpammer::new(scenario, callback_handler, anvil.endpoint_url().to_string());
 
         let result = spammer.spam_rpc(10, 3, None).await;
         println!("{:?}", result);

@@ -1093,6 +1093,7 @@ name = "contender"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "async-trait",
  "clap",
  "eyre",
  "futures",
