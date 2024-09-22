@@ -13,17 +13,6 @@ use std::fs::read;
 use std::sync::Arc;
 use tokio::task::{spawn as spawn_task, JoinHandle};
 
-/// Find values wrapped in brackets in a string and replace them with values from a hashmap whose key match the value in the brackets.
-/// example: "hello {world}" with hashmap {"world": "earth"} will return "hello earth"
-fn replace_templates(input: &str, template_map: &HashMap<String, String>) -> String {
-    let mut output = input.to_owned();
-    for (key, value) in template_map.iter() {
-        let template = format!("{{{}}}", key);
-        output = output.replace(&template, value);
-    }
-    output
-}
-
 impl TestConfig {
     pub fn from_file(file_path: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
         let file_contents = read(file_path)?;
@@ -72,8 +61,15 @@ impl PlanConfig<String> for TestConfig {
 }
 
 impl Templater<String> for TestConfig {
+    /// Find values wrapped in brackets in a string and replace them with values from a hashmap whose key match the value in the brackets.
+    /// example: "hello {world}" with hashmap {"world": "earth"} will return "hello earth"
     fn replace_placeholders(&self, input: &str, template_map: &HashMap<String, String>) -> String {
-        replace_templates(&input, template_map)
+        let mut output = input.to_owned();
+        for (key, value) in template_map.iter() {
+            let template = format!("{{{}}}", key);
+            output = output.replace(&template, value);
+        }
+        output
     }
 
     fn terminator_start(&self, input: &str) -> Option<usize> {
@@ -147,9 +143,6 @@ where
             .as_millis() as usize;
         let db = self.db.clone();
         let handle = spawn_task(async move {
-            // TODO: get run ID to associate with `runs` table
-            // let run_id = 1;
-
             db.insert_run_tx(
                 run_id.map(|s| s.parse::<i64>().ok()).flatten().unwrap_or(0),
                 tx_hash,
