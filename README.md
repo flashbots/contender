@@ -14,12 +14,13 @@ Contender is a high-performance Ethereum network spammer and testing tool design
 
 ## Installation
 
-To install Contender, you need to have Rust and Cargo installed on your system. Then, you can build the project from source:
+To install Contender, you need to have the [Rust toolchain](https://rustup.rs/) installed on your system. Then build the project from source:
 
 ```bash
 git clone https://github.com/your-username/contender.git
 cd contender
 cargo build --release
+alias contender="$PWD/target/release/contender_cli"
 ```
 
 ## Usage
@@ -29,15 +30,15 @@ Contender can be used as both a library and a command-line tool.
 ### Command-line Interface
 
 ```bash
-contender_cli spam <testfile> <rpc_url> [OPTIONS]
-contender_cli setup <testfile> <rpc_url>
-contender_cli report [OPTIONS]
+contender setup <testfile> <rpc_url>
+contender spam <testfile> <rpc_url> [OPTIONS]
+contender report [OPTIONS]
 ```
 
 For detailed usage instructions, run:
 
 ```bash
-contender_cli --help
+contender --help
 ```
 
 ### Library Usage
@@ -46,23 +47,50 @@ To use Contender as a library in your Rust project, add it to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-contender = { git = "https://github.com/your-username/contender.git" }
+...
+contender = { git = "https://github.com/zeroXbrock/contender.git" }
 ```
 
-Then, you can use it in your code:
+You'll probably also want to use an async runtime such as `tokio`, which we use in the following example.
 
 ```rust
-use contender_core::generator::testfile::TestConfig;
-use contender_core::spammer::TimedSpammer;
+use contender_core::{
+    db::{database::DbOps, sqlite::SqliteDb},
+    generator::{testfile::NilCallback, RandSeed, TestConfig},
+    spammer::BlockwiseSpammer,
+    test_scenario::TestScenario,
+};
 
-// Load test configuration
-let config = TestConfig::from_file("path/to/testfile.toml")?;
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let db = &SqliteDb::new_memory();
+    db.create_tables()?;
+    let cfg = TestConfig::from_file("testfile.toml")?;
+    let scenario = TestScenario::new(
+        cfg,
+        db.to_owned().into(),
+        "http://localhost:8545".parse::<_>()?,
+        RandSeed::new(),
+        &[
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+            "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+            "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
+        ]
+        .iter()
+        .map(|s| s.parse::<_>().unwrap())
+        .collect::<Vec<_>>(),
+    );
 
-// Create a spammer
-let spammer = TimedSpammer::new(&generator, callback, "http://localhost:8545");
+    if db.get_named_tx("MyContract").is_err() {
+        scenario.deploy_contracts().await?;
+        scenario.run_setup().await?;
+    }
 
-// Run the spam test
-spammer.spam_rpc(100, 60).await?;
+    let spammer = BlockwiseSpammer::new(scenario, NilCallback);
+    spammer.spam_rpc(20, 10, None).await?;
+
+    Ok(())
+}
 ```
 
 ## Configuration
@@ -80,7 +108,6 @@ Contender uses TOML files for test configuration. The key directives are:
 - `[[spam.fuzz]]`: (Sub-directive of `spam`) Configures fuzzing parameters for specific fields in spam transactions, allowing for randomized inputs within defined ranges.
 
 Each directive can include various fields such as `to`, `from`, `signature`, `args`, and `value` to specify the details of the transactions or contract interactions.
-
 
 ## Architecture
 
