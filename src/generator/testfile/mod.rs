@@ -14,6 +14,8 @@ use std::fs::read;
 use std::sync::Arc;
 use tokio::task::{spawn as spawn_task, JoinHandle};
 
+use super::NamedTxRequest;
+
 impl TestConfig {
     pub fn from_file(file_path: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
         let file_contents = read(file_path)?;
@@ -127,7 +129,12 @@ where
 }
 
 impl OnTxSent for NilCallback {
-    fn on_tx_sent(&self, _tx_res: TxHash, _name: Option<String>) -> Option<JoinHandle<()>> {
+    fn on_tx_sent(
+        &self,
+        _tx_res: TxHash,
+        _req: NamedTxRequest,
+        _extra: Option<HashMap<String, String>>,
+    ) -> Option<JoinHandle<()>> {
         // do nothing
         None
     }
@@ -137,19 +144,23 @@ impl<D> OnTxSent for LogCallback<D>
 where
     D: DbOps + Send + Sync + 'static,
 {
-    fn on_tx_sent(&self, tx_hash: TxHash, run_id: Option<String>) -> Option<JoinHandle<()>> {
+    fn on_tx_sent(
+        &self,
+        tx_hash: TxHash,
+        _req: NamedTxRequest,
+        extra: Option<HashMap<String, String>>,
+    ) -> Option<JoinHandle<()>> {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("failed to get timestamp")
             .as_millis() as usize;
         let db = self.db.clone();
+        let run_id = extra
+            .map(|e| e.get("run_id").unwrap().parse::<i64>().unwrap())
+            .unwrap_or(0);
         let handle = spawn_task(async move {
-            db.insert_run_tx(
-                run_id.map(|s| s.parse::<i64>().ok()).flatten().unwrap_or(0),
-                tx_hash,
-                timestamp,
-            )
-            .expect("failed to insert tx into db");
+            db.insert_run_tx(run_id, tx_hash, timestamp)
+                .expect("failed to insert tx into db");
         });
         Some(handle)
     }

@@ -21,7 +21,7 @@ pub struct BlockwiseSpammer<F, D, S, P>
 where
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync,
-    F: OnTxSent + Send + Sync + 'static,
+    F: OnTxSent<String> + Send + Sync + 'static,
     P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
     scenario: TestScenario<D, S, P>,
@@ -31,7 +31,7 @@ where
 
 impl<F, D, S, P> BlockwiseSpammer<F, D, S, P>
 where
-    F: OnTxSent + Send + Sync + 'static,
+    F: OnTxSent<String> + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync,
     P: PlanConfig<String> + Templater<String> + Send + Sync,
@@ -176,8 +176,15 @@ where
                         .with_gas_limit(gas_limit);
 
                     let res = provider.send_transaction(full_tx).await.unwrap();
-                    let maybe_handle = callback_handler
-                        .on_tx_sent(*res.tx_hash(), run_id.map(|id| id.to_string()));
+                    let maybe_handle = callback_handler.on_tx_sent(
+                        *res.tx_hash(),
+                        tx,
+                        HashMap::from_iter([(
+                            "run_id".to_owned(),
+                            run_id.unwrap_or(0).to_string(),
+                        )])
+                        .into(),
+                    );
                     if let Some(handle) = maybe_handle {
                         handle.await.expect("callback task failed");
                     }
