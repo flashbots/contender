@@ -32,7 +32,7 @@ Contender can be used as both a library and a command-line tool.
 ```bash
 contender setup <testfile> <rpc_url> [OPTIONS]
 contender spam <testfile> <rpc_url> [OPTIONS]
-contender report [OPTIONS] # (in progress)
+contender report [OPTIONS]
 ```
 
 For detailed usage instructions, run:
