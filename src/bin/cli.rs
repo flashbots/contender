@@ -25,17 +25,6 @@ static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     SqliteDb::from_file("contender.db").expect("failed to open contender.db")
 });
 
-fn write_run_txs<T: std::io::Write>(
-    writer: &mut Writer<T>,
-    txs: &[RunTx],
-) -> Result<(), Box<dyn std::error::Error>> {
-    for tx in txs {
-        writer.serialize(tx)?;
-    }
-    writer.flush()?;
-    Ok(())
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = ContenderCli::parse_args();
@@ -182,4 +171,15 @@ async fn spam_callback_default(
     } else {
         SpamCallbackType::Nil(NilCallback::new())
     }
+}
+
+fn write_run_txs<T: std::io::Write>(
+    writer: &mut Writer<T>,
+    txs: &[RunTx],
+) -> Result<(), Box<dyn std::error::Error>> {
+    for tx in txs {
+        writer.serialize(tx)?;
+    }
+    writer.flush()?;
+    Ok(())
 }
