@@ -3,15 +3,12 @@ use crate::error::ContenderError;
 use crate::generator::seeder::Seeder;
 use crate::generator::types::{PlanType, RpcProvider};
 use crate::generator::Generator;
-use crate::scenario::test_scenario::TestScenario;
+use crate::test_scenario::TestScenario;
 use crate::Result;
 use alloy::hex::ToHexExt;
 use alloy::network::TransactionBuilder;
 use alloy::primitives::FixedBytes;
-use alloy::{
-    providers::{Provider, ProviderBuilder},
-    transports::http::reqwest::Url,
-};
+use alloy::providers::{Provider, ProviderBuilder};
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -36,13 +33,8 @@ where
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync,
 {
-    pub fn new(
-        scenario: TestScenario<D, S>,
-        callback_handler: F,
-        rpc_url: impl AsRef<str>,
-    ) -> Self {
-        let rpc_client =
-            ProviderBuilder::new().on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL"));
+    pub fn new(scenario: TestScenario<D, S>, callback_handler: F) -> Self {
+        let rpc_client = ProviderBuilder::new().on_http(scenario.rpc_url.to_owned());
 
         Self {
             scenario,
@@ -215,10 +207,15 @@ mod tests {
         let conf = crate::generator::testfile::tests::get_composite_testconfig();
         let db = crate::db::sqlite::SqliteDb::new_memory();
         let seed = crate::generator::RandSeed::from_str("444444444444");
-        let scenario = TestScenario::new(conf, db, anvil.endpoint_url(), seed, &get_test_signers());
+        let scenario = TestScenario::new(
+            conf,
+            db.into(),
+            anvil.endpoint_url(),
+            seed,
+            &get_test_signers(),
+        );
         let callback_handler = MockCallback;
-        let spammer =
-            BlockwiseSpammer::new(scenario, callback_handler, anvil.endpoint_url().to_string());
+        let spammer = BlockwiseSpammer::new(scenario, callback_handler);
 
         let result = spammer.spam_rpc(10, 3, None).await;
         println!("{:?}", result);

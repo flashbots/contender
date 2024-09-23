@@ -1,8 +1,9 @@
 use crate::db::database::DbOps;
 use crate::error::ContenderError;
+pub use crate::generator::types::TestConfig;
 use crate::generator::{
     templater::Templater,
-    types::{CreateDefinition, FunctionCallDefinition, RpcProvider, TestConfig},
+    types::{CreateDefinition, FunctionCallDefinition, RpcProvider},
     PlanConfig,
 };
 use crate::spammer::OnTxSent;
@@ -163,7 +164,7 @@ pub mod tests {
         util::test::spawn_anvil,
         Generator, RandSeed,
     };
-    use crate::scenario::test_scenario::TestScenario;
+    use crate::test_scenario::TestScenario;
     use alloy::primitives::U256;
     use alloy::signers::local::PrivateKeySigner;
     use alloy::{hex::ToHexExt, primitives::Address};
@@ -362,7 +363,7 @@ pub mod tests {
         let seed = RandSeed::new();
         let test_gen = TestScenario::new(
             test_file,
-            SqliteDb::new_memory(),
+            SqliteDb::new_memory().into(),
             anvil.endpoint_url(),
             seed,
             &get_test_signers(),
@@ -391,14 +392,14 @@ pub mod tests {
         let signers = get_test_signers();
         let scenario1 = TestScenario::new(
             test_file.clone(),
-            SqliteDb::new_memory(),
+            SqliteDb::new_memory().into(),
             anvil.endpoint_url(),
             seed.to_owned(),
             &signers,
         );
         let scenario2 = TestScenario::new(
             test_file,
-            SqliteDb::new_memory(),
+            SqliteDb::new_memory().into(),
             anvil.endpoint_url(),
             seed,
             &signers,

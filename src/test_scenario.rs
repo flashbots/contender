@@ -34,7 +34,7 @@ where
 {
     pub fn new(
         config: TestConfig,
-        db: D,
+        db: Arc<D>,
         rpc_url: Url,
         rand_seed: S,
         signers: &[PrivateKeySigner],
@@ -50,7 +50,7 @@ where
 
         Self {
             config,
-            db: Arc::new(db),
+            db: db.clone(),
             rpc_url,
             rand_seed,
             wallet_map,
@@ -195,7 +195,7 @@ mod tests {
     use crate::db::sqlite::SqliteDb;
     use crate::generator::testfile::tests::{get_composite_testconfig, get_test_signers};
     use crate::generator::{types::PlanType, util::test::spawn_anvil, RandSeed};
-    use crate::scenario::test_scenario::TestScenario;
+    use crate::test_scenario::TestScenario;
     use alloy::node_bindings::AnvilInstance;
 
     fn get_test_scenario(anvil: &AnvilInstance) -> TestScenario<SqliteDb, RandSeed> {
@@ -205,7 +205,7 @@ mod tests {
         db.create_tables().unwrap();
         let signers = &get_test_signers();
 
-        TestScenario::new(test_file, db, anvil.endpoint_url(), seed, &signers)
+        TestScenario::new(test_file, db.into(), anvil.endpoint_url(), seed, &signers)
     }
 
     #[tokio::test]
