@@ -9,7 +9,7 @@ Contender is a high-performance Ethereum network spammer and testing tool design
 - **Flexible Transaction Generation**: Create custom transaction patterns using TOML configuration files.
 - **Multiple Spamming Modes**: Support for both timed and block-wise spamming.
 - **Seed-based Randomization**: Reproducible fuzzing with customizable seed values.
-- **Database Integration**: SQLite backend for storing and analyzing test results.
+- **Database Integration**: SQLite backend to store contract/transaction data and analyze test results.
 - **Extensible Architecture**: Easy-to-implement custom generators and callbacks.
 
 ## Installation
@@ -120,7 +120,7 @@ Contender is built with a modular architecture:
 
 ```mermaid
 graph TD
-    A[Config File] -->|Parsed by| B[TestConfig]
+    A[TOML Config File] -->|Parsed by| B[TestConfig]
     B -->|Configures| C[Generator]
     C -->|Produces| D[Transaction Requests]
     D -->|Fed to| E[Spammer]
