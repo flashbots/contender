@@ -10,8 +10,8 @@ use crate::{
     Result,
 };
 use alloy::hex::ToHexExt;
+use alloy::providers::Provider;
 use alloy::providers::ProviderBuilder;
-use alloy::{providers::Provider, transports::http::reqwest::Url};
 use std::sync::Arc;
 use tokio::task;
 
@@ -32,13 +32,8 @@ where
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync,
 {
-    pub fn new(
-        scenario: TestScenario<D, S>,
-        callback_handler: F,
-        rpc_url: impl AsRef<str>,
-    ) -> Self {
-        let rpc_client =
-            ProviderBuilder::new().on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL"));
+    pub fn new(scenario: TestScenario<D, S>, callback_handler: F) -> Self {
+        let rpc_client = ProviderBuilder::new().on_http(scenario.rpc_url.to_owned());
         Self {
             scenario,
             rpc_client: Arc::new(rpc_client),

@@ -95,14 +95,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .db
                             .clone()
                             .insert_run(timestamp as u64, txs_per_block * duration)?;
-                        let spammer = BlockwiseSpammer::new(scenario, cback, rpc_url);
+                        let spammer = BlockwiseSpammer::new(scenario, cback);
                         spammer
                             .spam_rpc(txs_per_block, duration, Some(run_id.into()))
                             .await?;
                         println!("Saved run. run_id = {}", run_id);
                     }
                     SpamCallbackType::Nil(cback) => {
-                        let spammer = BlockwiseSpammer::new(scenario, cback, rpc_url);
+                        let spammer = BlockwiseSpammer::new(scenario, cback);
                         spammer.spam_rpc(txs_per_block, duration, None).await?;
                     }
                 };
@@ -113,7 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let scenario = TestScenario::new(testfile, DB.clone().into(), url, rand_seed, &[]);
             let tps = txs_per_second.unwrap_or(10);
             println!("Timed spamming with {} txs per second", tps);
-            let spammer = TimedSpammer::new(scenario, NilCallback::new(), rpc_url);
+            let spammer = TimedSpammer::new(scenario, NilCallback::new());
             spammer.spam_rpc(tps, duration).await?;
         }
         ContenderSubcommand::Report { id, out_file } => {
