@@ -1,8 +1,9 @@
 use crate::db::database::DbOps;
 use crate::error::ContenderError;
 use crate::generator::seeder::Seeder;
+use crate::generator::templater::Templater;
 use crate::generator::types::{PlanType, RpcProvider};
-use crate::generator::Generator;
+use crate::generator::{Generator, PlanConfig};
 use crate::test_scenario::TestScenario;
 use crate::Result;
 use alloy::hex::ToHexExt;
@@ -16,24 +17,26 @@ use tokio::task;
 
 use super::OnTxSent;
 
-pub struct BlockwiseSpammer<F, D, S>
+pub struct BlockwiseSpammer<F, D, S, P>
 where
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync,
     F: OnTxSent + Send + Sync + 'static,
+    P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
-    scenario: TestScenario<D, S>,
+    scenario: TestScenario<D, S, P>,
     rpc_client: Arc<RpcProvider>,
     callback_handler: Arc<F>,
 }
 
-impl<F, D, S> BlockwiseSpammer<F, D, S>
+impl<F, D, S, P> BlockwiseSpammer<F, D, S, P>
 where
     F: OnTxSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync,
+    P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
-    pub fn new(scenario: TestScenario<D, S>, callback_handler: F) -> Self {
+    pub fn new(scenario: TestScenario<D, S, P>, callback_handler: F) -> Self {
         let rpc_client = ProviderBuilder::new().on_http(scenario.rpc_url.to_owned());
 
         Self {
