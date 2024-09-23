@@ -11,8 +11,8 @@ use contender_core::{
         types::{RpcProvider, TestConfig},
         RandSeed,
     },
-    scenario::test_scenario::TestScenario,
     spammer::{BlockwiseSpammer, TimedSpammer},
+    test_scenario::TestScenario,
 };
 use std::{
     str::FromStr,

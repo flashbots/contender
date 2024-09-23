@@ -5,8 +5,8 @@ use crate::{
         types::{PlanType, RpcProvider},
         Generator,
     },
-    scenario::test_scenario::TestScenario,
     spammer::OnTxSent,
+    test_scenario::TestScenario,
     Result,
 };
 use alloy::hex::ToHexExt;

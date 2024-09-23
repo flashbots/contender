@@ -195,7 +195,7 @@ mod tests {
     use crate::db::sqlite::SqliteDb;
     use crate::generator::testfile::tests::{get_composite_testconfig, get_test_signers};
     use crate::generator::{types::PlanType, util::test::spawn_anvil, RandSeed};
-    use crate::scenario::test_scenario::TestScenario;
+    use crate::test_scenario::TestScenario;
     use alloy::node_bindings::AnvilInstance;
 
     fn get_test_scenario(anvil: &AnvilInstance) -> TestScenario<SqliteDb, RandSeed> {

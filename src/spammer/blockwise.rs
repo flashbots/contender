@@ -3,7 +3,7 @@ use crate::error::ContenderError;
 use crate::generator::seeder::Seeder;
 use crate::generator::types::{PlanType, RpcProvider};
 use crate::generator::Generator;
-use crate::scenario::test_scenario::TestScenario;
+use crate::test_scenario::TestScenario;
 use crate::Result;
 use alloy::hex::ToHexExt;
 use alloy::network::TransactionBuilder;

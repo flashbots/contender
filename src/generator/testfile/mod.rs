@@ -163,7 +163,7 @@ pub mod tests {
         util::test::spawn_anvil,
         Generator, RandSeed,
     };
-    use crate::scenario::test_scenario::TestScenario;
+    use crate::test_scenario::TestScenario;
     use alloy::primitives::U256;
     use alloy::signers::local::PrivateKeySigner;
     use alloy::{hex::ToHexExt, primitives::Address};
