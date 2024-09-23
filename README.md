@@ -30,9 +30,9 @@ Contender can be used as both a library and a command-line tool.
 ### Command-line Interface
 
 ```bash
-contender setup <testfile> <rpc_url>
+contender setup <testfile> <rpc_url> [OPTIONS]
 contender spam <testfile> <rpc_url> [OPTIONS]
-contender report [OPTIONS]
+contender report [OPTIONS] # (in progress)
 ```
 
 For detailed usage instructions, run:
@@ -166,3 +166,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - The Ethereum community for their continuous innovation.
 - The Reth project for inspiration on project structure and documentation.
+- [alloy-rs](https://github.com/alloy-rs) -- the backbone of this project.
