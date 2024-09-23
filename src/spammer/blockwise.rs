@@ -31,7 +31,7 @@ where
 
 impl<F, D, S, P> BlockwiseSpammer<F, D, S, P>
 where
-    F: OnTxSent<String> + Send + Sync + 'static,
+    F: OnTxSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync,
     P: PlanConfig<String> + Templater<String> + Send + Sync,
