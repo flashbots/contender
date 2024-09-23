@@ -156,7 +156,7 @@ where
             .as_millis() as usize;
         let db = self.db.clone();
         let run_id = extra
-            .map(|e| e.get("run_id").unwrap().parse::<i64>().unwrap())
+            .map(|e| e.get("run_id").unwrap().parse::<u64>().unwrap())
             .unwrap_or(0);
         let handle = spawn_task(async move {
             db.insert_run_tx(run_id, tx_hash, timestamp)

@@ -117,6 +117,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             spammer.spam_rpc(tps, duration).await?;
         }
         ContenderSubcommand::Report { id, out_file } => {
+            let num_runs = DB.clone().num_runs()?;
+            let id = if let Some(id) = id {
+                if id == 0 || id > num_runs {
+                    panic!("Invalid run ID: {}", id);
+                }
+                id
+            } else {
+                if num_runs == 0 {
+                    panic!("No runs to report");
+                }
+                // get latest run
+                println!("No run ID provided. Using latest run ID: {}", num_runs);
+                num_runs
+            };
+            let txs = DB.clone().get_run_txs(id)?;
+            println!("found {} txs", txs.len());
             println!(
                 "Exporting report for run ID {:?} to out_file {:?}",
                 id, out_file

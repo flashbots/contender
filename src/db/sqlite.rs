@@ -1,4 +1,4 @@
-use super::database::DbOps;
+use super::database::{DbOps, RunTx};
 use crate::{error::ContenderError, Result};
 use alloy::{
     hex::{FromHex, ToHexExt},
@@ -75,6 +75,33 @@ impl NamedTxRow {
     }
 }
 
+#[derive(Deserialize, Debug, Serialize)]
+struct RunTxRow {
+    run_id: i64,
+    tx_hash: String,
+    timestamp: usize,
+}
+
+impl RunTxRow {
+    fn from_row(row: &Row) -> rusqlite::Result<Self> {
+        Ok(Self {
+            run_id: row.get(0)?,
+            tx_hash: row.get(1)?,
+            timestamp: row.get(2)?,
+        })
+    }
+}
+
+impl From<RunTxRow> for RunTx {
+    fn from(row: RunTxRow) -> Self {
+        let tx_hash = TxHash::from_hex(&row.tx_hash).expect("invalid tx hash");
+        Self {
+            tx_hash,
+            timestamp: row.timestamp,
+        }
+    }
+}
+
 impl DbOps for SqliteDb {
     fn create_tables(&self) -> Result<()> {
         self.execute(
@@ -118,10 +145,27 @@ impl DbOps for SqliteDb {
         Ok(id)
     }
 
-    fn num_runs(&self) -> Result<i64> {
-        let count: i64 =
+    fn num_runs(&self) -> Result<u64> {
+        let count: u64 =
             self.query_row("SELECT COUNT(*) FROM runs", params![], |row| row.get(0))?;
         Ok(count)
+    }
+
+    fn get_run_txs(&self, run_id: u64) -> Result<Vec<RunTx>> {
+        let pool = self.get_pool()?;
+        let mut stmt = pool
+            .prepare("SELECT run_id, tx_hash, timestamp FROM run_txs WHERE run_id = ?1")
+            .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
+
+        let rows = stmt
+            .query_map(params![run_id], |row| RunTxRow::from_row(row))
+            .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
+        let res = rows
+            .map(|r| r.map(|r| r.into()))
+            .map(|r| r.map_err(|e| ContenderError::with_err(e, "failed to convert row")))
+            .collect::<Result<Vec<RunTx>>>()
+            .map_err(|e| ContenderError::with_err(e, "failed to collect rows"))?;
+        Ok(res)
     }
 
     fn insert_named_tx(
@@ -158,16 +202,16 @@ impl DbOps for SqliteDb {
             .ok_or(ContenderError::DbError("no existing row", None))?;
 
         let tx_hash = TxHash::from_hex(&res.tx_hash)
-            .map_err(|e| ContenderError::DbError("invalid tx hash", Some(e.to_string())))?;
+            .map_err(|e| ContenderError::with_err(e, "invalid tx hash"))?;
         let contract_address = res
             .contract_address
             .map(|a| Address::from_hex(&a))
             .transpose()
-            .map_err(|e| ContenderError::DbError("invalid address", Some(e.to_string())))?;
+            .map_err(|e| ContenderError::with_err(e, "invalid address"))?;
         Ok((tx_hash, contract_address))
     }
 
-    fn insert_run_tx(&self, run_id: i64, tx_hash: TxHash, timestamp: usize) -> Result<()> {
+    fn insert_run_tx(&self, run_id: u64, tx_hash: TxHash, timestamp: usize) -> Result<()> {
         self.execute(
             "INSERT INTO run_txs (run_id, tx_hash, timestamp) VALUES (?, ?, ?)",
             params![run_id, tx_hash.encode_hex(), timestamp],
