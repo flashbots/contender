@@ -1,9 +1,12 @@
 use alloy::primitives::{Address, TxHash};
+use serde::Serialize;
 
 use crate::Result;
 
+#[derive(Debug, Serialize)]
 pub struct RunTx {
     pub tx_hash: TxHash,
+    #[serde(rename = "received_tx_hash_at")]
     pub timestamp: usize,
 }
 

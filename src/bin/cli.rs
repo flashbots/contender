@@ -4,6 +4,7 @@ use alloy::{
     providers::ProviderBuilder, signers::local::PrivateKeySigner, transports::http::reqwest::Url,
 };
 use cli_lib::{ContenderCli, ContenderSubcommand};
+use contender_core::db::database::RunTx;
 use contender_core::{
     db::{database::DbOps, sqlite::SqliteDb},
     generator::{
@@ -14,6 +15,7 @@ use contender_core::{
     spammer::{BlockwiseSpammer, TimedSpammer},
     test_scenario::TestScenario,
 };
+use csv::{Writer, WriterBuilder};
 use std::{
     str::FromStr,
     sync::{Arc, LazyLock},
@@ -22,6 +24,17 @@ use std::{
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     SqliteDb::from_file("contender.db").expect("failed to open contender.db")
 });
+
+fn write_run_txs<T: std::io::Write>(
+    writer: &mut Writer<T>,
+    txs: &[RunTx],
+) -> Result<(), Box<dyn std::error::Error>> {
+    for tx in txs {
+        writer.serialize(tx)?;
+    }
+    writer.flush()?;
+    Ok(())
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -137,7 +150,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "Exporting report for run ID {:?} to out_file {:?}",
                 id, out_file
             );
-            todo!();
+
+            if let Some(out_file) = out_file {
+                let mut writer = WriterBuilder::new().has_headers(true).from_path(out_file)?;
+                write_run_txs(&mut writer, &txs)?;
+            } else {
+                let mut writer = WriterBuilder::new()
+                    .has_headers(true)
+                    .from_writer(std::io::stdout());
+                write_run_txs(&mut writer, &txs)?;
+            };
         }
     }
     Ok(())
