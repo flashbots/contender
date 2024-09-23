@@ -146,15 +146,15 @@ impl DbOps for SqliteDb {
             .prepare(
                 "SELECT name, tx_hash, contract_address FROM named_txs WHERE name = ?1 ORDER BY id DESC LIMIT 1",
             )
-            .map_err(|e| ContenderError::with_err("failed to prepare statement", &e))?;
+            .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
 
         let row = stmt
             .query_map(params![name], |row| NamedTxRow::from_row(row))
-            .map_err(|e| ContenderError::with_err("failed to map row", &e))?;
+            .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
         let res = row
             .last()
             .transpose()
-            .map_err(|e| ContenderError::with_err("no row found", &e))?
+            .map_err(|e| ContenderError::with_err(e, "no row found"))?
             .ok_or(ContenderError::DbError("no existing row", None))?;
 
         let tx_hash = TxHash::from_hex(&res.tx_hash)

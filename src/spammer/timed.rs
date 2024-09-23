@@ -1,6 +1,12 @@
 use crate::{
-    generator::{util::RpcProvider, Generator},
-    spammer::SpamCallback,
+    db::database::DbOps,
+    generator::{
+        seeder::Seeder,
+        types::{PlanType, RpcProvider},
+        Generator,
+    },
+    scenario::test_scenario::TestScenario,
+    spammer::OnTxSent,
     Result,
 };
 use alloy::hex::ToHexExt;
@@ -9,26 +15,32 @@ use alloy::{providers::Provider, transports::http::reqwest::Url};
 use std::sync::Arc;
 use tokio::task;
 
-pub struct TimedSpammer<'a, G, F>
+pub struct TimedSpammer<F, D, S>
 where
-    G: Generator,
-    F: SpamCallback + Send + Sync + 'static,
+    F: OnTxSent + Send + Sync + 'static,
+    D: DbOps + Send + Sync + 'static,
+    S: Seeder + Send + Sync,
 {
-    generator: &'a G,
+    scenario: TestScenario<D, S>,
     rpc_client: Arc<RpcProvider>,
     callback_handler: Arc<F>,
 }
 
-impl<'a, G, F> TimedSpammer<'a, G, F>
+impl<F, D, S> TimedSpammer<F, D, S>
 where
-    G: Generator,
-    F: SpamCallback + Send + Sync + 'static,
+    F: OnTxSent + Send + Sync + 'static,
+    D: DbOps + Send + Sync + 'static,
+    S: Seeder + Send + Sync,
 {
-    pub fn new(generator: &'a G, callback_handler: F, rpc_url: impl AsRef<str>) -> Self {
+    pub fn new(
+        scenario: TestScenario<D, S>,
+        callback_handler: F,
+        rpc_url: impl AsRef<str>,
+    ) -> Self {
         let rpc_client =
             ProviderBuilder::new().on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL"));
         Self {
-            generator,
+            scenario,
             rpc_client: Arc::new(rpc_client),
             callback_handler: Arc::new(callback_handler),
         }
@@ -36,7 +48,10 @@ where
 
     /// Send transactions to the RPC at a given rate. Actual rate may vary; this is only the attempted sending rate.
     pub async fn spam_rpc(&self, tx_per_second: usize, duration: usize) -> Result<()> {
-        let tx_requests = self.generator.get_txs(tx_per_second * duration)?;
+        let tx_requests = self
+            .scenario
+            .load_txs(PlanType::Spam(tx_per_second * duration, |_| Ok(None)))
+            .await?;
         let interval = std::time::Duration::from_nanos(1_000_000_000 / tx_per_second as u64);
         let mut tasks = vec![];
 
