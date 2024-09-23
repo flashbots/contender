@@ -4,7 +4,7 @@ use crate::{
     generator::{
         seeder::{SeedValue, Seeder},
         templater::Templater,
-        types::{CreateDefinition, FunctionCallDefinition, FuzzParam, NamedTxRequest},
+        types::{CreateDefinition, FunctionCallDefinition, FuzzParam},
     },
     Result,
 };
@@ -13,7 +13,8 @@ use alloy::rpc::types::TransactionRequest;
 use async_trait::async_trait;
 pub use seeder::rand_seed::RandSeed;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
-use types::{CallbackResult, PlanType};
+
+pub use types::{CallbackResult, NamedTxRequest, PlanType, TestConfig};
 
 /// Generates values for fuzzed parameters.
 /// Contains the Seeder trait and an implementation.
