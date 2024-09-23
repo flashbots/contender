@@ -215,7 +215,13 @@ mod tests {
         let conf = crate::generator::testfile::tests::get_composite_testconfig();
         let db = crate::db::sqlite::SqliteDb::new_memory();
         let seed = crate::generator::RandSeed::from_str("444444444444");
-        let scenario = TestScenario::new(conf, db, anvil.endpoint_url(), seed, &get_test_signers());
+        let scenario = TestScenario::new(
+            conf,
+            db.into(),
+            anvil.endpoint_url(),
+            seed,
+            &get_test_signers(),
+        );
         let callback_handler = MockCallback;
         let spammer =
             BlockwiseSpammer::new(scenario, callback_handler, anvil.endpoint_url().to_string());

@@ -34,7 +34,7 @@ where
 {
     pub fn new(
         config: TestConfig,
-        db: D,
+        db: Arc<D>,
         rpc_url: Url,
         rand_seed: S,
         signers: &[PrivateKeySigner],
@@ -50,7 +50,7 @@ where
 
         Self {
             config,
-            db: Arc::new(db),
+            db: db.clone(),
             rpc_url,
             rand_seed,
             wallet_map,
@@ -205,7 +205,7 @@ mod tests {
         db.create_tables().unwrap();
         let signers = &get_test_signers();
 
-        TestScenario::new(test_file, db, anvil.endpoint_url(), seed, &signers)
+        TestScenario::new(test_file, db.into(), anvil.endpoint_url(), seed, &signers)
     }
 
     #[tokio::test]

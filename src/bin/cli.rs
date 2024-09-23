@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let scenario = TestScenario::new(
                 testconfig.to_owned(),
-                DB.clone(),
+                Arc::new(DB.clone()),
                 url,
                 RandSeed::new(),
                 &signers,
@@ -82,7 +82,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if let Some(txs_per_block) = txs_per_block {
                 let signers = signers.expect("must provide private keys for blockwise spamming");
-                let scenario = TestScenario::new(testfile, DB.clone(), url, rand_seed, &signers);
+                let scenario =
+                    TestScenario::new(testfile, DB.clone().into(), url, rand_seed, &signers);
                 println!("Blockwise spamming with {} txs per block", txs_per_block);
                 match spam_callback_default(!disable_reports, rpc_client.into()).await {
                     SpamCallbackType::Log(cback) => {
@@ -109,7 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // private keys are not used for timed spamming; timed spamming only works with unlocked accounts
-            let scenario = TestScenario::new(testfile, DB.clone(), url, rand_seed, &[]);
+            let scenario = TestScenario::new(testfile, DB.clone().into(), url, rand_seed, &[]);
             let tps = txs_per_second.unwrap_or(10);
             println!("Timed spamming with {} txs per second", tps);
             let spammer = TimedSpammer::new(scenario, NilCallback::new(), rpc_url);
