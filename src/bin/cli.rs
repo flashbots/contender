@@ -11,8 +11,8 @@ use contender_core::{
         types::{RpcProvider, TestConfig},
         RandSeed,
     },
-    scenario::test_scenario::TestScenario,
     spammer::{BlockwiseSpammer, TimedSpammer},
+    test_scenario::TestScenario,
 };
 use std::{
     str::FromStr,
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let scenario = TestScenario::new(
                 testconfig.to_owned(),
-                DB.clone(),
+                Arc::new(DB.clone()),
                 url,
                 RandSeed::new(),
                 &signers,
@@ -82,7 +82,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if let Some(txs_per_block) = txs_per_block {
                 let signers = signers.expect("must provide private keys for blockwise spamming");
-                let scenario = TestScenario::new(testfile, DB.clone(), url, rand_seed, &signers);
+                let scenario =
+                    TestScenario::new(testfile, DB.clone().into(), url, rand_seed, &signers);
                 println!("Blockwise spamming with {} txs per block", txs_per_block);
                 match spam_callback_default(!disable_reports, rpc_client.into()).await {
                     SpamCallbackType::Log(cback) => {
@@ -94,14 +95,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .db
                             .clone()
                             .insert_run(timestamp as u64, txs_per_block * duration)?;
-                        let spammer = BlockwiseSpammer::new(scenario, cback, rpc_url);
+                        let spammer = BlockwiseSpammer::new(scenario, cback);
                         spammer
                             .spam_rpc(txs_per_block, duration, Some(run_id.into()))
                             .await?;
                         println!("Saved run. run_id = {}", run_id);
                     }
                     SpamCallbackType::Nil(cback) => {
-                        let spammer = BlockwiseSpammer::new(scenario, cback, rpc_url);
+                        let spammer = BlockwiseSpammer::new(scenario, cback);
                         spammer.spam_rpc(txs_per_block, duration, None).await?;
                     }
                 };
@@ -109,10 +110,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // private keys are not used for timed spamming; timed spamming only works with unlocked accounts
-            let scenario = TestScenario::new(testfile, DB.clone(), url, rand_seed, &[]);
+            let scenario = TestScenario::new(testfile, DB.clone().into(), url, rand_seed, &[]);
             let tps = txs_per_second.unwrap_or(10);
             println!("Timed spamming with {} txs per second", tps);
-            let spammer = TimedSpammer::new(scenario, NilCallback::new(), rpc_url);
+            let spammer = TimedSpammer::new(scenario, NilCallback::new());
             spammer.spam_rpc(tps, duration).await?;
         }
         ContenderSubcommand::Report { id, out_file } => {

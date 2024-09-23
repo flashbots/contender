@@ -2,43 +2,41 @@ use crate::{
     db::database::DbOps,
     generator::{
         seeder::Seeder,
+        templater::Templater,
         types::{PlanType, RpcProvider},
-        Generator,
+        Generator, PlanConfig,
     },
-    scenario::test_scenario::TestScenario,
     spammer::OnTxSent,
+    test_scenario::TestScenario,
     Result,
 };
 use alloy::hex::ToHexExt;
+use alloy::providers::Provider;
 use alloy::providers::ProviderBuilder;
-use alloy::{providers::Provider, transports::http::reqwest::Url};
 use std::sync::Arc;
 use tokio::task;
 
-pub struct TimedSpammer<F, D, S>
+pub struct TimedSpammer<F, D, S, P>
 where
     F: OnTxSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync,
+    P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
-    scenario: TestScenario<D, S>,
+    scenario: TestScenario<D, S, P>,
     rpc_client: Arc<RpcProvider>,
     callback_handler: Arc<F>,
 }
 
-impl<F, D, S> TimedSpammer<F, D, S>
+impl<F, D, S, P> TimedSpammer<F, D, S, P>
 where
     F: OnTxSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync,
+    P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
-    pub fn new(
-        scenario: TestScenario<D, S>,
-        callback_handler: F,
-        rpc_url: impl AsRef<str>,
-    ) -> Self {
-        let rpc_client =
-            ProviderBuilder::new().on_http(Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL"));
+    pub fn new(scenario: TestScenario<D, S, P>, callback_handler: F) -> Self {
+        let rpc_client = ProviderBuilder::new().on_http(scenario.rpc_url.to_owned());
         Self {
             scenario,
             rpc_client: Arc::new(rpc_client),

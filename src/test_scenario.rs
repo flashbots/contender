@@ -1,10 +1,7 @@
 use crate::db::database::DbOps;
 use crate::error::ContenderError;
-use crate::generator::{
-    seeder::Seeder,
-    types::{PlanType, TestConfig},
-    Generator, PlanConfig,
-};
+use crate::generator::templater::Templater;
+use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use alloy::hex::ToHexExt;
 use alloy::network::{EthereumWallet, TransactionBuilder};
 use alloy::primitives::Address;
@@ -15,26 +12,28 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// A test scenario can be used to run a test with a specific configuration, database, and RPC provider.
-pub struct TestScenario<D, S>
+pub struct TestScenario<D, S, P>
 where
     D: DbOps + Send + Sync + 'static,
     S: Seeder,
+    P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
-    pub config: TestConfig,
+    pub config: P,
     db: Arc<D>,
     pub rpc_url: Url,
     pub rand_seed: S,
     pub wallet_map: HashMap<Address, EthereumWallet>,
 }
 
-impl<D, S> TestScenario<D, S>
+impl<D, S, P> TestScenario<D, S, P>
 where
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync,
+    P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
     pub fn new(
-        config: TestConfig,
-        db: D,
+        config: P,
+        db: Arc<D>,
         rpc_url: Url,
         rand_seed: S,
         signers: &[PrivateKeySigner],
@@ -50,7 +49,7 @@ where
 
         Self {
             config,
-            db: Arc::new(db),
+            db: db.clone(),
             rpc_url,
             rand_seed,
             wallet_map,
@@ -167,16 +166,17 @@ where
     }
 }
 
-impl<D, S> Generator<String, D, TestConfig> for TestScenario<D, S>
+impl<D, S, P> Generator<String, D, P> for TestScenario<D, S, P>
 where
     D: DbOps + Send + Sync,
     S: Seeder,
+    P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
     fn get_db(&self) -> &D {
         self.db.as_ref()
     }
 
-    fn get_templater(&self) -> &TestConfig {
+    fn get_templater(&self) -> &P {
         &self.config
     }
 
@@ -194,18 +194,19 @@ mod tests {
     use super::*;
     use crate::db::sqlite::SqliteDb;
     use crate::generator::testfile::tests::{get_composite_testconfig, get_test_signers};
+    use crate::generator::TestConfig;
     use crate::generator::{types::PlanType, util::test::spawn_anvil, RandSeed};
-    use crate::scenario::test_scenario::TestScenario;
+    use crate::test_scenario::TestScenario;
     use alloy::node_bindings::AnvilInstance;
 
-    fn get_test_scenario(anvil: &AnvilInstance) -> TestScenario<SqliteDb, RandSeed> {
+    fn get_test_scenario(anvil: &AnvilInstance) -> TestScenario<SqliteDb, RandSeed, TestConfig> {
         let test_file = get_composite_testconfig();
         let seed = RandSeed::from_bytes(&[0x01; 32]);
         let db = SqliteDb::new_memory();
         db.create_tables().unwrap();
         let signers = &get_test_signers();
 
-        TestScenario::new(test_file, db, anvil.endpoint_url(), seed, &signers)
+        TestScenario::new(test_file, db.into(), anvil.endpoint_url(), seed, &signers)
     }
 
     #[tokio::test]
