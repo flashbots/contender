@@ -77,8 +77,11 @@ where
                         .map(|s| s.encode_hex())
                         .unwrap_or_default(),
                 );
-                let res = rpc_client.send_transaction(tx.tx).await.unwrap();
-                let maybe_handle = callback_handler.on_tx_sent(*res.tx_hash(), tx.name);
+                let res = rpc_client
+                    .send_transaction(tx_req.to_owned())
+                    .await
+                    .unwrap();
+                let maybe_handle = callback_handler.on_tx_sent(*res.tx_hash(), tx, None);
                 if let Some(handle) = maybe_handle {
                     handle.await.unwrap();
                 } // ignore None values so we don't attempt to await them

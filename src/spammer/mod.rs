@@ -2,12 +2,25 @@ pub mod blockwise;
 pub mod timed;
 pub mod util;
 
+use std::collections::HashMap;
+
 use alloy::primitives::TxHash;
 use tokio::task::JoinHandle;
 
 pub use blockwise::BlockwiseSpammer;
 pub use timed::TimedSpammer;
 
-pub trait OnTxSent {
-    fn on_tx_sent(&self, tx_hash: TxHash, name: Option<String>) -> Option<JoinHandle<()>>;
+use crate::generator::NamedTxRequest;
+
+pub trait OnTxSent<K = String, V = String>
+where
+    K: Eq + std::hash::Hash + AsRef<str>,
+    V: AsRef<str>,
+{
+    fn on_tx_sent(
+        &self,
+        tx_hash: TxHash,
+        req: NamedTxRequest,
+        extra: Option<HashMap<K, V>>,
+    ) -> Option<JoinHandle<()>>;
 }
