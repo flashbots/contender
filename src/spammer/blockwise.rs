@@ -21,7 +21,7 @@ pub struct BlockwiseSpammer<F, D, S, P>
 where
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync,
-    F: OnTxSent<String> + Send + Sync + 'static,
+    F: OnTxSent + Send + Sync + 'static,
     P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
     scenario: TestScenario<D, S, P>,

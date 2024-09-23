@@ -12,14 +12,15 @@ pub use timed::TimedSpammer;
 
 use crate::generator::NamedTxRequest;
 
-pub trait OnTxSent<K = String>
+pub trait OnTxSent<K = String, V = String>
 where
     K: Eq + std::hash::Hash + AsRef<str>,
+    V: AsRef<str>,
 {
     fn on_tx_sent(
         &self,
         tx_hash: TxHash,
         req: NamedTxRequest,
-        extra: Option<HashMap<K, String>>,
+        extra: Option<HashMap<K, V>>,
     ) -> Option<JoinHandle<()>>;
 }
