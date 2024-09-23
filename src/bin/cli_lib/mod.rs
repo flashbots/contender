@@ -108,7 +108,7 @@ May be specified multiple times."
             long,
             long_help = "The run ID to export reports for. If not provided, the latest run is used."
         )]
-        id: Option<String>,
+        id: Option<u64>,
 
         /// The path to save the report to.
         /// If not provided, the report is saved to the current directory.
