@@ -178,6 +178,10 @@ where
                         .with_chain_id(chain_id)
                         .with_gas_limit(gas_limit);
 
+                    let start_timestamp = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("failed to get timestamp")
+                        .as_millis() as usize;
                     let res = provider.send_transaction(full_tx).await.unwrap();
                     let maybe_handle = callback_handler.on_tx_sent(
                         *res.tx_hash(),
@@ -185,6 +189,9 @@ where
                         HashMap::from_iter([(
                             "run_id".to_owned(),
                             run_id.unwrap_or(0).to_string(),
+                        ), (
+                            "start_timestamp".to_owned(),
+                            start_timestamp.to_string(),
                         )])
                         .into(),
                     );

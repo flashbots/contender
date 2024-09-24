@@ -150,16 +150,19 @@ where
         _req: NamedTxRequest,
         extra: Option<HashMap<String, String>>,
     ) -> Option<JoinHandle<()>> {
-        let timestamp = std::time::SystemTime::now()
+        let db = self.db.clone();
+        let run_id = extra.as_ref()
+            .map(|e| e.get("run_id").unwrap().parse::<u64>().unwrap())
+            .unwrap_or(0);
+        let start_timestamp = extra.as_ref()
+            .map(|e| e.get("start_timestamp").unwrap().parse::<usize>().unwrap())
+            .unwrap_or(0);
+        let end_timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("failed to get timestamp")
             .as_millis() as usize;
-        let db = self.db.clone();
-        let run_id = extra
-            .map(|e| e.get("run_id").unwrap().parse::<u64>().unwrap())
-            .unwrap_or(0);
         let handle = spawn_task(async move {
-            db.insert_run_tx(run_id, tx_hash, timestamp)
+            db.insert_run_tx(run_id, tx_hash, start_timestamp, end_timestamp)
                 .expect("failed to insert tx into db");
         });
         Some(handle)

@@ -79,7 +79,8 @@ impl NamedTxRow {
 struct RunTxRow {
     run_id: i64,
     tx_hash: String,
-    timestamp: usize,
+    start_timestamp: usize,
+    end_timestamp: usize
 }
 
 impl RunTxRow {
@@ -87,7 +88,8 @@ impl RunTxRow {
         Ok(Self {
             run_id: row.get(0)?,
             tx_hash: row.get(1)?,
-            timestamp: row.get(2)?,
+            start_timestamp: row.get(2)?,
+            end_timestamp: row.get(3)?
         })
     }
 }
@@ -97,7 +99,8 @@ impl From<RunTxRow> for RunTx {
         let tx_hash = TxHash::from_hex(&row.tx_hash).expect("invalid tx hash");
         Self {
             tx_hash,
-            timestamp: row.timestamp,
+            start_timestamp: row.start_timestamp,
+            end_timestamp: row.end_timestamp,
         }
     }
 }
@@ -126,7 +129,8 @@ impl DbOps for SqliteDb {
                 id INTEGER PRIMARY KEY,
                 run_id INTEGER NOT NULL,
                 tx_hash TEXT NOT NULL,
-                timestamp INTEGER NOT NULL,
+                start_timestamp INTEGER NOT NULL,
+                end_timestamp INTEGER NOT NULL,
                 FOREIGN KEY(run_id) REFERENCES runs(runid)
             )",
             params![],
@@ -154,7 +158,7 @@ impl DbOps for SqliteDb {
     fn get_run_txs(&self, run_id: u64) -> Result<Vec<RunTx>> {
         let pool = self.get_pool()?;
         let mut stmt = pool
-            .prepare("SELECT run_id, tx_hash, timestamp FROM run_txs WHERE run_id = ?1")
+            .prepare("SELECT run_id, tx_hash, start_timestamp, end_timestamp FROM run_txs WHERE run_id = ?1")
             .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
 
         let rows = stmt
@@ -211,10 +215,10 @@ impl DbOps for SqliteDb {
         Ok((tx_hash, contract_address))
     }
 
-    fn insert_run_tx(&self, run_id: u64, tx_hash: TxHash, timestamp: usize) -> Result<()> {
+    fn insert_run_tx(&self, run_id: u64, tx_hash: TxHash, start_timestamp: usize, end_timestamp: usize) -> Result<()> {
         self.execute(
-            "INSERT INTO run_txs (run_id, tx_hash, timestamp) VALUES (?, ?, ?)",
-            params![run_id, tx_hash.encode_hex(), timestamp],
+            "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp) VALUES (?, ?, ?, ?)",
+            params![run_id, tx_hash.encode_hex(), start_timestamp, end_timestamp],
         )
     }
 }
