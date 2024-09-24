@@ -80,7 +80,9 @@ struct RunTxRow {
     run_id: i64,
     tx_hash: String,
     start_timestamp: usize,
-    end_timestamp: usize
+    end_timestamp: usize,
+    block_number: u64,
+    gas_used: String,
 }
 
 impl RunTxRow {
@@ -89,7 +91,9 @@ impl RunTxRow {
             run_id: row.get(0)?,
             tx_hash: row.get(1)?,
             start_timestamp: row.get(2)?,
-            end_timestamp: row.get(3)?
+            end_timestamp: row.get(3)?,
+            block_number: row.get(4)?,
+            gas_used: row.get(5)?,
         })
     }
 }
@@ -101,6 +105,8 @@ impl From<RunTxRow> for RunTx {
             tx_hash,
             start_timestamp: row.start_timestamp,
             end_timestamp: row.end_timestamp,
+            block_number: row.block_number,
+            gas_used: row.gas_used.parse().unwrap(),
         }
     }
 }
@@ -131,6 +137,8 @@ impl DbOps for SqliteDb {
                 tx_hash TEXT NOT NULL,
                 start_timestamp INTEGER NOT NULL,
                 end_timestamp INTEGER NOT NULL,
+                block_number INTEGER NOT NULL,
+                gas_used TEXT NOT NULL,
                 FOREIGN KEY(run_id) REFERENCES runs(runid)
             )",
             params![],
@@ -158,7 +166,7 @@ impl DbOps for SqliteDb {
     fn get_run_txs(&self, run_id: u64) -> Result<Vec<RunTx>> {
         let pool = self.get_pool()?;
         let mut stmt = pool
-            .prepare("SELECT run_id, tx_hash, start_timestamp, end_timestamp FROM run_txs WHERE run_id = ?1")
+            .prepare("SELECT run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used FROM run_txs WHERE run_id = ?1")
             .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
 
         let rows = stmt
@@ -215,10 +223,10 @@ impl DbOps for SqliteDb {
         Ok((tx_hash, contract_address))
     }
 
-    fn insert_run_tx(&self, run_id: u64, tx_hash: TxHash, start_timestamp: usize, end_timestamp: usize) -> Result<()> {
+    fn insert_run_tx(&self, run_id: u64, tx_hash: TxHash, start_timestamp: usize, end_timestamp: usize, block_number: u64, gas_used: u128) -> Result<()> {
         self.execute(
-            "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp) VALUES (?, ?, ?, ?)",
-            params![run_id, tx_hash.encode_hex(), start_timestamp, end_timestamp],
+            "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used) VALUES (?, ?, ?, ?, ?, ?)",
+            params![run_id, tx_hash.encode_hex(), start_timestamp, end_timestamp, block_number, gas_used.to_string()],
         )
     }
 }

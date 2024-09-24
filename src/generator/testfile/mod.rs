@@ -13,6 +13,8 @@ use std::collections::HashMap;
 use std::fs::read;
 use std::sync::Arc;
 use tokio::task::{spawn as spawn_task, JoinHandle};
+use alloy::providers::Provider;
+use alloy::rpc::types::BlockTransactionsKind;
 
 use super::NamedTxRequest;
 
@@ -151,19 +153,30 @@ where
         extra: Option<HashMap<String, String>>,
     ) -> Option<JoinHandle<()>> {
         let db = self.db.clone();
+        let rpc = self.rpc_provider.clone();
         let run_id = extra.as_ref()
             .map(|e| e.get("run_id").unwrap().parse::<u64>().unwrap())
             .unwrap_or(0);
         let start_timestamp = extra.as_ref()
             .map(|e| e.get("start_timestamp").unwrap().parse::<usize>().unwrap())
             .unwrap_or(0);
-        let end_timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("failed to get timestamp")
-            .as_millis() as usize;
         let handle = spawn_task(async move {
-            db.insert_run_tx(run_id, tx_hash, start_timestamp, end_timestamp)
-                .expect("failed to insert tx into db");
+            let receipt = loop {
+                match rpc.get_transaction_receipt(tx_hash).await {
+                    Ok(Some(receipt)) => break receipt,
+                    Ok(None) => tokio::time::sleep(tokio::time::Duration::from_secs(1)).await,
+                    Err(e) => {
+                        eprintln!("error getting tx receipt: {:?}", e);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                    }
+                }
+            };
+            let block_hash = receipt.block_hash.unwrap();
+            let block = rpc.get_block_by_hash(block_hash, BlockTransactionsKind::Hashes).await.expect("failed to get block").expect("no block found");
+            let end_timestamp = (block.header.timestamp * 1000) as usize;
+            let block_number = block.header.number;
+            let gas_used = receipt.gas_used;
+            db.insert_run_tx(run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used).expect("failed to insert tx into db");
         });
         Some(handle)
     }
