@@ -6,8 +6,12 @@ use crate::Result;
 #[derive(Debug, Serialize)]
 pub struct RunTx {
     pub tx_hash: TxHash,
-    #[serde(rename = "received_tx_hash_at")]
-    pub timestamp: usize,
+    #[serde(rename = "start_time")]
+    pub start_timestamp: usize,
+    #[serde(rename = "end_time")]
+    pub end_timestamp: usize,
+    pub block_number: u64,
+    pub gas_used: u128,
 }
 
 pub trait DbOps {
@@ -26,7 +30,7 @@ pub trait DbOps {
 
     fn get_named_tx(&self, name: &str) -> Result<(TxHash, Option<Address>)>;
 
-    fn insert_run_tx(&self, run_id: u64, tx_hash: TxHash, timestamp: usize) -> Result<()>;
+    fn insert_run_tx(&self, run_id: u64, tx_hash: TxHash, start_timestamp: usize, end_timestamp: usize, block_number: u64, gas_used: u128) -> Result<()>;
 
     fn get_run_txs(&self, run_id: u64) -> Result<Vec<RunTx>>;
 }

@@ -2,15 +2,13 @@ pub mod blockwise;
 pub mod timed;
 pub mod util;
 
+use crate::generator::NamedTxRequest;
+use alloy::providers::PendingTransactionConfig;
 use std::collections::HashMap;
-
-use alloy::primitives::TxHash;
 use tokio::task::JoinHandle;
 
 pub use blockwise::BlockwiseSpammer;
 pub use timed::TimedSpammer;
-
-use crate::generator::NamedTxRequest;
 
 pub trait OnTxSent<K = String, V = String>
 where
@@ -19,7 +17,7 @@ where
 {
     fn on_tx_sent(
         &self,
-        tx_hash: TxHash,
+        tx_response: PendingTransactionConfig,
         req: NamedTxRequest,
         extra: Option<HashMap<K, V>>,
     ) -> Option<JoinHandle<()>>;

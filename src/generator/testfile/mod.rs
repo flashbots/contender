@@ -7,8 +7,13 @@ use crate::generator::{
     PlanConfig,
 };
 use crate::spammer::OnTxSent;
-use alloy::hex::ToHexExt;
-use alloy::primitives::{Address, TxHash};
+use alloy::primitives::Address;
+use alloy::providers::Provider;
+use alloy::rpc::types::BlockTransactionsKind;
+use alloy::{
+    hex::ToHexExt,
+    providers::{PendingTransactionBuilder, PendingTransactionConfig},
+};
 use std::collections::HashMap;
 use std::fs::read;
 use std::sync::Arc;
@@ -131,7 +136,7 @@ where
 impl OnTxSent for NilCallback {
     fn on_tx_sent(
         &self,
-        _tx_res: TxHash,
+        _tx_res: PendingTransactionConfig,
         _req: NamedTxRequest,
         _extra: Option<HashMap<String, String>>,
     ) -> Option<JoinHandle<()>> {
@@ -146,21 +151,42 @@ where
 {
     fn on_tx_sent(
         &self,
-        tx_hash: TxHash,
+        tx_response: PendingTransactionConfig,
         _req: NamedTxRequest,
         extra: Option<HashMap<String, String>>,
     ) -> Option<JoinHandle<()>> {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("failed to get timestamp")
-            .as_millis() as usize;
         let db = self.db.clone();
+        let rpc = self.rpc_provider.clone();
         let run_id = extra
+            .as_ref()
             .map(|e| e.get("run_id").unwrap().parse::<u64>().unwrap())
             .unwrap_or(0);
+        let start_timestamp = extra
+            .as_ref()
+            .map(|e| e.get("start_timestamp").unwrap().parse::<usize>().unwrap())
+            .unwrap_or(0);
         let handle = spawn_task(async move {
-            db.insert_run_tx(run_id, tx_hash, timestamp)
-                .expect("failed to insert tx into db");
+            let res = PendingTransactionBuilder::from_config(&rpc, tx_response);
+            let receipt = res.get_receipt().await.expect("failed to get receipt");
+            let tx_hash = receipt.transaction_hash.to_owned();
+            let block_hash = receipt.block_hash.unwrap();
+            let block = rpc
+                .get_block_by_hash(block_hash, BlockTransactionsKind::Hashes)
+                .await
+                .expect("failed to get block")
+                .expect("no block found");
+            let end_timestamp = (block.header.timestamp * 1000) as usize;
+            let block_number = block.header.number;
+            let gas_used = receipt.gas_used;
+            db.insert_run_tx(
+                run_id,
+                tx_hash,
+                start_timestamp,
+                end_timestamp,
+                block_number,
+                gas_used,
+            )
+            .expect("failed to insert tx into db");
         });
         Some(handle)
     }
