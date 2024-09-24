@@ -63,13 +63,19 @@ where
             .collect();
         let mut block_offset = 0;
 
+        // get chain id before we start spamming
+        let chain_id = self
+            .rpc_client
+            .get_chain_id()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to get chain id"))?;
+
         // init block stream
-        let poller = self.rpc_client.watch_blocks().await.map_err(|e| {
-            crate::error::ContenderError::SpamError(
-                "failed to create block poller",
-                e.to_string().into(),
-            )
-        })?;
+        let poller = self
+            .rpc_client
+            .watch_blocks()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to create block poller"))?;
         let mut stream = poller
             .into_stream()
             .flat_map(futures::stream::iter)
@@ -83,9 +89,11 @@ where
             block_offset += 1;
 
             // get gas price
-            let gas_price = self.rpc_client.get_gas_price().await.map_err(|e| {
-                ContenderError::SpamError("failed to get gas price", e.to_string().into())
-            })?;
+            let gas_price = self
+                .rpc_client
+                .get_gas_price()
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
             // get nonce for each signer and put it into a hashmap
             let mut nonces = HashMap::new();
             for (addr, _) in self.scenario.wallet_map.iter() {
@@ -135,12 +143,7 @@ where
                         .rpc_client
                         .estimate_gas(&tx.tx.to_owned())
                         .await
-                        .map_err(|e| {
-                            ContenderError::SpamError(
-                                "failed to estimate gas",
-                                e.to_string().into(),
-                            )
-                        })?;
+                        .map_err(|e| ContenderError::with_err(e, "failed to estimate gas"))?;
                     gas_limits.insert(fn_sig, gas_limit);
                 }
 
@@ -168,8 +171,6 @@ where
                     let provider = ProviderBuilder::new()
                         .wallet(signer)
                         .on_provider(rpc_client);
-
-                    let chain_id = provider.get_chain_id().await.expect("failed to get chain id");
 
                     let full_tx = tx_req
                         .clone()
