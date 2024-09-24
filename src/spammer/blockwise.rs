@@ -169,7 +169,10 @@ where
                         .wallet(signer)
                         .on_provider(rpc_client);
 
-                    let chain_id = provider.get_chain_id().await.expect("failed to get chain id");
+                    let chain_id = provider
+                        .get_chain_id()
+                        .await
+                        .expect("failed to get chain id");
 
                     let full_tx = tx_req
                         .clone()
@@ -184,15 +187,12 @@ where
                         .as_millis() as usize;
                     let res = provider.send_transaction(full_tx).await.unwrap();
                     let maybe_handle = callback_handler.on_tx_sent(
-                        *res.tx_hash(),
+                        res.into_inner(),
                         tx,
-                        HashMap::from_iter([(
-                            "run_id".to_owned(),
-                            run_id.unwrap_or(0).to_string(),
-                        ), (
-                            "start_timestamp".to_owned(),
-                            start_timestamp.to_string(),
-                        )])
+                        HashMap::from_iter([
+                            ("run_id".to_owned(), run_id.unwrap_or(0).to_string()),
+                            ("start_timestamp".to_owned(), start_timestamp.to_string()),
+                        ])
                         .into(),
                     );
                     if let Some(handle) = maybe_handle {
