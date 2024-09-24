@@ -61,9 +61,14 @@ where
         // only_with_names: Option<&[impl AsRef<str>]>,
     ) -> Result<(), ContenderError> {
         let pub_provider = ProviderBuilder::new().on_http(self.rpc_url.clone());
-        let gas_price = pub_provider.get_gas_price().await.map_err(|e| {
-            ContenderError::SetupError("failed to get gas price", Some(e.to_string()))
-        })?;
+        let gas_price = pub_provider
+            .get_gas_price()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
+        let chain_id = pub_provider
+            .get_chain_id()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to get chain id"))?;
 
         // we do everything in the callback so no need to actually capture the returned txs
         self.load_txs(PlanType::Create(|tx_req| {
@@ -97,6 +102,7 @@ where
                 let tx = tx_req
                     .tx
                     .with_gas_price(gas_price)
+                    .with_chain_id(chain_id)
                     .with_gas_limit(gas_limit);
 
                 let res = provider.send_transaction(tx).await.unwrap();
@@ -142,6 +148,10 @@ where
 
             println!("running setup: {:?}", tx_req.name);
             let handle = tokio::task::spawn(async move {
+                let chain_id = provider
+                    .get_chain_id()
+                    .await
+                    .expect("failed to get chain id");
                 let gas_price = provider.get_gas_price().await.unwrap();
                 let gas_limit = provider
                     .estimate_gas(&tx_req.tx)
@@ -150,6 +160,7 @@ where
                 let tx = tx_req
                     .tx
                     .with_gas_price(gas_price)
+                    .with_chain_id(chain_id)
                     .with_gas_limit(gas_limit);
                 let res = provider.send_transaction(tx).await.unwrap();
                 let receipt = res.get_receipt().await.unwrap();
