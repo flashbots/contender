@@ -87,6 +87,7 @@ where
 
             println!("deploying contract: {:?}", tx_req.name);
             let handle = tokio::task::spawn(async move {
+                let chain_id = provider.get_chain_id().await.expect("failed to get chain id");
                 // estimate gas limit
                 let gas_limit = provider
                     .estimate_gas(&tx_req.tx)
@@ -97,6 +98,7 @@ where
                 let tx = tx_req
                     .tx
                     .with_gas_price(gas_price)
+                    .with_chain_id(chain_id)
                     .with_gas_limit(gas_limit);
 
                 let res = provider.send_transaction(tx).await.unwrap();
@@ -142,6 +144,7 @@ where
 
             println!("running setup: {:?}", tx_req.name);
             let handle = tokio::task::spawn(async move {
+                let chain_id = provider.get_chain_id().await.expect("failed to get chain id");
                 let gas_price = provider.get_gas_price().await.unwrap();
                 let gas_limit = provider
                     .estimate_gas(&tx_req.tx)
@@ -150,6 +153,7 @@ where
                 let tx = tx_req
                     .tx
                     .with_gas_price(gas_price)
+                    .with_chain_id(chain_id)
                     .with_gas_limit(gas_limit);
                 let res = provider.send_transaction(tx).await.unwrap();
                 let receipt = res.get_receipt().await.unwrap();

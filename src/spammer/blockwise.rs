@@ -169,10 +169,13 @@ where
                         .wallet(signer)
                         .on_provider(rpc_client);
 
+                    let chain_id = provider.get_chain_id().await.expect("failed to get chain id");
+
                     let full_tx = tx_req
                         .clone()
                         .with_nonce(nonce)
                         .with_gas_price(gas_price)
+                        .with_chain_id(chain_id)
                         .with_gas_limit(gas_limit);
 
                     let res = provider.send_transaction(full_tx).await.unwrap();
