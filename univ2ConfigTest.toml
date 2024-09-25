@@ -172,4 +172,4 @@ args = [
 [[spam.fuzz]]
 param = "amountIn"
 min = "100000"
-max = "10000000000000"
+max = "10000000000"

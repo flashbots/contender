@@ -368,7 +368,7 @@ pub mod tests {
         assert_eq!(spam[0].fuzz.as_ref().unwrap()[0].param, "amountIn");
         assert_eq!(
             spam[1].fuzz.as_ref().unwrap()[0].min,
-            Some(U256::from(100000000))
+            Some(U256::from(100000))
         );
     }
 
