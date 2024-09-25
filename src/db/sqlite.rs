@@ -146,14 +146,14 @@ impl DbOps for SqliteDb {
         Ok(())
     }
 
-    fn insert_run(&self, timestamp: u64, tx_count: usize) -> Result<usize> {
+    /// Inserts a new run into the database and returns the ID of the new row.
+    fn insert_run(&self, timestamp: u64, tx_count: usize) -> Result<u64> {
         self.execute(
             "INSERT INTO runs (timestamp, tx_count) VALUES (?, ?)",
             params![timestamp, tx_count],
         )?;
         // get ID from newly inserted row
-        let id: usize =
-            self.query_row("SELECT last_insert_rowid()", params![], |row| row.get(0))?;
+        let id: u64 = self.query_row("SELECT last_insert_rowid()", params![], |row| row.get(0))?;
         Ok(id)
     }
 
@@ -259,6 +259,31 @@ impl DbOps for SqliteDb {
             params![run_id, tx_hash.encode_hex(), start_timestamp, end_timestamp, block_number, gas_used.to_string()],
         )
     }
+
+    fn insert_run_txs(&self, run_id: u64, run_txs: Vec<RunTx>) -> Result<()> {
+        let pool = self.get_pool()?;
+        let stmts = run_txs.iter().map(|tx| {
+            format!(
+                "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used) VALUES ({}, '{}', {}, {}, {}, '{}');",
+                run_id,
+                tx.tx_hash.encode_hex(),
+                tx.start_timestamp,
+                tx.end_timestamp,
+                tx.block_number,
+                tx.gas_used.to_string()
+            )
+        });
+        pool.execute_batch(&format!(
+            "BEGIN;
+            {}
+            COMMIT;",
+            stmts
+                .reduce(|ac, c| format!("{}\n{}", ac, c))
+                .unwrap_or_default(),
+        ))
+        .map_err(|e| ContenderError::with_err(e, "failed to execute batch"))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -319,6 +344,36 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM named_txs", params![], |row| {
                 row.get(0)
             })
+            .unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn inserts_run_txs() {
+        let db = SqliteDb::new_memory();
+        db.create_tables().unwrap();
+        let run_id = db.insert_run(100000, 100).unwrap();
+        let run_txs = vec![
+            RunTx {
+                tx_hash: TxHash::from_slice(&[0u8; 32]),
+                start_timestamp: 100,
+                end_timestamp: 200,
+                block_number: 1,
+                gas_used: 100,
+            },
+            RunTx {
+                tx_hash: TxHash::from_slice(&[1u8; 32]),
+                start_timestamp: 200,
+                end_timestamp: 300,
+                block_number: 2,
+                gas_used: 200,
+            },
+        ];
+        db.insert_run_txs(run_id as u64, run_txs).unwrap();
+        let count: i64 = db
+            .get_pool()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM run_txs", params![], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 2);
     }

@@ -81,7 +81,7 @@ where
                     .send_transaction(tx_req.to_owned())
                     .await
                     .unwrap();
-                let maybe_handle = callback_handler.on_tx_sent(res.into_inner(), tx, None);
+                let maybe_handle = callback_handler.on_tx_sent(res.into_inner(), tx, None, None);
                 if let Some(handle) = maybe_handle {
                     handle.await.unwrap();
                 } // ignore None values so we don't attempt to await them

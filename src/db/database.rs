@@ -3,7 +3,7 @@ use serde::Serialize;
 
 use crate::Result;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct RunTx {
     pub tx_hash: TxHash,
     #[serde(rename = "start_time")]
@@ -17,7 +17,8 @@ pub struct RunTx {
 pub trait DbOps {
     fn create_tables(&self) -> Result<()>;
 
-    fn insert_run(&self, timestamp: u64, tx_count: usize) -> Result<usize>;
+    /// Insert a new run into the database. Returns run_id.
+    fn insert_run(&self, timestamp: u64, tx_count: usize) -> Result<u64>;
 
     fn num_runs(&self) -> Result<u64>;
 
@@ -41,6 +42,8 @@ pub trait DbOps {
         block_number: u64,
         gas_used: u128,
     ) -> Result<()>;
+
+    fn insert_run_txs(&self, run_id: u64, run_txs: Vec<RunTx>) -> Result<()>;
 
     fn get_run_txs(&self, run_id: u64) -> Result<Vec<RunTx>>;
 }

@@ -19,7 +19,7 @@ where
     P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
     pub config: P,
-    db: Arc<D>,
+    pub db: Arc<D>,
     pub rpc_url: Url,
     pub rand_seed: S,
     pub wallet_map: HashMap<Address, EthereumWallet>,

@@ -1,4 +1,3 @@
-use crate::db::database::DbOps;
 use crate::error::ContenderError;
 pub use crate::generator::types::TestConfig;
 use crate::generator::{
@@ -6,6 +5,7 @@ use crate::generator::{
     types::{CreateDefinition, FunctionCallDefinition, RpcProvider},
     PlanConfig,
 };
+use crate::spammer::tx_actor::TxActorHandle;
 use crate::spammer::OnTxSent;
 use alloy::primitives::Address;
 use alloy::providers::Provider;
@@ -119,17 +119,13 @@ impl NilCallback {
     }
 }
 
-pub struct LogCallback<D> {
-    pub db: Arc<D>,
+pub struct LogCallback {
     pub rpc_provider: Arc<RpcProvider>,
 }
 
-impl<D> LogCallback<D>
-where
-    D: DbOps + Send + Sync + 'static,
-{
-    pub fn new(db: Arc<D>, rpc_provider: Arc<RpcProvider>) -> Self {
-        Self { db, rpc_provider }
+impl LogCallback {
+    pub fn new(rpc_provider: Arc<RpcProvider>) -> Self {
+        Self { rpc_provider }
     }
 }
 
@@ -139,28 +135,22 @@ impl OnTxSent for NilCallback {
         _tx_res: PendingTransactionConfig,
         _req: NamedTxRequest,
         _extra: Option<HashMap<String, String>>,
+        _tx_handler: Option<Arc<TxActorHandle>>,
     ) -> Option<JoinHandle<()>> {
         // do nothing
         None
     }
 }
 
-impl<D> OnTxSent for LogCallback<D>
-where
-    D: DbOps + Send + Sync + 'static,
-{
+impl OnTxSent for LogCallback {
     fn on_tx_sent(
         &self,
         tx_response: PendingTransactionConfig,
         _req: NamedTxRequest,
         extra: Option<HashMap<String, String>>,
+        tx_actor: Option<Arc<TxActorHandle>>,
     ) -> Option<JoinHandle<()>> {
-        let db = self.db.clone();
         let rpc = self.rpc_provider.clone();
-        let run_id = extra
-            .as_ref()
-            .map(|e| e.get("run_id").unwrap().parse::<u64>().unwrap())
-            .unwrap_or(0);
         let start_timestamp = extra
             .as_ref()
             .map(|e| e.get("start_timestamp").unwrap().parse::<usize>().unwrap())
@@ -178,15 +168,17 @@ where
             let end_timestamp = (block.header.timestamp * 1000) as usize;
             let block_number = block.header.number;
             let gas_used = receipt.gas_used;
-            db.insert_run_tx(
-                run_id,
-                tx_hash,
-                start_timestamp,
-                end_timestamp,
-                block_number,
-                gas_used,
-            )
-            .expect("failed to insert tx into db");
+            if let Some(tx_actor) = tx_actor {
+                tx_actor
+                    .cache_run_tx(
+                        tx_hash,
+                        start_timestamp,
+                        end_timestamp,
+                        block_number,
+                        gas_used,
+                    )
+                    .await;
+            }
         });
         Some(handle)
     }

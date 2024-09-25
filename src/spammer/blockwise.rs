@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::task;
 
+use super::tx_actor::TxActorHandle;
 use super::OnTxSent;
 
 pub struct BlockwiseSpammer<F, D, S, P>
@@ -25,6 +26,7 @@ where
     P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
     scenario: TestScenario<D, S, P>,
+    msg_handler: Arc<TxActorHandle>,
     rpc_client: Arc<RpcProvider>,
     callback_handler: Arc<F>,
 }
@@ -37,12 +39,14 @@ where
     P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
     pub fn new(scenario: TestScenario<D, S, P>, callback_handler: F) -> Self {
-        let rpc_client = ProviderBuilder::new().on_http(scenario.rpc_url.to_owned());
+        let rpc_client = Arc::new(ProviderBuilder::new().on_http(scenario.rpc_url.to_owned()));
+        let msg_handler = Arc::new(TxActorHandle::new(12, scenario.db.clone()));
 
         Self {
             scenario,
-            rpc_client: Arc::new(rpc_client),
+            rpc_client,
             callback_handler: Arc::new(callback_handler),
+            msg_handler,
         }
     }
 
@@ -50,7 +54,7 @@ where
         &self,
         txs_per_block: usize,
         num_blocks: usize,
-        run_id: Option<usize>,
+        run_id: Option<u64>,
     ) -> Result<()> {
         // generate tx requests
         let tx_requests = self
@@ -170,6 +174,7 @@ where
                     .to_owned();
 
                 // build, sign, and send tx in a new task (green thread)
+                let tx_handler = self.msg_handler.clone();
                 tasks.push(task::spawn(async move {
                     let provider = ProviderBuilder::new()
                         .wallet(signer)
@@ -190,11 +195,12 @@ where
                     let maybe_handle = callback_handler.on_tx_sent(
                         res.into_inner(),
                         tx,
-                        HashMap::from_iter([
-                            ("run_id".to_owned(), run_id.unwrap_or(0).to_string()),
-                            ("start_timestamp".to_owned(), start_timestamp.to_string()),
-                        ])
+                        HashMap::from_iter([(
+                            "start_timestamp".to_owned(),
+                            start_timestamp.to_string(),
+                        )])
                         .into(),
+                        Some(tx_handler),
                     );
                     if let Some(handle) = maybe_handle {
                         handle.await.expect("callback task failed");
@@ -203,11 +209,22 @@ where
                 }));
             }
             println!("new block: {block_hash}");
+            if let Some(run_id) = run_id {
+                // write this block's txs to DB
+                self.msg_handler.flush_cache(run_id).await;
+            }
         }
 
         for task in tasks {
             let _ = task.await;
         }
+
+        // double-flush in case there are any txs left in the cache
+        if let Some(run_id) = run_id {
+            // write this block's txs to DB
+            self.msg_handler.flush_cache(run_id).await;
+        }
+
         Ok(())
     }
 }
