@@ -98,6 +98,16 @@ where
             .get_block_number()
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
+        // get nonce for each signer and put it into a hashmap
+        let mut nonces = HashMap::new();
+        for (addr, _) in self.scenario.wallet_map.iter() {
+            let nonce = self
+                .rpc_client
+                .get_transaction_count(*addr)
+                .await
+                .map_err(|_| ContenderError::SpamError("failed to get nonce", None))?;
+            nonces.insert(*addr, nonce);
+        }
 
         while let Some(block_hash) = stream.next().await {
             let block_txs = tx_req_chunks[block_offset].clone();
@@ -117,16 +127,6 @@ where
                 .get_gas_price()
                 .await
                 .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
-            // get nonce for each signer and put it into a hashmap
-            let mut nonces = HashMap::new();
-            for (addr, _) in self.scenario.wallet_map.iter() {
-                let nonce = self
-                    .rpc_client
-                    .get_transaction_count(*addr)
-                    .await
-                    .map_err(|_| ContenderError::SpamError("failed to get nonce", None))?;
-                nonces.insert(*addr, nonce);
-            }
 
             for (idx, tx) in block_txs.into_iter().enumerate() {
                 let gas_price = gas_price + (idx as u128 * 1e9 as u128);
@@ -248,7 +248,7 @@ where
         if let Some(run_id) = run_id {
             loop {
                 timeout_counter += 1;
-                if timeout_counter > 10 {
+                if timeout_counter > 12 {
                     println!("Quitting due to timeout.");
                     break;
                 }
