@@ -33,15 +33,7 @@ pub trait DbOps {
 
     fn get_named_tx(&self, name: &str) -> Result<(TxHash, Option<Address>)>;
 
-    fn insert_run_tx(
-        &self,
-        run_id: u64,
-        tx_hash: TxHash,
-        start_timestamp: usize,
-        end_timestamp: usize,
-        block_number: u64,
-        gas_used: u128,
-    ) -> Result<()>;
+    fn insert_run_tx(&self, run_id: u64, tx: RunTx) -> Result<()>;
 
     fn insert_run_txs(&self, run_id: u64, run_txs: Vec<RunTx>) -> Result<()>;
 

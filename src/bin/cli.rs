@@ -8,11 +8,10 @@ use contender_core::db::database::RunTx;
 use contender_core::{
     db::{database::DbOps, sqlite::SqliteDb},
     generator::{
-        testfile::{LogCallback, NilCallback},
         types::{RpcProvider, TestConfig},
         RandSeed,
     },
-    spammer::{BlockwiseSpammer, TimedSpammer},
+    spammer::{BlockwiseSpammer, LogCallback, NilCallback, TimedSpammer},
     test_scenario::TestScenario,
 };
 use csv::{Writer, WriterBuilder};

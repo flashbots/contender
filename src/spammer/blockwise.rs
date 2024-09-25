@@ -12,6 +12,7 @@ use alloy::primitives::FixedBytes;
 use alloy::providers::{Provider, ProviderBuilder};
 use futures::StreamExt;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::Arc;
 use tokio::task;
 
@@ -40,7 +41,11 @@ where
 {
     pub fn new(scenario: TestScenario<D, S, P>, callback_handler: F) -> Self {
         let rpc_client = Arc::new(ProviderBuilder::new().on_http(scenario.rpc_url.to_owned()));
-        let msg_handler = Arc::new(TxActorHandle::new(12, scenario.db.clone()));
+        let msg_handler = Arc::new(TxActorHandle::new(
+            12,
+            scenario.db.clone(),
+            rpc_client.clone(),
+        ));
 
         Self {
             scenario,
@@ -66,6 +71,7 @@ where
             .map(|slice| slice.to_vec())
             .collect();
         let mut block_offset = 0;
+        let mut last_block_number;
 
         // get chain id before we start spamming
         let chain_id = self
@@ -87,10 +93,23 @@ where
 
         let mut tasks = vec![];
         let mut gas_limits = HashMap::<FixedBytes<4>, u128>::new();
+        let first_block_number = self
+            .rpc_client
+            .get_block_number()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
 
         while let Some(block_hash) = stream.next().await {
             let block_txs = tx_req_chunks[block_offset].clone();
             block_offset += 1;
+
+            let block = self
+                .rpc_client
+                .get_block_by_hash(block_hash, alloy::rpc::types::BlockTransactionsKind::Hashes)
+                .await
+                .unwrap()
+                .unwrap(); // TODO: handle errors
+            last_block_number = block.header.number + 1;
 
             // get gas price
             let gas_price = self
@@ -211,7 +230,11 @@ where
             println!("new block: {block_hash}");
             if let Some(run_id) = run_id {
                 // write this block's txs to DB
-                self.msg_handler.flush_cache(run_id).await;
+                let _ = self
+                    .msg_handler
+                    .flush_cache(run_id, last_block_number)
+                    .await
+                    .map_err(|e| ContenderError::with_err(e.deref(), "failed to flush cache"))?;
             }
         }
 
@@ -219,10 +242,20 @@ where
             let _ = task.await;
         }
 
-        // double-flush in case there are any txs left in the cache
+        // re-iterate through target block range in case there are any txs left in the cache
+        last_block_number = first_block_number;
         if let Some(run_id) = run_id {
-            // write this block's txs to DB
-            self.msg_handler.flush_cache(run_id).await;
+            loop {
+                let cache_size = self
+                    .msg_handler
+                    .flush_cache(run_id, last_block_number)
+                    .await
+                    .map_err(|e| ContenderError::with_err(e.deref(), "failed to empty cache"))?;
+                if cache_size == 0 {
+                    break;
+                }
+                last_block_number += 1;
+            }
         }
 
         Ok(())

@@ -245,18 +245,17 @@ impl DbOps for SqliteDb {
         Ok((tx_hash, contract_address))
     }
 
-    fn insert_run_tx(
-        &self,
-        run_id: u64,
-        tx_hash: TxHash,
-        start_timestamp: usize,
-        end_timestamp: usize,
-        block_number: u64,
-        gas_used: u128,
-    ) -> Result<()> {
+    fn insert_run_tx(&self, run_id: u64, run_tx: RunTx) -> Result<()> {
         self.execute(
             "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used) VALUES (?, ?, ?, ?, ?, ?)",
-            params![run_id, tx_hash.encode_hex(), start_timestamp, end_timestamp, block_number, gas_used.to_string()],
+            params![
+                run_id,
+                run_tx.tx_hash.encode_hex(),
+                run_tx.start_timestamp,
+                run_tx.end_timestamp,
+                run_tx.block_number,
+                run_tx.gas_used.to_string()
+            ],
         )
     }
 

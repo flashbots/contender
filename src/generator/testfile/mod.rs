@@ -2,24 +2,13 @@ use crate::error::ContenderError;
 pub use crate::generator::types::TestConfig;
 use crate::generator::{
     templater::Templater,
-    types::{CreateDefinition, FunctionCallDefinition, RpcProvider},
+    types::{CreateDefinition, FunctionCallDefinition},
     PlanConfig,
 };
-use crate::spammer::tx_actor::TxActorHandle;
-use crate::spammer::OnTxSent;
+use alloy::hex::ToHexExt;
 use alloy::primitives::Address;
-use alloy::providers::Provider;
-use alloy::rpc::types::BlockTransactionsKind;
-use alloy::{
-    hex::ToHexExt,
-    providers::{PendingTransactionBuilder, PendingTransactionConfig},
-};
 use std::collections::HashMap;
 use std::fs::read;
-use std::sync::Arc;
-use tokio::task::{spawn as spawn_task, JoinHandle};
-
-use super::NamedTxRequest;
 
 impl TestConfig {
     pub fn from_file(file_path: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
@@ -109,78 +98,6 @@ impl Templater<String> for TestConfig {
 
     fn encode_contract_address(&self, input: &Address) -> String {
         input.encode_hex()
-    }
-}
-pub struct NilCallback;
-
-impl NilCallback {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-pub struct LogCallback {
-    pub rpc_provider: Arc<RpcProvider>,
-}
-
-impl LogCallback {
-    pub fn new(rpc_provider: Arc<RpcProvider>) -> Self {
-        Self { rpc_provider }
-    }
-}
-
-impl OnTxSent for NilCallback {
-    fn on_tx_sent(
-        &self,
-        _tx_res: PendingTransactionConfig,
-        _req: NamedTxRequest,
-        _extra: Option<HashMap<String, String>>,
-        _tx_handler: Option<Arc<TxActorHandle>>,
-    ) -> Option<JoinHandle<()>> {
-        // do nothing
-        None
-    }
-}
-
-impl OnTxSent for LogCallback {
-    fn on_tx_sent(
-        &self,
-        tx_response: PendingTransactionConfig,
-        _req: NamedTxRequest,
-        extra: Option<HashMap<String, String>>,
-        tx_actor: Option<Arc<TxActorHandle>>,
-    ) -> Option<JoinHandle<()>> {
-        let rpc = self.rpc_provider.clone();
-        let start_timestamp = extra
-            .as_ref()
-            .map(|e| e.get("start_timestamp").unwrap().parse::<usize>().unwrap())
-            .unwrap_or(0);
-        let handle = spawn_task(async move {
-            let res = PendingTransactionBuilder::from_config(&rpc, tx_response);
-            let receipt = res.get_receipt().await.expect("failed to get receipt");
-            let tx_hash = receipt.transaction_hash.to_owned();
-            let block_hash = receipt.block_hash.unwrap();
-            let block = rpc
-                .get_block_by_hash(block_hash, BlockTransactionsKind::Hashes)
-                .await
-                .expect("failed to get block")
-                .expect("no block found");
-            let end_timestamp = (block.header.timestamp * 1000) as usize;
-            let block_number = block.header.number;
-            let gas_used = receipt.gas_used;
-            if let Some(tx_actor) = tx_actor {
-                tx_actor
-                    .cache_run_tx(
-                        tx_hash,
-                        start_timestamp,
-                        end_timestamp,
-                        block_number,
-                        gas_used,
-                    )
-                    .await;
-            }
-        });
-        Some(handle)
     }
 }
 
