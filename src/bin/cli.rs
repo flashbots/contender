@@ -8,11 +8,10 @@ use contender_core::db::database::RunTx;
 use contender_core::{
     db::{database::DbOps, sqlite::SqliteDb},
     generator::{
-        testfile::{LogCallback, NilCallback},
         types::{RpcProvider, TestConfig},
         RandSeed,
     },
-    spammer::{BlockwiseSpammer, TimedSpammer},
+    spammer::{BlockwiseSpammer, LogCallback, NilCallback, TimedSpammer},
     test_scenario::TestScenario,
 };
 use csv::{Writer, WriterBuilder};
@@ -93,10 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .duration_since(std::time::UNIX_EPOCH)
                             .expect("Time went backwards")
                             .as_millis();
-                        let run_id = cback
-                            .db
-                            .clone()
-                            .insert_run(timestamp as u64, txs_per_block * duration)?;
+                        let run_id = DB.insert_run(timestamp as u64, txs_per_block * duration)?;
                         let spammer = BlockwiseSpammer::new(scenario, cback);
                         spammer
                             .spam_rpc(txs_per_block, duration, Some(run_id.into()))
@@ -154,23 +150,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-enum SpamCallbackType<D: DbOps + Send + Sync> {
-    Log(LogCallback<D>),
+enum SpamCallbackType {
+    Log(LogCallback),
     Nil(NilCallback),
 }
 
 async fn spam_callback_default(
     log_txs: bool,
     rpc_client: Option<Arc<RpcProvider>>,
-) -> SpamCallbackType<SqliteDb> {
-    if log_txs {
-        SpamCallbackType::Log(LogCallback::new(
-            Arc::new(DB.clone()),
-            rpc_client.unwrap().clone(),
-        ))
-    } else {
-        SpamCallbackType::Nil(NilCallback::new())
+) -> SpamCallbackType {
+    if let Some(rpc_client) = rpc_client {
+        if log_txs {
+            return SpamCallbackType::Log(LogCallback::new(rpc_client.clone()));
+        }
     }
+    SpamCallbackType::Nil(NilCallback::new())
 }
 
 fn write_run_txs<T: std::io::Write>(

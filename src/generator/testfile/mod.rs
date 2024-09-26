@@ -1,25 +1,14 @@
-use crate::db::database::DbOps;
 use crate::error::ContenderError;
 pub use crate::generator::types::TestConfig;
 use crate::generator::{
     templater::Templater,
-    types::{CreateDefinition, FunctionCallDefinition, RpcProvider},
+    types::{CreateDefinition, FunctionCallDefinition},
     PlanConfig,
 };
-use crate::spammer::OnTxSent;
+use alloy::hex::ToHexExt;
 use alloy::primitives::Address;
-use alloy::providers::Provider;
-use alloy::rpc::types::BlockTransactionsKind;
-use alloy::{
-    hex::ToHexExt,
-    providers::{PendingTransactionBuilder, PendingTransactionConfig},
-};
 use std::collections::HashMap;
 use std::fs::read;
-use std::sync::Arc;
-use tokio::task::{spawn as spawn_task, JoinHandle};
-
-use super::NamedTxRequest;
 
 impl TestConfig {
     pub fn from_file(file_path: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
@@ -43,21 +32,15 @@ impl TestConfig {
 
 impl PlanConfig<String> for TestConfig {
     fn get_spam_steps(&self) -> Result<Vec<FunctionCallDefinition>, ContenderError> {
-        self.spam
-            .to_owned()
-            .ok_or(ContenderError::SpamError("no spam steps found", None))
+        Ok(self.spam.to_owned().unwrap_or_default())
     }
 
     fn get_setup_steps(&self) -> Result<Vec<FunctionCallDefinition>, ContenderError> {
-        self.setup
-            .to_owned()
-            .ok_or(ContenderError::SetupError("no setup steps found", None))
+        Ok(self.setup.to_owned().unwrap_or_default())
     }
 
     fn get_create_steps(&self) -> Result<Vec<CreateDefinition>, ContenderError> {
-        self.create
-            .to_owned()
-            .ok_or(ContenderError::SetupError("no create steps found", None))
+        Ok(self.create.to_owned().unwrap_or_default())
     }
 
     fn get_env(&self) -> Result<HashMap<String, String>, ContenderError> {
@@ -109,86 +92,6 @@ impl Templater<String> for TestConfig {
 
     fn encode_contract_address(&self, input: &Address) -> String {
         input.encode_hex()
-    }
-}
-pub struct NilCallback;
-
-impl NilCallback {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-pub struct LogCallback<D> {
-    pub db: Arc<D>,
-    pub rpc_provider: Arc<RpcProvider>,
-}
-
-impl<D> LogCallback<D>
-where
-    D: DbOps + Send + Sync + 'static,
-{
-    pub fn new(db: Arc<D>, rpc_provider: Arc<RpcProvider>) -> Self {
-        Self { db, rpc_provider }
-    }
-}
-
-impl OnTxSent for NilCallback {
-    fn on_tx_sent(
-        &self,
-        _tx_res: PendingTransactionConfig,
-        _req: NamedTxRequest,
-        _extra: Option<HashMap<String, String>>,
-    ) -> Option<JoinHandle<()>> {
-        // do nothing
-        None
-    }
-}
-
-impl<D> OnTxSent for LogCallback<D>
-where
-    D: DbOps + Send + Sync + 'static,
-{
-    fn on_tx_sent(
-        &self,
-        tx_response: PendingTransactionConfig,
-        _req: NamedTxRequest,
-        extra: Option<HashMap<String, String>>,
-    ) -> Option<JoinHandle<()>> {
-        let db = self.db.clone();
-        let rpc = self.rpc_provider.clone();
-        let run_id = extra
-            .as_ref()
-            .map(|e| e.get("run_id").unwrap().parse::<u64>().unwrap())
-            .unwrap_or(0);
-        let start_timestamp = extra
-            .as_ref()
-            .map(|e| e.get("start_timestamp").unwrap().parse::<usize>().unwrap())
-            .unwrap_or(0);
-        let handle = spawn_task(async move {
-            let res = PendingTransactionBuilder::from_config(&rpc, tx_response);
-            let receipt = res.get_receipt().await.expect("failed to get receipt");
-            let tx_hash = receipt.transaction_hash.to_owned();
-            let block_hash = receipt.block_hash.unwrap();
-            let block = rpc
-                .get_block_by_hash(block_hash, BlockTransactionsKind::Hashes)
-                .await
-                .expect("failed to get block")
-                .expect("no block found");
-            let end_timestamp = (block.header.timestamp * 1000) as usize;
-            let block_number = block.header.number;
-            let gas_used = receipt.gas_used;
-            db.insert_run_tx(
-                run_id,
-                tx_hash,
-                start_timestamp,
-                end_timestamp,
-                block_number,
-                gas_used,
-            )
-            .expect("failed to insert tx into db");
-        });
-        Some(handle)
     }
 }
 
@@ -368,7 +271,7 @@ pub mod tests {
         assert_eq!(spam[0].fuzz.as_ref().unwrap()[0].param, "amountIn");
         assert_eq!(
             spam[1].fuzz.as_ref().unwrap()[0].min,
-            Some(U256::from(100000000))
+            Some(U256::from(100000))
         );
     }
 

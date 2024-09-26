@@ -19,7 +19,7 @@ where
     P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
     pub config: P,
-    db: Arc<D>,
+    pub db: Arc<D>,
     pub rpc_url: Url,
     pub rand_seed: S,
     pub wallet_map: HashMap<Address, EthereumWallet>,
@@ -105,8 +105,11 @@ where
                     .with_chain_id(chain_id)
                     .with_gas_limit(gas_limit);
 
-                let res = provider.send_transaction(tx).await.unwrap();
-                let receipt = res.get_receipt().await.unwrap();
+                let res = provider
+                    .send_transaction(tx)
+                    .await
+                    .expect("failed to send tx");
+                let receipt = res.get_receipt().await.expect("failed to get receipt");
                 println!("contract address: {:?}", receipt.contract_address);
                 let contract_address = receipt.contract_address;
                 db.insert_named_tx(
@@ -152,7 +155,10 @@ where
                     .get_chain_id()
                     .await
                     .expect("failed to get chain id");
-                let gas_price = provider.get_gas_price().await.unwrap();
+                let gas_price = provider
+                    .get_gas_price()
+                    .await
+                    .expect("failed to get gas price");
                 let gas_limit = provider
                     .estimate_gas(&tx_req.tx)
                     .await
@@ -162,8 +168,11 @@ where
                     .with_gas_price(gas_price)
                     .with_chain_id(chain_id)
                     .with_gas_limit(gas_limit);
-                let res = provider.send_transaction(tx).await.unwrap();
-                let receipt = res.get_receipt().await.unwrap();
+                let res = provider
+                    .send_transaction(tx)
+                    .await
+                    .expect("failed to send tx");
+                let receipt = res.get_receipt().await.expect("failed to get receipt");
                 if let Some(name) = tx_req.name {
                     db.insert_named_tx(name, receipt.transaction_hash, receipt.contract_address)
                         .expect("failed to insert tx into db");

@@ -12,9 +12,11 @@ use alloy::primitives::FixedBytes;
 use alloy::providers::{Provider, ProviderBuilder};
 use futures::StreamExt;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::Arc;
 use tokio::task;
 
+use super::tx_actor::TxActorHandle;
 use super::OnTxSent;
 
 pub struct BlockwiseSpammer<F, D, S, P>
@@ -25,6 +27,7 @@ where
     P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
     scenario: TestScenario<D, S, P>,
+    msg_handler: Arc<TxActorHandle>,
     rpc_client: Arc<RpcProvider>,
     callback_handler: Arc<F>,
 }
@@ -37,12 +40,18 @@ where
     P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
     pub fn new(scenario: TestScenario<D, S, P>, callback_handler: F) -> Self {
-        let rpc_client = ProviderBuilder::new().on_http(scenario.rpc_url.to_owned());
+        let rpc_client = Arc::new(ProviderBuilder::new().on_http(scenario.rpc_url.to_owned()));
+        let msg_handler = Arc::new(TxActorHandle::new(
+            12,
+            scenario.db.clone(),
+            rpc_client.clone(),
+        ));
 
         Self {
             scenario,
-            rpc_client: Arc::new(rpc_client),
+            rpc_client,
             callback_handler: Arc::new(callback_handler),
+            msg_handler,
         }
     }
 
@@ -50,7 +59,7 @@ where
         &self,
         txs_per_block: usize,
         num_blocks: usize,
-        run_id: Option<usize>,
+        run_id: Option<u64>,
     ) -> Result<()> {
         // generate tx requests
         let tx_requests = self
@@ -62,6 +71,7 @@ where
             .map(|slice| slice.to_vec())
             .collect();
         let mut block_offset = 0;
+        let mut last_block_number;
 
         // get chain id before we start spamming
         let chain_id = self
@@ -83,10 +93,33 @@ where
 
         let mut tasks = vec![];
         let mut gas_limits = HashMap::<FixedBytes<4>, u128>::new();
+        let first_block_number = self
+            .rpc_client
+            .get_block_number()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
+        // get nonce for each signer and put it into a hashmap
+        let mut nonces = HashMap::new();
+        for (addr, _) in self.scenario.wallet_map.iter() {
+            let nonce = self
+                .rpc_client
+                .get_transaction_count(*addr)
+                .await
+                .map_err(|_| ContenderError::SpamError("failed to get nonce", None))?;
+            nonces.insert(*addr, nonce);
+        }
 
         while let Some(block_hash) = stream.next().await {
             let block_txs = tx_req_chunks[block_offset].clone();
             block_offset += 1;
+
+            let block = self
+                .rpc_client
+                .get_block_by_hash(block_hash, alloy::rpc::types::BlockTransactionsKind::Hashes)
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to get block"))?
+                .ok_or(ContenderError::SpamError("no block found", None))?;
+            last_block_number = block.header.number + 1;
 
             // get gas price
             let gas_price = self
@@ -94,16 +127,6 @@ where
                 .get_gas_price()
                 .await
                 .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
-            // get nonce for each signer and put it into a hashmap
-            let mut nonces = HashMap::new();
-            for (addr, _) in self.scenario.wallet_map.iter() {
-                let nonce = self
-                    .rpc_client
-                    .get_transaction_count(*addr)
-                    .await
-                    .map_err(|_| ContenderError::SpamError("failed to get nonce", None))?;
-                nonces.insert(*addr, nonce);
-            }
 
             for (idx, tx) in block_txs.into_iter().enumerate() {
                 let gas_price = gas_price + (idx as u128 * 1e9 as u128);
@@ -127,6 +150,12 @@ where
 
                 let from = &tx_req.from.expect("missing from address");
                 let nonce = nonces.get(from).expect("failed to get nonce").to_owned();
+                /*
+                    Increment nonce assuming the tx will succeed.
+                    Note: if any tx fails, txs with higher nonces will also fail.
+                    However, we'll get a fresh nonce next block.
+                */
+                nonces.insert(from.to_owned(), nonce + 1);
 
                 let fn_sig = FixedBytes::<4>::from_slice(
                     tx.tx
@@ -163,10 +192,8 @@ where
                     .expect("failed to create signer")
                     .to_owned();
 
-                // optimistically update nonce since we've succeeded so far
-                nonces.insert(from.to_owned(), nonce + 1);
-
                 // build, sign, and send tx in a new task (green thread)
+                let tx_handler = self.msg_handler.clone();
                 tasks.push(task::spawn(async move {
                     let provider = ProviderBuilder::new()
                         .wallet(signer)
@@ -183,15 +210,19 @@ where
                         .duration_since(std::time::UNIX_EPOCH)
                         .expect("failed to get timestamp")
                         .as_millis() as usize;
-                    let res = provider.send_transaction(full_tx).await.unwrap();
+                    let res = provider
+                        .send_transaction(full_tx)
+                        .await
+                        .expect("failed to send tx");
                     let maybe_handle = callback_handler.on_tx_sent(
                         res.into_inner(),
                         tx,
-                        HashMap::from_iter([
-                            ("run_id".to_owned(), run_id.unwrap_or(0).to_string()),
-                            ("start_timestamp".to_owned(), start_timestamp.to_string()),
-                        ])
+                        HashMap::from_iter([(
+                            "start_timestamp".to_owned(),
+                            start_timestamp.to_string(),
+                        )])
                         .into(),
+                        Some(tx_handler),
                     );
                     if let Some(handle) = maybe_handle {
                         handle.await.expect("callback task failed");
@@ -200,11 +231,42 @@ where
                 }));
             }
             println!("new block: {block_hash}");
+            if let Some(run_id) = run_id {
+                // write this block's txs to DB
+                let _ = self
+                    .msg_handler
+                    .flush_cache(run_id, last_block_number)
+                    .await
+                    .map_err(|e| ContenderError::with_err(e.deref(), "failed to flush cache"))?;
+            }
         }
 
         for task in tasks {
             let _ = task.await;
         }
+
+        // re-iterate through target block range in case there are any txs left in the cache
+        last_block_number = first_block_number;
+        let mut timeout_counter = 0;
+        if let Some(run_id) = run_id {
+            loop {
+                timeout_counter += 1;
+                if timeout_counter > 12 {
+                    println!("Quitting due to timeout.");
+                    break;
+                }
+                let cache_size = self
+                    .msg_handler
+                    .flush_cache(run_id, last_block_number)
+                    .await
+                    .map_err(|e| ContenderError::with_err(e.deref(), "failed to empty cache"))?;
+                if cache_size == 0 {
+                    break;
+                }
+                last_block_number += 1;
+            }
+        }
+
         Ok(())
     }
 }
