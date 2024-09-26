@@ -16,3 +16,6 @@
 [submodule "contracts/lib/canonical-weth"]
 	path = contracts/lib/canonical-weth
 	url = https://github.com/gnosis/canonical-weth
+[submodule "contracts/lib/uniswap-lib"]
+	path = contracts/lib/uniswap-lib
+	url = https://github.com/uniswap/uniswap-lib
