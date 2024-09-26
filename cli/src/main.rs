@@ -1,9 +1,9 @@
-mod cli_lib;
+mod commands;
 
 use alloy::{
     providers::ProviderBuilder, signers::local::PrivateKeySigner, transports::http::reqwest::Url,
 };
-use cli_lib::{ContenderCli, ContenderSubcommand};
+use commands::{ContenderCli, ContenderSubcommand};
 use contender_core::db::database::RunTx;
 use contender_core::{
     db::{database::DbOps, sqlite::SqliteDb},
