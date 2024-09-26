@@ -114,8 +114,6 @@ where
                     .as_ref()
                     .map(|a| a.encode_hex())
                     .unwrap_or("".to_string()));
-
-                println!("contract address: {:?}", receipt.contract_address);
                 let contract_address = receipt.contract_address;
                 db.insert_named_tx(
                     tx_req.name.unwrap_or_default(),
