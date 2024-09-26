@@ -85,8 +85,7 @@ where
                 run_id,
                 target_block_num,
             } => {
-                // let dump_txs = self.cache.drain(..).collect::<Vec<_>>();
-                println!("cache size: {}", self.cache.len());
+                println!("unconfirmed txs: {}", self.cache.len());
                 let receipts = self
                     .rpc
                     .get_block_receipts(target_block_num.into())
