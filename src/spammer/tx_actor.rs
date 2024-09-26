@@ -5,6 +5,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::{
     db::database::{DbOps, RunTx},
+    error::ContenderError,
     generator::types::RpcProvider,
 };
 
@@ -78,7 +79,9 @@ where
                     start_timestamp,
                 };
                 self.cache.push(run_tx.to_owned());
-                on_receipt.send(()).unwrap();
+                on_receipt.send(()).map_err(|_| {
+                    ContenderError::SpamError("failed to join TxActor callback", None)
+                })?;
             }
             TxActorMessage::FlushCache {
                 on_flush,
@@ -89,8 +92,7 @@ where
                 let receipts = self
                     .rpc
                     .get_block_receipts(target_block_num.into())
-                    .await
-                    .unwrap()
+                    .await?
                     .unwrap_or_default();
                 println!("found {} receipts", receipts.len());
                 let mut maybe_block;
@@ -98,14 +100,13 @@ where
                     maybe_block = self
                         .rpc
                         .get_block_by_number(target_block_num.into(), false)
-                        .await
-                        .unwrap();
+                        .await?;
                     if maybe_block.is_some() {
                         break;
                     }
                     std::thread::sleep(Duration::from_secs(1));
                 }
-                let target_block = maybe_block.unwrap();
+                let target_block = maybe_block.expect("this should never happen");
                 // filter for txs that were included in the block
                 let receipt_tx_hashes = receipts
                     .iter()
@@ -134,7 +135,7 @@ where
                         let receipt = receipts
                             .iter()
                             .find(|r| r.transaction_hash == pending_tx.tx_hash)
-                            .unwrap();
+                            .expect("this should never happen");
                         RunTx {
                             tx_hash: pending_tx.tx_hash,
                             start_timestamp: pending_tx.start_timestamp,
@@ -145,17 +146,20 @@ where
                     })
                     .collect::<Vec<_>>();
 
-                self.db.insert_run_txs(run_id, run_txs).unwrap();
-                on_flush.send(new_txs.len()).unwrap();
+                self.db.insert_run_txs(run_id, run_txs)?;
+                on_flush.send(new_txs.len()).map_err(|_| {
+                    ContenderError::SpamError("failed to join TxActor on_flush", None)
+                })?;
             }
         }
         Ok(())
     }
 
-    pub async fn run(&mut self) {
+    pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         while let Some(msg) = self.receiver.recv().await {
-            self.handle_message(msg).await.unwrap(); // TODO: handle error
+            self.handle_message(msg).await?;
         }
+        Ok(())
     }
 }
 
@@ -172,12 +176,16 @@ impl TxActorHandle {
         let (sender, receiver) = mpsc::channel(bufsize);
         let mut actor = TxActor::new(receiver, db, rpc);
         tokio::task::spawn(async move {
-            actor.run().await;
+            actor.run().await.expect("tx actor crashed");
         });
         Self { sender }
     }
 
-    pub async fn cache_run_tx(&self, tx_hash: TxHash, start_timestamp: usize) {
+    pub async fn cache_run_tx(
+        &self,
+        tx_hash: TxHash,
+        start_timestamp: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(TxActorMessage::SentRunTx {
@@ -185,9 +193,9 @@ impl TxActorHandle {
                 start_timestamp,
                 on_receipt: sender,
             })
-            .await
-            .unwrap();
-        receiver.await.unwrap();
+            .await?;
+        receiver.await?;
+        Ok(())
     }
 
     pub async fn flush_cache(
@@ -202,8 +210,7 @@ impl TxActorHandle {
                 on_flush: sender,
                 target_block_num,
             })
-            .await
-            .unwrap();
+            .await?;
         Ok(receiver.await?)
     }
 }

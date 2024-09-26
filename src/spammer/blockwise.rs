@@ -117,8 +117,8 @@ where
                 .rpc_client
                 .get_block_by_hash(block_hash, alloy::rpc::types::BlockTransactionsKind::Hashes)
                 .await
-                .unwrap()
-                .unwrap(); // TODO: handle errors
+                .map_err(|e| ContenderError::with_err(e, "failed to get block"))?
+                .ok_or(ContenderError::SpamError("no block found", None))?;
             last_block_number = block.header.number + 1;
 
             // get gas price
@@ -210,7 +210,10 @@ where
                         .duration_since(std::time::UNIX_EPOCH)
                         .expect("failed to get timestamp")
                         .as_millis() as usize;
-                    let res = provider.send_transaction(full_tx).await.unwrap();
+                    let res = provider
+                        .send_transaction(full_tx)
+                        .await
+                        .expect("failed to send tx");
                     let maybe_handle = callback_handler.on_tx_sent(
                         res.into_inner(),
                         tx,

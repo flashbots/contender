@@ -174,7 +174,11 @@ where
                                 }
                                 let arg_name = arg_namedefs[1];
                                 if fuzz_map.contains_key(arg_name) {
-                                    return Some(fuzz_map.get(arg_name).unwrap()[i].to_string());
+                                    return Some(
+                                        fuzz_map.get(arg_name).expect("this should never happen")
+                                            [i]
+                                            .to_string(),
+                                    );
                                 }
                                 None
                             };

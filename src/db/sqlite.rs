@@ -106,7 +106,7 @@ impl From<RunTxRow> for RunTx {
             start_timestamp: row.start_timestamp,
             end_timestamp: row.end_timestamp,
             block_number: row.block_number,
-            gas_used: row.gas_used.parse().unwrap(),
+            gas_used: row.gas_used.parse().expect("invalid gas_used parameter"),
         }
     }
 }

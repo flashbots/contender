@@ -68,13 +68,17 @@ impl OnTxSent for LogCallback {
         let rpc = self.rpc_provider.clone();
         let start_timestamp = extra
             .as_ref()
-            .map(|e| e.get("start_timestamp").unwrap().parse::<usize>().unwrap())
+            .map(|e| e.get("start_timestamp").map(|t| t.parse::<usize>()))
+            .flatten()?
             .unwrap_or(0);
         let handle = tokio::task::spawn(async move {
             let res = PendingTransactionBuilder::from_config(&rpc, tx_response);
             let tx_hash = res.tx_hash();
             if let Some(tx_actor) = tx_actor {
-                tx_actor.cache_run_tx(*tx_hash, start_timestamp).await;
+                tx_actor
+                    .cache_run_tx(*tx_hash, start_timestamp)
+                    .await
+                    .expect("failed to cache run tx");
             }
         });
         Some(handle)
