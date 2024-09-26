@@ -90,7 +90,7 @@ where
                 .wallet(wallet)
                 .on_http(self.rpc_url.to_owned());
 
-            println!("deploying contract: {:?}", tx_req.name);
+            println!("deploying contract: {:?}", tx_req.name.as_ref().unwrap_or(&"".to_string()));
             let handle = tokio::task::spawn(async move {
                 // estimate gas limit
                 let gas_limit = provider
@@ -110,6 +110,11 @@ where
                     .await
                     .expect("failed to send tx");
                 let receipt = res.get_receipt().await.expect("failed to get receipt");
+                println!("contract address: {:?}", receipt.contract_address
+                    .as_ref()
+                    .map(|a| a.encode_hex())
+                    .unwrap_or("".to_string()));
+
                 println!("contract address: {:?}", receipt.contract_address);
                 let contract_address = receipt.contract_address;
                 db.insert_named_tx(
@@ -149,7 +154,7 @@ where
                 .wallet(wallet)
                 .on_http(self.rpc_url.to_owned());
 
-            println!("running setup: {:?}", tx_req.name);
+            println!("running setup: {:?}", tx_req.name.as_ref().unwrap_or(&"".to_string()));
             let handle = tokio::task::spawn(async move {
                 let chain_id = provider
                     .get_chain_id()
