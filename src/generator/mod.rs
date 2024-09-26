@@ -126,9 +126,11 @@ where
                     templater.find_fncall_placeholders(step, db, &mut placeholder_map)?;
 
                     // create txs with template values
-                    let tx: NamedTxRequest = templater
-                        .template_function_call(step, &placeholder_map)?
-                        .into();
+                    let tx: NamedTxRequest = NamedTxRequest::with_name(
+                        &step.name(),
+                        templater .template_function_call(step, &placeholder_map)?
+                    );
+
                     let handle = on_setup_step(tx.to_owned())?;
                     if let Some(handle) = handle {
                         handle.await.map_err(|e| {
