@@ -32,21 +32,15 @@ impl TestConfig {
 
 impl PlanConfig<String> for TestConfig {
     fn get_spam_steps(&self) -> Result<Vec<FunctionCallDefinition>, ContenderError> {
-        self.spam
-            .to_owned()
-            .ok_or(ContenderError::SpamError("no spam steps found", None))
+        Ok(self.spam.to_owned().unwrap_or_default())
     }
 
     fn get_setup_steps(&self) -> Result<Vec<FunctionCallDefinition>, ContenderError> {
-        self.setup
-            .to_owned()
-            .ok_or(ContenderError::SetupError("no setup steps found", None))
+        Ok(self.setup.to_owned().unwrap_or_default())
     }
 
     fn get_create_steps(&self) -> Result<Vec<CreateDefinition>, ContenderError> {
-        self.create
-            .to_owned()
-            .ok_or(ContenderError::SetupError("no create steps found", None))
+        Ok(self.create.to_owned().unwrap_or_default())
     }
 
     fn get_env(&self) -> Result<HashMap<String, String>, ContenderError> {
