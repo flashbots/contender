@@ -1,5 +1,5 @@
 use crate::{
-    db::database::DbOps,
+    db::DbOps,
     error::ContenderError,
     generator::{
         seeder::{SeedValue, Seeder},
@@ -14,7 +14,7 @@ use async_trait::async_trait;
 pub use seeder::rand_seed::RandSeed;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
 
-pub use types::{CallbackResult, NamedTxRequest, PlanType, TestConfig};
+pub use types::{CallbackResult, NamedTxRequest, PlanType};
 
 /// Generates values for fuzzed parameters.
 /// Contains the Seeder trait and an implementation.
@@ -22,8 +22,6 @@ pub mod seeder;
 /// Provides templating for transaction requests, etc.
 /// Contains the Templater trait and an implementation.
 pub mod templater;
-/// Create test scenarios from TOML config files.
-pub mod testfile;
 /// Contains types used by the generator module.
 pub mod types;
 /// Utility functions used in the generator module.

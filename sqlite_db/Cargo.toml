@@ -1,0 +1,12 @@
+[package]
+name = "contender_sqlite"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+contender = { path = "../" }
+r2d2_sqlite = "0.25.0"
+rusqlite = "0.32.1"
+r2d2 = "0.8.10"
+alloy = { workspace = true }
+serde = { workspace = true }

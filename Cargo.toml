@@ -9,14 +9,18 @@ name = "contender_core"
 path = "src/lib.rs"
 
 [dependencies]
-alloy = { version = "0.3.6", features = ["full", "node-bindings"] }
+alloy = { workspace = true, features = ["full", "node-bindings"] }
 eyre = "0.6.12"
 rand = "0.8.5"
-serde = "1.0.209"
-tokio = { version = "1.40.0" }
-toml = "0.8.19"
-r2d2_sqlite = "0.25.0"
-rusqlite = "0.32.1"
-r2d2 = "0.8.10"
+serde = { workspace = true }
 futures = "0.3.30"
 async-trait = "0.1.82"
+tokio = { workspace = true }
+
+[workspace] 
+members = ["cli", "sqlite_db"]
+
+[workspace.dependencies]
+tokio = { version = "1.40.0" }
+alloy = { version = "0.3.6" }
+serde = "1.0.209"

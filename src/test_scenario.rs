@@ -1,4 +1,4 @@
-use crate::db::database::DbOps;
+use crate::db::DbOps;
 use crate::error::ContenderError;
 use crate::generator::templater::Templater;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
@@ -210,23 +210,143 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::db::sqlite::SqliteDb;
-    use crate::generator::testfile::tests::{get_composite_testconfig, get_test_signers};
-    use crate::generator::TestConfig;
-    use crate::generator::{types::PlanType, util::test::spawn_anvil, RandSeed};
-    use crate::test_scenario::TestScenario;
-    use alloy::node_bindings::AnvilInstance;
+pub mod tests {
+    use std::collections::HashMap;
 
-    fn get_test_scenario(anvil: &AnvilInstance) -> TestScenario<SqliteDb, RandSeed, TestConfig> {
-        let test_file = get_composite_testconfig();
+    // use super::*;
+    use crate::db::MockDb;
+    use crate::generator::templater::Templater;
+    use crate::generator::types::{CreateDefinition, FunctionCallDefinition, FuzzParam};
+    use crate::generator::{types::PlanType, util::test::spawn_anvil, RandSeed};
+    use crate::generator::{Generator, PlanConfig};
+    use crate::spammer::util::test::get_test_signers;
+    use crate::test_scenario::TestScenario;
+    use crate::Result;
+    use alloy::hex::ToHexExt;
+    use alloy::node_bindings::AnvilInstance;
+    use alloy::primitives::Address;
+
+    pub struct MockConfig;
+
+    pub const COUNTER_BYTECODE: &'static str =
+        "0x608060405234801561001057600080fd5b5060f78061001f6000396000f3fe6080604052348015600f57600080fd5b5060043610603c5760003560e01c80633fb5c1cb1460415780638381f58a146053578063d09de08a14606d575b600080fd5b6051604c3660046083565b600055565b005b605b60005481565b60405190815260200160405180910390f35b6051600080549080607c83609b565b9190505550565b600060208284031215609457600080fd5b5035919050565b60006001820160ba57634e487b7160e01b600052601160045260246000fd5b506001019056fea264697066735822122010f3077836fb83a22ad708a23102f2b487523767e1afef5a93c614619001648b64736f6c63430008170033";
+
+    impl PlanConfig<String> for MockConfig {
+        fn get_env(&self) -> Result<HashMap<String, String>> {
+            Ok(HashMap::<String, String>::from_iter([
+                ("test1".to_owned(), "0xbeef".to_owned()),
+                ("test2".to_owned(), "0x9001".to_owned()),
+            ]))
+        }
+
+        fn get_create_steps(&self) -> Result<Vec<CreateDefinition>> {
+            Ok(vec![CreateDefinition {
+                bytecode: COUNTER_BYTECODE.to_string(),
+                name: "test_counter".to_string(),
+                from: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned(),
+            }])
+        }
+
+        fn get_setup_steps(&self) -> Result<Vec<FunctionCallDefinition>> {
+            Ok(vec![
+                FunctionCallDefinition {
+                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
+                    from: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned(),
+                    value: Some("4096".to_owned()),
+                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    args: vec![
+                        "1".to_owned(),
+                        "2".to_owned(),
+                        Address::repeat_byte(0x11).encode_hex(),
+                        "0xdead".to_owned(),
+                    ]
+                    .into(),
+                    fuzz: None,
+                },
+                FunctionCallDefinition {
+                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
+                    from: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned(),
+                    value: Some("0x1000".to_owned()),
+                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    args: vec![
+                        "1".to_owned(),
+                        "2".to_owned(),
+                        Address::repeat_byte(0x11).encode_hex(),
+                        "0xbeef".to_owned(),
+                    ]
+                    .into(),
+                    fuzz: None,
+                },
+            ])
+        }
+
+        fn get_spam_steps(&self) -> Result<Vec<FunctionCallDefinition>> {
+            let fn_call = |data: &str, from_addr: &str| FunctionCallDefinition {
+                to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
+                from: from_addr.to_owned(),
+                value: None,
+                signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                args: vec![
+                    "1".to_owned(),
+                    "2".to_owned(),
+                    Address::repeat_byte(0x11).encode_hex(),
+                    data.to_owned(),
+                ]
+                .into(),
+                fuzz: vec![FuzzParam {
+                    param: "x".to_string(),
+                    min: None,
+                    max: None,
+                }]
+                .into(),
+            };
+            Ok(vec![
+                fn_call("0xbeef", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
+                fn_call("0xea75", "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
+                fn_call("0xf00d", "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
+            ])
+        }
+    }
+
+    impl Templater<String> for MockConfig {
+        fn copy_end(&self, input: &str, _last_end: usize) -> String {
+            input.to_owned()
+        }
+        fn replace_placeholders(
+            &self,
+            input: &str,
+            _placeholder_map: &std::collections::HashMap<String, String>,
+        ) -> String {
+            input.to_owned()
+        }
+        fn terminator_start(&self, _input: &str) -> Option<usize> {
+            None
+        }
+        fn terminator_end(&self, _input: &str) -> Option<usize> {
+            None
+        }
+        fn num_placeholders(&self, _input: &str) -> usize {
+            0
+        }
+        fn find_key(&self, _input: &str) -> Option<(String, usize)> {
+            None
+        }
+        fn encode_contract_address(&self, input: &Address) -> String {
+            input.encode_hex()
+        }
+    }
+
+    pub fn get_test_scenario(anvil: &AnvilInstance) -> TestScenario<MockDb, RandSeed, MockConfig> {
         let seed = RandSeed::from_bytes(&[0x01; 32]);
-        let db = SqliteDb::new_memory();
-        db.create_tables().unwrap();
         let signers = &get_test_signers();
 
-        TestScenario::new(test_file, db.into(), anvil.endpoint_url(), seed, &signers)
+        TestScenario::new(
+            MockConfig,
+            MockDb.into(),
+            anvil.endpoint_url(),
+            seed,
+            &signers,
+        )
     }
 
     #[tokio::test]

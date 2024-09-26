@@ -1102,10 +1102,7 @@ dependencies = [
  "async-trait",
  "eyre",
  "futures",
- "r2d2",
- "r2d2_sqlite",
  "rand",
- "rusqlite",
  "serde",
  "tokio",
  "toml",
@@ -1118,8 +1115,19 @@ dependencies = [
  "alloy",
  "clap",
  "contender",
+ "contender_sqlite",
  "csv",
  "tokio",
+]
+
+[[package]]
+name = "contender_sqlite"
+version = "0.1.0"
+dependencies = [
+ "contender",
+ "r2d2",
+ "r2d2_sqlite",
+ "rusqlite",
 ]
 
 [[package]]

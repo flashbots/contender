@@ -5,7 +5,10 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.5.16", features = ["derive"] }
-tokio = { version = "1.40.0", features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 alloy = { version = "0.3.6", features = ["full", "node-bindings"] }
 csv = "1.3.0"
 contender = { path = "../" }
+contender_sqlite = { path = "../sqlite_db" }
+toml = "0.8.19"
+serde = { workspace = true }

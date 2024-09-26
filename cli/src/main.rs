@@ -1,24 +1,24 @@
 mod commands;
+mod testfile;
+mod types;
 
 use alloy::{
     providers::ProviderBuilder, signers::local::PrivateKeySigner, transports::http::reqwest::Url,
 };
 use commands::{ContenderCli, ContenderSubcommand};
-use contender_core::db::database::RunTx;
 use contender_core::{
-    db::{database::DbOps, sqlite::SqliteDb},
-    generator::{
-        types::{RpcProvider, TestConfig},
-        RandSeed,
-    },
+    db::{DbOps, RunTx},
+    generator::{types::RpcProvider, RandSeed},
     spammer::{BlockwiseSpammer, LogCallback, NilCallback, TimedSpammer},
     test_scenario::TestScenario,
 };
+use contender_sqlite::SqliteDb;
 use csv::{Writer, WriterBuilder};
 use std::{
     str::FromStr,
     sync::{Arc, LazyLock},
 };
+use types::TestConfig;
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     SqliteDb::from_file("contender.db").expect("failed to open contender.db")
