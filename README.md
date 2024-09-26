@@ -56,8 +56,8 @@ You'll probably also want to use an async runtime such as `tokio`, which we use 
 ```rust
 use contender_core::{
     db::{database::DbOps, sqlite::SqliteDb},
-    generator::{testfile::NilCallback, RandSeed, TestConfig},
-    spammer::BlockwiseSpammer,
+    generator::{RandSeed, TestConfig},
+    spammer::{BlockwiseSpammer, NilCallback},
     test_scenario::TestScenario,
 };
 
