@@ -31,6 +31,8 @@ pub struct FunctionCallDefinition {
     pub value: Option<String>,
     /// Parameters to fuzz during the test.
     pub fuzz: Option<Vec<FuzzParam>>,
+    /// Optional type of the spam transaction for categorization.
+    pub kind: Option<String>
 }
 
 #[derive(Clone, Deserialize, Debug, Serialize)]
@@ -125,6 +127,7 @@ pub mod tests {
             args: Some(vec!["0x8765".to_string(), "100".to_string()]),
             value: Some("100".to_string()),
             fuzz: None,
+            kind: None,
         };
         assert_eq!(fn_def_with_args.name(), "transfer(address to=[0x8765], uint256 amount=[100])");
 
@@ -135,6 +138,7 @@ pub mod tests {
             args: None,
             value: Some("100".to_string()),
             fuzz: None,
+            kind: None,
         };
         assert_eq!(fn_def_no_args.name(), "transfer()");
 
@@ -146,6 +150,7 @@ pub mod tests {
             args: Some(vec!["0x8765".to_string(), "100".to_string()]),
             value: Some("100".to_string()),
             fuzz: None,
+            kind: None,
         };
         assert_eq!(fn_def_invalid_sig.name(), "transfer(uint256 amount=[100])");
     }

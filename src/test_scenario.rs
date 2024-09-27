@@ -263,6 +263,7 @@ pub mod tests {
                     ]
                     .into(),
                     fuzz: None,
+                    kind: None,
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -277,6 +278,7 @@ pub mod tests {
                     ]
                     .into(),
                     fuzz: None,
+                    kind: None,
                 },
             ])
         }
@@ -300,6 +302,7 @@ pub mod tests {
                     max: None,
                 }]
                 .into(),
+                kind: None,
             };
             Ok(vec![
                 fn_call("0xbeef", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),

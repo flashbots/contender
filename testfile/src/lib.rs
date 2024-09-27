@@ -154,6 +154,7 @@ pub mod tests {
                 .into(),
                 fuzz: None,
                 value: None,
+                kind: None,
             }]
             .into(),
         }
@@ -172,6 +173,7 @@ pub mod tests {
                 data.to_owned(),
             ]
             .into(),
+            kind: None,
             fuzz: vec![FuzzParam {
                 param: "x".to_string(),
                 min: None,
@@ -210,6 +212,7 @@ pub mod tests {
                         "0xdead".to_owned(),
                     ]
                     .into(),
+                    kind: None,
                     fuzz: None,
                 },
                 FunctionCallDefinition {
@@ -224,6 +227,7 @@ pub mod tests {
                         "0xbeef".to_owned(),
                     ]
                     .into(),
+                    kind: None,
                     fuzz: None,
                 },
             ]
@@ -284,6 +288,7 @@ pub mod tests {
             spam[1].fuzz.as_ref().unwrap()[0].min,
             Some(U256::from(100000))
         );
+        assert_eq!(spam[0].kind, Some("uniswap_v2".to_owned()));
     }
 
     fn print_testconfig(cfg: &str) {
