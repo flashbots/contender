@@ -1,4 +1,4 @@
-use crate::db::database::DbOps;
+use crate::db::DbOps;
 use crate::error::ContenderError;
 use crate::generator::seeder::Seeder;
 use crate::generator::templater::Templater;
@@ -274,8 +274,10 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        generator::{testfile::tests::get_test_signers, util::test::spawn_anvil},
-        spammer::util::test::MockCallback,
+        db::MockDb,
+        generator::util::test::spawn_anvil,
+        spammer::util::test::{get_test_signers, MockCallback},
+        test_scenario::tests::MockConfig,
     };
 
     use super::*;
@@ -284,12 +286,10 @@ mod tests {
     async fn watches_blocks_and_spams_them() {
         let anvil = spawn_anvil();
         println!("anvil url: {}", anvil.endpoint_url());
-        let conf = crate::generator::testfile::tests::get_composite_testconfig();
-        let db = crate::db::sqlite::SqliteDb::new_memory();
         let seed = crate::generator::RandSeed::from_str("444444444444");
         let scenario = TestScenario::new(
-            conf,
-            db.into(),
+            MockConfig,
+            MockDb.into(),
             anvil.endpoint_url(),
             seed,
             &get_test_signers(),

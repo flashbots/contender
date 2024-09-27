@@ -1,0 +1,11 @@
+[package]
+name = "contender_testfile"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+toml = "0.8.19"
+alloy = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+contender = { path = "../" }
