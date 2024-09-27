@@ -10,3 +10,6 @@
 [submodule "testfile/contracts/lib/v2-core"]
 	path = testfile/contracts/lib/v2-core
 	url = https://github.com/uniswap/v2-core
+[submodule "testfile/contracts/lib/v2-periphery"]
+	path = testfile/contracts/lib/v2-periphery
+	url = https://github.com/uniswap/v2-periphery
