@@ -23,6 +23,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "reason: requires forge to be installed"]
     fn test_forge_build() {
         std::fs::remove_dir_all("./contracts/out").unwrap_or_else(|error| {
             eprintln!("Failed to remove contract artifacts: {}", error);
