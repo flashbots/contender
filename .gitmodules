@@ -7,3 +7,6 @@
 [submodule "testfile/contracts/lib/openzeppelin-contracts"]
 	path = testfile/contracts/lib/openzeppelin-contracts
 	url = https://github.com/openzeppelin/openzeppelin-contracts
+[submodule "testfile/contracts/lib/v2-core"]
+	path = testfile/contracts/lib/v2-core
+	url = https://github.com/uniswap/v2-core
