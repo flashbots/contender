@@ -93,11 +93,7 @@ where
 
         let mut tasks = vec![];
         let mut gas_limits = HashMap::<FixedBytes<4>, u128>::new();
-        let first_block_number = self
-            .rpc_client
-            .get_block_number()
-            .await
-            .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
+
         // get nonce for each signer and put it into a hashmap
         let mut nonces = HashMap::new();
         for (addr, _) in self.scenario.wallet_map.iter() {

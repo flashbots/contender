@@ -2,26 +2,17 @@ use crate::types::TestConfig;
 use alloy::{hex::ToHexExt, primitives::Address};
 use contender_core::generator::types::{CreateDefinition, FunctionCallDefinition};
 
-#[derive(Clone)]
-pub enum DefaultConfig {
-    /// Fill the block with spam transactions.
-    FillBlock(String, Address),
-    // TODO
-    // UniswapV2,
+pub struct FillBlockParams {
+    pub basepath: String,
+    pub from: Address,
+    pub gas_target: u64,
 }
 
-impl From<(String, String)> for DefaultConfig {
-    fn from((basepath, name): (String, String)) -> Self {
-        match name.to_lowercase().as_str() {
-            "fillblock" => DefaultConfig::FillBlock(
-                basepath,
-                "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-                    .parse()
-                    .unwrap(),
-            ),
-            _ => panic!("Unknown default config: {}", name),
-        }
-    }
+pub enum DefaultConfig {
+    /// Fill the block with spam transactions.
+    FillBlock(FillBlockParams),
+    // TODO
+    // UniswapV2,
 }
 
 fn get_bytecode(artifacts_path: &str, name: &str) -> String {
@@ -35,19 +26,19 @@ fn get_bytecode(artifacts_path: &str, name: &str) -> String {
 impl From<DefaultConfig> for TestConfig {
     fn from(config: DefaultConfig) -> Self {
         match config {
-            DefaultConfig::FillBlock(basepath, from) => TestConfig {
+            DefaultConfig::FillBlock(params) => TestConfig {
                 env: None,
                 create: Some(vec![CreateDefinition {
-                    bytecode: get_bytecode(&basepath, "SpamMe"),
+                    bytecode: get_bytecode(&params.basepath, "SpamMe"),
                     name: "SpamMe".to_owned(),
-                    from: from.encode_hex(),
+                    from: params.from.encode_hex(),
                 }]),
                 setup: None,
                 spam: vec![FunctionCallDefinition {
                     to: "{SpamMe}".to_owned(),
-                    from: from.encode_hex(),
+                    from: params.from.encode_hex(),
                     signature: "consumeGas(uint256)".to_owned(),
-                    args: vec!["30000000".to_owned()].into(),
+                    args: vec![params.gas_target.to_string()].into(),
                     value: None,
                     fuzz: None,
                 }]

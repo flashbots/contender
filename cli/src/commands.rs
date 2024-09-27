@@ -137,5 +137,12 @@ May be specified multiple times."
             long_help = "The base template to use for the generated testfile. Options: FillBlock, UniswapV2 (soon)."
         )]
         base_template: Option<String>,
+
+        #[arg(
+            short,
+            long,
+            long_help = "The RPC URL to fetch the gas limit from. If not provided, the gas limit is presumed to be 30000000."
+        )]
+        rpc_url: Option<String>,
     },
 }

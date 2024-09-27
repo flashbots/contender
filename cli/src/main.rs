@@ -1,17 +1,23 @@
 mod commands;
 
 use alloy::{
-    providers::ProviderBuilder, signers::local::PrivateKeySigner, transports::http::reqwest::Url,
+    providers::{Provider, ProviderBuilder},
+    signers::local::PrivateKeySigner,
+    transports::http::reqwest::Url,
 };
 use commands::{ContenderCli, ContenderSubcommand};
 use contender_core::{
     db::{DbOps, RunTx},
+    error::ContenderError,
     generator::{types::RpcProvider, RandSeed},
     spammer::{BlockwiseSpammer, LogCallback, NilCallback, TimedSpammer},
     test_scenario::TestScenario,
 };
 use contender_sqlite::SqliteDb;
-use contender_testfile::{default_templates::DefaultConfig, TestConfig};
+use contender_testfile::{
+    default_templates::{DefaultConfig, FillBlockParams},
+    TestConfig,
+};
 use csv::{Writer, WriterBuilder};
 use std::{
     str::FromStr,
@@ -147,12 +153,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ContenderSubcommand::Template {
             out_file,
             base_template,
+            rpc_url,
         } => {
             let out_file = out_file.unwrap_or("testfile.toml".to_owned());
             let config: TestConfig = if let Some(base_template) = base_template {
-                let config: DefaultConfig =
-                    ("../testfile/contracts/out".to_owned(), base_template).into();
-                config.into()
+                if base_template.to_lowercase() == "fillblock" {
+                    DefaultConfig::FillBlock(FillBlockParams {
+                        basepath: "../testfile/contracts/out".to_owned(),
+                        from: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+                            .parse()
+                            .unwrap(),
+                        gas_target: if let Some(rpc_url) = rpc_url {
+                            let url = Url::parse(&rpc_url)?;
+                            let provider = ProviderBuilder::new().on_http(url);
+                            let block = provider
+                                .get_block(
+                                    alloy::eips::BlockNumberOrTag::Latest.into(),
+                                    alloy::rpc::types::BlockTransactionsKind::Hashes,
+                                )
+                                .await?
+                                .expect("failed to get latest block");
+                            block.header.gas_limit as u64
+                        } else {
+                            30_000_000
+                        },
+                    })
+                    .into()
+                } else {
+                    Err(ContenderError::SpamError("invalid base template", None))?
+                }
             } else {
                 TestConfig::default()
             };
