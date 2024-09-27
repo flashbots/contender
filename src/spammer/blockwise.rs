@@ -246,7 +246,6 @@ where
         }
 
         // re-iterate through target block range in case there are any txs left in the cache
-        // last_block_number = first_block_number;
         let mut timeout_counter = 0;
         if let Some(run_id) = run_id {
             loop {
