@@ -119,7 +119,7 @@ where
                 .await
                 .map_err(|e| ContenderError::with_err(e, "failed to get block"))?
                 .ok_or(ContenderError::SpamError("no block found", None))?;
-            last_block_number = block.header.number + 1;
+            last_block_number = block.header.number;
 
             // get gas price
             let gas_price = self
