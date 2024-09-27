@@ -88,12 +88,7 @@ where
                 run_id,
                 target_block_num,
             } => {
-                let receipts = self
-                    .rpc
-                    .get_block_receipts(target_block_num.into())
-                    .await?
-                    .unwrap_or_default();
-                println!("found {} receipts", receipts.len());
+                println!("unconfirmed txs: {}", self.cache.len());
                 let mut maybe_block;
                 loop {
                     maybe_block = self
@@ -103,15 +98,26 @@ where
                     if maybe_block.is_some() {
                         break;
                     }
+                    println!("waiting for block {}", target_block_num);
                     std::thread::sleep(Duration::from_secs(1));
                 }
                 let target_block = maybe_block.expect("this should never happen");
+                let receipts = self
+                    .rpc
+                    .get_block_receipts(target_block_num.into())
+                    .await?
+                    .unwrap_or_default();
+                println!(
+                    "found {} receipts for block #{}",
+                    receipts.len(),
+                    target_block_num
+                );
                 // filter for txs that were included in the block
                 let receipt_tx_hashes = receipts
                     .iter()
                     .map(|r| r.transaction_hash)
                     .collect::<Vec<_>>();
-                let pending_txs = self
+                let confirmed_txs = self
                     .cache
                     .iter()
                     .filter(|tx| receipt_tx_hashes.contains(&tx.tx_hash))
@@ -122,7 +128,7 @@ where
                 let new_txs = &self
                     .cache
                     .iter()
-                    .filter(|tx| !pending_txs.contains(tx))
+                    .filter(|tx| !confirmed_txs.contains(tx))
                     .map(|tx| tx.to_owned())
                     .collect::<Vec<_>>();
                 self.cache = new_txs.to_vec();
@@ -132,7 +138,7 @@ where
                 }
 
                 // ready to go to the DB
-                let run_txs = pending_txs
+                let run_txs = confirmed_txs
                     .into_iter()
                     .map(|pending_tx| {
                         let receipt = receipts
