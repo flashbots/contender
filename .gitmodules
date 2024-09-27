@@ -4,3 +4,6 @@
 [submodule "testfile/contracts/lib/high-volume-contract"]
 	path = testfile/contracts/lib/high-volume-contract
 	url = https://github.com/zeroXbrock/high-volume-contract
+[submodule "testfile/contracts/lib/openzeppelin-contracts"]
+	path = testfile/contracts/lib/openzeppelin-contracts
+	url = https://github.com/openzeppelin/openzeppelin-contracts
