@@ -1134,6 +1134,7 @@ dependencies = [
  "alloy",
  "contender",
  "serde",
+ "serde_json",
  "tokio",
  "toml",
 ]

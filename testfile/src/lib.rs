@@ -1,3 +1,5 @@
+pub mod default_templates;
+pub mod forge_build;
 mod types;
 
 pub use crate::types::TestConfig;
@@ -261,7 +263,7 @@ pub mod tests {
 
     #[test]
     fn parses_testconfig_toml() {
-        let test_file = TestConfig::from_file("univ2ConfigTest.toml").unwrap();
+        let test_file = TestConfig::from_file("./examples/univ2ConfigTest.toml").unwrap();
         assert!(test_file.env.is_some());
         assert!(test_file.setup.is_some());
         assert!(test_file.spam.is_some());

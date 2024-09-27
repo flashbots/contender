@@ -119,4 +119,23 @@ May be specified multiple times."
         )]
         out_file: Option<String>,
     },
+
+    #[command(name = "template", long_about = "Generate a template testfile.")]
+    Template {
+        /// The path to save the template to.
+        /// If not provided, the template is saved to the current directory.
+        #[arg(
+            short,
+            long,
+            long_help = "Filename of the saved template. May be a fully-qualified path. If not provided, the template is saved to the current directory."
+        )]
+        out_file: Option<String>,
+
+        #[arg(
+            short,
+            long,
+            long_help = "The base template to use for the generated testfile. Options: FillBlock, UniswapV2 (soon)."
+        )]
+        base_template: Option<String>,
+    },
 }

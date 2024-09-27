@@ -11,7 +11,7 @@ use contender_core::{
     test_scenario::TestScenario,
 };
 use contender_sqlite::SqliteDb;
-use contender_testfile::TestConfig;
+use contender_testfile::{default_templates::DefaultConfig, TestConfig};
 use csv::{Writer, WriterBuilder};
 use std::{
     str::FromStr,
@@ -143,6 +143,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .from_writer(std::io::stdout());
                 write_run_txs(&mut writer, &txs)?;
             };
+        }
+        ContenderSubcommand::Template {
+            out_file,
+            base_template,
+        } => {
+            let out_file = out_file.unwrap_or("testfile.toml".to_owned());
+            let config: TestConfig = if let Some(base_template) = base_template {
+                let config: DefaultConfig =
+                    ("../testfile/contracts/out".to_owned(), base_template).into();
+                config.into()
+            } else {
+                TestConfig::default()
+            };
+            config.save_toml(&out_file)?;
+            println!("Saved template to {}", out_file);
         }
     }
     Ok(())

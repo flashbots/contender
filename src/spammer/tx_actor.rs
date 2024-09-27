@@ -88,7 +88,6 @@ where
                 run_id,
                 target_block_num,
             } => {
-                println!("unconfirmed txs: {}", self.cache.len());
                 let receipts = self
                     .rpc
                     .get_block_receipts(target_block_num.into())
@@ -127,6 +126,10 @@ where
                     .map(|tx| tx.to_owned())
                     .collect::<Vec<_>>();
                 self.cache = new_txs.to_vec();
+                println!("unconfirmed txs: {}", new_txs.len());
+                for tx in new_txs {
+                    println!("unconfirmed tx: {}", tx.tx_hash);
+                }
 
                 // ready to go to the DB
                 let run_txs = pending_txs

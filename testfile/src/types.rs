@@ -17,3 +17,14 @@ pub struct TestConfig {
     /// Function to call in spam txs.
     pub spam: Option<Vec<FunctionCallDefinition>>,
 }
+
+impl Default for TestConfig {
+    fn default() -> Self {
+        TestConfig {
+            env: HashMap::new().into(),
+            create: vec![].into(),
+            setup: vec![].into(),
+            spam: vec![].into(),
+        }
+    }
+}
