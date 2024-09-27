@@ -211,9 +211,6 @@ where
 
 #[cfg(test)]
 pub mod tests {
-    use std::collections::HashMap;
-
-    // use super::*;
     use crate::db::MockDb;
     use crate::generator::templater::Templater;
     use crate::generator::types::{CreateDefinition, FunctionCallDefinition, FuzzParam};
@@ -225,6 +222,7 @@ pub mod tests {
     use alloy::hex::ToHexExt;
     use alloy::node_bindings::AnvilInstance;
     use alloy::primitives::Address;
+    use std::collections::HashMap;
 
     pub struct MockConfig;
 
