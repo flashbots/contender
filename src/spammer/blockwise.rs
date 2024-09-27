@@ -245,28 +245,6 @@ where
             let _ = task.await;
         }
 
-        // re-iterate through target block range in case there are any txs left in the cache
-        last_block_number = first_block_number;
-        let mut timeout_counter = 0;
-        if let Some(run_id) = run_id {
-            loop {
-                timeout_counter += 1;
-                if timeout_counter > 12 {
-                    println!("Quitting due to timeout.");
-                    break;
-                }
-                let cache_size = self
-                    .msg_handler
-                    .flush_cache(run_id, last_block_number)
-                    .await
-                    .map_err(|e| ContenderError::with_err(e.deref(), "failed to empty cache"))?;
-                if cache_size == 0 {
-                    break;
-                }
-                last_block_number += 1;
-            }
-        }
-
         Ok(())
     }
 }
