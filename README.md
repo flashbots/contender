@@ -14,11 +14,11 @@ Contender is a high-performance Ethereum network spammer and testing tool design
 
 ## Installation
 
-To install Contender, you need to have the [Rust toolchain](https://rustup.rs/) installed on your system. Then build the project from source:
+To install the Contender CLI, you need to have the [Rust toolchain](https://rustup.rs/) installed on your system. Then build the project from source:
 
 ```bash
-git clone https://github.com/your-username/contender.git
-cd contender
+git clone https://github.com/zeroxbrock/contender.git
+cd contender/cli
 cargo build --release
 alias contender="$PWD/target/release/contender_cli"
 ```
@@ -43,23 +43,27 @@ contender --help
 
 ### Library Usage
 
-To use Contender as a library in your Rust project, add it to your `Cargo.toml`:
+To use Contender as a library in your Rust project, add the crates you need to your `Cargo.toml`:
 
 ```toml
 [dependencies]
 ...
-contender = { git = "https://github.com/zeroXbrock/contender.git" }
+contender = { git = "https://github.com/zeroxbrock/contender" }
+contender_sqlite = { git = "https://github.com/zeroxbrock/contender" }
+contender_testfile = { git = "https://github.com/zeroxbrock/contender" }
+# not necessarily required, but recommended:
+tokio = { version = "1.40.0", features = ["rt-multi-thread"] }
 ```
-
-You'll probably also want to use an async runtime such as `tokio`, which we use in the following example.
 
 ```rust
 use contender_core::{
-    db::{database::DbOps, sqlite::SqliteDb},
-    generator::{RandSeed, TestConfig},
+    db::DbOps,
+    generator::RandSeed,
     spammer::{BlockwiseSpammer, NilCallback},
     test_scenario::TestScenario,
 };
+use contender_sqlite::SqliteDb;
+use contender_testfile::TestConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

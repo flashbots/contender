@@ -1,9 +1,9 @@
-use super::database::{DbOps, RunTx};
-use crate::{error::ContenderError, Result};
 use alloy::{
     hex::{FromHex, ToHexExt},
     primitives::{Address, TxHash},
 };
+use contender_core::db::{DbOps, RunTx};
+use contender_core::{error::ContenderError, Result};
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, types::FromSql, Row};

@@ -1,19 +1,17 @@
-mod cli_lib;
+mod commands;
 
 use alloy::{
     providers::ProviderBuilder, signers::local::PrivateKeySigner, transports::http::reqwest::Url,
 };
-use cli_lib::{ContenderCli, ContenderSubcommand};
-use contender_core::db::database::RunTx;
+use commands::{ContenderCli, ContenderSubcommand};
 use contender_core::{
-    db::{database::DbOps, sqlite::SqliteDb},
-    generator::{
-        types::{RpcProvider, TestConfig},
-        RandSeed,
-    },
+    db::{DbOps, RunTx},
+    generator::{types::RpcProvider, RandSeed},
     spammer::{BlockwiseSpammer, LogCallback, NilCallback, TimedSpammer},
     test_scenario::TestScenario,
 };
+use contender_sqlite::SqliteDb;
+use contender_testfile::TestConfig;
 use csv::{Writer, WriterBuilder};
 use std::{
     str::FromStr,

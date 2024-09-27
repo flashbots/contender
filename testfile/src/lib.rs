@@ -1,12 +1,16 @@
-use crate::error::ContenderError;
-pub use crate::generator::types::TestConfig;
-use crate::generator::{
-    templater::Templater,
-    types::{CreateDefinition, FunctionCallDefinition},
-    PlanConfig,
-};
+mod types;
+
+pub use crate::types::TestConfig;
 use alloy::hex::ToHexExt;
 use alloy::primitives::Address;
+use contender_core::{
+    error::ContenderError,
+    generator::{
+        templater::Templater,
+        types::{CreateDefinition, FunctionCallDefinition},
+        PlanConfig,
+    },
+};
 use std::collections::HashMap;
 use std::fs::read;
 
@@ -98,18 +102,28 @@ impl Templater<String> for TestConfig {
 #[cfg(test)]
 pub mod tests {
     use super::TestConfig;
-    use crate::db::sqlite::SqliteDb;
-    use crate::generator::{
-        types::{CreateDefinition, FunctionCallDefinition, FuzzParam, PlanType},
-        util::test::spawn_anvil,
-        Generator, RandSeed,
+    use alloy::{
+        hex::ToHexExt,
+        node_bindings::{Anvil, AnvilInstance},
+        primitives::{Address, U256},
+        signers::local::PrivateKeySigner,
     };
-    use crate::test_scenario::TestScenario;
-    use alloy::primitives::U256;
-    use alloy::signers::local::PrivateKeySigner;
-    use alloy::{hex::ToHexExt, primitives::Address};
-    use std::str::FromStr;
-    use std::{collections::HashMap, fs};
+    use contender_core::{
+        db::MockDb,
+        generator::{
+            types::{CreateDefinition, FunctionCallDefinition, FuzzParam, PlanType},
+            Generator, RandSeed,
+        },
+        test_scenario::TestScenario,
+    };
+    use std::{collections::HashMap, fs, str::FromStr};
+
+    pub fn spawn_anvil() -> AnvilInstance {
+        Anvil::new().block_time(1).try_spawn().unwrap()
+    }
+
+    pub const COUNTER_BYTECODE: &'static str =
+        "0x608060405234801561001057600080fd5b5060f78061001f6000396000f3fe6080604052348015600f57600080fd5b5060043610603c5760003560e01c80633fb5c1cb1460415780638381f58a146053578063d09de08a14606d575b600080fd5b6051604c3660046083565b600055565b005b605b60005481565b60405190815260200160405180910390f35b6051600080549080607c83609b565b9190505550565b600060208284031215609457600080fd5b5035919050565b60006001820160ba57634e487b7160e01b600052601160045260246000fd5b506001019056fea264697066735822122010f3077836fb83a22ad708a23102f2b487523767e1afef5a93c614619001648b64736f6c63430008170033";
 
     pub fn get_test_signers() -> Vec<PrivateKeySigner> {
         vec![
@@ -217,9 +231,6 @@ pub mod tests {
         }
     }
 
-    pub const COUNTER_BYTECODE: &'static str =
-        "0x608060405234801561001057600080fd5b5060f78061001f6000396000f3fe6080604052348015600f57600080fd5b5060043610603c5760003560e01c80633fb5c1cb1460415780638381f58a146053578063d09de08a14606d575b600080fd5b6051604c3660046083565b600055565b005b605b60005481565b60405190815260200160405180910390f35b6051600080549080607c83609b565b9190505550565b600060208284031215609457600080fd5b5035919050565b60006001820160ba57634e487b7160e01b600052601160045260246000fd5b506001019056fea264697066735822122010f3077836fb83a22ad708a23102f2b487523767e1afef5a93c614619001648b64736f6c63430008170033";
-
     pub fn get_create_testconfig() -> TestConfig {
         let mut env = HashMap::new();
         env.insert("test1".to_owned(), "0xbeef".to_owned());
@@ -303,7 +314,7 @@ pub mod tests {
         let seed = RandSeed::new();
         let test_gen = TestScenario::new(
             test_file,
-            SqliteDb::new_memory().into(),
+            MockDb.into(),
             anvil.endpoint_url(),
             seed,
             &get_test_signers(),
@@ -332,14 +343,14 @@ pub mod tests {
         let signers = get_test_signers();
         let scenario1 = TestScenario::new(
             test_file.clone(),
-            SqliteDb::new_memory().into(),
+            MockDb.into(),
             anvil.endpoint_url(),
             seed.to_owned(),
             &signers,
         );
         let scenario2 = TestScenario::new(
             test_file,
-            SqliteDb::new_memory().into(),
+            MockDb.into(),
             anvil.endpoint_url(),
             seed,
             &signers,

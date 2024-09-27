@@ -4,7 +4,7 @@ use alloy::{primitives::TxHash, providers::Provider};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    db::database::{DbOps, RunTx},
+    db::{DbOps, RunTx},
     error::ContenderError,
     generator::types::RpcProvider,
 };
