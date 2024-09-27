@@ -1,4 +1,6 @@
-use crate::types::TestConfig;
+mod types;
+
+pub use crate::types::TestConfig;
 use alloy::hex::ToHexExt;
 use alloy::primitives::Address;
 use contender_core::{

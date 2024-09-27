@@ -1,6 +1,4 @@
 mod commands;
-mod testfile;
-mod types;
 
 use alloy::{
     providers::ProviderBuilder, signers::local::PrivateKeySigner, transports::http::reqwest::Url,
@@ -13,12 +11,12 @@ use contender_core::{
     test_scenario::TestScenario,
 };
 use contender_sqlite::SqliteDb;
+use contender_testfile::TestConfig;
 use csv::{Writer, WriterBuilder};
 use std::{
     str::FromStr,
     sync::{Arc, LazyLock},
 };
-use types::TestConfig;
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     SqliteDb::from_file("contender.db").expect("failed to open contender.db")

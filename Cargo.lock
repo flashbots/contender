@@ -1109,10 +1109,10 @@ dependencies = [
  "clap",
  "contender",
  "contender_sqlite",
+ "contender_testfile",
  "csv",
  "serde",
  "tokio",
- "toml",
 ]
 
 [[package]]
@@ -1125,6 +1125,17 @@ dependencies = [
  "r2d2_sqlite",
  "rusqlite",
  "serde",
+]
+
+[[package]]
+name = "contender_testfile"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "contender",
+ "serde",
+ "tokio",
+ "toml",
 ]
 
 [[package]]

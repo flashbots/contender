@@ -1,7 +1,6 @@
-use std::collections::HashMap;
-
 use contender_core::generator::types::{CreateDefinition, FunctionCallDefinition};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Configuration to run a test scenario; used to generate PlanConfigs.
 #[derive(Clone, Deserialize, Debug, Serialize)]

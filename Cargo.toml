@@ -18,7 +18,7 @@ async-trait = "0.1.82"
 tokio = { workspace = true }
 
 [workspace] 
-members = ["cli", "sqlite_db"]
+members = ["cli", "sqlite_db", "testfile"]
 
 [workspace.dependencies]
 tokio = { version = "1.40.0" }
