@@ -1,5 +1,5 @@
 use crate::{
-    db::database::DbOps,
+    db::DbOps,
     generator::{
         seeder::Seeder,
         templater::Templater,

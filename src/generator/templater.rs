@@ -1,5 +1,5 @@
 use crate::{
-    db::database::DbOps,
+    db::DbOps,
     error::ContenderError,
     generator::{
         types::{CreateDefinition, FunctionCallDefinition},
