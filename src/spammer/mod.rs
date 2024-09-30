@@ -71,12 +71,17 @@ impl OnTxSent for LogCallback {
             .map(|e| e.get("start_timestamp").map(|t| t.parse::<usize>()))
             .flatten()?
             .unwrap_or(0);
+        let kind = extra
+            .as_ref()
+            .map(|e| e.get("kind").map(|k| k.to_string()))
+            .flatten()
+            .unwrap_or("".to_string());
         let handle = tokio::task::spawn(async move {
             let res = PendingTransactionBuilder::from_config(&rpc, tx_response);
             let tx_hash = res.tx_hash();
             if let Some(tx_actor) = tx_actor {
                 tx_actor
-                    .cache_run_tx(*tx_hash, start_timestamp)
+                    .cache_run_tx(*tx_hash, start_timestamp, kind)
                     .await
                     .expect("failed to cache run tx");
             }

@@ -14,6 +14,7 @@ pub type RpcProvider = RootProvider<Http<Client>>;
 #[derive(Clone, Debug)]
 pub struct NamedTxRequest {
     pub name: Option<String>,
+    pub kind: Option<String>,
     pub tx: TransactionRequest,
 }
 

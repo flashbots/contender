@@ -13,6 +13,7 @@ enum TxActorMessage {
     SentRunTx {
         tx_hash: TxHash,
         start_timestamp: usize,
+        kind: String,
         on_receipt: oneshot::Sender<()>,
     },
     FlushCache {
@@ -36,13 +37,15 @@ where
 pub struct PendingRunTx {
     tx_hash: TxHash,
     start_timestamp: usize,
+    kind: String,
 }
 
 impl PendingRunTx {
-    pub fn new(tx_hash: TxHash, start_timestamp: usize) -> Self {
+    pub fn new(tx_hash: TxHash, start_timestamp: usize, kind: String) -> Self {
         Self {
             tx_hash,
             start_timestamp,
+            kind,
         }
     }
 }
@@ -72,11 +75,13 @@ where
             TxActorMessage::SentRunTx {
                 tx_hash,
                 start_timestamp,
+                kind,
                 on_receipt,
             } => {
                 let run_tx = PendingRunTx {
                     tx_hash,
                     start_timestamp,
+                    kind,
                 };
                 self.cache.push(run_tx.to_owned());
                 on_receipt.send(()).map_err(|_| {
@@ -142,6 +147,7 @@ where
                             end_timestamp: target_block.header.timestamp as usize,
                             block_number: target_block.header.number,
                             gas_used: receipt.gas_used,
+                            kind: pending_tx.kind,
                         }
                     })
                     .collect::<Vec<_>>();
@@ -185,12 +191,14 @@ impl TxActorHandle {
         &self,
         tx_hash: TxHash,
         start_timestamp: usize,
+        kind: String,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(TxActorMessage::SentRunTx {
                 tx_hash,
                 start_timestamp,
+                kind,
                 on_receipt: sender,
             })
             .await?;

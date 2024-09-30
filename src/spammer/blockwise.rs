@@ -220,6 +220,9 @@ where
                         HashMap::from_iter([(
                             "start_timestamp".to_owned(),
                             start_timestamp.to_string(),
+                        ), (
+                            "kind".to_owned(),
+                            String::from("spam"),
                         )])
                         .into(),
                         Some(tx_handler),

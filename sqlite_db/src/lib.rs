@@ -83,6 +83,7 @@ struct RunTxRow {
     end_timestamp: usize,
     block_number: u64,
     gas_used: String,
+    kind: String,
 }
 
 impl RunTxRow {
@@ -94,6 +95,7 @@ impl RunTxRow {
             end_timestamp: row.get(3)?,
             block_number: row.get(4)?,
             gas_used: row.get(5)?,
+            kind: row.get(6)?,
         })
     }
 }
@@ -107,6 +109,7 @@ impl From<RunTxRow> for RunTx {
             end_timestamp: row.end_timestamp,
             block_number: row.block_number,
             gas_used: row.gas_used.parse().expect("invalid gas_used parameter"),
+            kind: row.kind,
         }
     }
 }
@@ -139,6 +142,7 @@ impl DbOps for SqliteDb {
                 end_timestamp INTEGER NOT NULL,
                 block_number INTEGER NOT NULL,
                 gas_used TEXT NOT NULL,
+                kind TEXT NOT NULL,
                 FOREIGN KEY(run_id) REFERENCES runs(runid)
             )",
             params![],
@@ -166,7 +170,7 @@ impl DbOps for SqliteDb {
     fn get_run_txs(&self, run_id: u64) -> Result<Vec<RunTx>> {
         let pool = self.get_pool()?;
         let mut stmt = pool
-            .prepare("SELECT run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used FROM run_txs WHERE run_id = ?1")
+            .prepare("SELECT run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind FROM run_txs WHERE run_id = ?1")
             .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
 
         let rows = stmt
@@ -247,14 +251,15 @@ impl DbOps for SqliteDb {
 
     fn insert_run_tx(&self, run_id: u64, run_tx: RunTx) -> Result<()> {
         self.execute(
-            "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind) VALUES (?, ?, ?, ?, ?, ?, ?)",
             params![
                 run_id,
                 run_tx.tx_hash.encode_hex(),
                 run_tx.start_timestamp,
                 run_tx.end_timestamp,
                 run_tx.block_number,
-                run_tx.gas_used.to_string()
+                run_tx.gas_used.to_string(),
+                run_tx.kind,
             ],
         )
     }
@@ -263,13 +268,14 @@ impl DbOps for SqliteDb {
         let pool = self.get_pool()?;
         let stmts = run_txs.iter().map(|tx| {
             format!(
-                "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used) VALUES ({}, '{}', {}, {}, {}, '{}');",
+                "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind) VALUES ({}, '{}', {}, {}, {}, '{}', '{}');",
                 run_id,
                 tx.tx_hash.encode_hex(),
                 tx.start_timestamp,
                 tx.end_timestamp,
                 tx.block_number,
-                tx.gas_used.to_string()
+                tx.gas_used.to_string(),
+                tx.kind,
             )
         });
         pool.execute_batch(&format!(
@@ -359,6 +365,7 @@ mod tests {
                 end_timestamp: 200,
                 block_number: 1,
                 gas_used: 100,
+                kind: "test".to_string(),
             },
             RunTx {
                 tx_hash: TxHash::from_slice(&[1u8; 32]),
@@ -366,6 +373,7 @@ mod tests {
                 end_timestamp: 300,
                 block_number: 2,
                 gas_used: 200,
+                kind: "test".to_string(),
             },
         ];
         db.insert_run_txs(run_id as u64, run_txs).unwrap();

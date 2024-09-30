@@ -31,14 +31,23 @@ impl NamedTxRequest {
     pub fn with_name(name: &str, tx: TransactionRequest) -> Self {
         Self {
             name: Some(name.to_string()),
+            kind: None,
             tx,
+        }
+    }
+
+    pub fn set_kind(&self, kind: Option<String>) -> Self {
+        Self {
+            name: self.name.to_owned(),
+            kind,
+            tx: self.tx.to_owned(),
         }
     }
 }
 
 impl From<TransactionRequest> for NamedTxRequest {
     fn from(tx: TransactionRequest) -> Self {
-        Self { name: None, tx }
+        Self { name: None, kind: None, tx }
     }
 }
 
@@ -124,10 +133,9 @@ where
                     templater.find_fncall_placeholders(step, db, &mut placeholder_map)?;
 
                     // create txs with template values
-                    let tx: NamedTxRequest = NamedTxRequest::with_name(
-                        &step.name(),
-                        templater .template_function_call(step, &placeholder_map)?
-                    );
+                    let tx: NamedTxRequest = templater
+                        .template_function_call(step, &placeholder_map)?
+                        .into();
 
                     let handle = on_setup_step(tx.to_owned())?;
                     if let Some(handle) = handle {
@@ -190,9 +198,9 @@ where
                         let mut step = step.to_owned();
                         step.args = Some(args);
 
-                        let tx: NamedTxRequest = templater
-                            .template_function_call(&step, &placeholder_map)?
-                            .into();
+                        let tx: NamedTxRequest = NamedTxRequest::from(templater
+                            .template_function_call(&step, &placeholder_map)?)
+                            .set_kind(step.kind.to_owned());
                         let handle = on_spam_setup(tx.to_owned())?;
                         if let Some(handle) = handle {
                             handle
