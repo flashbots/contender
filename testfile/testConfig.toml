@@ -1,0 +1,26 @@
+[env]
+env1 = "env1"
+env2 = "env2"
+
+[[setup]]
+to = "0xE46CcF40134e7ad524529B25Ce04e39BC2B51cDc"
+from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+signature = "function deposit() public payable"
+value = "1234"
+
+
+### the spam step will be repeated
+[[spam]]
+kind = "test"
+to = "0xE46CcF40134e7ad524529B25Ce04e39BC2B51cDc"
+from = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+signature = "test(uint256 amountIn, address to) external returns (uint256[] memory)"
+args = [
+     "1000000000000000000",
+     "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+]
+
+[[spam.fuzz]]
+param = "amountIn"
+min = "1"
+max = "100000000000000000"
