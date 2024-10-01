@@ -80,6 +80,7 @@ mod tests {
 
     #[test]
     fn test_get_bytecode() {
+        run_forge_build("./contracts").unwrap();
         let bytecode = get_bytecode("./contracts/out", "SpamMe").unwrap();
         assert_eq!(bytecode.len(), 2600);
         assert!(bytecode.starts_with("0x6080"));
