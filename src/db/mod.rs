@@ -47,7 +47,7 @@ pub trait DbOps {
 
     fn insert_named_txs(&self, named_txs: Vec<NamedTx>) -> Result<()>;
 
-    fn get_named_tx(&self, name: &str) -> Result<(TxHash, Option<Address>)>;
+    fn get_named_tx(&self, name: &str) -> Result<NamedTx>;
 
     fn insert_run_txs(&self, run_id: u64, run_txs: Vec<RunTx>) -> Result<()>;
 
@@ -73,8 +73,8 @@ impl DbOps for MockDb {
         Ok(())
     }
 
-    fn get_named_tx(&self, _name: &str) -> Result<(TxHash, Option<Address>)> {
-        Ok((TxHash::default(), None))
+    fn get_named_tx(&self, _name: &str) -> Result<NamedTx> {
+        Ok(NamedTx::new(String::default(), TxHash::default(), None))
     }
 
     fn insert_run_txs(&self, _run_id: u64, _run_txs: Vec<RunTx>) -> Result<()> {
