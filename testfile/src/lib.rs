@@ -261,7 +261,7 @@ pub mod tests {
 
     #[test]
     fn parses_testconfig_toml() {
-        let test_file = TestConfig::from_file("univ2ConfigTest.toml").unwrap();
+        let test_file = TestConfig::from_file("../cli/univ2ConfigTest.toml").unwrap();
         assert!(test_file.env.is_some());
         assert!(test_file.setup.is_some());
         assert!(test_file.spam.is_some());
