@@ -2,7 +2,7 @@ use alloy::{
     hex::{FromHex, ToHexExt},
     primitives::{Address, TxHash},
 };
-use contender_core::db::{DbOps, RunTx};
+use contender_core::db::{DbOps, NamedTx, RunTx};
 use contender_core::{error::ContenderError, Result};
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
@@ -180,30 +180,14 @@ impl DbOps for SqliteDb {
         Ok(res)
     }
 
-    fn insert_named_tx(
-        &self,
-        name: String,
-        tx_hash: TxHash,
-        contract_address: Option<Address>,
-    ) -> Result<()> {
-        self.execute(
-            "INSERT INTO named_txs (name, tx_hash, contract_address) VALUES (?, ?, ?)",
-            params![
-                name,
-                tx_hash.encode_hex(),
-                contract_address.map(|a| a.encode_hex())
-            ],
-        )
-    }
-
-    fn insert_named_txs(&self, named_txs: Vec<(String, TxHash, Option<Address>)>) -> Result<()> {
+    fn insert_named_txs(&self, named_txs: Vec<NamedTx>) -> Result<()> {
         let pool = self.get_pool()?;
-        let stmts = named_txs.iter().map(|(name, tx_hash, contract_address)| {
+        let stmts = named_txs.iter().map(|tx| {
             format!(
                 "INSERT INTO named_txs (name, tx_hash, contract_address) VALUES ('{}', '{}', '{}');",
-                name,
-                tx_hash.encode_hex(),
-                contract_address.map(|a| a.encode_hex()).unwrap_or_default()
+                tx.name,
+                tx.tx_hash.encode_hex(),
+                tx.address.map(|a| a.encode_hex()).unwrap_or_default()
             )
         });
         pool.execute_batch(&format!(
@@ -243,20 +227,6 @@ impl DbOps for SqliteDb {
             .transpose()
             .map_err(|e| ContenderError::with_err(e, "invalid address"))?;
         Ok((tx_hash, contract_address))
-    }
-
-    fn insert_run_tx(&self, run_id: u64, run_tx: RunTx) -> Result<()> {
-        self.execute(
-            "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used) VALUES (?, ?, ?, ?, ?, ?)",
-            params![
-                run_id,
-                run_tx.tx_hash.encode_hex(),
-                run_tx.start_timestamp,
-                run_tx.end_timestamp,
-                run_tx.block_number,
-                run_tx.gas_used.to_string()
-            ],
-        )
     }
 
     fn insert_run_txs(&self, run_id: u64, run_txs: Vec<RunTx>) -> Result<()> {
@@ -309,32 +279,14 @@ mod tests {
     }
 
     #[test]
-    fn inserts_named_tx() {
-        let db = SqliteDb::new_memory();
-        db.create_tables().unwrap();
-        let tx_hash = TxHash::from_slice(&[0u8; 32]);
-        let contract_address = Some(Address::from_slice(&[0u8; 20]));
-        db.insert_named_tx("test_tx".to_string(), tx_hash, contract_address)
-            .unwrap();
-        let count: i64 = db
-            .get_pool()
-            .unwrap()
-            .query_row("SELECT COUNT(*) FROM named_txs", params![], |row| {
-                row.get(0)
-            })
-            .unwrap();
-        assert_eq!(count, 1);
-    }
-
-    #[test]
-    fn insert_named_txs() {
+    fn inserts_named_txs() {
         let db = SqliteDb::new_memory();
         db.create_tables().unwrap();
         let tx_hash = TxHash::from_slice(&[0u8; 32]);
         let contract_address = Some(Address::from_slice(&[0u8; 20]));
         db.insert_named_txs(vec![
-            ("test_tx".to_string(), tx_hash, contract_address),
-            ("test_tx2".to_string(), tx_hash, contract_address),
+            NamedTx::new("test_tx".to_string(), tx_hash, contract_address),
+            NamedTx::new("test_tx2".to_string(), tx_hash, contract_address),
         ])
         .unwrap();
         let count: i64 = db
