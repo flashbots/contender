@@ -71,7 +71,7 @@ where
             .map(|slice| slice.to_vec())
             .collect();
         let mut block_offset = 0;
-        let mut last_block_number = Default::default();
+        let mut last_block_number = 0;
 
         // get chain id before we start spamming
         let chain_id = self
@@ -241,7 +241,7 @@ where
             let _ = task.await;
         }
 
-        // re-iterate through target block range in case there are any txs left in the cache
+        // wait until there are no txs left in the cache, or until we time out
         let mut timeout_counter = 0;
         if let Some(run_id) = run_id {
             loop {

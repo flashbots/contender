@@ -1,4 +1,4 @@
-use crate::db::DbOps;
+use crate::db::{DbOps, NamedTx};
 use crate::error::ContenderError;
 use crate::generator::templater::Templater;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
@@ -112,10 +112,13 @@ where
                 let receipt = res.get_receipt().await.expect("failed to get receipt");
                 println!("contract address: {:?}", receipt.contract_address);
                 let contract_address = receipt.contract_address;
-                db.insert_named_tx(
-                    tx_req.name.unwrap_or_default(),
-                    receipt.transaction_hash,
-                    contract_address,
+                db.insert_named_txs(
+                    NamedTx::new(
+                        tx_req.name.unwrap_or_default(),
+                        receipt.transaction_hash,
+                        contract_address,
+                    )
+                    .into(),
                 )
                 .expect("failed to insert tx into db");
             });
@@ -174,8 +177,11 @@ where
                     .expect("failed to send tx");
                 let receipt = res.get_receipt().await.expect("failed to get receipt");
                 if let Some(name) = tx_req.name {
-                    db.insert_named_tx(name, receipt.transaction_hash, receipt.contract_address)
-                        .expect("failed to insert tx into db");
+                    db.insert_named_txs(
+                        NamedTx::new(name, receipt.transaction_hash, receipt.contract_address)
+                            .into(),
+                    )
+                    .expect("failed to insert tx into db");
                 }
             });
             Ok(Some(handle))
