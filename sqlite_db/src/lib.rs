@@ -237,21 +237,6 @@ impl DbOps for SqliteDb {
         Ok(res.into())
     }
 
-    fn insert_run_tx(&self, run_id: u64, run_tx: RunTx) -> Result<()> {
-        self.execute(
-            "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            params![
-                run_id,
-                run_tx.tx_hash.encode_hex(),
-                run_tx.start_timestamp,
-                run_tx.end_timestamp,
-                run_tx.block_number,
-                run_tx.gas_used.to_string(),
-                run_tx.kind,
-            ],
-        )
-    }
-
     fn insert_run_txs(&self, run_id: u64, run_txs: Vec<RunTx>) -> Result<()> {
         let pool = self.get_pool()?;
         let stmts = run_txs.iter().map(|tx| {
