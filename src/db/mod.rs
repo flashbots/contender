@@ -12,7 +12,7 @@ pub struct RunTx {
     pub end_timestamp: usize,
     pub block_number: u64,
     pub gas_used: u128,
-    pub kind: String,
+    pub kind: Option<String>,
 }
 
 pub trait DbOps {

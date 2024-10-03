@@ -83,7 +83,7 @@ struct RunTxRow {
     end_timestamp: usize,
     block_number: u64,
     gas_used: String,
-    kind: String,
+    kind: Option<String>,
 }
 
 impl RunTxRow {
@@ -275,7 +275,7 @@ impl DbOps for SqliteDb {
                 tx.end_timestamp,
                 tx.block_number,
                 tx.gas_used.to_string(),
-                tx.kind,
+                tx.kind.to_owned().unwrap_or("NULL".to_string()),
             )
         });
         pool.execute_batch(&format!(
@@ -365,7 +365,7 @@ mod tests {
                 end_timestamp: 200,
                 block_number: 1,
                 gas_used: 100,
-                kind: "test".to_string(),
+                kind: Some("test".to_string()),
             },
             RunTx {
                 tx_hash: TxHash::from_slice(&[1u8; 32]),
@@ -373,7 +373,7 @@ mod tests {
                 end_timestamp: 300,
                 block_number: 2,
                 gas_used: 200,
-                kind: "test".to_string(),
+                kind: Some("test".to_string()),
             },
         ];
         db.insert_run_txs(run_id as u64, run_txs).unwrap();

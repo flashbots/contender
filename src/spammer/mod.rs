@@ -74,8 +74,7 @@ impl OnTxSent for LogCallback {
         let kind = extra
             .as_ref()
             .map(|e| e.get("kind").map(|k| k.to_string()))
-            .flatten()
-            .unwrap_or("".to_string());
+            .flatten();
         let handle = tokio::task::spawn(async move {
             let res = PendingTransactionBuilder::from_config(&rpc, tx_response);
             let tx_hash = res.tx_hash();

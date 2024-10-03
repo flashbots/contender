@@ -13,7 +13,7 @@ enum TxActorMessage {
     SentRunTx {
         tx_hash: TxHash,
         start_timestamp: usize,
-        kind: String,
+        kind: Option<String>,
         on_receipt: oneshot::Sender<()>,
     },
     FlushCache {
@@ -37,11 +37,11 @@ where
 pub struct PendingRunTx {
     tx_hash: TxHash,
     start_timestamp: usize,
-    kind: String,
+    kind: Option<String>,
 }
 
 impl PendingRunTx {
-    pub fn new(tx_hash: TxHash, start_timestamp: usize, kind: String) -> Self {
+    pub fn new(tx_hash: TxHash, start_timestamp: usize, kind: Option<String>) -> Self {
         Self {
             tx_hash,
             start_timestamp,
@@ -191,7 +191,7 @@ impl TxActorHandle {
         &self,
         tx_hash: TxHash,
         start_timestamp: usize,
-        kind: String,
+        kind: Option<String>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let (sender, receiver) = oneshot::channel();
         self.sender
