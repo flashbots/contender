@@ -1,12 +1,16 @@
 mod commands;
 
 use alloy::{
-    providers::ProviderBuilder, signers::local::PrivateKeySigner, transports::http::reqwest::Url,
+    primitives::Address, providers::ProviderBuilder, signers::local::PrivateKeySigner,
+    transports::http::reqwest::Url,
 };
 use commands::{ContenderCli, ContenderSubcommand};
 use contender_core::{
     db::{DbOps, RunTx},
-    generator::{types::RpcProvider, RandSeed},
+    generator::{
+        types::{FunctionCallDefinition, RpcProvider},
+        RandSeed,
+    },
     spammer::{BlockwiseSpammer, LogCallback, NilCallback, TimedSpammer},
     test_scenario::TestScenario,
 };
@@ -22,6 +26,26 @@ static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     SqliteDb::from_file("contender.db").expect("failed to open contender.db")
 });
 
+fn get_signers_with_defaults(private_keys: Option<Vec<String>>) -> Vec<PrivateKeySigner> {
+    if private_keys.is_none() {
+        println!("No private keys provided. Using default private keys.");
+    }
+    let private_keys = private_keys.unwrap_or_default();
+    let private_keys = [
+        private_keys,
+        DEFAULT_PRV_KEYS
+            .into_iter()
+            .map(|s| s.to_owned())
+            .collect::<Vec<_>>(),
+    ]
+    .concat();
+
+    private_keys
+        .into_iter()
+        .map(|k| PrivateKeySigner::from_str(&k).expect("Invalid private key"))
+        .collect::<Vec<PrivateKeySigner>>()
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = ContenderCli::parse_args();
@@ -35,11 +59,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
             let testconfig: TestConfig = TestConfig::from_file(&testfile)?;
 
-            let private_keys = private_keys.expect("Must provide private keys for setup");
-            let signers: Vec<PrivateKeySigner> = private_keys
-                .iter()
-                .map(|k| PrivateKeySigner::from_str(k).expect("Invalid private key"))
-                .collect();
+            let signers = get_signers_with_defaults(private_keys);
+            let setup = testconfig
+                .setup
+                .as_ref()
+                .expect("No setup function calls found in testfile");
+            check_private_keys(setup, &signers);
 
             let scenario = TestScenario::new(
                 testconfig.to_owned(),
@@ -63,26 +88,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             private_keys,
             disable_reports,
         } => {
-            let testfile = TestConfig::from_file(&testfile)?;
+            let testconfig = TestConfig::from_file(&testfile)?;
             let rand_seed = seed.map(|s| RandSeed::from_str(&s)).unwrap_or_default();
             let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
             let rpc_client = Arc::new(ProviderBuilder::new().on_http(url.to_owned()));
             let duration = duration.unwrap_or_default();
 
-            let signers = private_keys.as_ref().map(|keys| {
-                keys.iter()
-                    .map(|k| PrivateKeySigner::from_str(k).expect("Invalid private key"))
-                    .collect::<Vec<PrivateKeySigner>>()
-            });
+            let signers = get_signers_with_defaults(private_keys);
+            let spam = testconfig
+                .spam
+                .as_ref()
+                .expect("No spam function calls found in testfile");
+            check_private_keys(spam, &signers);
 
             if txs_per_block.is_some() && txs_per_second.is_some() {
                 panic!("Cannot set both --txs-per-block and --txs-per-second");
             }
 
             if let Some(txs_per_block) = txs_per_block {
-                let signers = signers.expect("must provide private keys for blockwise spamming");
                 let scenario =
-                    TestScenario::new(testfile, DB.clone().into(), url, rand_seed, &signers);
+                    TestScenario::new(testconfig, DB.clone().into(), url, rand_seed, &signers);
                 println!("Blockwise spamming with {} txs per block", txs_per_block);
                 match spam_callback_default(!disable_reports, rpc_client.into()).await {
                     SpamCallbackType::Log(cback) => {
@@ -106,7 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // private keys are not used for timed spamming; timed spamming only works with unlocked accounts
-            let scenario = TestScenario::new(testfile, DB.clone().into(), url, rand_seed, &[]);
+            let scenario = TestScenario::new(testconfig, DB.clone().into(), url, rand_seed, &[]);
             let tps = txs_per_second.unwrap_or(10);
             println!("Timed spamming with {} txs per second", tps);
             let spammer = TimedSpammer::new(scenario, NilCallback::new());
@@ -141,7 +166,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut writer = WriterBuilder::new()
                     .has_headers(true)
                     .from_writer(std::io::stdout());
-                write_run_txs(&mut writer, &txs)?;
+                write_run_txs(&mut writer, &txs)?; // TODO: write a macro that lets us generalize the writer param to write_run_txs, then refactor this duplication
             };
         }
     }
@@ -152,6 +177,32 @@ enum SpamCallbackType {
     Log(LogCallback),
     Nil(NilCallback),
 }
+
+/// Panics if any of the function calls' `from` addresses do not have a corresponding private key.
+fn check_private_keys(fn_calls: &[FunctionCallDefinition], prv_keys: &[PrivateKeySigner]) {
+    for fn_call in fn_calls {
+        let address = fn_call
+            .from
+            .parse::<Address>()
+            .expect("invalid 'from' address");
+        if prv_keys.iter().all(|k| k.address() != address) {
+            panic!("No private key found for address: {}", address);
+        }
+    }
+}
+
+const DEFAULT_PRV_KEYS: [&str; 10] = [
+    "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+    "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+    "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
+    "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6",
+    "0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a",
+    "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba",
+    "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e",
+    "0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356",
+    "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97",
+    "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6",
+];
 
 async fn spam_callback_default(
     log_txs: bool,
