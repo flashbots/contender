@@ -17,7 +17,7 @@ Contender is a high-performance Ethereum network spammer and testing tool design
 To install the Contender CLI, you need to have the [Rust toolchain](https://rustup.rs/) installed on your system. Then build the project from source:
 
 ```bash
-git clone https://github.com/zeroxbrock/contender.git
+git clone https://github.com/flashbots/contender.git
 cd contender/cli
 cargo build --release
 alias contender="$PWD/target/release/contender_cli"
@@ -48,9 +48,9 @@ To use Contender as a library in your Rust project, add the crates you need to y
 ```toml
 [dependencies]
 ...
-contender = { git = "https://github.com/zeroxbrock/contender" }
-contender_sqlite = { git = "https://github.com/zeroxbrock/contender" }
-contender_testfile = { git = "https://github.com/zeroxbrock/contender" }
+contender = { git = "https://github.com/flashbots/contender" }
+contender_sqlite = { git = "https://github.com/flashbots/contender" }
+contender_testfile = { git = "https://github.com/flashbots/contender" }
 # not necessarily required, but recommended:
 tokio = { version = "1.40.0", features = ["rt-multi-thread"] }
 ```
