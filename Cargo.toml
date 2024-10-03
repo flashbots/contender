@@ -16,7 +16,6 @@ serde = { workspace = true }
 futures = "0.3.30"
 async-trait = "0.1.82"
 tokio = { workspace = true }
-regex = "1.10.6"
 
 [workspace] 
 members = ["cli", "sqlite_db", "testfile"]
