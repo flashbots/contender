@@ -116,6 +116,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if txs_per_block.is_some() && txs_per_second.is_some() {
                 panic!("Cannot set both --txs-per-block and --txs-per-second");
             }
+            if txs_per_block.is_none() && txs_per_second.is_none() {
+                panic!("Must set either --txs-per-block (--tpb) or --txs-per-second (--tps)");
+            }
 
             if let Some(txs_per_block) = txs_per_block {
                 let scenario =
