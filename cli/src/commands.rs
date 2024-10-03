@@ -74,6 +74,14 @@ May be specified multiple times."
             visible_aliases = &["dr"]
         )]
         disable_reports: bool,
+
+        /// The minimum balance to check for each private key.
+        #[arg(
+            long,
+            long_help = "The minimum balance to check for each private key in decimal-ETH format (`--min-balance 1.5` means 1.5 * 1e18 wei).",
+            default_value = "1.0"
+        )]
+        min_balance: String,
     },
 
     #[command(
@@ -95,6 +103,14 @@ May be specified multiple times."
 May be specified multiple times."
         )]
         private_keys: Option<Vec<String>>,
+
+        /// The minimum balance to check for each private key.
+        #[arg(
+            long,
+            long_help = "The minimum balance to check for each private key in decimal-ETH format (ex: `--min-balance 1.5` means 1.5 * 1e18 wei).",
+            default_value = "1.0"
+        )]
+        min_balance: String,
     },
 
     #[command(
