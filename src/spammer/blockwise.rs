@@ -71,7 +71,7 @@ where
             .map(|slice| slice.to_vec())
             .collect();
         let mut block_offset = 0;
-        let mut last_block_number;
+        let mut last_block_number = 0;
 
         // get chain id before we start spamming
         let chain_id = self
@@ -93,11 +93,7 @@ where
 
         let mut tasks = vec![];
         let mut gas_limits = HashMap::<FixedBytes<4>, u128>::new();
-        let first_block_number = self
-            .rpc_client
-            .get_block_number()
-            .await
-            .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
+
         // get nonce for each signer and put it into a hashmap
         let mut nonces = HashMap::new();
         for (addr, _) in self.scenario.wallet_map.iter() {
@@ -119,7 +115,7 @@ where
                 .await
                 .map_err(|e| ContenderError::with_err(e, "failed to get block"))?
                 .ok_or(ContenderError::SpamError("no block found", None))?;
-            last_block_number = block.header.number + 1;
+            last_block_number = block.header.number;
 
             // get gas price
             let gas_price = self
@@ -248,8 +244,7 @@ where
             let _ = task.await;
         }
 
-        // re-iterate through target block range in case there are any txs left in the cache
-        last_block_number = first_block_number;
+        // wait until there are no txs left in the cache, or until we time out
         let mut timeout_counter = 0;
         if let Some(run_id) = run_id {
             loop {

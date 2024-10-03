@@ -61,7 +61,7 @@ where
             placeholder_map.insert(
                 template_key,
                 template_value
-                    .1
+                    .address
                     .map(|a| self.encode_contract_address(&a))
                     .unwrap_or_default(),
             );
