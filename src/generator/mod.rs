@@ -36,12 +36,8 @@ impl NamedTxRequest {
         }
     }
 
-    pub fn set_kind(&self, kind: Option<String>) -> Self {
-        Self {
-            name: self.name.to_owned(),
-            kind,
-            tx: self.tx.to_owned(),
-        }
+    pub fn set_kind(&mut self, kind: String) {
+        self.kind = Some(kind);
     }
 }
 
@@ -198,9 +194,9 @@ where
                         let mut step = step.to_owned();
                         step.args = Some(args);
 
-                        let tx: NamedTxRequest = NamedTxRequest::from(templater
-                            .template_function_call(&step, &placeholder_map)?)
-                            .set_kind(step.kind.to_owned());
+                        let mut tx: NamedTxRequest = NamedTxRequest::from(templater
+                            .template_function_call(&step, &placeholder_map)?);
+                        tx.set_kind(step.kind.to_owned().unwrap_or("default".to_string()));
                         let handle = on_spam_setup(tx.to_owned())?;
                         if let Some(handle) = handle {
                             handle

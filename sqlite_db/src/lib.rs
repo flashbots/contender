@@ -142,7 +142,7 @@ impl DbOps for SqliteDb {
                 end_timestamp INTEGER NOT NULL,
                 block_number INTEGER NOT NULL,
                 gas_used TEXT NOT NULL,
-                kind TEXT NOT NULL,
+                kind TEXT,
                 FOREIGN KEY(run_id) REFERENCES runs(runid)
             )",
             params![],
