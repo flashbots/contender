@@ -1,7 +1,12 @@
 mod commands;
 
 use alloy::{
-    primitives::Address, providers::ProviderBuilder, signers::local::PrivateKeySigner,
+    primitives::{
+        utils::{format_ether, parse_ether},
+        Address, U256,
+    },
+    providers::{Provider, ProviderBuilder},
+    signers::local::PrivateKeySigner,
     transports::http::reqwest::Url,
 };
 use commands::{ContenderCli, ContenderSubcommand};
@@ -55,9 +60,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             testfile,
             rpc_url,
             private_keys,
+            min_balance,
         } => {
             let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
+            let rpc_client = ProviderBuilder::new().on_http(url.to_owned());
             let testconfig: TestConfig = TestConfig::from_file(&testfile)?;
+            let min_balance = parse_ether(&min_balance)?;
 
             let signers = get_signers_with_defaults(private_keys);
             let setup = testconfig
@@ -65,6 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .as_ref()
                 .expect("No setup function calls found in testfile");
             check_private_keys(setup, &signers);
+            check_balances(&signers, min_balance, &rpc_client).await;
 
             let scenario = TestScenario::new(
                 testconfig.to_owned(),
@@ -87,12 +96,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             seed,
             private_keys,
             disable_reports,
+            min_balance,
         } => {
             let testconfig = TestConfig::from_file(&testfile)?;
             let rand_seed = seed.map(|s| RandSeed::from_str(&s)).unwrap_or_default();
             let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
-            let rpc_client = Arc::new(ProviderBuilder::new().on_http(url.to_owned()));
+            let rpc_client = ProviderBuilder::new().on_http(url.to_owned());
             let duration = duration.unwrap_or_default();
+            let min_balance = parse_ether(&min_balance)?;
 
             let signers = get_signers_with_defaults(private_keys);
             let spam = testconfig
@@ -100,6 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .as_ref()
                 .expect("No spam function calls found in testfile");
             check_private_keys(spam, &signers);
+            check_balances(&signers, min_balance, &rpc_client).await;
 
             if txs_per_block.is_some() && txs_per_second.is_some() {
                 panic!("Cannot set both --txs-per-block and --txs-per-second");
@@ -109,7 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let scenario =
                     TestScenario::new(testconfig, DB.clone().into(), url, rand_seed, &signers);
                 println!("Blockwise spamming with {} txs per block", txs_per_block);
-                match spam_callback_default(!disable_reports, rpc_client.into()).await {
+                match spam_callback_default(!disable_reports, Arc::new(rpc_client).into()).await {
                     SpamCallbackType::Log(cback) => {
                         let timestamp = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
@@ -130,8 +142,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
 
-            // private keys are not used for timed spamming; timed spamming only works with unlocked accounts
-            let scenario = TestScenario::new(testconfig, DB.clone().into(), url, rand_seed, &[]);
+            // NOTE: private keys are not currently used for timed spamming.
+            // Timed spamming only works with unlocked accounts, because it uses the `eth_sendTransaction` RPC method.
+            let scenario =
+                TestScenario::new(testconfig, DB.clone().into(), url, rand_seed, &signers);
             let tps = txs_per_second.unwrap_or(10);
             println!("Timed spamming with {} txs per second", tps);
             let spammer = TimedSpammer::new(scenario, NilCallback::new());
@@ -214,6 +228,25 @@ async fn spam_callback_default(
         }
     }
     SpamCallbackType::Nil(NilCallback::new())
+}
+
+async fn check_balances(
+    prv_keys: &[PrivateKeySigner],
+    min_balance: U256,
+    rpc_client: &RpcProvider,
+) {
+    for prv_key in prv_keys {
+        let address = prv_key.address();
+        let balance = rpc_client.get_balance(address).await.unwrap();
+        if balance < min_balance {
+            panic!(
+                "Insufficient balance for address {}. Required={} Actual={}. If needed, use --min-balance to set a lower threshold.",
+                address,
+                format_ether(min_balance),
+                format_ether(balance)
+            );
+        }
+    }
 }
 
 fn write_run_txs<T: std::io::Write>(
