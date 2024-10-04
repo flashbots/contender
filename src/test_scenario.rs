@@ -1,6 +1,7 @@
 use crate::db::{DbOps, NamedTx};
 use crate::error::ContenderError;
 use crate::generator::templater::Templater;
+use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use alloy::hex::ToHexExt;
 use alloy::network::{EthereumWallet, TransactionBuilder};
@@ -90,7 +91,10 @@ where
                 .wallet(wallet_conf)
                 .on_http(self.rpc_url.to_owned());
 
-            println!("deploying contract: {:?}", tx_req.name.as_ref().unwrap_or(&"".to_string()));
+            println!(
+                "deploying contract: {:?}",
+                tx_req.name.as_ref().unwrap_or(&"".to_string())
+            );
             let handle = tokio::task::spawn(async move {
                 // estimate gas limit
                 let gas_limit = wallet
@@ -110,16 +114,15 @@ where
                     .await
                     .expect("failed to send tx");
                 let receipt = res.get_receipt().await.expect("failed to get receipt");
-                println!("contract address: {:?}", receipt.contract_address
-                    .as_ref()
-                    .map(|a| a.encode_hex())
-                    .unwrap_or("".to_string()));
-                let contract_address = receipt.contract_address;
+                println!(
+                    "contract address: {}",
+                    receipt.contract_address.unwrap_or_default()
+                );
                 db.insert_named_txs(
                     NamedTx::new(
                         tx_req.name.unwrap_or_default(),
                         receipt.transaction_hash,
-                        contract_address,
+                        receipt.contract_address,
                     )
                     .into(),
                 )
@@ -135,12 +138,13 @@ where
     pub async fn run_setup(&self) -> Result<(), ContenderError> {
         self.load_txs(PlanType::Setup(|tx_req| {
             /* callback */
+            println!("{}", self.format_setup_log(&tx_req));
+
             // copy data/refs from self before spawning the task
             let from = tx_req.tx.from.as_ref().ok_or(ContenderError::SetupError(
                 "failed to get 'from' address",
                 None,
             ))?;
-            println!("from: {:?}", from);
             let wallet = self
                 .wallet_map
                 .get(from)
@@ -151,8 +155,6 @@ where
                 .to_owned();
             let db = self.db.clone();
             let rpc_url = self.rpc_url.clone();
-
-            println!("running setup: {:?}", tx_req.name.as_ref().unwrap_or(&"".to_string()));
             let handle = tokio::task::spawn(async move {
                 let wallet = ProviderBuilder::new()
                     .with_simple_nonce_management()
@@ -193,6 +195,37 @@ where
         .await?;
 
         Ok(())
+    }
+
+    fn format_setup_log(&self, tx_req: &NamedTxRequest) -> String {
+        let to_address = tx_req.tx.to.unwrap_or_default();
+        let to_address = to_address.to();
+
+        // lookup name of contract if it exists
+        let to_name = to_address.map(|a| {
+            let named_tx = self.db.get_named_tx_by_address(&a);
+            named_tx.map(|t| t.name).unwrap_or_default()
+        });
+
+        format!(
+            "running setup: from={} to={} {}",
+            tx_req
+                .tx
+                .from
+                .as_ref()
+                .map(|a| a.encode_hex())
+                .unwrap_or_default(),
+            if let Some(to) = to_name {
+                to
+            } else {
+                to_address.map(|a| a.encode_hex()).unwrap_or_default()
+            },
+            if let Some(kind) = &tx_req.kind {
+                format!("kind={}", kind)
+            } else {
+                "".to_string()
+            },
+        )
     }
 }
 

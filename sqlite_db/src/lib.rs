@@ -237,6 +237,27 @@ impl DbOps for SqliteDb {
         Ok(res.into())
     }
 
+    fn get_named_tx_by_address(&self, address: &Address) -> Result<NamedTx> {
+        let pool = self.get_pool()?;
+        let mut stmt = pool
+            .prepare(
+                "SELECT name, tx_hash, contract_address FROM named_txs WHERE contract_address = ?1 ORDER BY id DESC LIMIT 1",
+            )
+            .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
+
+        let row = stmt
+            .query_map(params![address.encode_hex()], |row| {
+                NamedTxRow::from_row(row)
+            })
+            .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
+        let res = row
+            .last()
+            .transpose()
+            .map_err(|e| ContenderError::with_err(e, "no row found"))?
+            .ok_or(ContenderError::DbError("no existing row", None))?;
+        Ok(res.into())
+    }
+
     fn insert_run_txs(&self, run_id: u64, run_txs: Vec<RunTx>) -> Result<()> {
         let pool = self.get_pool()?;
         let stmts = run_txs.iter().map(|tx| {
