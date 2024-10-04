@@ -27,23 +27,71 @@ pub mod types;
 /// Utility functions used in the generator module.
 pub mod util;
 
-impl NamedTxRequest {
-    pub fn with_name(name: &str, tx: TransactionRequest) -> Self {
+/// Syntactical sugar for creating a [`NamedTxRequest`].
+///
+/// This is useful for imperatively assigning optional fields to a tx.
+/// It is _not_ useful when you're dynamically assigning these fields (i.e. you have an Option to check first).
+///
+/// ### Example:
+/// ```
+/// use alloy::rpc::types::TransactionRequest;
+/// # use contender_core::generator::NamedTxRequestBuilder;
+///
+/// let tx_req = TransactionRequest::default();
+/// let named_tx_req = NamedTxRequestBuilder::new(tx_req)
+///     .with_name("unique_tx_name")
+///     .with_kind("tx_kind")
+///     .build();
+/// assert_eq!(named_tx_req.name, Some("unique_tx_name".to_owned()));
+/// assert_eq!(named_tx_req.kind, Some("tx_kind".to_owned()));
+/// ```
+pub struct NamedTxRequestBuilder {
+    name: Option<String>,
+    kind: Option<String>,
+    tx: TransactionRequest,
+}
+
+impl NamedTxRequestBuilder {
+    pub fn new(tx: TransactionRequest) -> Self {
         Self {
-            name: Some(name.to_string()),
+            name: None,
             kind: None,
             tx,
         }
     }
 
-    pub fn set_kind(&mut self, kind: String) {
-        self.kind = Some(kind);
+    pub fn with_name(&mut self, name: &str) -> &mut Self {
+        self.name = Some(name.to_owned());
+        self
+    }
+
+    pub fn with_kind(&mut self, kind: &str) -> &mut Self {
+        self.kind = Some(kind.to_owned());
+        self
+    }
+
+    pub fn build(&self) -> NamedTxRequest {
+        NamedTxRequest::new(
+            self.tx.to_owned(),
+            self.name.to_owned(),
+            self.kind.to_owned(),
+        )
+    }
+}
+
+impl NamedTxRequest {
+    pub fn new(tx: TransactionRequest, name: Option<String>, kind: Option<String>) -> Self {
+        Self { name, kind, tx }
     }
 }
 
 impl From<TransactionRequest> for NamedTxRequest {
     fn from(tx: TransactionRequest) -> Self {
-        Self { name: None, kind: None, tx }
+        Self {
+            name: None,
+            kind: None,
+            tx,
+        }
     }
 }
 
@@ -108,11 +156,13 @@ where
                     // lookup placeholder values in DB & update map before templating
                     templater.find_placeholder_values(&step.bytecode, &mut placeholder_map, db)?;
 
-                    // create txs with template values
-                    let tx = NamedTxRequest::with_name(
-                        &step.name,
+                    // create tx with template values
+                    let tx = NamedTxRequestBuilder::new(
                         templater.template_contract_deploy(step, &placeholder_map)?,
-                    );
+                    )
+                    .with_name(&step.name)
+                    .build();
+
                     let handle = on_create_step(tx.to_owned())?;
                     if let Some(handle) = handle {
                         handle.await.map_err(|e| {
@@ -128,7 +178,7 @@ where
                     // lookup placeholders in DB & update map before templating
                     templater.find_fncall_placeholders(step, db, &mut placeholder_map)?;
 
-                    // create txs with template values
+                    // setup tx with template values
                     let tx: NamedTxRequest = templater
                         .template_function_call(step, &placeholder_map)?
                         .into();
@@ -194,9 +244,12 @@ where
                         let mut step = step.to_owned();
                         step.args = Some(args);
 
-                        let mut tx: NamedTxRequest = NamedTxRequest::from(templater
-                            .template_function_call(&step, &placeholder_map)?);
-                        tx.set_kind(step.kind.to_owned().unwrap_or("default".to_string()));
+                        let tx = NamedTxRequest::new(
+                            templater.template_function_call(&step, &placeholder_map)?,
+                            None,
+                            step.kind,
+                        );
+
                         let handle = on_spam_setup(tx.to_owned())?;
                         if let Some(handle) = handle {
                             handle
