@@ -154,7 +154,7 @@ where
                 let wallet = ProviderBuilder::new()
                     .with_simple_nonce_management()
                     .wallet(wallet)
-                    .on_http(rpc_url.to_owned());
+                    .on_http(rpc_url);
 
                 let chain_id = wallet.get_chain_id().await.expect("failed to get chain id");
                 let gas_price = wallet
