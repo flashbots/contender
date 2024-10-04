@@ -261,16 +261,28 @@ impl DbOps for SqliteDb {
     fn insert_run_txs(&self, run_id: u64, run_txs: Vec<RunTx>) -> Result<()> {
         let pool = self.get_pool()?;
         let stmts = run_txs.iter().map(|tx| {
-            format!(
-                "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind) VALUES ({}, '{}', {}, {}, {}, '{}', '{}');",
-                run_id,
-                tx.tx_hash.encode_hex(),
-                tx.start_timestamp,
-                tx.end_timestamp,
-                tx.block_number,
-                tx.gas_used.to_string(),
-                tx.kind.to_owned().unwrap_or("NULL".to_string()),
-            )
+            if let Some(kind) = &tx.kind {
+                format!(
+                    "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind) VALUES ({}, '{}', {}, {}, {}, '{}', '{}');",
+                    run_id,
+                    tx.tx_hash.encode_hex(),
+                    tx.start_timestamp,
+                    tx.end_timestamp,
+                    tx.block_number,
+                    tx.gas_used.to_string(),
+                    kind,
+                )
+            } else {
+                format!(
+                    "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used) VALUES ({}, '{}', {}, {}, {}, '{}');",
+                    run_id,
+                    tx.tx_hash.encode_hex(),
+                    tx.start_timestamp,
+                    tx.end_timestamp,
+                    tx.block_number,
+                    tx.gas_used.to_string(),
+                )
+            }
         });
         pool.execute_batch(&format!(
             "BEGIN;

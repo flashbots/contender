@@ -160,10 +160,10 @@ where
                 nonces.insert(from.to_owned(), nonce + 1);
 
                 let fn_sig = FixedBytes::<4>::from_slice(
-                    tx.tx
+                    tx_req
+                        .input
+                        .input
                         .to_owned()
-                        .input
-                        .input
                         .map(|b| b.split_at(4).0.to_owned())
                         .expect("invalid function call")
                         .as_slice(),
@@ -196,6 +196,7 @@ where
 
                 // build, sign, and send tx in a new task (green thread)
                 let tx_handler = self.msg_handler.clone();
+                let tx_kind = tx.kind.to_owned();
                 tasks.push(task::spawn(async move {
                     let provider = ProviderBuilder::new()
                         .wallet(signer)
@@ -216,17 +217,15 @@ where
                         .send_transaction(full_tx)
                         .await
                         .expect("failed to send tx");
+                    let mut extra = HashMap::new();
+                    extra.insert("start_timestamp".to_owned(), start_timestamp.to_string());
+                    if let Some(kind) = tx_kind {
+                        extra.insert("kind".to_owned(), kind);
+                    }
                     let maybe_handle = callback_handler.on_tx_sent(
                         res.into_inner(),
                         tx,
-                        HashMap::from_iter([(
-                            "start_timestamp".to_owned(),
-                            start_timestamp.to_string(),
-                        ), (
-                            "kind".to_owned(),
-                            String::from("spam"),
-                        )])
-                        .into(),
+                        extra.into(),
                         Some(tx_handler),
                     );
                     if let Some(handle) = maybe_handle {
