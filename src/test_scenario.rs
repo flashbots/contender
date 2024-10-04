@@ -79,21 +79,21 @@ where
                 "failed to get 'from' address",
                 None,
             ))?;
-            let wallet = self
+            let wallet_conf = self
                 .wallet_map
                 .get(from)
                 .expect(&format!("couldn't find wallet for 'from' address {}", from))
                 .to_owned();
-            let provider = ProviderBuilder::new()
+            let wallet = ProviderBuilder::new()
                 // simple_nonce_management is unperformant but it's OK bc we're just deploying
                 .with_simple_nonce_management()
-                .wallet(wallet)
+                .wallet(wallet_conf)
                 .on_http(self.rpc_url.to_owned());
 
             println!("deploying contract: {:?}", tx_req.name);
             let handle = tokio::task::spawn(async move {
                 // estimate gas limit
-                let gas_limit = provider
+                let gas_limit = wallet
                     .estimate_gas(&tx_req.tx)
                     .await
                     .expect("failed to estimate gas");
@@ -105,7 +105,7 @@ where
                     .with_chain_id(chain_id)
                     .with_gas_limit(gas_limit);
 
-                let res = provider
+                let res = wallet
                     .send_transaction(tx)
                     .await
                     .expect("failed to send tx");
@@ -147,22 +147,21 @@ where
                 ))?
                 .to_owned();
             let db = self.db.clone();
-            let provider = ProviderBuilder::new()
-                .with_simple_nonce_management()
-                .wallet(wallet)
-                .on_http(self.rpc_url.to_owned());
+            let rpc_url = self.rpc_url.clone();
 
             println!("running setup: {:?}", tx_req.name);
             let handle = tokio::task::spawn(async move {
-                let chain_id = provider
-                    .get_chain_id()
-                    .await
-                    .expect("failed to get chain id");
-                let gas_price = provider
+                let wallet = ProviderBuilder::new()
+                    .with_simple_nonce_management()
+                    .wallet(wallet)
+                    .on_http(rpc_url.to_owned());
+
+                let chain_id = wallet.get_chain_id().await.expect("failed to get chain id");
+                let gas_price = wallet
                     .get_gas_price()
                     .await
                     .expect("failed to get gas price");
-                let gas_limit = provider
+                let gas_limit = wallet
                     .estimate_gas(&tx_req.tx)
                     .await
                     .expect("failed to estimate gas");
@@ -171,10 +170,12 @@ where
                     .with_gas_price(gas_price)
                     .with_chain_id(chain_id)
                     .with_gas_limit(gas_limit);
-                let res = provider
+                let res = wallet
                     .send_transaction(tx)
                     .await
                     .expect("failed to send tx");
+
+                // get receipt using provider (not wallet) to allow any receipt type (support non-eth chains)
                 let receipt = res.get_receipt().await.expect("failed to get receipt");
                 if let Some(name) = tx_req.name {
                     db.insert_named_txs(

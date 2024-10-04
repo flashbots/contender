@@ -6,7 +6,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::{
     db::{DbOps, RunTx},
     error::ContenderError,
-    generator::types::RpcProvider,
+    generator::types::AnyProvider,
 };
 
 enum TxActorMessage {
@@ -29,7 +29,7 @@ where
     receiver: mpsc::Receiver<TxActorMessage>,
     db: Arc<D>,
     cache: Vec<PendingRunTx>,
-    rpc: Arc<RpcProvider>,
+    rpc: Arc<AnyProvider>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -54,7 +54,7 @@ where
     pub fn new(
         receiver: mpsc::Receiver<TxActorMessage>,
         db: Arc<D>,
-        rpc: Arc<RpcProvider>,
+        rpc: Arc<AnyProvider>,
     ) -> Self {
         Self {
             receiver,
@@ -176,7 +176,7 @@ impl TxActorHandle {
     pub fn new<D: DbOps + Send + Sync + 'static>(
         bufsize: usize,
         db: Arc<D>,
-        rpc: Arc<RpcProvider>,
+        rpc: Arc<AnyProvider>,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(bufsize);
         let mut actor = TxActor::new(receiver, db, rpc);
