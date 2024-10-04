@@ -41,11 +41,11 @@ pub struct PendingRunTx {
 }
 
 impl PendingRunTx {
-    pub fn new(tx_hash: TxHash, start_timestamp: usize, kind: Option<String>) -> Self {
+    pub fn new(tx_hash: TxHash, start_timestamp: usize, kind: Option<&str>) -> Self {
         Self {
             tx_hash,
             start_timestamp,
-            kind,
+            kind: kind.map(|s| s.to_owned()),
         }
     }
 }
