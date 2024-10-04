@@ -3,8 +3,8 @@ pub mod timed;
 pub mod tx_actor;
 pub mod util;
 
-use crate::generator::{types::RpcProvider, NamedTxRequest};
-use alloy::providers::{PendingTransactionBuilder, PendingTransactionConfig};
+use crate::generator::{types::AnyProvider, NamedTxRequest};
+use alloy::providers::PendingTransactionConfig;
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
 use tx_actor::TxActorHandle;
@@ -35,11 +35,11 @@ impl NilCallback {
 }
 
 pub struct LogCallback {
-    pub rpc_provider: Arc<RpcProvider>,
+    pub rpc_provider: Arc<AnyProvider>,
 }
 
 impl LogCallback {
-    pub fn new(rpc_provider: Arc<RpcProvider>) -> Self {
+    pub fn new(rpc_provider: Arc<AnyProvider>) -> Self {
         Self { rpc_provider }
     }
 }
@@ -65,7 +65,6 @@ impl OnTxSent for LogCallback {
         extra: Option<HashMap<String, String>>,
         tx_actor: Option<Arc<TxActorHandle>>,
     ) -> Option<JoinHandle<()>> {
-        let rpc = self.rpc_provider.clone();
         let start_timestamp = extra
             .as_ref()
             .map(|e| e.get("start_timestamp").map(|t| t.parse::<usize>()))
@@ -76,11 +75,9 @@ impl OnTxSent for LogCallback {
             .map(|e| e.get("kind").map(|k| k.to_string()))
             .flatten();
         let handle = tokio::task::spawn(async move {
-            let res = PendingTransactionBuilder::from_config(&rpc, tx_response);
-            let tx_hash = res.tx_hash();
             if let Some(tx_actor) = tx_actor {
                 tx_actor
-                    .cache_run_tx(*tx_hash, start_timestamp, kind)
+                    .cache_run_tx(*tx_response.tx_hash(), start_timestamp, kind)
                     .await
                     .expect("failed to cache run tx");
             }
