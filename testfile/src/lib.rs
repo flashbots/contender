@@ -105,7 +105,7 @@ pub mod tests {
     use alloy::{
         hex::ToHexExt,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::Address,
+        primitives::{Address, U256},
         signers::local::PrivateKeySigner,
     };
     use contender_core::{
@@ -273,10 +273,7 @@ pub mod tests {
         let setup = test_file.setup.unwrap();
         let spam = test_file.spam.unwrap();
 
-        assert_eq!(
-            env.get("env1").unwrap(),
-            "env1"
-        );
+        assert_eq!(env.get("env1").unwrap(), "env1");
         assert_eq!(
             spam[0].from,
             "0x70997970C51812dc3A010C7d01b50e0d17dc79C8".to_owned()
@@ -284,6 +281,11 @@ pub mod tests {
         assert_eq!(setup.len(), 1);
         assert_eq!(setup[0].value, Some("1234".to_owned()));
         assert_eq!(spam[0].fuzz.as_ref().unwrap()[0].param, "amountIn");
+        assert_eq!(spam[0].fuzz.as_ref().unwrap()[0].min, Some(U256::from(1)));
+        assert_eq!(
+            spam[0].fuzz.as_ref().unwrap()[0].max,
+            Some(U256::from(100_000_000_000_000_000_u64))
+        );
         assert_eq!(spam[0].kind, Some("test".to_owned()));
     }
 
