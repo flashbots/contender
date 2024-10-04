@@ -1,6 +1,7 @@
 mod commands;
 
 use alloy::{
+    network::AnyNetwork,
     primitives::{
         utils::{format_ether, parse_ether},
         Address, U256,
@@ -13,7 +14,7 @@ use commands::{ContenderCli, ContenderSubcommand};
 use contender_core::{
     db::{DbOps, RunTx},
     generator::{
-        types::{FunctionCallDefinition, RpcProvider},
+        types::{AnyProvider, FunctionCallDefinition},
         RandSeed,
     },
     spammer::{BlockwiseSpammer, LogCallback, NilCallback, TimedSpammer},
@@ -63,7 +64,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             min_balance,
         } => {
             let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
-            let rpc_client = ProviderBuilder::new().on_http(url.to_owned());
+            let rpc_client = ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .on_http(url.to_owned());
             let testconfig: TestConfig = TestConfig::from_file(&testfile)?;
             let min_balance = parse_ether(&min_balance)?;
 
@@ -101,7 +104,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let testconfig = TestConfig::from_file(&testfile)?;
             let rand_seed = seed.map(|s| RandSeed::from_str(&s)).unwrap_or_default();
             let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
-            let rpc_client = ProviderBuilder::new().on_http(url.to_owned());
+            let rpc_client = ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .on_http(url.to_owned());
             let duration = duration.unwrap_or_default();
             let min_balance = parse_ether(&min_balance)?;
 
@@ -223,7 +228,7 @@ const DEFAULT_PRV_KEYS: [&str; 10] = [
 
 async fn spam_callback_default(
     log_txs: bool,
-    rpc_client: Option<Arc<RpcProvider>>,
+    rpc_client: Option<Arc<AnyProvider>>,
 ) -> SpamCallbackType {
     if let Some(rpc_client) = rpc_client {
         if log_txs {
@@ -236,7 +241,7 @@ async fn spam_callback_default(
 async fn check_balances(
     prv_keys: &[PrivateKeySigner],
     min_balance: U256,
-    rpc_client: &RpcProvider,
+    rpc_client: &AnyProvider,
 ) {
     for prv_key in prv_keys {
         let address = prv_key.address();

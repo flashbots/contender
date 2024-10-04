@@ -1,4 +1,5 @@
 use alloy::{
+    network::AnyNetwork,
     primitives::U256,
     providers::RootProvider,
     rpc::types::TransactionRequest,
@@ -8,11 +9,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::task::JoinHandle;
 
-pub type RpcProvider = RootProvider<Http<Client>>;
+pub type EthProvider = RootProvider<Http<Client>>;
+pub type AnyProvider = RootProvider<Http<Client>, AnyNetwork>;
 
 #[derive(Clone, Debug)]
 pub struct NamedTxRequest {
     pub name: Option<String>,
+    pub kind: Option<String>,
     pub tx: TransactionRequest,
 }
 
@@ -30,6 +33,8 @@ pub struct FunctionCallDefinition {
     pub value: Option<String>,
     /// Parameters to fuzz during the test.
     pub fuzz: Option<Vec<FuzzParam>>,
+    /// Optional type of the spam transaction for categorization.
+    pub kind: Option<String>
 }
 
 #[derive(Clone, Deserialize, Debug, Serialize)]
