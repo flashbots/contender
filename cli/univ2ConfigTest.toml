@@ -125,6 +125,7 @@ args = [
 ## add liquidity ###############################################################
 
 [[setup]]
+kind = "uniswap_v2"
 to = "{uniRouterV2}"
 from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 signature = "addLiquidity(address tokenA, address tokenB, uint amountADesired, uint amountBDesired, uint amountAMin, uint amountBMin, address to, uint deadline) returns (uint amountA, uint amountB, uint liquidity)"
