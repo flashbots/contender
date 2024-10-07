@@ -138,9 +138,6 @@ where
                     .collect::<Vec<_>>();
                 self.cache = new_txs.to_vec();
                 println!("unconfirmed txs: {}", new_txs.len());
-                for tx in new_txs {
-                    println!("unconfirmed tx: {}", tx.tx_hash);
-                }
 
                 // ready to go to the DB
                 let run_txs = confirmed_txs

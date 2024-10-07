@@ -74,9 +74,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let testconfig: TestConfig = TestConfig::from_file(&testfile)?;
             let min_balance = parse_ether(&min_balance)?;
 
+            let user_signers = private_keys
+                .as_ref()
+                .unwrap_or(&vec![])
+                .iter()
+                .map(|key| PrivateKeySigner::from_str(&key).unwrap())
+                .collect::<Vec<PrivateKeySigner>>();
             let signers = get_signers_with_defaults(private_keys);
             check_private_keys(&testconfig.setup.to_owned().unwrap_or(vec![]), &signers);
-            check_balances(&signers, min_balance, &rpc_client).await;
+            check_balances(&user_signers, min_balance, &rpc_client).await;
 
             let scenario = TestScenario::new(
                 testconfig.to_owned(),
@@ -110,13 +116,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let duration = duration.unwrap_or_default();
             let min_balance = parse_ether(&min_balance)?;
 
+            let user_signers = private_keys
+                .as_ref()
+                .unwrap_or(&vec![])
+                .iter()
+                .map(|key| PrivateKeySigner::from_str(&key).unwrap())
+                .collect::<Vec<PrivateKeySigner>>();
             let signers = get_signers_with_defaults(private_keys);
             let spam = testconfig
                 .spam
                 .as_ref()
                 .expect("No spam function calls found in testfile");
             check_private_keys(spam, &signers);
-            check_balances(&signers, min_balance, &rpc_client).await;
+            check_balances(&user_signers, min_balance, &rpc_client).await;
 
             if txs_per_block.is_some() && txs_per_second.is_some() {
                 panic!("Cannot set both --txs-per-block and --txs-per-second");

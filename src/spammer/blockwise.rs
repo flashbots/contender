@@ -155,7 +155,6 @@ where
                 /*
                     Increment nonce assuming the tx will succeed.
                     Note: if any tx fails, txs with higher nonces will also fail.
-                    However, we'll get a fresh nonce next block.
                 */
                 nonces.insert(from.to_owned(), nonce + 1);
 
