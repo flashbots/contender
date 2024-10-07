@@ -66,6 +66,7 @@ impl From<DefaultConfig> for TestConfig {
                         args: vec![params.gas_target.to_string()].into(),
                         value: None,
                         fuzz: None,
+                        kind: None,
                     }]
                     .into(),
                 }

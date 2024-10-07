@@ -1,6 +1,7 @@
 use crate::db::{DbOps, NamedTx};
 use crate::error::ContenderError;
 use crate::generator::templater::Templater;
+use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use alloy::hex::ToHexExt;
 use alloy::network::{EthereumWallet, TransactionBuilder};
@@ -79,21 +80,24 @@ where
                 "failed to get 'from' address",
                 None,
             ))?;
-            let wallet = self
+            let wallet_conf = self
                 .wallet_map
                 .get(from)
                 .expect(&format!("couldn't find wallet for 'from' address {}", from))
                 .to_owned();
-            let provider = ProviderBuilder::new()
+            let wallet = ProviderBuilder::new()
                 // simple_nonce_management is unperformant but it's OK bc we're just deploying
                 .with_simple_nonce_management()
-                .wallet(wallet)
+                .wallet(wallet_conf)
                 .on_http(self.rpc_url.to_owned());
 
-            println!("deploying contract: {:?}", tx_req.name);
+            println!(
+                "deploying contract: {:?}",
+                tx_req.name.as_ref().unwrap_or(&"".to_string())
+            );
             let handle = tokio::task::spawn(async move {
                 // estimate gas limit
-                let gas_limit = provider
+                let gas_limit = wallet
                     .estimate_gas(&tx_req.tx)
                     .await
                     .expect("failed to estimate gas");
@@ -105,18 +109,20 @@ where
                     .with_chain_id(chain_id)
                     .with_gas_limit(gas_limit);
 
-                let res = provider
+                let res = wallet
                     .send_transaction(tx)
                     .await
                     .expect("failed to send tx");
                 let receipt = res.get_receipt().await.expect("failed to get receipt");
-                println!("contract address: {:?}", receipt.contract_address);
-                let contract_address = receipt.contract_address;
+                println!(
+                    "contract address: {}",
+                    receipt.contract_address.unwrap_or_default()
+                );
                 db.insert_named_txs(
                     NamedTx::new(
                         tx_req.name.unwrap_or_default(),
                         receipt.transaction_hash,
-                        contract_address,
+                        receipt.contract_address,
                     )
                     .into(),
                 )
@@ -132,12 +138,13 @@ where
     pub async fn run_setup(&self) -> Result<(), ContenderError> {
         self.load_txs(PlanType::Setup(|tx_req| {
             /* callback */
+            println!("{}", self.format_setup_log(&tx_req));
+
             // copy data/refs from self before spawning the task
             let from = tx_req.tx.from.as_ref().ok_or(ContenderError::SetupError(
                 "failed to get 'from' address",
                 None,
             ))?;
-            println!("from: {:?}", from);
             let wallet = self
                 .wallet_map
                 .get(from)
@@ -147,22 +154,19 @@ where
                 ))?
                 .to_owned();
             let db = self.db.clone();
-            let provider = ProviderBuilder::new()
-                .with_simple_nonce_management()
-                .wallet(wallet)
-                .on_http(self.rpc_url.to_owned());
-
-            println!("running setup: {:?}", tx_req.name);
+            let rpc_url = self.rpc_url.clone();
             let handle = tokio::task::spawn(async move {
-                let chain_id = provider
-                    .get_chain_id()
-                    .await
-                    .expect("failed to get chain id");
-                let gas_price = provider
+                let wallet = ProviderBuilder::new()
+                    .with_simple_nonce_management()
+                    .wallet(wallet)
+                    .on_http(rpc_url);
+
+                let chain_id = wallet.get_chain_id().await.expect("failed to get chain id");
+                let gas_price = wallet
                     .get_gas_price()
                     .await
                     .expect("failed to get gas price");
-                let gas_limit = provider
+                let gas_limit = wallet
                     .estimate_gas(&tx_req.tx)
                     .await
                     .expect("failed to estimate gas");
@@ -171,10 +175,12 @@ where
                     .with_gas_price(gas_price)
                     .with_chain_id(chain_id)
                     .with_gas_limit(gas_limit);
-                let res = provider
+                let res = wallet
                     .send_transaction(tx)
                     .await
                     .expect("failed to send tx");
+
+                // get receipt using provider (not wallet) to allow any receipt type (support non-eth chains)
                 let receipt = res.get_receipt().await.expect("failed to get receipt");
                 if let Some(name) = tx_req.name {
                     db.insert_named_txs(
@@ -189,6 +195,37 @@ where
         .await?;
 
         Ok(())
+    }
+
+    fn format_setup_log(&self, tx_req: &NamedTxRequest) -> String {
+        let to_address = tx_req.tx.to.unwrap_or_default();
+        let to_address = to_address.to();
+
+        // lookup name of contract if it exists
+        let to_name = to_address.map(|a| {
+            let named_tx = self.db.get_named_tx_by_address(&a);
+            named_tx.map(|t| t.name).unwrap_or_default()
+        });
+
+        format!(
+            "running setup: from={} to={} {}",
+            tx_req
+                .tx
+                .from
+                .as_ref()
+                .map(|a| a.encode_hex())
+                .unwrap_or_default(),
+            if let Some(to) = to_name {
+                to
+            } else {
+                to_address.map(|a| a.encode_hex()).unwrap_or_default()
+            },
+            if let Some(kind) = &tx_req.kind {
+                format!("kind={}", kind)
+            } else {
+                "".to_string()
+            },
+        )
     }
 }
 
@@ -266,6 +303,7 @@ pub mod tests {
                     ]
                     .into(),
                     fuzz: None,
+                    kind: None,
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -280,6 +318,7 @@ pub mod tests {
                     ]
                     .into(),
                     fuzz: None,
+                    kind: None,
                 },
             ])
         }
@@ -303,6 +342,7 @@ pub mod tests {
                     max: None,
                 }]
                 .into(),
+                kind: None,
             };
             Ok(vec![
                 fn_call("0xbeef", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),

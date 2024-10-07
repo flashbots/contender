@@ -6,13 +6,14 @@ use tokio::sync::{mpsc, oneshot};
 use crate::{
     db::{DbOps, RunTx},
     error::ContenderError,
-    generator::types::RpcProvider,
+    generator::types::AnyProvider,
 };
 
 enum TxActorMessage {
     SentRunTx {
         tx_hash: TxHash,
         start_timestamp: usize,
+        kind: Option<String>,
         on_receipt: oneshot::Sender<()>,
     },
     FlushCache {
@@ -29,20 +30,22 @@ where
     receiver: mpsc::Receiver<TxActorMessage>,
     db: Arc<D>,
     cache: Vec<PendingRunTx>,
-    rpc: Arc<RpcProvider>,
+    rpc: Arc<AnyProvider>,
 }
 
 #[derive(Clone, PartialEq)]
 pub struct PendingRunTx {
     tx_hash: TxHash,
     start_timestamp: usize,
+    kind: Option<String>,
 }
 
 impl PendingRunTx {
-    pub fn new(tx_hash: TxHash, start_timestamp: usize) -> Self {
+    pub fn new(tx_hash: TxHash, start_timestamp: usize, kind: Option<&str>) -> Self {
         Self {
             tx_hash,
             start_timestamp,
+            kind: kind.map(|s| s.to_owned()),
         }
     }
 }
@@ -54,7 +57,7 @@ where
     pub fn new(
         receiver: mpsc::Receiver<TxActorMessage>,
         db: Arc<D>,
-        rpc: Arc<RpcProvider>,
+        rpc: Arc<AnyProvider>,
     ) -> Self {
         Self {
             receiver,
@@ -72,11 +75,13 @@ where
             TxActorMessage::SentRunTx {
                 tx_hash,
                 start_timestamp,
+                kind,
                 on_receipt,
             } => {
                 let run_tx = PendingRunTx {
                     tx_hash,
                     start_timestamp,
+                    kind,
                 };
                 self.cache.push(run_tx.to_owned());
                 on_receipt.send(()).map_err(|_| {
@@ -151,6 +156,7 @@ where
                             end_timestamp: target_block.header.timestamp as usize,
                             block_number: target_block.header.number,
                             gas_used: receipt.gas_used,
+                            kind: pending_tx.kind,
                         }
                     })
                     .collect::<Vec<_>>();
@@ -180,7 +186,7 @@ impl TxActorHandle {
     pub fn new<D: DbOps + Send + Sync + 'static>(
         bufsize: usize,
         db: Arc<D>,
-        rpc: Arc<RpcProvider>,
+        rpc: Arc<AnyProvider>,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(bufsize);
         let mut actor = TxActor::new(receiver, db, rpc);
@@ -194,12 +200,14 @@ impl TxActorHandle {
         &self,
         tx_hash: TxHash,
         start_timestamp: usize,
+        kind: Option<String>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(TxActorMessage::SentRunTx {
                 tx_hash,
                 start_timestamp,
+                kind,
                 on_receipt: sender,
             })
             .await?;

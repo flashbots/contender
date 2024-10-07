@@ -3,7 +3,7 @@ use crate::{
     generator::{
         seeder::Seeder,
         templater::Templater,
-        types::{PlanType, RpcProvider},
+        types::{EthProvider, PlanType},
         Generator, PlanConfig,
     },
     spammer::OnTxSent,
@@ -24,7 +24,7 @@ where
     P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
     scenario: TestScenario<D, S, P>,
-    rpc_client: Arc<RpcProvider>,
+    rpc_client: Arc<EthProvider>,
     callback_handler: Arc<F>,
 }
 

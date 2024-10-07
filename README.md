@@ -1,6 +1,6 @@
 # Contender
 
-[![CI status](https://github.com/flashbots/contender/workflows/unit/badge.svg)][gh-ci]
+![Build & Test Status](https://github.com/flashbots/contender/actions/workflows/rust.yml/badge.svg)
 
 Contender is a high-performance Ethereum network spammer and testing tool designed for benchmarking and stress-testing Ethereum clients and networks.
 
@@ -14,13 +14,11 @@ Contender is a high-performance Ethereum network spammer and testing tool design
 
 ## Installation
 
-To install the Contender CLI, you need to have the [Rust toolchain](https://rustup.rs/) installed on your system. Then build the project from source:
+To install the Contender CLI, you need to have the [Rust toolchain](https://rustup.rs/) installed on your system. Then install from github:
 
 ```bash
-git clone https://github.com/flashbots/contender.git
-cd contender/cli
-cargo build --release
-alias contender="$PWD/target/release/contender_cli"
+cargo install --git https://github.com/flashbots/contender --bin contender_cli
+alias contender=contender_cli
 ```
 
 ## Usage

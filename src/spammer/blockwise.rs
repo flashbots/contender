@@ -2,12 +2,12 @@ use crate::db::DbOps;
 use crate::error::ContenderError;
 use crate::generator::seeder::Seeder;
 use crate::generator::templater::Templater;
-use crate::generator::types::{PlanType, RpcProvider};
+use crate::generator::types::{AnyProvider, EthProvider, PlanType};
 use crate::generator::{Generator, PlanConfig};
 use crate::test_scenario::TestScenario;
 use crate::Result;
 use alloy::hex::ToHexExt;
-use alloy::network::TransactionBuilder;
+use alloy::network::{AnyNetwork, TransactionBuilder};
 use alloy::primitives::FixedBytes;
 use alloy::providers::{Provider, ProviderBuilder};
 use futures::StreamExt;
@@ -28,7 +28,8 @@ where
 {
     scenario: TestScenario<D, S, P>,
     msg_handler: Arc<TxActorHandle>,
-    rpc_client: Arc<RpcProvider>,
+    rpc_client: AnyProvider,
+    eth_client: Arc<EthProvider>,
     callback_handler: Arc<F>,
 }
 
@@ -40,17 +41,22 @@ where
     P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
     pub fn new(scenario: TestScenario<D, S, P>, callback_handler: F) -> Self {
-        let rpc_client = Arc::new(ProviderBuilder::new().on_http(scenario.rpc_url.to_owned()));
+        let rpc_client = ProviderBuilder::new()
+            .network::<AnyNetwork>()
+            .on_http(scenario.rpc_url.to_owned());
+        let eth_client = Arc::new(ProviderBuilder::new().on_http(scenario.rpc_url.to_owned()));
         let msg_handler = Arc::new(TxActorHandle::new(
             12,
             scenario.db.clone(),
-            rpc_client.clone(),
+            Arc::new(rpc_client.to_owned()),
         ));
+        let callback_handler = Arc::new(callback_handler);
 
         Self {
             scenario,
             rpc_client,
-            callback_handler: Arc::new(callback_handler),
+            eth_client,
+            callback_handler,
             msg_handler,
         }
     }
@@ -154,10 +160,10 @@ where
                 nonces.insert(from.to_owned(), nonce + 1);
 
                 let fn_sig = FixedBytes::<4>::from_slice(
-                    tx.tx
+                    tx_req
+                        .input
+                        .input
                         .to_owned()
-                        .input
-                        .input
                         .map(|b| b.split_at(4).0.to_owned())
                         .expect("invalid function call")
                         .as_slice(),
@@ -165,7 +171,7 @@ where
 
                 if !gas_limits.contains_key(fn_sig.as_slice()) {
                     let gas_limit = self
-                        .rpc_client
+                        .eth_client
                         .estimate_gas(&tx.tx.to_owned())
                         .await
                         .map_err(|e| ContenderError::with_err(e, "failed to estimate gas"))?;
@@ -173,7 +179,7 @@ where
                 }
 
                 // clone muh Arcs
-                let rpc_client = self.rpc_client.clone();
+                let eth_client = self.eth_client.clone();
                 let callback_handler = self.callback_handler.clone();
 
                 // query hashmaps for gaslimit & signer of this tx
@@ -190,10 +196,11 @@ where
 
                 // build, sign, and send tx in a new task (green thread)
                 let tx_handler = self.msg_handler.clone();
+                let tx_kind = tx.kind.to_owned();
                 tasks.push(task::spawn(async move {
                     let provider = ProviderBuilder::new()
                         .wallet(signer)
-                        .on_provider(rpc_client);
+                        .on_provider(eth_client);
 
                     let full_tx = tx_req
                         .clone()
@@ -210,14 +217,15 @@ where
                         .send_transaction(full_tx)
                         .await
                         .expect("failed to send tx");
+                    let mut extra = HashMap::new();
+                    extra.insert("start_timestamp".to_owned(), start_timestamp.to_string());
+                    if let Some(kind) = tx_kind {
+                        extra.insert("kind".to_owned(), kind);
+                    }
                     let maybe_handle = callback_handler.on_tx_sent(
                         res.into_inner(),
                         tx,
-                        HashMap::from_iter([(
-                            "start_timestamp".to_owned(),
-                            start_timestamp.to_string(),
-                        )])
-                        .into(),
+                        extra.into(),
                         Some(tx_handler),
                     );
                     if let Some(handle) = maybe_handle {

@@ -156,6 +156,7 @@ pub mod tests {
                 .into(),
                 fuzz: None,
                 value: None,
+                kind: None,
             }]
             .into(),
         }
@@ -174,6 +175,7 @@ pub mod tests {
                 data.to_owned(),
             ]
             .into(),
+            kind: None,
             fuzz: vec![FuzzParam {
                 param: "x".to_string(),
                 min: None,
@@ -212,6 +214,7 @@ pub mod tests {
                         "0xdead".to_owned(),
                     ]
                     .into(),
+                    kind: None,
                     fuzz: None,
                 },
                 FunctionCallDefinition {
@@ -226,6 +229,7 @@ pub mod tests {
                         "0xbeef".to_owned(),
                     ]
                     .into(),
+                    kind: None,
                     fuzz: None,
                 },
             ]
@@ -271,21 +275,20 @@ pub mod tests {
         let setup = test_file.setup.unwrap();
         let spam = test_file.spam.unwrap();
 
-        assert_eq!(
-            env.get("feeToSetter").unwrap(),
-            "f39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-        );
+        assert_eq!(env.get("env1").unwrap(), "env1");
         assert_eq!(
             spam[0].from,
             "0x70997970C51812dc3A010C7d01b50e0d17dc79C8".to_owned()
         );
-        assert_eq!(setup.len(), 11);
-        assert_eq!(setup[0].value, Some("10000000000000000000".to_owned()));
+        assert_eq!(setup.len(), 1);
+        assert_eq!(setup[0].value, Some("1234".to_owned()));
         assert_eq!(spam[0].fuzz.as_ref().unwrap()[0].param, "amountIn");
+        assert_eq!(spam[0].fuzz.as_ref().unwrap()[0].min, Some(U256::from(1)));
         assert_eq!(
-            spam[1].fuzz.as_ref().unwrap()[0].min,
-            Some(U256::from(100000))
+            spam[0].fuzz.as_ref().unwrap()[0].max,
+            Some(U256::from(100_000_000_000_000_000_u64))
         );
+        assert_eq!(spam[0].kind, Some("test".to_owned()));
     }
 
     fn print_testconfig(cfg: &str) {
