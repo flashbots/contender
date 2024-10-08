@@ -7,14 +7,13 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # Define command-line flags
-flags.DEFINE_string('csv_path', 'data-eth-erc20', 'Path to the folder containing the CSV files.')
-flags.DEFINE_string('plots_dir', 'plots', 'Path to the directory where the plots will be saved.')
+flags.DEFINE_string('csv_path', None, 'Path to the folder containing the CSV files.')
+flags.DEFINE_string('output_dir', None, 'Path to the directory where the plots will be saved.')
 FLAGS = flags.FLAGS
 
 def read_csv_file(file_path):
     # Iterate over all files in the folder
     df =  pd.read_csv(file_path)
-    df['kind'] = 'uniswapv2'
     return df
 
 
@@ -119,7 +118,7 @@ def plot_data(df, plots_info):
     plt.ylabel('Frequency')
     # Save the plot
     plot_filename = f'plot_{plot_counter}_histogram_confirmation_times.png'
-    plt.savefig(os.path.join(FLAGS.plots_dir, plot_filename), dpi=300)
+    plt.savefig(os.path.join(FLAGS.output_dir, plot_filename), dpi=300)
     plt.close()
     plots_info.append((plot_filename, plot_title))
     plot_counter += 1
@@ -135,7 +134,7 @@ def plot_data(df, plots_info):
     plt.tight_layout()
     # Save the plot
     plot_filename = f'plot_{plot_counter}_time_series_confirmation_times.png'
-    plt.savefig(os.path.join(FLAGS.plots_dir, plot_filename), dpi=300)
+    plt.savefig(os.path.join(FLAGS.output_dir, plot_filename), dpi=300)
     plt.close()
     plots_info.append((plot_filename, plot_title))
     plot_counter += 1
@@ -150,7 +149,7 @@ def plot_data(df, plots_info):
     plt.xticks(rotation=45)
     # Save the plot
     plot_filename = f'plot_{plot_counter}_boxplot_confirmation_times.png'
-    plt.savefig(os.path.join(FLAGS.plots_dir, plot_filename), dpi=300)
+    plt.savefig(os.path.join(FLAGS.output_dir, plot_filename), dpi=300)
     plt.close()
     plots_info.append((plot_filename, plot_title))
     plot_counter += 1
@@ -164,7 +163,7 @@ def plot_data(df, plots_info):
     plt.ylabel('Frequency')
     # Save the plot
     plot_filename = f'plot_{plot_counter}_histogram_gas_used.png'
-    plt.savefig(os.path.join(FLAGS.plots_dir, plot_filename), dpi=300)
+    plt.savefig(os.path.join(FLAGS.output_dir, plot_filename), dpi=300)
     plt.close()
     plots_info.append((plot_filename, plot_title))
     plot_counter += 1
@@ -180,7 +179,7 @@ def plot_data(df, plots_info):
     plt.xticks(rotation=45)
     # Save the plot
     plot_filename = f'plot_{plot_counter}_bar_chart_avg_gas_used.png'
-    plt.savefig(os.path.join(FLAGS.plots_dir, plot_filename), dpi=300)
+    plt.savefig(os.path.join(FLAGS.output_dir, plot_filename), dpi=300)
     plt.close()
     plots_info.append((plot_filename, plot_title))
     plot_counter += 1
@@ -194,7 +193,7 @@ def plot_data(df, plots_info):
     plt.ylabel('Time to Include (ms)')
     # Save the plot
     plot_filename = f'plot_{plot_counter}_scatter_gas_vs_confirmation_time.png'
-    plt.savefig(os.path.join(FLAGS.plots_dir, plot_filename), dpi=300)
+    plt.savefig(os.path.join(FLAGS.output_dir, plot_filename), dpi=300)
     plt.close()
     plots_info.append((plot_filename, plot_title))
     plot_counter += 1
@@ -229,7 +228,7 @@ def plot_data(df, plots_info):
     plt.tight_layout()
     # Save the plot
     plot_filename = f'plot_{plot_counter}_transaction_count_over_time.png'
-    plt.savefig(os.path.join(FLAGS.plots_dir, plot_filename), dpi=300)
+    plt.savefig(os.path.join(FLAGS.output_dir, plot_filename), dpi=300)
     plt.close()
     plots_info.append((plot_filename, plot_title))
     plot_counter += 1
@@ -247,7 +246,7 @@ def plot_data(df, plots_info):
     plt.axis('equal')
     # Save the plot
     plot_filename = f'plot_{plot_counter}_pie_chart_transaction_types.png'
-    plt.savefig(os.path.join(FLAGS.plots_dir, plot_filename), dpi=300)
+    plt.savefig(os.path.join(FLAGS.output_dir, plot_filename), dpi=300)
     plt.close()
     plots_info.append((plot_filename, plot_title))
     plot_counter += 1
@@ -265,7 +264,7 @@ def plot_data(df, plots_info):
     plt.tight_layout()
     # Save the plot
     plot_filename = f'plot_{plot_counter}_cumulative_gas_over_time.png'
-    plt.savefig(os.path.join(FLAGS.plots_dir, plot_filename), dpi=300)
+    plt.savefig(os.path.join(FLAGS.output_dir, plot_filename), dpi=300)
     plt.close()
     plots_info.append((plot_filename, plot_title))
     plot_counter += 1
@@ -282,7 +281,7 @@ def plot_data(df, plots_info):
     plt.tight_layout()
     # Save the plot
     plot_filename = f'plot_{plot_counter}_avg_confirmation_time_per_block.png'
-    plt.savefig(os.path.join(FLAGS.plots_dir, plot_filename), dpi=300)
+    plt.savefig(os.path.join(FLAGS.output_dir, plot_filename), dpi=300)
     plt.close()
     plots_info.append((plot_filename, plot_title))
     plot_counter += 1
@@ -299,7 +298,7 @@ def plot_data(df, plots_info):
     plt.tight_layout()
     # Save the plot
     plot_filename = f'plot_{plot_counter}_transactions_per_block.png'
-    plt.savefig(os.path.join(FLAGS.plots_dir, plot_filename), dpi=300)
+    plt.savefig(os.path.join(FLAGS.output_dir, plot_filename), dpi=300)
     plt.close()
     plots_info.append((plot_filename, plot_title))
     plot_counter += 1
@@ -315,20 +314,17 @@ def plot_data(df, plots_info):
     plt.tight_layout()
     # Save the plot
     plot_filename = f'plot_{plot_counter}_gas_used_over_time.png'
-    plt.savefig(os.path.join(FLAGS.plots_dir, plot_filename), dpi=300)
+    plt.savefig(os.path.join(FLAGS.output_dir, plot_filename), dpi=300)
     plt.close()
     plots_info.append((plot_filename, plot_title))
     plot_counter += 1
 
 
 def main(_):
-    # Set up logging to display info messages
-    logging.set_verbosity(logging.INFO)
-
     # Ensure the plots directory exists
-    if not os.path.exists(FLAGS.plots_dir):
-        os.makedirs(FLAGS.plots_dir)
-        logging.info(f"Created plots directory at '{FLAGS.plots_dir}'.")
+    if not os.path.exists(FLAGS.output_dir):
+        os.makedirs(FLAGS.output_dir)
+        logging.info(f"Created plots directory at '{FLAGS.output_dir}'.")
 
     # Read and combine CSV files into a DataFrame
     try:
@@ -338,13 +334,17 @@ def main(_):
         return
 
     print_stats_output = print_stats(df)
+    if not print_stats_output:
+        logging.error("Error occurred while calculating Ethereum transaction metrics.")
+        return
+
     logging.info(print_stats_output)
 
     # Generate and save plots, and collect plot information
     plots_info = []
     plot_data(df, plots_info)
 
-    markdown_filename = os.path.join(FLAGS.plots_dir, 'report.md')
+    markdown_filename = os.path.join(FLAGS.output_dir, 'report.md')
     with open(markdown_filename, 'w') as md_file:
         md_file.write('# Conduit chain performance report\n\n')
         md_file.write(print_stats_output)
@@ -352,10 +352,10 @@ def main(_):
             md_file.write(f'## {title}\n\n')
             md_file.write(f'![{title}]({filename})\n\n')
 
-    logging.info(f"Plots have been saved to the '{FLAGS.plots_dir}' directory.")
+    logging.info(f"Plots have been saved to the '{FLAGS.output_dir}' directory.")
     logging.info(f"Markdown file '{markdown_filename}' has been generated.")
 
 
 if __name__ == '__main__':
+    flags.mark_flags_as_required(['csv_path', 'output_dir'])
     app.run(main)
-
