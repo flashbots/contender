@@ -9,6 +9,7 @@ import seaborn as sns
 # Define command-line flags
 flags.DEFINE_string('csv_path', None, 'Path to the folder containing the CSV files.')
 flags.DEFINE_string('output_dir', None, 'Path to the directory where the plots will be saved.')
+flags.DEFINE_integer('block_time', 2, 'Block time in seconds.')
 FLAGS = flags.FLAGS
 
 def read_csv_file(file_path):
@@ -49,6 +50,7 @@ def print_stats(df):
 
     # Calculate 'time_to_include' in milliseconds
     df['time_to_include'] = (df['end_time'] - df['start_time']).dt.total_seconds() * 1000  # in ms
+    df['time_to_include_in_blocks'] = df['time_to_include'] / (FLAGS.block_time * 1000)
 
     # Calculate Total Number of Transactions
     total_transactions = len(df)
@@ -81,6 +83,10 @@ def print_stats(df):
     median_time_to_inclusion = df['time_to_include'].median()
     mean_time_to_inclusion = df['time_to_include'].mean()
 
+    median_time_to_inclusion_in_blocks = df['time_to_include_in_blocks'].median()
+    mean_time_to_inclusion_in_blocks = df['time_to_include_in_blocks'].mean()
+    max_time_to_inclusion_in_blocks = df['time_to_include_in_blocks'].max()
+
     # Print the Results
     stats_output = (
         "\n===== Ethereum Transaction Metrics =====\n"
@@ -91,6 +97,9 @@ def print_stats(df):
         f"Gas Used Per Second: {gas_per_second:.2f} gas/s\n"
         f"Median Time to Inclusion: {median_time_to_inclusion:.2f} ms\n"
         f"Mean Time to Inclusion: {mean_time_to_inclusion:.2f} ms\n"
+        f"Median Time to Inclusion (in blocks): {median_time_to_inclusion_in_blocks:.2f} blocks\n"
+        f"Mean Time to Inclusion (in blocks): {mean_time_to_inclusion_in_blocks:.2f} blocks\n"
+        f"Max Time to Inclusion (in blocks): {max_time_to_inclusion_in_blocks:.2f} blocks\n"
         "=========================================\n"
     )
     return stats_output
@@ -123,10 +132,24 @@ def plot_data(df, plots_info):
     plots_info.append((plot_filename, plot_title))
     plot_counter += 1
 
+    plt.figure(figsize=(10, 6))
+    plt.hist(df['time_to_include_in_blocks'], bins=20, edgecolor='k')
+    plot_title = 'Histogram of Transaction Confirmation Times (in blocks)'
+    plt.title(plot_title)
+    plt.xlabel('Time to Include (blocks)')
+    plt.ylabel('Frequency')
+    # Save the plot
+    plot_filename = f'plot_{plot_counter}_histogram_confirmation_blocks.png'
+    plt.savefig(os.path.join(FLAGS.output_dir, plot_filename), dpi=300)
+    plt.close()
+    plots_info.append((plot_filename, plot_title))
+    plot_counter += 1
+
+
     # 2. Time Series of Confirmation Times (Sampled Data)
     plt.figure(figsize=(10, 6))
-    plt.scatter(sampled_df['start_time'], sampled_df['time_to_include'], marker='o', alpha=0.6)
-    plot_title = 'Time Series of Confirmation Times (Sampled 0.5%)'
+    plt.scatter(df['start_time'], df['time_to_include'], marker='o', alpha=0.6)
+    plot_title = 'Time Series of Confirmation Times'
     plt.title(plot_title)
     plt.xlabel('Start Time')
     plt.ylabel('Time to Include (ms)')
@@ -134,6 +157,21 @@ def plot_data(df, plots_info):
     plt.tight_layout()
     # Save the plot
     plot_filename = f'plot_{plot_counter}_time_series_confirmation_times.png'
+    plt.savefig(os.path.join(FLAGS.output_dir, plot_filename), dpi=300)
+    plt.close()
+    plots_info.append((plot_filename, plot_title))
+    plot_counter += 1
+
+    plt.figure(figsize=(10, 6))
+    plt.scatter(df['start_time'], df['time_to_include_in_blocks'], marker='o', alpha=0.6)
+    plot_title = 'Time Series of Confirmation Times in blocks'
+    plt.title(plot_title)
+    plt.xlabel('Start Time')
+    plt.ylabel('Time to Include (blocks)')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    # Save the plot
+    plot_filename = f'plot_{plot_counter}_time_series_confirmation_times_in_blocks.png'
     plt.savefig(os.path.join(FLAGS.output_dir, plot_filename), dpi=300)
     plt.close()
     plots_info.append((plot_filename, plot_title))
@@ -149,6 +187,20 @@ def plot_data(df, plots_info):
     plt.xticks(rotation=45)
     # Save the plot
     plot_filename = f'plot_{plot_counter}_boxplot_confirmation_times.png'
+    plt.savefig(os.path.join(FLAGS.output_dir, plot_filename), dpi=300)
+    plt.close()
+    plots_info.append((plot_filename, plot_title))
+    plot_counter += 1
+
+    plt.figure(figsize=(10, 6))
+    sns.boxplot(x='kind', y='time_to_include_in_blocks', data=df)
+    plot_title = 'Confirmation Times by Transaction Type'
+    plt.title(plot_title)
+    plt.xlabel('Transaction Type')
+    plt.ylabel('Time to Include (blocks)')
+    plt.xticks(rotation=45)
+    # Save the plot
+    plot_filename = f'plot_{plot_counter}_boxplot_confirmation_times_in_blocks.png'
     plt.savefig(os.path.join(FLAGS.output_dir, plot_filename), dpi=300)
     plt.close()
     plots_info.append((plot_filename, plot_title))
