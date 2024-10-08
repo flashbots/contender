@@ -149,7 +149,7 @@ where
                         RunTx {
                             tx_hash: pending_tx.tx_hash,
                             start_timestamp: pending_tx.start_timestamp,
-                            end_timestamp: target_block.header.timestamp as usize,
+                            end_timestamp: (target_block.header.timestamp * 1000) as usize, // convert to ms
                             block_number: target_block.header.number,
                             gas_used: receipt.gas_used,
                             kind: pending_tx.kind,
