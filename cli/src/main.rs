@@ -70,13 +70,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let testconfig: TestConfig = TestConfig::from_file(&testfile)?;
             let min_balance = parse_ether(&min_balance)?;
 
-            let signers = get_signers_with_defaults(private_keys);
-            let setup = testconfig
-                .setup
+            let user_signers = private_keys
                 .as_ref()
-                .expect("No setup function calls found in testfile");
-            check_private_keys(setup, &signers);
-            check_balances(&signers, min_balance, &rpc_client).await;
+                .unwrap_or(&vec![])
+                .iter()
+                .map(|key| PrivateKeySigner::from_str(&key).expect("invalid private key"))
+                .collect::<Vec<PrivateKeySigner>>();
+            let signers = get_signers_with_defaults(private_keys);
+            check_private_keys(&testconfig.setup.to_owned().unwrap_or(vec![]), &signers);
+            check_balances(&user_signers, min_balance, &rpc_client).await;
 
             let scenario = TestScenario::new(
                 testconfig.to_owned(),
