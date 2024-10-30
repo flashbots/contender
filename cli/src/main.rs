@@ -14,7 +14,7 @@ use commands::{ContenderCli, ContenderSubcommand};
 use contender_core::{
     db::{DbOps, RunTx},
     generator::{
-        types::{AnyProvider, FunctionCallDefinition},
+        types::{AnyProvider, FunctionCallDefinition, SpamRequest},
         RandSeed,
     },
     spammer::{BlockwiseSpammer, LogCallback, NilCallback, TimedSpammer},
@@ -117,7 +117,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .spam
                 .as_ref()
                 .expect("No spam function calls found in testfile");
-            check_private_keys(spam, &signers);
+
+            // distill all FunctionCallDefinitions from the spam requests
+            let mut fn_calls = vec![];
+            for s in spam {
+                match s {
+                    SpamRequest::Single(fn_call) => {
+                        fn_calls.push(fn_call.to_owned());
+                    }
+                    SpamRequest::Bundle(bundle) => {
+                        fn_calls.extend(bundle.txs.iter().map(|s| s.to_owned()));
+                    }
+                }
+            }
+
+            check_private_keys(&fn_calls, &signers);
             check_balances(&signers, min_balance, &rpc_client).await;
 
             if txs_per_block.is_some() && txs_per_second.is_some() {
@@ -138,14 +152,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .expect("Time went backwards")
                             .as_millis();
                         let run_id = DB.insert_run(timestamp as u64, txs_per_block * duration)?;
-                        let spammer = BlockwiseSpammer::new(scenario, cback);
+                        let mut spammer = BlockwiseSpammer::new(scenario, cback).await;
                         spammer
                             .spam_rpc(txs_per_block, duration, Some(run_id.into()))
                             .await?;
                         println!("Saved run. run_id = {}", run_id);
                     }
                     SpamCallbackType::Nil(cback) => {
-                        let spammer = BlockwiseSpammer::new(scenario, cback);
+                        let mut spammer = BlockwiseSpammer::new(scenario, cback).await;
                         spammer.spam_rpc(txs_per_block, duration, None).await?;
                     }
                 };

@@ -1,4 +1,4 @@
-use contender_core::generator::types::{CreateDefinition, FunctionCallDefinition};
+use contender_core::generator::types::{CreateDefinition, FunctionCallDefinition, SpamRequest};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -15,5 +15,5 @@ pub struct TestConfig {
     pub setup: Option<Vec<FunctionCallDefinition>>,
 
     /// Function to call in spam txs.
-    pub spam: Option<Vec<FunctionCallDefinition>>, // TODO: figure out how to implement BundleCallDefinition alongside FunctionCallDefinition
+    pub spam: Option<Vec<SpamRequest>>, // TODO: figure out how to implement BundleCallDefinition alongside FunctionCallDefinition
 }

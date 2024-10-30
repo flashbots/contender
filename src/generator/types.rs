@@ -44,7 +44,8 @@ pub struct BundleCallDefinition {
     pub txs: Vec<FunctionCallDefinition>,
 }
 
-///
+/// Definition of a spam request template.
+#[derive(Clone, Deserialize, Debug, Serialize)]
 pub enum SpamRequest {
     Single(FunctionCallDefinition),
     Bundle(BundleCallDefinition),

@@ -112,7 +112,7 @@ pub mod tests {
         db::MockDb,
         generator::{
             named_txs::ExecutionRequest,
-            types::{CreateDefinition, FunctionCallDefinition, FuzzParam, PlanType},
+            types::{CreateDefinition, FunctionCallDefinition, FuzzParam, PlanType, SpamRequest},
             Generator, RandSeed,
         },
         test_scenario::TestScenario,
@@ -138,49 +138,52 @@ pub mod tests {
     }
 
     pub fn get_testconfig() -> TestConfig {
-        TestConfig {
-            env: None,
-            create: None,
-            setup: None,
-            spam: vec![FunctionCallDefinition {
-                to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD".to_owned(),
-                from: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD".to_owned(),
-                signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
-                args: vec![
-                    "1".to_owned(),
-                    "2".to_owned(),
-                    Address::repeat_byte(0x11).encode_hex(),
-                    "0xdead".to_owned(),
-                ]
-                .into(),
-                fuzz: None,
-                value: None,
-                kind: None,
-            }]
-            .into(),
-        }
-    }
-
-    pub fn get_fuzzy_testconfig() -> TestConfig {
-        let fn_call = |data: &str, from_addr: &str| FunctionCallDefinition {
-            to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-            from: from_addr.to_owned(),
-            value: None,
+        let fncall = FunctionCallDefinition {
+            to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD".to_owned(),
+            from: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD".to_owned(),
             signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
             args: vec![
                 "1".to_owned(),
                 "2".to_owned(),
                 Address::repeat_byte(0x11).encode_hex(),
-                data.to_owned(),
+                "0xdead".to_owned(),
             ]
             .into(),
+            fuzz: None,
+            value: None,
             kind: None,
-            fuzz: vec![FuzzParam {
-                param: "x".to_string(),
-                min: None,
-                max: None,
-            }]
-            .into(),
+        };
+
+        TestConfig {
+            env: None,
+            create: None,
+            setup: None,
+            spam: vec![SpamRequest::Single(fncall)].into(),
+        }
+    }
+
+    pub fn get_fuzzy_testconfig() -> TestConfig {
+        let fn_call = |data: &str, from_addr: &str| {
+            SpamRequest::Single(FunctionCallDefinition {
+                to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
+                from: from_addr.to_owned(),
+                value: None,
+                signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                args: vec![
+                    "1".to_owned(),
+                    "2".to_owned(),
+                    Address::repeat_byte(0x11).encode_hex(),
+                    data.to_owned(),
+                ]
+                .into(),
+                kind: None,
+                fuzz: vec![FuzzParam {
+                    param: "x".to_string(),
+                    min: None,
+                    max: None,
+                }]
+                .into(),
+            })
         };
         TestConfig {
             env: None,
@@ -275,19 +278,26 @@ pub mod tests {
         let spam = test_file.spam.unwrap();
 
         assert_eq!(env.get("env1").unwrap(), "env1");
-        assert_eq!(
-            spam[0].from,
-            "0x70997970C51812dc3A010C7d01b50e0d17dc79C8".to_owned()
-        );
-        assert_eq!(setup.len(), 1);
-        assert_eq!(setup[0].value, Some("1234".to_owned()));
-        assert_eq!(spam[0].fuzz.as_ref().unwrap()[0].param, "amountIn");
-        assert_eq!(spam[0].fuzz.as_ref().unwrap()[0].min, Some(U256::from(1)));
-        assert_eq!(
-            spam[0].fuzz.as_ref().unwrap()[0].max,
-            Some(U256::from(100_000_000_000_000_000_u64))
-        );
-        assert_eq!(spam[0].kind, Some("test".to_owned()));
+        match spam[0] {
+            SpamRequest::Single(ref fncall) => {
+                assert_eq!(
+                    fncall.from,
+                    "0x70997970C51812dc3A010C7d01b50e0d17dc79C8".to_owned()
+                );
+                assert_eq!(setup.len(), 1);
+                assert_eq!(setup[0].value, Some("1234".to_owned()));
+                assert_eq!(fncall.fuzz.as_ref().unwrap()[0].param, "amountIn");
+                assert_eq!(fncall.fuzz.as_ref().unwrap()[0].min, Some(U256::from(1)));
+                assert_eq!(
+                    fncall.fuzz.as_ref().unwrap()[0].max,
+                    Some(U256::from(100_000_000_000_000_000_u64))
+                );
+                assert_eq!(fncall.kind, Some("test".to_owned()));
+            }
+            _ => {
+                panic!("expected SpamRequest::Single");
+            }
+        }
     }
 
     fn print_testconfig(cfg: &str) {
@@ -304,10 +314,29 @@ pub mod tests {
         cfg.save_toml("cargotest.toml").unwrap();
         let test_file2 = TestConfig::from_file("cargotest.toml").unwrap();
         let spam = cfg.clone().spam.unwrap();
-        let args = spam[0].args.as_ref().unwrap();
-        assert_eq!(spam[0].to, test_file2.spam.unwrap()[0].to);
-        assert_eq!(args[0], "1");
-        assert_eq!(args[1], "2");
+        match &spam[0] {
+            SpamRequest::Single(req) => {
+                let args = req.args.as_ref().unwrap();
+                match &test_file2.spam.unwrap()[0] {
+                    SpamRequest::Single(req2) => {
+                        let args2 = req2.args.as_ref().unwrap();
+                        assert_eq!(req.from, req2.from);
+                        assert_eq!(req.to, req2.to);
+                        assert_eq!(args[0], args2[0]);
+                        assert_eq!(args[1], args2[1]);
+                    }
+                    _ => {
+                        panic!("expected SpamRequest::Single");
+                    }
+                }
+                // assert_eq!(req.to, test_file2.spam.unwrap()[0].to);
+                // assert_eq!(args[0], "1");
+                // assert_eq!(args[1], "2");
+            }
+            _ => {
+                panic!("expected SpamRequest::Single");
+            }
+        }
         fs::remove_file("cargotest.toml").unwrap();
     }
 
