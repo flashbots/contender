@@ -9,11 +9,12 @@ use crate::spammer::ExecutionPayload;
 use crate::test_scenario::TestScenario;
 use crate::Result;
 use alloy::hex::ToHexExt;
-use alloy::network::{AnyNetwork, EthereumWallet, NetworkWallet, TransactionBuilder};
+use alloy::network::{AnyNetwork, Ethereum, EthereumWallet, NetworkWallet, TransactionBuilder};
 use alloy::primitives::{Address, FixedBytes};
-use alloy::providers::{Provider, ProviderBuilder};
+use alloy::providers::{PendingTransactionBuilder, Provider, ProviderBuilder};
 use alloy::rpc::client::ReqwestClient;
 use alloy::rpc::types::TransactionRequest;
+use alloy::transports::http::{Client, Http};
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -222,7 +223,7 @@ where
                         // prepare each tx in the bundle (increment nonce, set gas price, etc)
                         let mut bundle_txs = vec![];
                         for req in reqs.iter() {
-                            let tx_req = req.tx;
+                            let tx_req = req.tx.to_owned();
                             let (tx_req, signer) = self
                                 .prepare_tx_req(&tx_req, gas_price, chain_id)
                                 .await
@@ -235,10 +236,10 @@ where
                             bundle_txs.push(tx_envelope);
                         }
                         // TODO: call eth_sendBundle with signed txs
-                        ExecutionPayload::SignedTxBundle(bundle_txs)
+                        ExecutionPayload::SignedTxBundle(bundle_txs, reqs)
                     }
                     ExecutionRequest::Tx(req) => {
-                        let tx_req = req.tx;
+                        let tx_req = req.tx.to_owned();
                         println!(
                             "sending tx. from={} to={} input={}",
                             tx_req.from.map(|s| s.encode_hex()).unwrap_or_default(),
@@ -266,51 +267,48 @@ where
                             ContenderError::with_err(e, "bad request: failed to build tx")
                         })?;
 
-                        ExecutionPayload::SignedTx(tx_envelope)
+                        ExecutionPayload::SignedTx(tx_envelope, req)
                     }
                 };
 
                 // build, sign, and send tx/bundle in a new task (green thread)
                 tasks.push(task::spawn(async move {
+                    let provider = ProviderBuilder::new().on_provider(eth_client);
                     let start_timestamp = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .expect("failed to get timestamp")
                         .as_millis() as usize;
 
-                    match payload {
-                        ExecutionPayload::SignedTx(tx) => {
-                            let provider = ProviderBuilder::new().on_provider(eth_client);
-                            provider
-                                .send_tx_envelope(tx)
-                                .await
-                                .expect("RPC error: failed to send tx");
-                        }
-                        ExecutionPayload::SignedTxBundle(txs) => {
-                            let bprovider = ReqwestClient::new_http(self.scenario.rpc_url);
-                            bprovider.request("eth_sendBundle", (txs,))
-                        }
-                    }
-                    let res = provider
-                        .send_transaction(tx_req)
-                        .await
-                        .expect("failed to send tx");
-
                     let mut extra = HashMap::new();
                     extra.insert("start_timestamp".to_owned(), start_timestamp.to_string());
-                    if let Some(kind) = req.kind.to_owned() {
-                        extra.insert("kind".to_owned(), kind);
-                    }
 
-                    let maybe_handle = callback_handler.on_tx_sent(
-                        res.into_inner(),
-                        req,
-                        extra.into(),
-                        Some(tx_handler),
-                    );
-                    if let Some(handle) = maybe_handle {
-                        handle.await.expect("callback task failed");
+                    // triggers & awaits callback for every individual tx (including txs in a bundle)
+                    let handles = match payload {
+                        ExecutionPayload::SignedTx(signed_tx, req) => {
+                            let res = provider
+                                .send_tx_envelope(signed_tx)
+                                .await
+                                .expect("RPC error: failed to send tx");
+                            let maybe_handle = callback_handler.on_tx_sent(
+                                res.into_inner(),
+                                &req.to_owned(),
+                                extra.clone().into(),
+                                Some(tx_handler),
+                            );
+                            vec![maybe_handle]
+                        }
+                        ExecutionPayload::SignedTxBundle(signed_txs, reqs) => {
+                            // let res = provider.send_bundle(txs)
+                            // let handles = report_sent_req(start_timestamp, res);
+                            // TODO: implement send_bundle
+                            todo!();
+                        }
+                    };
+                    for handle in handles {
+                        if let Some(handle) = handle {
+                            handle.await.expect("callback task failed");
+                        }
                     }
-                    // ignore None values so we don't attempt to await them
                 }));
             }
 
@@ -378,7 +376,7 @@ mod tests {
             &get_test_signers(),
         );
         let callback_handler = MockCallback;
-        let spammer = BlockwiseSpammer::new(scenario, callback_handler);
+        let mut spammer = BlockwiseSpammer::new(scenario, callback_handler).await;
 
         let result = spammer.spam_rpc(10, 3, None).await;
         println!("{:?}", result);

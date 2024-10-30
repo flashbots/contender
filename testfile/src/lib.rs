@@ -7,7 +7,7 @@ use contender_core::{
     error::ContenderError,
     generator::{
         templater::Templater,
-        types::{CreateDefinition, FunctionCallDefinition},
+        types::{CreateDefinition, FunctionCallDefinition, SpamRequest},
         PlanConfig,
     },
 };
@@ -35,7 +35,7 @@ impl TestConfig {
 }
 
 impl PlanConfig<String> for TestConfig {
-    fn get_spam_steps(&self) -> Result<Vec<FunctionCallDefinition>, ContenderError> {
+    fn get_spam_steps(&self) -> Result<Vec<SpamRequest>, ContenderError> {
         Ok(self.spam.to_owned().unwrap_or_default())
     }
 
@@ -111,6 +111,7 @@ pub mod tests {
     use contender_core::{
         db::MockDb,
         generator::{
+            named_txs::ExecutionRequest,
             types::{CreateDefinition, FunctionCallDefinition, FuzzParam, PlanType},
             Generator, RandSeed,
         },
@@ -334,8 +335,15 @@ pub mod tests {
             .await
             .unwrap();
         assert_eq!(spam_txs.len(), 10);
-        let data = spam_txs[0].tx.input.input.to_owned().unwrap().to_string();
-        assert_eq!(data, "0x022c0d9f00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002000000000000000000000000111111111111111111111111111111111111111100000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000002dead000000000000000000000000000000000000000000000000000000000000");
+        match &spam_txs[0] {
+            ExecutionRequest::Tx(req) => {
+                let data = req.tx.input.input.to_owned().unwrap().to_string();
+                assert_eq!(data, "0x022c0d9f00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002000000000000000000000000111111111111111111111111111111111111111100000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000002dead000000000000000000000000000000000000000000000000000000000000");
+            }
+            _ => {
+                panic!("expected ExecutionRequest::Tx");
+            }
+        }
     }
 
     #[tokio::test]
@@ -370,9 +378,23 @@ pub mod tests {
             .unwrap();
         assert_eq!(spam_txs_1.len(), spam_txs_2.len());
         for i in 0..spam_txs_1.len() {
-            let data1 = spam_txs_1[i].tx.input.input.to_owned().unwrap().to_string();
-            let data2 = spam_txs_2[i].tx.input.input.to_owned().unwrap().to_string();
-            assert_eq!(data1, data2);
+            match &spam_txs_1[i] {
+                ExecutionRequest::Tx(req) => {
+                    let data1 = req.tx.input.input.to_owned().unwrap().to_string();
+                    match &spam_txs_2[i] {
+                        ExecutionRequest::Tx(req) => {
+                            let data2 = req.tx.input.input.to_owned().unwrap().to_string();
+                            assert_eq!(data1, data2);
+                        }
+                        _ => {
+                            panic!("expected ExecutionRequest::Tx");
+                        }
+                    }
+                }
+                _ => {
+                    panic!("expected ExecutionRequest::Tx");
+                }
+            }
         }
     }
 }

@@ -256,7 +256,9 @@ where
 pub mod tests {
     use crate::db::MockDb;
     use crate::generator::templater::Templater;
-    use crate::generator::types::{CreateDefinition, FunctionCallDefinition, FuzzParam};
+    use crate::generator::types::{
+        CreateDefinition, FunctionCallDefinition, FuzzParam, SpamRequest,
+    };
     use crate::generator::{types::PlanType, util::test::spawn_anvil, RandSeed};
     use crate::generator::{Generator, PlanConfig};
     use crate::spammer::util::test::get_test_signers;
@@ -323,26 +325,28 @@ pub mod tests {
             ])
         }
 
-        fn get_spam_steps(&self) -> Result<Vec<FunctionCallDefinition>> {
-            let fn_call = |data: &str, from_addr: &str| FunctionCallDefinition {
-                to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                from: from_addr.to_owned(),
-                value: None,
-                signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
-                args: vec![
-                    "1".to_owned(),
-                    "2".to_owned(),
-                    Address::repeat_byte(0x11).encode_hex(),
-                    data.to_owned(),
-                ]
-                .into(),
-                fuzz: vec![FuzzParam {
-                    param: "x".to_string(),
-                    min: None,
-                    max: None,
-                }]
-                .into(),
-                kind: None,
+        fn get_spam_steps(&self) -> Result<Vec<SpamRequest>> {
+            let fn_call = |data: &str, from_addr: &str| {
+                SpamRequest::Single(FunctionCallDefinition {
+                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
+                    from: from_addr.to_owned(),
+                    value: None,
+                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    args: vec![
+                        "1".to_owned(),
+                        "2".to_owned(),
+                        Address::repeat_byte(0x11).encode_hex(),
+                        data.to_owned(),
+                    ]
+                    .into(),
+                    fuzz: vec![FuzzParam {
+                        param: "x".to_string(),
+                        min: None,
+                        max: None,
+                    }]
+                    .into(),
+                    kind: None,
+                })
             };
             Ok(vec![
                 fn_call("0xbeef", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),

@@ -10,7 +10,7 @@ use crate::{
 };
 use alloy::primitives::U256;
 use async_trait::async_trait;
-use named_txs::ExecutionPayload;
+use named_txs::ExecutionRequest;
 pub use named_txs::NamedTxRequestBuilder;
 pub use seeder::rand_seed::RandSeed;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
@@ -86,7 +86,7 @@ where
     async fn load_txs<F: Send + Sync + Fn(NamedTxRequest) -> CallbackResult>(
         &self,
         plan_type: PlanType<F>,
-    ) -> Result<Vec<ExecutionPayload>> {
+    ) -> Result<Vec<ExecutionRequest>> {
         let conf = self.get_plan_conf();
         let env = conf.get_env().unwrap_or_default();
         let db = self.get_db();
@@ -97,7 +97,7 @@ where
             placeholder_map.insert(key.to_owned(), value.to_owned());
         }
 
-        let mut txs: Vec<ExecutionPayload> = vec![];
+        let mut txs: Vec<ExecutionRequest> = vec![];
 
         match plan_type {
             PlanType::Create(on_create_step) => {

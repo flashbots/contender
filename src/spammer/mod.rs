@@ -23,7 +23,7 @@ where
     fn on_tx_sent(
         &self,
         tx_response: PendingTransactionConfig,
-        req: NamedTxRequest,
+        req: &NamedTxRequest,
         extra: Option<HashMap<K, V>>,
         tx_handler: Option<Arc<TxActorHandle>>,
     ) -> Option<JoinHandle<()>>;
@@ -51,7 +51,7 @@ impl OnTxSent for NilCallback {
     fn on_tx_sent(
         &self,
         _tx_res: PendingTransactionConfig,
-        _req: NamedTxRequest,
+        _req: &NamedTxRequest,
         _extra: Option<HashMap<String, String>>,
         _tx_handler: Option<Arc<TxActorHandle>>,
     ) -> Option<JoinHandle<()>> {
@@ -64,7 +64,7 @@ impl OnTxSent for LogCallback {
     fn on_tx_sent(
         &self,
         tx_response: PendingTransactionConfig,
-        _req: NamedTxRequest,
+        _req: &NamedTxRequest,
         extra: Option<HashMap<String, String>>,
         tx_actor: Option<Arc<TxActorHandle>>,
     ) -> Option<JoinHandle<()>> {
@@ -91,6 +91,6 @@ impl OnTxSent for LogCallback {
 
 #[derive(Debug)]
 pub enum ExecutionPayload {
-    SignedTx(TxEnvelope),
-    SignedTxBundle(Vec<TxEnvelope>),
+    SignedTx(TxEnvelope, NamedTxRequest),
+    SignedTxBundle(Vec<TxEnvelope>, Vec<NamedTxRequest>),
 }
