@@ -1,24 +1,24 @@
+use super::named_txs::ExecutionPayload;
 use alloy::{
     network::AnyNetwork,
     primitives::U256,
     providers::RootProvider,
-    rpc::types::TransactionRequest,
     transports::http::{Client, Http},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::task::JoinHandle;
 
+// -- re-exports
+pub use crate::generator::named_txs::NamedTxRequest;
+
+// -- convenience
 pub type EthProvider = RootProvider<Http<Client>>;
 pub type AnyProvider = RootProvider<Http<Client>, AnyNetwork>;
 
-#[derive(Clone, Debug)]
-pub struct NamedTxRequest {
-    pub name: Option<String>,
-    pub kind: Option<String>,
-    pub tx: TransactionRequest,
-}
+// -- core types for test scenarios
 
+/// User-facing definition of a function call to be executed.
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct FunctionCallDefinition {
     /// Address of the contract to call.
@@ -34,7 +34,20 @@ pub struct FunctionCallDefinition {
     /// Parameters to fuzz during the test.
     pub fuzz: Option<Vec<FuzzParam>>,
     /// Optional type of the spam transaction for categorization.
-    pub kind: Option<String>
+    pub kind: Option<String>,
+}
+
+/// User-facing definition of a function call to be executed.
+#[derive(Clone, Deserialize, Debug, Serialize)]
+pub struct BundleCallDefinition {
+    #[serde(rename = "tx")]
+    pub txs: Vec<FunctionCallDefinition>,
+}
+
+///
+pub enum SpamRequest {
+    Single(FunctionCallDefinition),
+    Bundle(BundleCallDefinition),
 }
 
 #[derive(Clone, Deserialize, Debug, Serialize)]
@@ -62,7 +75,7 @@ pub struct Plan {
     pub env: HashMap<String, String>,
     pub create_steps: Vec<NamedTxRequest>,
     pub setup_steps: Vec<NamedTxRequest>,
-    pub spam_steps: Vec<NamedTxRequest>,
+    pub spam_steps: Vec<ExecutionPayload>,
 }
 
 pub type CallbackResult = crate::Result<Option<JoinHandle<()>>>;
