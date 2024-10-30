@@ -33,18 +33,18 @@ pub struct NamedTxRequestBuilder {
 }
 
 #[derive(Clone, Debug)]
-pub enum ExecutionPayload {
+pub enum ExecutionRequest {
     Tx(NamedTxRequest),
     Bundle(Vec<NamedTxRequest>),
 }
 
-impl From<NamedTxRequest> for ExecutionPayload {
+impl From<NamedTxRequest> for ExecutionRequest {
     fn from(tx: NamedTxRequest) -> Self {
         Self::Tx(tx)
     }
 }
 
-impl From<Vec<NamedTxRequest>> for ExecutionPayload {
+impl From<Vec<NamedTxRequest>> for ExecutionRequest {
     fn from(txs: Vec<NamedTxRequest>) -> Self {
         Self::Bundle(txs)
     }

@@ -1,4 +1,4 @@
-use super::named_txs::ExecutionPayload;
+use super::named_txs::ExecutionRequest;
 use alloy::{
     network::AnyNetwork,
     primitives::U256,
@@ -75,7 +75,7 @@ pub struct Plan {
     pub env: HashMap<String, String>,
     pub create_steps: Vec<NamedTxRequest>,
     pub setup_steps: Vec<NamedTxRequest>,
-    pub spam_steps: Vec<ExecutionPayload>,
+    pub spam_steps: Vec<ExecutionRequest>,
 }
 
 pub type CallbackResult = crate::Result<Option<JoinHandle<()>>>;

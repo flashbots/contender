@@ -4,7 +4,10 @@ pub mod tx_actor;
 pub mod util;
 
 use crate::generator::{types::AnyProvider, NamedTxRequest};
-use alloy::providers::PendingTransactionConfig;
+use alloy::{
+    consensus::TxEnvelope, network::EthereumWallet, providers::PendingTransactionConfig,
+    rpc::types::TransactionRequest,
+};
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
 use tx_actor::TxActorHandle;
@@ -84,4 +87,10 @@ impl OnTxSent for LogCallback {
         });
         Some(handle)
     }
+}
+
+#[derive(Debug)]
+pub enum ExecutionPayload {
+    SignedTx(TxEnvelope),
+    SignedTxBundle(Vec<TxEnvelope>),
 }
