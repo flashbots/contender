@@ -168,7 +168,7 @@ where
 
                     // populate maps for each step
                     match step {
-                        SpamRequest::Single(tx) => {
+                        SpamRequest::Tx(tx) => {
                             lookup_tx_placeholders(tx);
                         }
                         SpamRequest::Bundle(req) => {
@@ -196,7 +196,7 @@ where
                         };
 
                         match step {
-                            SpamRequest::Single(req) => {
+                            SpamRequest::Tx(req) => {
                                 let (handle, tx) = process_tx(req)?;
                                 if let Some(handle) = handle {
                                     handle.await.map_err(|e| {

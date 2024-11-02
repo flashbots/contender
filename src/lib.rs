@@ -1,3 +1,4 @@
+pub mod bundle_provider;
 pub mod db;
 pub mod error;
 pub mod generator;

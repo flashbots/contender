@@ -22,6 +22,7 @@ where
     pub config: P,
     pub db: Arc<D>,
     pub rpc_url: Url,
+    pub builder_rpc_url: Option<Url>,
     pub rand_seed: S,
     pub wallet_map: HashMap<Address, EthereumWallet>,
 }
@@ -36,6 +37,7 @@ where
         config: P,
         db: Arc<D>,
         rpc_url: Url,
+        builder_rpc_url: Option<Url>,
         rand_seed: S,
         signers: &[PrivateKeySigner],
     ) -> Self {
@@ -52,6 +54,7 @@ where
             config,
             db: db.clone(),
             rpc_url,
+            builder_rpc_url,
             rand_seed,
             wallet_map,
         }
@@ -327,7 +330,7 @@ pub mod tests {
 
         fn get_spam_steps(&self) -> Result<Vec<SpamRequest>> {
             let fn_call = |data: &str, from_addr: &str| {
-                SpamRequest::Single(FunctionCallDefinition {
+                SpamRequest::Tx(FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                     from: from_addr.to_owned(),
                     value: None,
@@ -392,6 +395,7 @@ pub mod tests {
             MockConfig,
             MockDb.into(),
             anvil.endpoint_url(),
+            None,
             seed,
             &signers,
         )

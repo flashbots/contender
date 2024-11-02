@@ -1,3 +1,4 @@
+use crate::bundle_provider::{BundleClient, EthSendBundle};
 use crate::db::DbOps;
 use crate::error::ContenderError;
 use crate::generator::named_txs::ExecutionRequest;
@@ -8,12 +9,18 @@ use crate::generator::{Generator, NamedTxRequest, PlanConfig};
 use crate::spammer::ExecutionPayload;
 use crate::test_scenario::TestScenario;
 use crate::Result;
+use alloy::consensus::BlobTransactionSidecar;
+use alloy::eips::eip2718::Encodable2718;
 use alloy::hex::ToHexExt;
-use alloy::network::{AnyNetwork, Ethereum, EthereumWallet, NetworkWallet, TransactionBuilder};
+use alloy::network::{
+    AnyNetwork, Ethereum, EthereumWallet, NetworkWallet, TransactionBuilder, TransactionBuilder4844,
+};
 use alloy::primitives::{Address, FixedBytes};
-use alloy::providers::{PendingTransactionBuilder, Provider, ProviderBuilder};
+use alloy::providers::{
+    PendingTransactionBuilder, PendingTransactionConfig, Provider, ProviderBuilder,
+};
 use alloy::rpc::client::ReqwestClient;
-use alloy::rpc::types::TransactionRequest;
+use alloy::rpc::types::{Transaction, TransactionRequest};
 use alloy::transports::http::{Client, Http};
 use futures::StreamExt;
 use std::collections::HashMap;
@@ -35,6 +42,7 @@ where
     msg_handler: Arc<TxActorHandle>,
     rpc_client: AnyProvider,
     eth_client: Arc<EthProvider>,
+    bundle_client: Option<Arc<BundleClient>>,
     callback_handler: Arc<F>,
     nonces: HashMap<Address, u64>,
     gas_limits: HashMap<FixedBytes<4>, u128>,
@@ -52,6 +60,12 @@ where
             .network::<AnyNetwork>()
             .on_http(scenario.rpc_url.to_owned());
         let eth_client = Arc::new(ProviderBuilder::new().on_http(scenario.rpc_url.to_owned()));
+        // TODO: parameterize auth_signer (u get random auth signer until then)
+        let auth_signer = alloy::signers::local::LocalSigner::random();
+        let bundle_client = scenario
+            .builder_rpc_url
+            .to_owned()
+            .map(|url| Arc::new(BundleClient::new(url.into(), auth_signer)));
         let msg_handler = Arc::new(TxActorHandle::new(
             12,
             scenario.db.clone(),
@@ -76,6 +90,7 @@ where
             scenario,
             rpc_client,
             eth_client,
+            bundle_client,
             callback_handler,
             msg_handler,
             nonces,
@@ -134,7 +149,10 @@ where
         let full_tx = tx_req
             .clone()
             .with_nonce(nonce)
-            .with_gas_price(gas_price)
+            .with_max_fee_per_gas(gas_price + (gas_price / 5))
+            .with_max_priority_fee_per_gas(gas_price / 5)
+            .with_max_fee_per_blob_gas(gas_price + (gas_price / 5))
+            .with_blob_sidecar(BlobTransactionSidecar::new(vec![], vec![], vec![]))
             .with_chain_id(chain_id)
             .with_gas_limit(gas_limit);
 
@@ -178,18 +196,6 @@ where
             .take(num_blocks);
 
         let mut tasks = vec![];
-        // let mut gas_limits = HashMap::<FixedBytes<4>, u128>::new();
-
-        // // get nonce for each signer and put it into a hashmap
-        // let mut nonces = HashMap::new();
-        // for (addr, _) in self.scenario.wallet_map.iter() {
-        //     let nonce = self
-        //         .rpc_client
-        //         .get_transaction_count(*addr)
-        //         .await
-        //         .map_err(|_| ContenderError::SpamError("failed to get nonce", None))?;
-        //     nonces.insert(*addr, nonce);
-        // }
 
         while let Some(block_hash) = stream.next().await {
             let block_txs = tx_req_chunks[block_offset].clone();
@@ -225,7 +231,7 @@ where
                         for req in reqs.iter() {
                             let tx_req = req.tx.to_owned();
                             let (tx_req, signer) = self
-                                .prepare_tx_req(&tx_req, gas_price, chain_id)
+                                .prepare_tx_req(&tx_req, gas_price + (gas_price / 3), chain_id)
                                 .await
                                 .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
 
@@ -233,6 +239,7 @@ where
                             let tx_envelope = tx_req.build(&signer).await.map_err(|e| {
                                 ContenderError::with_err(e, "bad request: failed to build tx")
                             })?;
+                            println!("signed {:?}", tx_envelope.tx_hash());
                             bundle_txs.push(tx_envelope);
                         }
                         // TODO: call eth_sendBundle with signed txs
@@ -271,6 +278,8 @@ where
                     }
                 };
 
+                let bundle_client = self.bundle_client.clone();
+
                 // build, sign, and send tx/bundle in a new task (green thread)
                 tasks.push(task::spawn(async move {
                     let provider = ProviderBuilder::new().on_provider(eth_client);
@@ -298,10 +307,43 @@ where
                             vec![maybe_handle]
                         }
                         ExecutionPayload::SignedTxBundle(signed_txs, reqs) => {
-                            // let res = provider.send_bundle(txs)
-                            // let handles = report_sent_req(start_timestamp, res);
-                            // TODO: implement send_bundle
-                            todo!();
+                            let mut bundle_txs = vec![];
+                            for tx in &signed_txs {
+                                println!("sending tx: {:?}", tx);
+                                let mut raw_tx = vec![];
+                                tx.encode_2718(&mut raw_tx);
+                                bundle_txs.push(raw_tx);
+                            }
+                            let rpc_bundle = EthSendBundle {
+                                txs: bundle_txs.into_iter().map(|tx| tx.into()).collect(),
+                                block_number: last_block_number,
+                                min_timestamp: None,
+                                max_timestamp: None,
+                                reverting_tx_hashes: vec![],
+                                replacement_uuid: None,
+                            };
+                            if let Some(bundle_client) = bundle_client {
+                                // send 12 bundles at a time, targeting each next block
+                                for i in 1..13 {
+                                    let mut rpc_bundle = rpc_bundle.clone();
+                                    rpc_bundle.block_number = last_block_number + i as u64;
+                                    println!("FINNA SEND A BUNDLE!");
+                                    let res = bundle_client.send_bundle(rpc_bundle).await;
+                                    println!("{:?}", res);
+                                }
+                            }
+
+                            let mut tx_handles = vec![];
+                            for (tx, req) in signed_txs.into_iter().zip(&reqs) {
+                                let maybe_handle = callback_handler.on_tx_sent(
+                                    PendingTransactionConfig::new(tx.tx_hash().to_owned()),
+                                    &req,
+                                    extra.clone().into(),
+                                    Some(tx_handler.clone()),
+                                );
+                                tx_handles.push(maybe_handle);
+                            }
+                            tx_handles
                         }
                     };
                     for handle in handles {
@@ -372,8 +414,9 @@ mod tests {
             MockConfig,
             MockDb.into(),
             anvil.endpoint_url(),
+            None,
             seed,
-            &get_test_signers(),
+            get_test_signers().as_slice(),
         );
         let callback_handler = MockCallback;
         let mut spammer = BlockwiseSpammer::new(scenario, callback_handler).await;

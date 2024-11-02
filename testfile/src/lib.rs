@@ -112,7 +112,7 @@ pub mod tests {
         db::MockDb,
         generator::{
             named_txs::ExecutionRequest,
-            types::{CreateDefinition, FunctionCallDefinition, FuzzParam, PlanType, SpamRequest},
+            types::{BundleCallDefinition, CreateDefinition, FunctionCallDefinition, FuzzParam, PlanType, SpamRequest},
             Generator, RandSeed,
         },
         test_scenario::TestScenario,
@@ -158,13 +158,13 @@ pub mod tests {
             env: None,
             create: None,
             setup: None,
-            spam: vec![SpamRequest::Single(fncall)].into(),
+            spam: vec![SpamRequest::Tx(fncall)].into(),
         }
     }
 
     pub fn get_fuzzy_testconfig() -> TestConfig {
         let fn_call = |data: &str, from_addr: &str| {
-            SpamRequest::Single(FunctionCallDefinition {
+            FunctionCallDefinition {
                 to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                 from: from_addr.to_owned(),
                 value: None,
@@ -183,16 +183,23 @@ pub mod tests {
                     max: None,
                 }]
                 .into(),
-            })
+            }
         };
         TestConfig {
             env: None,
             create: None,
             setup: None,
             spam: vec![
-                fn_call("0xbeef", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
-                fn_call("0xea75", "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
-                fn_call("0xf00d", "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
+                SpamRequest::Tx(fn_call("0xbeef", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")),
+                SpamRequest::Tx(fn_call("0xea75", "0x70997970C51812dc3A010C7d01b50e0d17dc79C8")),
+                SpamRequest::Tx(fn_call("0xf00d", "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC")),
+                SpamRequest::Bundle(BundleCallDefinition {
+                    txs: vec![
+                        fn_call("0xbeef", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
+                        fn_call("0xea75", "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
+                        fn_call("0xf00d", "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
+                    ]
+                })
             ]
             .into(),
         }
@@ -279,7 +286,7 @@ pub mod tests {
 
         assert_eq!(env.get("env1").unwrap(), "env1");
         match spam[0] {
-            SpamRequest::Single(ref fncall) => {
+            SpamRequest::Tx(ref fncall) => {
                 assert_eq!(
                     fncall.from,
                     "0x70997970C51812dc3A010C7d01b50e0d17dc79C8".to_owned()
@@ -315,10 +322,10 @@ pub mod tests {
         let test_file2 = TestConfig::from_file("cargotest.toml").unwrap();
         let spam = cfg.clone().spam.unwrap();
         match &spam[0] {
-            SpamRequest::Single(req) => {
+            SpamRequest::Tx(req) => {
                 let args = req.args.as_ref().unwrap();
                 match &test_file2.spam.unwrap()[0] {
-                    SpamRequest::Single(req2) => {
+                    SpamRequest::Tx(req2) => {
                         let args2 = req2.args.as_ref().unwrap();
                         assert_eq!(req.from, req2.from);
                         assert_eq!(req.to, req2.to);
@@ -349,6 +356,7 @@ pub mod tests {
             test_file,
             MockDb.into(),
             anvil.endpoint_url(),
+            None,
             seed,
             &get_test_signers(),
         );
@@ -385,6 +393,7 @@ pub mod tests {
             test_file.clone(),
             MockDb.into(),
             anvil.endpoint_url(),
+            None,
             seed.to_owned(),
             &signers,
         );
@@ -392,6 +401,7 @@ pub mod tests {
             test_file,
             MockDb.into(),
             anvil.endpoint_url(),
+            None,
             seed,
             &signers,
         );
@@ -420,8 +430,17 @@ pub mod tests {
                         }
                     }
                 }
-                _ => {
-                    panic!("expected ExecutionRequest::Tx");
+                ExecutionRequest::Bundle(reqs) => {
+                    let data1 = reqs[0].tx.input.input.to_owned().unwrap().to_string();
+                    match &spam_txs_2[i] {
+                        ExecutionRequest::Bundle(reqs) => {
+                            let data2 = reqs[0].tx.input.input.to_owned().unwrap().to_string();
+                            assert_eq!(data1, data2);
+                        }
+                        _ => {
+                            panic!("expected ExecutionRequest::Bundle");
+                        }
+                    }
                 }
             }
         }

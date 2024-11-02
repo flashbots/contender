@@ -32,6 +32,10 @@ static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     SqliteDb::from_file("contender.db").expect("failed to open contender.db")
 });
 
+fn rbuilder_url() -> Url {
+    "http://localhost:3000".parse().expect("invalid url")
+}
+
 fn get_signers_with_defaults(private_keys: Option<Vec<String>>) -> Vec<PrivateKeySigner> {
     if private_keys.is_none() {
         println!("No private keys provided. Using default private keys.");
@@ -77,13 +81,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map(|key| PrivateKeySigner::from_str(&key).expect("invalid private key"))
                 .collect::<Vec<PrivateKeySigner>>();
             let signers = get_signers_with_defaults(private_keys);
-            check_private_keys(&testconfig.setup.to_owned().unwrap_or(vec![]), &signers);
+            check_private_keys(
+                &testconfig.setup.to_owned().unwrap_or(vec![]),
+                signers.as_slice(),
+            );
             check_balances(&user_signers, min_balance, &rpc_client).await;
 
             let scenario = TestScenario::new(
                 testconfig.to_owned(),
                 Arc::new(DB.clone()),
                 url,
+                Some(rbuilder_url()), // TODO: replace this with user-provided url
                 RandSeed::new(),
                 &signers,
             );
@@ -122,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut fn_calls = vec![];
             for s in spam {
                 match s {
-                    SpamRequest::Single(fn_call) => {
+                    SpamRequest::Tx(fn_call) => {
                         fn_calls.push(fn_call.to_owned());
                     }
                     SpamRequest::Bundle(bundle) => {
@@ -131,8 +139,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            check_private_keys(&fn_calls, &signers);
-            check_balances(&signers, min_balance, &rpc_client).await;
+            check_private_keys(&fn_calls, signers.as_slice());
+            check_balances(signers.as_slice(), min_balance, &rpc_client).await;
 
             if txs_per_block.is_some() && txs_per_second.is_some() {
                 panic!("Cannot set both --txs-per-block and --txs-per-second");
@@ -142,8 +150,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             if let Some(txs_per_block) = txs_per_block {
-                let scenario =
-                    TestScenario::new(testconfig, DB.clone().into(), url, rand_seed, &signers);
+                let scenario = TestScenario::new(
+                    testconfig,
+                    DB.clone().into(),
+                    url,
+                    Some(rbuilder_url()),
+                    rand_seed,
+                    &signers,
+                );
                 println!("Blockwise spamming with {} txs per block", txs_per_block);
                 match spam_callback_default(!disable_reports, Arc::new(rpc_client).into()).await {
                     SpamCallbackType::Log(cback) => {
@@ -168,8 +182,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // NOTE: private keys are not currently used for timed spamming.
             // Timed spamming only works with unlocked accounts, because it uses the `eth_sendTransaction` RPC method.
-            let scenario =
-                TestScenario::new(testconfig, DB.clone().into(), url, rand_seed, &signers);
+            let scenario = TestScenario::new(
+                testconfig,
+                DB.clone().into(),
+                url,
+                Some(rbuilder_url()),
+                rand_seed,
+                &signers,
+            );
             let tps = txs_per_second.unwrap_or(10);
             println!("Timed spamming with {} txs per second", tps);
             let spammer = TimedSpammer::new(scenario, NilCallback::new());

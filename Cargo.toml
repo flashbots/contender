@@ -9,13 +9,15 @@ name = "contender_core"
 path = "src/lib.rs"
 
 [dependencies]
-alloy = { workspace = true, features = ["full", "node-bindings"] }
+alloy = { workspace = true, features = ["full", "node-bindings", "rpc-types-mev"] }
 eyre = "0.6.12"
 rand = "0.8.5"
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 futures = "0.3.30"
 async-trait = "0.1.82"
 tokio = { workspace = true }
+jsonrpsee = { version = "0.24", features = ["full", "server-core"] }
+alloy-serde = "0.5.4"
 
 [workspace] 
 members = ["cli", "sqlite_db", "testfile"]

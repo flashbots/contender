@@ -15,6 +15,8 @@ pub use crate::generator::named_txs::NamedTxRequest;
 // -- convenience
 pub type EthProvider = RootProvider<Http<Client>>;
 pub type AnyProvider = RootProvider<Http<Client>, AnyNetwork>;
+// TODO: associate this with whatever we come up with using ethers
+// pub type BuilderProvider;
 
 // -- core types for test scenarios
 
@@ -45,9 +47,12 @@ pub struct BundleCallDefinition {
 }
 
 /// Definition of a spam request template.
+/// TestConfig uses this for TOML parsing.
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub enum SpamRequest {
-    Single(FunctionCallDefinition),
+    #[serde(rename = "tx")]
+    Tx(FunctionCallDefinition),
+    #[serde(rename = "bundle")]
     Bundle(BundleCallDefinition),
 }
 
