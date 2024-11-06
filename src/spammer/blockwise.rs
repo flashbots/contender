@@ -231,7 +231,6 @@ where
                             println!("signed {:?}", tx_envelope.tx_hash());
                             bundle_txs.push(tx_envelope);
                         }
-                        // TODO: call eth_sendBundle with signed txs
                         ExecutionPayload::SignedTxBundle(bundle_txs, reqs)
                     }
                     ExecutionRequest::Tx(req) => {

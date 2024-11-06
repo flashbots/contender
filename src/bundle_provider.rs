@@ -8,6 +8,7 @@ pub struct BundleClient {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EthSendBundleResponse {
     pub bundle_hash: B256,
 }

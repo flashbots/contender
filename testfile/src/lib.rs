@@ -112,7 +112,10 @@ pub mod tests {
         db::MockDb,
         generator::{
             named_txs::ExecutionRequest,
-            types::{BundleCallDefinition, CreateDefinition, FunctionCallDefinition, FuzzParam, PlanType, SpamRequest},
+            types::{
+                BundleCallDefinition, CreateDefinition, FunctionCallDefinition, FuzzParam,
+                PlanType, SpamRequest,
+            },
             Generator, RandSeed,
         },
         test_scenario::TestScenario,
@@ -163,43 +166,50 @@ pub mod tests {
     }
 
     pub fn get_fuzzy_testconfig() -> TestConfig {
-        let fn_call = |data: &str, from_addr: &str| {
-            FunctionCallDefinition {
-                to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                from: from_addr.to_owned(),
-                value: None,
-                signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
-                args: vec![
-                    "1".to_owned(),
-                    "2".to_owned(),
-                    Address::repeat_byte(0x11).encode_hex(),
-                    data.to_owned(),
-                ]
-                .into(),
-                kind: None,
-                fuzz: vec![FuzzParam {
-                    param: "x".to_string(),
-                    min: None,
-                    max: None,
-                }]
-                .into(),
-            }
+        let fn_call = |data: &str, from_addr: &str| FunctionCallDefinition {
+            to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
+            from: from_addr.to_owned(),
+            value: None,
+            signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+            args: vec![
+                "1".to_owned(),
+                "2".to_owned(),
+                Address::repeat_byte(0x11).encode_hex(),
+                data.to_owned(),
+            ]
+            .into(),
+            kind: None,
+            fuzz: vec![FuzzParam {
+                param: "x".to_string(),
+                min: None,
+                max: None,
+            }]
+            .into(),
         };
         TestConfig {
             env: None,
             create: None,
             setup: None,
             spam: vec![
-                SpamRequest::Tx(fn_call("0xbeef", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")),
-                SpamRequest::Tx(fn_call("0xea75", "0x70997970C51812dc3A010C7d01b50e0d17dc79C8")),
-                SpamRequest::Tx(fn_call("0xf00d", "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC")),
+                SpamRequest::Tx(fn_call(
+                    "0xbeef",
+                    "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+                )),
+                SpamRequest::Tx(fn_call(
+                    "0xea75",
+                    "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+                )),
+                SpamRequest::Tx(fn_call(
+                    "0xf00d",
+                    "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+                )),
                 SpamRequest::Bundle(BundleCallDefinition {
                     txs: vec![
                         fn_call("0xbeef", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
                         fn_call("0xea75", "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
                         fn_call("0xf00d", "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
-                    ]
-                })
+                    ],
+                }),
             ]
             .into(),
         }
@@ -336,9 +346,6 @@ pub mod tests {
                         panic!("expected SpamRequest::Single");
                     }
                 }
-                // assert_eq!(req.to, test_file2.spam.unwrap()[0].to);
-                // assert_eq!(args[0], "1");
-                // assert_eq!(args[1], "2");
             }
             _ => {
                 panic!("expected SpamRequest::Single");
