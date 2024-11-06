@@ -5,23 +5,16 @@ use crate::generator::named_txs::ExecutionRequest;
 use crate::generator::seeder::Seeder;
 use crate::generator::templater::Templater;
 use crate::generator::types::{AnyProvider, EthProvider, PlanType};
-use crate::generator::{Generator, NamedTxRequest, PlanConfig};
+use crate::generator::{Generator, PlanConfig};
 use crate::spammer::ExecutionPayload;
 use crate::test_scenario::TestScenario;
 use crate::Result;
-use alloy::consensus::BlobTransactionSidecar;
 use alloy::eips::eip2718::Encodable2718;
 use alloy::hex::ToHexExt;
-use alloy::network::{
-    AnyNetwork, Ethereum, EthereumWallet, NetworkWallet, TransactionBuilder, TransactionBuilder4844,
-};
+use alloy::network::{AnyNetwork, EthereumWallet, TransactionBuilder};
 use alloy::primitives::{Address, FixedBytes};
-use alloy::providers::{
-    PendingTransactionBuilder, PendingTransactionConfig, Provider, ProviderBuilder,
-};
-use alloy::rpc::client::ReqwestClient;
-use alloy::rpc::types::{Transaction, TransactionRequest};
-use alloy::transports::http::{Client, Http};
+use alloy::providers::{PendingTransactionConfig, Provider, ProviderBuilder};
+use alloy::rpc::types::TransactionRequest;
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -60,12 +53,10 @@ where
             .network::<AnyNetwork>()
             .on_http(scenario.rpc_url.to_owned());
         let eth_client = Arc::new(ProviderBuilder::new().on_http(scenario.rpc_url.to_owned()));
-        // TODO: parameterize auth_signer (u get random auth signer until then)
-        let auth_signer = alloy::signers::local::LocalSigner::random();
         let bundle_client = scenario
             .builder_rpc_url
             .to_owned()
-            .map(|url| Arc::new(BundleClient::new(url.into(), auth_signer)));
+            .map(|url| Arc::new(BundleClient::new(url.into())));
         let msg_handler = Arc::new(TxActorHandle::new(
             12,
             scenario.db.clone(),
@@ -150,11 +141,9 @@ where
             .clone()
             .with_nonce(nonce)
             .with_max_fee_per_gas(gas_price + (gas_price / 5))
-            .with_max_priority_fee_per_gas(gas_price / 5)
-            .with_max_fee_per_blob_gas(gas_price + (gas_price / 5))
-            .with_blob_sidecar(BlobTransactionSidecar::new(vec![], vec![], vec![]))
+            .with_max_priority_fee_per_gas(gas_price)
             .with_chain_id(chain_id)
-            .with_gas_limit(gas_limit);
+            .with_gas_limit(gas_limit + (gas_limit / 4));
 
         Ok((full_tx, signer))
     }
@@ -231,7 +220,7 @@ where
                         for req in reqs.iter() {
                             let tx_req = req.tx.to_owned();
                             let (tx_req, signer) = self
-                                .prepare_tx_req(&tx_req, gas_price + (gas_price / 3), chain_id)
+                                .prepare_tx_req(&tx_req, gas_price, chain_id)
                                 .await
                                 .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
 
@@ -324,12 +313,11 @@ where
                             };
                             if let Some(bundle_client) = bundle_client {
                                 // send 12 bundles at a time, targeting each next block
-                                for i in 1..13 {
+                                for i in 1..6 {
                                     let mut rpc_bundle = rpc_bundle.clone();
                                     rpc_bundle.block_number = last_block_number + i as u64;
-                                    println!("FINNA SEND A BUNDLE!");
                                     let res = bundle_client.send_bundle(rpc_bundle).await;
-                                    println!("{:?}", res);
+                                    println!("sent bundle {:?}", res);
                                 }
                             }
 

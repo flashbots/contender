@@ -18,6 +18,7 @@ async-trait = "0.1.82"
 tokio = { workspace = true }
 jsonrpsee = { version = "0.24", features = ["full", "server-core"] }
 alloy-serde = "0.5.4"
+serde_json = "1.0.132"
 
 [workspace] 
 members = ["cli", "sqlite_db", "testfile"]

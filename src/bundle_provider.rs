@@ -1,36 +1,39 @@
-use alloy::network::EthereumWallet;
 use alloy::primitives::{Bytes, B256};
-use alloy::signers::local::PrivateKeySigner;
-use alloy::transports::http::reqwest::Url;
+use jsonrpsee::http_client::HttpClient;
 use jsonrpsee::{core::client::ClientT, rpc_params};
 use serde::{Deserialize, Serialize};
 
 pub struct BundleClient {
-    url: Url,
-    _wallet: EthereumWallet, // TODO: use to sign payload for auth header
+    client: HttpClient,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EthSendBundleResponse {
+    pub bundle_hash: B256,
 }
 
 impl BundleClient {
-    pub fn new(url: String, auth_signer: PrivateKeySigner) -> Self {
-        let wallet = EthereumWallet::new(auth_signer);
-        Self {
-            url: url.parse().expect("invalid bundle RPC URL"),
-            _wallet: wallet,
-        }
+    pub fn new(url: String) -> Self {
+        let client = HttpClient::builder()
+            .build(url)
+            .expect("failed to connect to RPC provider");
+        Self { client }
     }
 
     pub async fn send_bundle(&self, bundle: EthSendBundle) -> Result<(), String> {
-        // TODO: make this more efficient
-        let client = jsonrpsee::http_client::HttpClient::builder()
-            // .set_headers(HeaderMap::from_iter(vec![(
-            //     HeaderName::from_str("X-Flashbots-Signature").unwrap(),
-            //     HeaderValue::from_str("test").unwrap(),
-            // )]))
-            .build(self.url.clone())
-            .expect("failed to connect to RPC provider");
+        // Result contents optional because some endpoints don't return this response
+        let res: Result<Option<EthSendBundleResponse>, _> = self
+            .client
+            .request("eth_sendBundle", rpc_params![bundle])
+            .await;
 
-        let res: Result<String, _> = client.request("eth_sendBundle", rpc_params![bundle]).await;
-        println!("sent bundle {:?}", res);
+        if let Ok(res) = res {
+            if let Some(res) = res {
+                println!("sent bundle {:?}", res);
+            } else {
+                println!("sent bundle, no response");
+            }
+        }
 
         Ok(())
     }

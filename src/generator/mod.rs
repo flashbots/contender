@@ -71,16 +71,14 @@ where
         num_values: usize,
         fuzz_args: &[FuzzParam],
     ) -> HashMap<String, Vec<U256>> {
-        let mut fuzz_map = HashMap::<String, Vec<U256>>::new();
         let seed = self.get_fuzz_seeder();
-        for fuzz in fuzz_args {
+        HashMap::<String, Vec<U256>>::from_iter(fuzz_args.iter().map(|fuzz| {
             let values: Vec<U256> = seed
                 .seed_values(num_values, fuzz.min, fuzz.max)
                 .map(|v| v.as_u256())
                 .collect();
-            fuzz_map.insert(fuzz.param.to_owned(), values);
-        }
-        fuzz_map
+            (fuzz.param.to_owned(), values)
+        }))
     }
 
     async fn load_txs<F: Send + Sync + Fn(NamedTxRequest) -> CallbackResult>(
@@ -162,7 +160,11 @@ where
 
                     // finds placeholders in a function call definition and populates `placeholder_map` and `canonical_fuzz_map` with injectable values.
                     let mut lookup_tx_placeholders = |tx: &FunctionCallDefinition| {
-                        templater.find_fncall_placeholders(tx, db, &mut placeholder_map);
+                        let res = templater.find_fncall_placeholders(tx, db, &mut placeholder_map);
+                        if let Err(e) = res {
+                            eprintln!("error finding placeholders: {}", e);
+                            return;
+                        }
                         find_fuzz(tx);
                     };
 

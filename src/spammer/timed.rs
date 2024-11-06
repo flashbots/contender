@@ -1,11 +1,15 @@
 use crate::{
-    bundle_provider::BundleClient, db::DbOps, generator::{
+    db::DbOps,
+    generator::{
         named_txs::ExecutionRequest,
         seeder::Seeder,
         templater::Templater,
         types::{EthProvider, PlanType},
         Generator, PlanConfig,
-    }, spammer::OnTxSent, test_scenario::TestScenario, Result
+    },
+    spammer::OnTxSent,
+    test_scenario::TestScenario,
+    Result,
 };
 use alloy::hex::ToHexExt;
 use alloy::providers::Provider;
@@ -23,7 +27,6 @@ where
     scenario: TestScenario<D, S, P>,
     rpc_client: Arc<EthProvider>,
     callback_handler: Arc<F>,
-    bundle_client: Option<BundleClient>,
 }
 
 impl<F, D, S, P> TimedSpammer<F, D, S, P>
@@ -35,16 +38,10 @@ where
 {
     pub fn new(scenario: TestScenario<D, S, P>, callback_handler: F) -> Self {
         let rpc_client = ProviderBuilder::new().on_http(scenario.rpc_url.to_owned());
-        // TODO: parameterize auth_signer (u get random auth signer until then)
-        let auth_signer = alloy::signers::local::LocalSigner::random();
-        let bundle_client = scenario.builder_rpc_url.to_owned().map(|url| {
-            BundleClient::new(url.into(), auth_signer)
-        });
         Self {
             scenario,
             rpc_client: Arc::new(rpc_client),
             callback_handler: Arc::new(callback_handler),
-            bundle_client,
         }
     }
 
@@ -91,8 +88,9 @@ where
                             callback_handler.on_tx_sent(res.into_inner(), &req, None, None);
                         vec![maybe_handle]
                     }
-                    ExecutionRequest::Bundle(reqs) => {
-                        todo!();
+                    ExecutionRequest::Bundle(_) => {
+                        eprintln!("bundles are not supported in timed spammer. Please try the blockwise spammer (--tpb)");
+                        vec![]
                     }
                 };
 

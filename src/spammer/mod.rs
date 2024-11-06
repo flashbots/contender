@@ -4,10 +4,7 @@ pub mod tx_actor;
 pub mod util;
 
 use crate::generator::{types::AnyProvider, NamedTxRequest};
-use alloy::{
-    consensus::TxEnvelope, network::EthereumWallet, providers::PendingTransactionConfig,
-    rpc::types::TransactionRequest,
-};
+use alloy::{consensus::TxEnvelope, providers::PendingTransactionConfig};
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
 use tx_actor::TxActorHandle;
