@@ -311,8 +311,8 @@ where
                                 replacement_uuid: None,
                             };
                             if let Some(bundle_client) = bundle_client {
-                                // send 12 bundles at a time, targeting each next block
-                                for i in 1..6 {
+                                // send `num_blocks` bundles at a time, targeting each successive block
+                                for i in 1..num_blocks {
                                     let mut rpc_bundle = rpc_bundle.clone();
                                     rpc_bundle.block_number = last_block_number + i as u64;
                                     let res = bundle_client.send_bundle(rpc_bundle).await;
