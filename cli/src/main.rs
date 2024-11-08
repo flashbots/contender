@@ -32,10 +32,6 @@ static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     SqliteDb::from_file("contender.db").expect("failed to open contender.db")
 });
 
-fn rbuilder_url() -> Url {
-    "http://localhost:3000".parse().expect("invalid url")
-}
-
 fn get_signers_with_defaults(private_keys: Option<Vec<String>>) -> Vec<PrivateKeySigner> {
     if private_keys.is_none() {
         println!("No private keys provided. Using default private keys.");
@@ -91,7 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 testconfig.to_owned(),
                 Arc::new(DB.clone()),
                 url,
-                Some(rbuilder_url()), // TODO: replace this with user-provided url
+                None,
                 RandSeed::new(),
                 &signers,
             );
@@ -103,6 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ContenderSubcommand::Spam {
             testfile,
             rpc_url,
+            builder_url,
             txs_per_block,
             txs_per_second,
             duration,
@@ -154,7 +151,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     testconfig,
                     DB.clone().into(),
                     url,
-                    Some(rbuilder_url()),
+                    builder_url.map(|url| Url::parse(&url).expect("Invalid builder URL")),
                     rand_seed,
                     &signers,
                 );
@@ -186,7 +183,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 testconfig,
                 DB.clone().into(),
                 url,
-                Some(rbuilder_url()),
+                None,
                 rand_seed,
                 &signers,
             );

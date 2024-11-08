@@ -318,6 +318,8 @@ where
                                     let res = bundle_client.send_bundle(rpc_bundle).await;
                                     println!("sent bundle {:?}", res);
                                 }
+                            } else {
+                                panic!("no bundle client provided. Please add the `--builder-url` flag");
                             }
 
                             let mut tx_handles = vec![];
