@@ -24,6 +24,9 @@ use tokio::task;
 use super::tx_actor::TxActorHandle;
 use super::OnTxSent;
 
+/// Defines the number of blocks to target with a single bundle.
+const BUNDLE_BLOCK_TOLERANCE: usize = 5;
+
 pub struct BlockwiseSpammer<F, D, S, P>
 where
     D: DbOps + Send + Sync + 'static,
@@ -312,7 +315,7 @@ where
                             };
                             if let Some(bundle_client) = bundle_client {
                                 // send `num_blocks` bundles at a time, targeting each successive block
-                                for i in 1..num_blocks {
+                                for i in 1..(num_blocks + BUNDLE_BLOCK_TOLERANCE) {
                                     let mut rpc_bundle = rpc_bundle.clone();
                                     rpc_bundle.block_number = last_block_number + i as u64;
                                     let res = bundle_client.send_bundle(rpc_bundle).await;
