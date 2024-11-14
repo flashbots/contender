@@ -1,6 +1,7 @@
 use crate::{
     db::DbOps,
     generator::{
+        named_txs::ExecutionRequest,
         seeder::Seeder,
         templater::Templater,
         types::{EthProvider, PlanType},
@@ -60,31 +61,44 @@ where
 
             // send tx to the RPC asynchrononsly
             tasks.push(task::spawn(async move {
-                let tx_req = &tx.tx;
-                println!(
-                    "sending tx. from={} to={} input={}",
-                    tx_req.from.map(|s| s.encode_hex()).unwrap_or_default(),
-                    tx_req
-                        .to
-                        .map(|s| s.to().map(|s| *s))
-                        .flatten()
-                        .map(|s| s.encode_hex())
-                        .unwrap_or_default(),
-                    tx_req
-                        .input
-                        .input
-                        .as_ref()
-                        .map(|s| s.encode_hex())
-                        .unwrap_or_default(),
-                );
-                let res = rpc_client
-                    .send_transaction(tx_req.to_owned())
-                    .await
-                    .expect("failed to send tx");
-                let maybe_handle = callback_handler.on_tx_sent(res.into_inner(), tx, None, None);
-                if let Some(handle) = maybe_handle {
-                    handle.await.expect("failed to join task handle");
-                } // ignore None values so we don't attempt to await them
+                let handles = match tx {
+                    ExecutionRequest::Tx(req) => {
+                        let tx_req = &req.tx;
+                        println!(
+                            "sending tx. from={} to={} input={}",
+                            tx_req.from.map(|s| s.encode_hex()).unwrap_or_default(),
+                            tx_req
+                                .to
+                                .map(|s| s.to().map(|s| *s))
+                                .flatten()
+                                .map(|s| s.encode_hex())
+                                .unwrap_or_default(),
+                            tx_req
+                                .input
+                                .input
+                                .as_ref()
+                                .map(|s| s.encode_hex())
+                                .unwrap_or_default(),
+                        );
+                        let res = rpc_client
+                            .send_transaction(tx_req.to_owned())
+                            .await
+                            .expect("failed to send tx");
+                        let maybe_handle =
+                            callback_handler.on_tx_sent(res.into_inner(), &req, None, None);
+                        vec![maybe_handle]
+                    }
+                    ExecutionRequest::Bundle(_) => {
+                        eprintln!("bundles are not supported in timed spammer. Please try the blockwise spammer (--tpb)");
+                        vec![]
+                    }
+                };
+
+                for handle in handles {
+                    if let Some(handle) = handle {
+                        handle.await.expect("failed to join task handle");
+                    } // ignore None values so we don't attempt to await them
+                }
             }));
 
             // sleep for interval

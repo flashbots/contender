@@ -4,7 +4,7 @@ pub mod tx_actor;
 pub mod util;
 
 use crate::generator::{types::AnyProvider, NamedTxRequest};
-use alloy::providers::PendingTransactionConfig;
+use alloy::{consensus::TxEnvelope, providers::PendingTransactionConfig};
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
 use tx_actor::TxActorHandle;
@@ -20,7 +20,7 @@ where
     fn on_tx_sent(
         &self,
         tx_response: PendingTransactionConfig,
-        req: NamedTxRequest,
+        req: &NamedTxRequest,
         extra: Option<HashMap<K, V>>,
         tx_handler: Option<Arc<TxActorHandle>>,
     ) -> Option<JoinHandle<()>>;
@@ -48,7 +48,7 @@ impl OnTxSent for NilCallback {
     fn on_tx_sent(
         &self,
         _tx_res: PendingTransactionConfig,
-        _req: NamedTxRequest,
+        _req: &NamedTxRequest,
         _extra: Option<HashMap<String, String>>,
         _tx_handler: Option<Arc<TxActorHandle>>,
     ) -> Option<JoinHandle<()>> {
@@ -61,7 +61,7 @@ impl OnTxSent for LogCallback {
     fn on_tx_sent(
         &self,
         tx_response: PendingTransactionConfig,
-        _req: NamedTxRequest,
+        _req: &NamedTxRequest,
         extra: Option<HashMap<String, String>>,
         tx_actor: Option<Arc<TxActorHandle>>,
     ) -> Option<JoinHandle<()>> {
@@ -84,4 +84,10 @@ impl OnTxSent for LogCallback {
         });
         Some(handle)
     }
+}
+
+#[derive(Debug)]
+pub enum ExecutionPayload {
+    SignedTx(TxEnvelope, NamedTxRequest),
+    SignedTxBundle(Vec<TxEnvelope>, Vec<NamedTxRequest>),
 }

@@ -9,100 +9,48 @@ use crate::{
     Result,
 };
 use alloy::primitives::U256;
-use alloy::rpc::types::TransactionRequest;
 use async_trait::async_trait;
+use named_txs::ExecutionRequest;
+pub use named_txs::NamedTxRequestBuilder;
 pub use seeder::rand_seed::RandSeed;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
+use types::SpamRequest;
 
 pub use types::{CallbackResult, NamedTxRequest, PlanType};
+
+/// Defines named tx requests, which are used to store transaction requests with optional names and kinds.
+/// Used for tracking transactions in a test scenario.
+pub mod named_txs;
 
 /// Generates values for fuzzed parameters.
 /// Contains the Seeder trait and an implementation.
 pub mod seeder;
+
 /// Provides templating for transaction requests, etc.
 /// Contains the Templater trait and an implementation.
 pub mod templater;
+
 /// Contains types used by the generator module.
 pub mod types;
+
 /// Utility functions used in the generator module.
 pub mod util;
-
-/// Syntactical sugar for creating a [`NamedTxRequest`].
-///
-/// This is useful for imperatively assigning optional fields to a tx.
-/// It is _not_ useful when you're dynamically assigning these fields (i.e. you have an Option to check first).
-///
-/// ### Example:
-/// ```
-/// use alloy::rpc::types::TransactionRequest;
-/// # use contender_core::generator::NamedTxRequestBuilder;
-///
-/// let tx_req = TransactionRequest::default();
-/// let named_tx_req = NamedTxRequestBuilder::new(tx_req)
-///     .with_name("unique_tx_name")
-///     .with_kind("tx_kind")
-///     .build();
-/// assert_eq!(named_tx_req.name, Some("unique_tx_name".to_owned()));
-/// assert_eq!(named_tx_req.kind, Some("tx_kind".to_owned()));
-/// ```
-pub struct NamedTxRequestBuilder {
-    name: Option<String>,
-    kind: Option<String>,
-    tx: TransactionRequest,
-}
-
-impl NamedTxRequestBuilder {
-    pub fn new(tx: TransactionRequest) -> Self {
-        Self {
-            name: None,
-            kind: None,
-            tx,
-        }
-    }
-
-    pub fn with_name(&mut self, name: &str) -> &mut Self {
-        self.name = Some(name.to_owned());
-        self
-    }
-
-    pub fn with_kind(&mut self, kind: &str) -> &mut Self {
-        self.kind = Some(kind.to_owned());
-        self
-    }
-
-    pub fn build(&self) -> NamedTxRequest {
-        NamedTxRequest::new(
-            self.tx.to_owned(),
-            self.name.to_owned(),
-            self.kind.to_owned(),
-        )
-    }
-}
-
-impl NamedTxRequest {
-    pub fn new(tx: TransactionRequest, name: Option<String>, kind: Option<String>) -> Self {
-        Self { name, kind, tx }
-    }
-}
-
-impl From<TransactionRequest> for NamedTxRequest {
-    fn from(tx: TransactionRequest) -> Self {
-        Self {
-            name: None,
-            kind: None,
-            tx,
-        }
-    }
-}
 
 pub trait PlanConfig<K>
 where
     K: Eq + Hash + Debug + Send + Sync,
 {
+    /// Get \[\[env]] variables from the plan configuration.
     fn get_env(&self) -> Result<HashMap<K, String>>;
+
+    /// Get contract-creation steps from the plan configuration.
     fn get_create_steps(&self) -> Result<Vec<CreateDefinition>>;
+
+    /// Get setup transactions from the plan configuration.
     fn get_setup_steps(&self) -> Result<Vec<FunctionCallDefinition>>;
-    fn get_spam_steps(&self) -> Result<Vec<FunctionCallDefinition>>;
+
+    /// Get spam step templates from the plan configuration.
+    fn get_spam_steps(&self) -> Result<Vec<SpamRequest>>;
 }
 
 #[async_trait]
@@ -117,27 +65,26 @@ where
     fn get_db(&self) -> &D;
     fn get_fuzz_seeder(&self) -> &impl Seeder;
 
-    fn get_fuzz_map(
+    /// Generates a map of N=`num_values` fuzzed values for each parameter in `fuzz_args`.
+    fn create_fuzz_map(
         &self,
         num_values: usize,
         fuzz_args: &[FuzzParam],
     ) -> HashMap<String, Vec<U256>> {
-        let mut fuzz_map = HashMap::<String, Vec<U256>>::new();
         let seed = self.get_fuzz_seeder();
-        for fuzz in fuzz_args {
+        HashMap::<String, Vec<U256>>::from_iter(fuzz_args.iter().map(|fuzz| {
             let values: Vec<U256> = seed
                 .seed_values(num_values, fuzz.min, fuzz.max)
                 .map(|v| v.as_u256())
                 .collect();
-            fuzz_map.insert(fuzz.param.to_owned(), values);
-        }
-        fuzz_map
+            (fuzz.param.to_owned(), values)
+        }))
     }
 
     async fn load_txs<F: Send + Sync + Fn(NamedTxRequest) -> CallbackResult>(
         &self,
         plan_type: PlanType<F>,
-    ) -> Result<Vec<NamedTxRequest>> {
+    ) -> Result<Vec<ExecutionRequest>> {
         let conf = self.get_plan_conf();
         let env = conf.get_env().unwrap_or_default();
         let db = self.get_db();
@@ -148,7 +95,8 @@ where
             placeholder_map.insert(key.to_owned(), value.to_owned());
         }
 
-        let mut txs = vec![];
+        let mut txs: Vec<ExecutionRequest> = vec![];
+
         match plan_type {
             PlanType::Create(on_create_step) => {
                 let create_steps = conf.get_create_steps()?;
@@ -169,7 +117,7 @@ where
                             ContenderError::with_err(e, "join error; callback crashed")
                         })?;
                     }
-                    txs.push(tx);
+                    txs.push(tx.into());
                 }
             }
             PlanType::Setup(on_setup_step) => {
@@ -191,7 +139,7 @@ where
                             ContenderError::with_err(e, "join error; callback crashed")
                         })?;
                     }
-                    txs.push(tx);
+                    txs.push(tx.into());
                 }
             }
             PlanType::Spam(num_txs, on_spam_setup) => {
@@ -199,82 +147,124 @@ where
                 let num_steps = spam_steps.len();
                 // round num_txs up to the nearest multiple of num_steps to prevent missed steps
                 let num_txs = num_txs + (num_txs % num_steps);
+                let mut placeholder_map = HashMap::<K, String>::new();
+                let mut canonical_fuzz_map = HashMap::<String, Vec<U256>>::new();
 
                 for step in spam_steps.iter() {
-                    // find templates from fn call
-                    templater.find_fncall_placeholders(step, db, &mut placeholder_map)?;
-                    let fn_args = step.args.to_owned().unwrap_or_default();
+                    // finds fuzzed values for a function call definition and populates `canonical_fuzz_map` with fuzzy values.
+                    let mut find_fuzz = |req: &FunctionCallDefinition| {
+                        let fuzz_args = req.fuzz.to_owned().unwrap_or(vec![]);
+                        let fuzz_map = self.create_fuzz_map(num_txs, &fuzz_args); // this may create more values than needed, but it's fine
+                        canonical_fuzz_map.extend(fuzz_map);
+                    };
 
-                    // parse fn signature, used to check for fuzzed args later (to make sure they're named)
-                    let func = alloy::json_abi::Function::parse(&step.signature).map_err(|e| {
-                        ContenderError::with_err(e, "failed to parse function name")
-                    })?;
-
-                    // pre-generate fuzzy values for each fuzzed parameter
-                    let fuzz_args = step.fuzz.to_owned().unwrap_or(vec![]);
-                    let fuzz_map = self.get_fuzz_map(num_txs / num_steps, &fuzz_args);
-
-                    // generate spam txs; split total amount by number of spam steps
-                    for i in 0..(num_txs / num_steps) {
-                        // check args for fuzz params first
-                        let mut args = Vec::new();
-                        for j in 0..fn_args.len() {
-                            let maybe_fuzz = || {
-                                let input_def = func.inputs[j].to_string();
-                                // there's probably a better way to do this, but I haven't found it
-                                let arg_namedefs =
-                                    input_def.split_ascii_whitespace().collect::<Vec<&str>>();
-                                if arg_namedefs.len() < 2 {
-                                    // can't fuzz unnamed params
-                                    return None;
-                                }
-                                let arg_name = arg_namedefs[1];
-                                if fuzz_map.contains_key(arg_name) {
-                                    return Some(
-                                        fuzz_map.get(arg_name).expect("this should never happen")
-                                            [i]
-                                            .to_string(),
-                                    );
-                                }
-                                None
-                            };
-
-                            // !!! args with template values will be overwritten by the fuzzer if it's enabled for this arg
-                            let val = maybe_fuzz().unwrap_or(fn_args[j].to_owned());
-                            args.push(val);
+                    // finds placeholders in a function call definition and populates `placeholder_map` and `canonical_fuzz_map` with injectable values.
+                    let mut lookup_tx_placeholders = |tx: &FunctionCallDefinition| {
+                        let res = templater.find_fncall_placeholders(tx, db, &mut placeholder_map);
+                        if let Err(e) = res {
+                            eprintln!("error finding placeholders: {}", e);
+                            return;
                         }
-                        let mut step = step.to_owned();
-                        step.args = Some(args);
+                        find_fuzz(tx);
+                    };
 
-                        let tx = NamedTxRequest::new(
-                            templater.template_function_call(&step, &placeholder_map)?,
-                            None,
-                            step.kind,
-                        );
-
-                        let handle = on_spam_setup(tx.to_owned())?;
-                        if let Some(handle) = handle {
-                            handle
-                                .await
-                                .map_err(|e| ContenderError::with_err(e, "error from callback"))?;
+                    // populate maps for each step
+                    match step {
+                        SpamRequest::Tx(tx) => {
+                            lookup_tx_placeholders(tx);
                         }
-                        txs.push(tx);
+                        SpamRequest::Bundle(req) => {
+                            for tx in req.txs.iter() {
+                                lookup_tx_placeholders(tx);
+                            }
+                        }
+                    };
+                }
+
+                for i in 0..(num_txs / num_steps) {
+                    for step in spam_steps.iter() {
+                        // converts a FunctionCallDefinition to a NamedTxRequest (filling in fuzzable args),
+                        // returns a callback handle and the processed tx request
+                        let process_tx = |req| {
+                            let args = get_fuzzed_args(req, &canonical_fuzz_map, i);
+                            let mut req = req.to_owned();
+                            req.args = Some(args);
+                            let tx = NamedTxRequest::new(
+                                templater.template_function_call(&req, &placeholder_map)?,
+                                None,
+                                req.kind.to_owned(),
+                            );
+                            return Ok((on_spam_setup(tx.to_owned())?, tx));
+                        };
+
+                        match step {
+                            SpamRequest::Tx(req) => {
+                                let (handle, tx) = process_tx(req)?;
+                                if let Some(handle) = handle {
+                                    handle.await.map_err(|e| {
+                                        ContenderError::with_err(e, "error from callback")
+                                    })?;
+                                }
+                                txs.push(tx.into());
+                            }
+                            SpamRequest::Bundle(req) => {
+                                let mut bundle_txs = vec![];
+                                for tx in req.txs.iter() {
+                                    let (handle, txr) = process_tx(tx)?;
+                                    if let Some(handle) = handle {
+                                        handle.await.map_err(|e| {
+                                            ContenderError::with_err(e, "error from callback")
+                                        })?;
+                                    }
+                                    bundle_txs.push(txr);
+                                }
+                                txs.push(bundle_txs.into());
+                            }
+                        }
                     }
                 }
-
-                // interleave spam txs to evenly distribute various calls
-                // this may create contention if different senders are specified for each call
-                let chunksize = txs.len() / num_steps;
-                let mut new_templates = vec![];
-                for i in 0..txs.len() {
-                    let chunk_idx = chunksize * (i % num_steps);
-                    let idx = (i / num_steps) + chunk_idx;
-                    new_templates.push(txs[idx].to_owned());
-                }
-                return Ok(new_templates);
             }
         }
 
         Ok(txs)
     }
+}
+
+/// For the given function call definition, return the fuzzy arguments for the given fuzz index.
+fn get_fuzzed_args(
+    tx: &FunctionCallDefinition,
+    fuzz_map: &HashMap<String, Vec<U256>>,
+    fuzz_idx: usize,
+) -> Vec<String> {
+    // let mut args = Vec::new();
+    let func =
+        alloy::json_abi::Function::parse(&tx.signature).expect("failed to parse function name");
+    let tx_args = tx.args.as_deref().unwrap_or_default();
+    tx_args
+        .iter()
+        .enumerate()
+        .map(|(idx, arg)| {
+            let maybe_fuzz = || {
+                let input_def = func.inputs[idx].to_string();
+                // there's probably a better way to do this, but I haven't found it
+                // we're looking for something like "uint256 arg_name" in input_def
+                let arg_namedefs = input_def.split_ascii_whitespace().collect::<Vec<&str>>();
+                if arg_namedefs.len() < 2 {
+                    // can't fuzz unnamed params
+                    return None;
+                }
+                let arg_name = arg_namedefs[1];
+                if fuzz_map.contains_key(arg_name) {
+                    return Some(
+                        fuzz_map.get(arg_name).expect("this should never happen")[fuzz_idx]
+                            .to_string(),
+                    );
+                }
+                None
+            };
+
+            // !!! args with template values will be overwritten by the fuzzer if it's enabled for this arg
+            maybe_fuzz().unwrap_or(arg.to_owned())
+        })
+        .collect()
 }

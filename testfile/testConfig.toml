@@ -8,9 +8,11 @@ from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 signature = "function deposit() public payable"
 value = "1234"
 
-
-### the spam step will be repeated
+# the spam step will be repeated
 [[spam]]
+
+# specify a single tx to spam
+[spam.tx]
 kind = "test"
 to = "0xE46CcF40134e7ad524529B25Ce04e39BC2B51cDc"
 from = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
@@ -20,7 +22,8 @@ args = [
      "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
 ]
 
-[[spam.fuzz]]
+# each tx can have multiple fuzzed params
+[[spam.tx.fuzz]]
 param = "amountIn"
 min = "1"
 max = "100000000000000000"

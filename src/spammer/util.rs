@@ -15,7 +15,7 @@ pub mod test {
         fn on_tx_sent(
             &self,
             _tx_res: PendingTransactionConfig,
-            _req: NamedTxRequest,
+            _req: &NamedTxRequest,
             _extra: Option<HashMap<String, String>>,
             _tx_handler: Option<Arc<TxActorHandle>>,
         ) -> Option<JoinHandle<()>> {

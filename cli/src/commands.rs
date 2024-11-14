@@ -25,6 +25,14 @@ pub enum ContenderSubcommand {
         /// The HTTP JSON-RPC URL to spam with requests.
         rpc_url: String,
 
+        /// HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`).
+        #[arg(
+            short,
+            long,
+            long_help = "HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`)"
+        )]
+        builder_url: Option<String>,
+
         /// The number of txs to send per second using the timed spammer. This is the default spammer.
         /// May not be set if `txs_per_block` is set.
         #[arg(long, long_help = "Number of txs to send per second. Must not be set if --txs-per-block is set.", visible_aliases = &["tps"])]
