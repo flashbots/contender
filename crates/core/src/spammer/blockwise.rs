@@ -9,6 +9,7 @@ use crate::generator::{Generator, PlanConfig};
 use crate::spammer::ExecutionPayload;
 use crate::test_scenario::TestScenario;
 use crate::Result;
+use alloy::consensus::Transaction;
 use alloy::eips::eip2718::Encodable2718;
 use alloy::hex::ToHexExt;
 use alloy::network::{AnyNetwork, EthereumWallet, TransactionBuilder};
@@ -245,22 +246,6 @@ where
                     }
                     ExecutionRequest::Tx(req) => {
                         let tx_req = req.tx.to_owned();
-                        println!(
-                            "sending tx. from={} to={} input={}",
-                            tx_req.from.map(|s| s.encode_hex()).unwrap_or_default(),
-                            tx_req
-                                .to
-                                .map(|s| s.to().map(|s| *s))
-                                .flatten()
-                                .map(|s| s.encode_hex())
-                                .unwrap_or_default(),
-                            tx_req
-                                .input
-                                .input
-                                .as_ref()
-                                .map(|s| s.encode_hex())
-                                .unwrap_or_default(),
-                        );
 
                         let (tx_req, signer) = self
                             .prepare_tx_req(&tx_req, gas_price, chain_id)
@@ -268,9 +253,26 @@ where
                             .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
 
                         // sign tx
-                        let tx_envelope = tx_req.build(&signer).await.map_err(|e| {
+                        let tx_envelope = tx_req.to_owned().build(&signer).await.map_err(|e| {
                             ContenderError::with_err(e, "bad request: failed to build tx")
                         })?;
+
+                        println!(
+                            "sending tx {} from={} to={:?} input={} value={}",
+                            tx_envelope.tx_hash(),
+                            tx_req.from.map(|s| s.encode_hex()).unwrap_or_default(),
+                            tx_envelope.to().to(),
+                            tx_req
+                                .input
+                                .input
+                                .as_ref()
+                                .map(|s| s.encode_hex())
+                                .unwrap_or_default(),
+                            tx_req
+                                .value
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| "0".to_owned())
+                        );
 
                         ExecutionPayload::SignedTx(tx_envelope, req)
                     }
@@ -307,7 +309,6 @@ where
                         ExecutionPayload::SignedTxBundle(signed_txs, reqs) => {
                             let mut bundle_txs = vec![];
                             for tx in &signed_txs {
-                                println!("sending tx: {:?}", tx);
                                 let mut raw_tx = vec![];
                                 tx.encode_2718(&mut raw_tx);
                                 bundle_txs.push(raw_tx);
