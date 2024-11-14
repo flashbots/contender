@@ -314,12 +314,15 @@ where
                                 replacement_uuid: None,
                             };
                             if let Some(bundle_client) = bundle_client {
+                                println!("spamming bundle: {:?}", rpc_bundle);
                                 // send `num_blocks` bundles at a time, targeting each successive block
                                 for i in 1..(num_blocks + BUNDLE_BLOCK_TOLERANCE) {
                                     let mut rpc_bundle = rpc_bundle.clone();
                                     rpc_bundle.block_number = last_block_number + i as u64;
-                                    let res = bundle_client.send_bundle(rpc_bundle).await;
-                                    println!("sent bundle {:?}", res);
+                                    let res = rpc_bundle.send_to_builder(&bundle_client).await;
+                                    if let Err(e) = res {
+                                        eprintln!("failed to send bundle: {:?}", e);
+                                    }
                                 }
                             } else {
                                 panic!("no bundle client provided. Please add the `--builder-url` flag");

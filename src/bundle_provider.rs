@@ -78,3 +78,20 @@ pub struct EthSendBundle {
     )]
     pub replacement_uuid: Option<String>,
 }
+
+impl EthSendBundle {
+    pub fn new_basic(txs: Vec<Bytes>, block_number: u64) -> Self {
+        Self {
+            txs,
+            block_number,
+            min_timestamp: None,
+            max_timestamp: None,
+            reverting_tx_hashes: Vec::new(),
+            replacement_uuid: None,
+        }
+    }
+
+    pub async fn send_to_builder(&self, client: &BundleClient) -> Result<(), String> {
+        client.send_bundle(self.clone()).await
+    }
+}
