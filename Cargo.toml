@@ -1,30 +1,49 @@
-[package]
-name = "contender"
+[workspace] 
+members = [
+    "crates/cli/",
+    "crates/core/",
+    "crates/sqlite_db/",
+    "crates/testfile/"
+]
+
+resolver = "2"
+
+[workspace.package]
+# name = "contender"
 version = "0.1.0"
 edition = "2021"
-authors = ["Brock Smedley"]
-
-[lib]
-name = "contender_core"
-path = "src/lib.rs"
-
-[dependencies]
-alloy = { workspace = true, features = ["full", "node-bindings", "rpc-types-mev"] }
-eyre = { workspace = true }
-rand = "0.8.5"
-serde = { workspace = true, features = ["derive"] }
-futures = "0.3.30"
-async-trait = "0.1.82"
-tokio = { workspace = true }
-jsonrpsee = { version = "0.24", features = ["http-client", "client-core"] }
-alloy-serde = "0.5.4"
-serde_json = "1.0.132"
-
-[workspace] 
-members = ["cli", "sqlite_db", "testfile"]
+rust-version = "1.80"
+authors = ["Flashbots"]
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/flashbots/contender"
+repository = "https://github.com/flashbots/contender"
 
 [workspace.dependencies]
+contender_core = { path = "crates/core/" }
+contender_sqlite = { path = "crates/sqlite_db/" }
+contender_testfile = { path = "crates/testfile/" }
+
 eyre = "0.6.12"
 tokio = { version = "1.40.0" }
 alloy = { version = "0.3.6" }
 serde = "1.0.209"
+
+## cli
+clap = { version = "4.5.16" }
+csv = "1.3.0"
+
+## core
+rand = "0.8.5"
+futures = "0.3.30"
+async-trait = "0.1.82"
+jsonrpsee = { version = "0.24" }
+alloy-serde = "0.5.4"
+serde_json = "1.0.132"
+
+## sqlite
+r2d2_sqlite = "0.25.0"
+rusqlite = "0.32.1"
+r2d2 = "0.8.10"
+
+## testfile
+toml = "0.8.19"

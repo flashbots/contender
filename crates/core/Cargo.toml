@@ -1,0 +1,21 @@
+[package]
+name = "contender_core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Brock Smedley"]
+
+[lib]
+name = "contender_core"
+path = "src/lib.rs"
+
+[dependencies]
+alloy = { workspace = true, features = ["full", "node-bindings", "rpc-types-mev"] }
+eyre = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+futures = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+jsonrpsee = { workspace = true, features = ["http-client", "client-core"] }
+alloy-serde = { workspace = true }
+serde_json = { workspace = true }
