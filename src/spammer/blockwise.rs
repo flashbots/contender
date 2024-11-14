@@ -238,7 +238,7 @@ where
                             let tx_envelope = tx_req.build(&signer).await.map_err(|e| {
                                 ContenderError::with_err(e, "bad request: failed to build tx")
                             })?;
-                            println!("signed {:?}", tx_envelope.tx_hash());
+
                             bundle_txs.push(tx_envelope);
                         }
                         ExecutionPayload::SignedTxBundle(bundle_txs, reqs)
