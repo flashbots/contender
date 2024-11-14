@@ -10,7 +10,6 @@ use crate::{
 };
 use alloy::primitives::U256;
 use async_trait::async_trait;
-use core::panic;
 use named_txs::ExecutionRequest;
 pub use named_txs::NamedTxRequestBuilder;
 pub use seeder::rand_seed::RandSeed;
