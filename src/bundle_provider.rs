@@ -27,20 +27,14 @@ impl BundleClient {
             .client
             .request("eth_sendBundle", rpc_params![bundle])
             .await;
-
-        if let Ok(res) = res {
-            if let Some(res) = res {
-                println!("sent bundle {:?}", res);
-            } else {
-                println!("sent bundle, no response");
-            }
+        if let Err(e) = res {
+            return Err(format!("Failed to send bundle: {:?}", e));
         }
 
         Ok(())
     }
 }
 
-// testing:
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EthSendBundle {
