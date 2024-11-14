@@ -218,6 +218,13 @@ where
                 // prepare tx/bundle with nonce, gas price, signatures, etc
                 let payload = match tx {
                     ExecutionRequest::Bundle(reqs) => {
+                        if self.bundle_client.is_none() {
+                            return Err(ContenderError::SpamError(
+                                "Bundle client not found. Add the `--builder-url` flag to send bundles.",
+                                None,
+                            ));
+                        }
+
                         // prepare each tx in the bundle (increment nonce, set gas price, etc)
                         let mut bundle_txs = vec![];
                         for req in reqs.iter() {
