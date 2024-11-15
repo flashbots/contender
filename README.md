@@ -71,6 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cfg,
         db.to_owned().into(),
         "http://localhost:8545".parse::<_>()?,
+        None,
         RandSeed::new(),
         &[
             "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
@@ -87,7 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         scenario.run_setup().await?;
     }
 
-    let spammer = BlockwiseSpammer::new(scenario, NilCallback);
+    let mut spammer = BlockwiseSpammer::new(scenario, NilCallback).await;
     spammer.spam_rpc(20, 10, None).await?;
 
     Ok(())
