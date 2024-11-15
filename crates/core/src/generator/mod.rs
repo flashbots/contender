@@ -58,7 +58,13 @@ where
 fn parse_map_key(fuzz: FuzzParam) -> Result<String> {
     if fuzz.param.is_none() && fuzz.value.is_none() {
         return Err(ContenderError::SpamError(
-            "fuzz must specify one of `param` or `value`",
+            "fuzz must specify either `param` or `value`",
+            None,
+        ));
+    }
+    if fuzz.param.is_some() && fuzz.value.is_some() {
+        return Err(ContenderError::SpamError(
+            "fuzz cannot specify both `param` and `value`; choose one per fuzz directive",
             None,
         ));
     }
@@ -74,7 +80,7 @@ fn parse_map_key(fuzz: FuzzParam) -> Result<String> {
         }
         VALUE_KEY.to_owned()
     } else {
-        panic!("this should never happen");
+        return Err(ContenderError::SpamError("this should never happen", None));
     };
 
     Ok(key)
