@@ -1,4 +1,3 @@
-use crate::bundle_provider::{BundleClient, EthSendBundle};
 use crate::db::DbOps;
 use crate::error::ContenderError;
 use crate::generator::named_txs::ExecutionRequest;
@@ -16,6 +15,7 @@ use alloy::network::{AnyNetwork, EthereumWallet, TransactionBuilder};
 use alloy::primitives::{Address, FixedBytes};
 use alloy::providers::{PendingTransactionConfig, Provider, ProviderBuilder};
 use alloy::rpc::types::TransactionRequest;
+use contender_bundle_provider::{BundleClient, EthSendBundle};
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::ops::Deref;
