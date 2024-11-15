@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-toml = "0.8.19"
+toml = {workspace = true}
 alloy = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true }
-contender = { path = "../" }
+contender_core = { workspace = true }

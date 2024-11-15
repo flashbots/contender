@@ -67,7 +67,9 @@ pub struct CreateDefinition {
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct FuzzParam {
     /// Name of the parameter to fuzz.
-    pub param: String,
+    pub param: Option<String>,
+    /// Fuzz the `value` field of the tx (ETH sent with the tx).
+    pub value: Option<bool>,
     /// Minimum value fuzzer will use.
     pub min: Option<U256>,
     /// Maximum value fuzzer will use.

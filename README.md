@@ -17,8 +17,7 @@ Contender is a high-performance Ethereum network spammer and testing tool design
 To install the Contender CLI, you need to have the [Rust toolchain](https://rustup.rs/) installed on your system. Then install from github:
 
 ```bash
-cargo install --git https://github.com/flashbots/contender --bin contender_cli
-alias contender=contender_cli
+cargo install --git https://github.com/flashbots/contender --bin contender
 ```
 
 ## Usage
@@ -46,7 +45,7 @@ To use Contender as a library in your Rust project, add the crates you need to y
 ```toml
 [dependencies]
 ...
-contender = { git = "https://github.com/flashbots/contender" }
+contender_core = { git = "https://github.com/flashbots/contender" }
 contender_sqlite = { git = "https://github.com/flashbots/contender" }
 contender_testfile = { git = "https://github.com/flashbots/contender" }
 # not necessarily required, but recommended:
@@ -97,7 +96,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Configuration
 
-Contender uses TOML files for test configuration. The key directives are:
+Contender uses TOML files for test configuration. Single brackets `[]` indicate the item may only be specified once. Double brackets `[[]]` indicate an array, which allows the directive to be specified multiple times.
+
+The key directives are:
 
 - `[env]`: Defines environment variables that can be used throughout the configuration.
 
@@ -107,9 +108,17 @@ Contender uses TOML files for test configuration. The key directives are:
 
 - `[[spam]]`: Describes the transactions to be repeatedly sent during the spam test. These form the core of the network stress test.
 
-- `[[spam.fuzz]]`: (Sub-directive of `spam`) Configures fuzzing parameters for specific fields in spam transactions, allowing for randomized inputs within defined ranges.
+  - Spam directives can send bundles or single txs. 
 
-Each directive can include various fields such as `to`, `from`, `signature`, `args`, and `value` to specify the details of the transactions or contract interactions.
+  - `[[spam.bundle.tx]]` defines transactions in a bundle
+
+  - `[spam.tx]` defines a single transaction
+
+  - Each tx directive can include various fields such as `to`, `from`, `signature`, `args`, and `value` to specify the details of the transactions or contract interactions.
+
+  - `[[spam.bundle.tx.fuzz]]` or `[[spam.tx.fuzz]]`: Configures fuzzing parameters for specific fields in spam transactions, allowing for randomized inputs or ETH values within defined ranges.
+
+See [scenarios/](./scenarios/) for examples.
 
 ## Architecture
 

@@ -1143,7 +1143,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
-name = "contender"
+name = "contender_cli"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "clap",
+ "contender_core",
+ "contender_sqlite",
+ "contender_testfile",
+ "csv",
+ "serde",
+ "tokio",
+]
+
+[[package]]
+name = "contender_core"
 version = "0.1.0"
 dependencies = [
  "alloy",
@@ -1159,25 +1173,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "contender_cli"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "clap",
- "contender",
- "contender_sqlite",
- "contender_testfile",
- "csv",
- "serde",
- "tokio",
-]
-
-[[package]]
 name = "contender_sqlite"
 version = "0.1.0"
 dependencies = [
  "alloy",
- "contender",
+ "contender_core",
  "r2d2",
  "r2d2_sqlite",
  "rusqlite",
@@ -1189,7 +1189,7 @@ name = "contender_testfile"
 version = "0.1.0"
 dependencies = [
  "alloy",
- "contender",
+ "contender_core",
  "serde",
  "tokio",
  "toml",

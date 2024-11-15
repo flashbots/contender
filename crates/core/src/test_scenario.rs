@@ -343,7 +343,8 @@ pub mod tests {
                     ]
                     .into(),
                     fuzz: vec![FuzzParam {
-                        param: "x".to_string(),
+                        param: Some("x".to_string()),
+                        value: None,
                         min: None,
                         max: None,
                     }]

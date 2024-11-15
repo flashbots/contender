@@ -180,7 +180,8 @@ pub mod tests {
             .into(),
             kind: None,
             fuzz: vec![FuzzParam {
-                param: "x".to_string(),
+                param: Some("x".to_string()),
+                value: None,
                 min: None,
                 max: None,
             }]
@@ -303,7 +304,10 @@ pub mod tests {
                 );
                 assert_eq!(setup.len(), 1);
                 assert_eq!(setup[0].value, Some("1234".to_owned()));
-                assert_eq!(fncall.fuzz.as_ref().unwrap()[0].param, "amountIn");
+                assert_eq!(
+                    fncall.fuzz.as_ref().unwrap()[0].param.to_owned().unwrap(),
+                    "amountIn"
+                );
                 assert_eq!(fncall.fuzz.as_ref().unwrap()[0].min, Some(U256::from(1)));
                 assert_eq!(
                     fncall.fuzz.as_ref().unwrap()[0].max,
