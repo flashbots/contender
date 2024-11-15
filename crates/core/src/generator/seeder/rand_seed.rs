@@ -94,7 +94,7 @@ impl Seeder for RandSeed {
             let val = val % (max - min) + min;
             RandSeed::from_u256(val)
         });
-        Box::new(vals.to_owned())
+        Box::new(vals)
     }
 }
 

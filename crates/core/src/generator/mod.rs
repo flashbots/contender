@@ -189,29 +189,29 @@ where
                 let mut placeholder_map = HashMap::<K, String>::new();
                 let mut canonical_fuzz_map = HashMap::<String, Vec<U256>>::new();
 
+                // finds fuzzed values for a function call definition and populates `canonical_fuzz_map` with fuzzy values.
+                let mut find_fuzz = |req: &FunctionCallDefinition| {
+                    let fuzz_args = req.fuzz.to_owned().unwrap_or(vec![]);
+                    let fuzz_map = self.create_fuzz_map(num_txs, &fuzz_args)?; // this may create more values than needed, but it's fine
+                    canonical_fuzz_map.extend(fuzz_map);
+                    Ok(())
+                };
+
+                // finds placeholders in a function call definition and populates `placeholder_map` and `canonical_fuzz_map` with injectable values.
+                let mut lookup_tx_placeholders = |tx: &FunctionCallDefinition| {
+                    let res = templater.find_fncall_placeholders(tx, db, &mut placeholder_map);
+                    if let Err(e) = res {
+                        eprintln!("error finding placeholders: {}", e);
+                        return Err(ContenderError::SpamError(
+                            "failed to find placeholder value",
+                            Some(e.to_string()),
+                        ));
+                    }
+                    find_fuzz(tx)?;
+                    Ok(())
+                };
+
                 for step in spam_steps.iter() {
-                    // finds fuzzed values for a function call definition and populates `canonical_fuzz_map` with fuzzy values.
-                    let mut find_fuzz = |req: &FunctionCallDefinition| {
-                        let fuzz_args = req.fuzz.to_owned().unwrap_or(vec![]);
-                        let fuzz_map = self.create_fuzz_map(num_txs, &fuzz_args)?; // this may create more values than needed, but it's fine
-                        canonical_fuzz_map.extend(fuzz_map);
-                        Ok(())
-                    };
-
-                    // finds placeholders in a function call definition and populates `placeholder_map` and `canonical_fuzz_map` with injectable values.
-                    let mut lookup_tx_placeholders = |tx: &FunctionCallDefinition| {
-                        let res = templater.find_fncall_placeholders(tx, db, &mut placeholder_map);
-                        if let Err(e) = res {
-                            eprintln!("error finding placeholders: {}", e);
-                            return Err(ContenderError::SpamError(
-                                "failed to find placeholder value",
-                                Some(e.to_string()),
-                            ));
-                        }
-                        find_fuzz(tx)?;
-                        Ok(())
-                    };
-
                     // populate maps for each step
                     match step {
                         SpamRequest::Tx(tx) => {
