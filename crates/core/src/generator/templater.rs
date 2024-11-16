@@ -14,6 +14,8 @@ use alloy::{
 };
 use std::collections::HashMap;
 
+use super::types::FunctionCallDefinitionStrict;
+
 pub trait Templater<K>
 where
     K: Eq + std::hash::Hash + ToString + std::fmt::Debug + Send + Sync,
@@ -90,12 +92,11 @@ where
     /// {placeholders} filled in using corresponding values from `placeholder_map`.
     fn template_function_call(
         &self,
-        funcdef: &FunctionCallDefinition,
+        funcdef: &FunctionCallDefinitionStrict,
         placeholder_map: &HashMap<K, String>,
     ) -> Result<TransactionRequest> {
-        let step_args = funcdef.args.to_owned().unwrap_or_default();
         let mut args = Vec::new();
-        for arg in step_args.iter() {
+        for arg in funcdef.args.iter() {
             let val = self.replace_placeholders(arg, placeholder_map);
             args.push(val);
         }

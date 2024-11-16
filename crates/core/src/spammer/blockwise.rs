@@ -68,9 +68,22 @@ where
         ));
         let callback_handler = Arc::new(callback_handler);
 
-        // get nonce for each signer and put it into a hashmap
         let mut nonces = HashMap::new();
-        for (addr, _) in scenario.wallet_map.iter() {
+
+        // collect addresses from both wallet_map (user prvkeys) and agent_store (system prvkeys)
+        let mut all_addrs = scenario
+            .wallet_map
+            .iter()
+            .map(|(k, _)| *k)
+            .collect::<Vec<Address>>();
+        for (_, agent) in scenario.agent_store.all_agents() {
+            for signer in agent.signers.iter() {
+                all_addrs.push(signer.address());
+            }
+        }
+
+        // all nonces for all addrs into the map
+        for addr in &all_addrs {
             let nonce = eth_client
                 .get_transaction_count(*addr)
                 .await
@@ -191,6 +204,9 @@ where
         let mut tasks = vec![];
 
         while let Some(block_hash) = stream.next().await {
+            // TODO: fund accounts if needed
+            // ...
+
             let block_txs = tx_req_chunks[block_offset].clone();
             block_offset += 1;
 
@@ -400,6 +416,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
+        agent_controller::AgentStore,
         db::MockDb,
         generator::util::test::spawn_anvil,
         spammer::util::test::{get_test_signers, MockCallback},
@@ -420,6 +437,7 @@ mod tests {
             None,
             seed,
             get_test_signers().as_slice(),
+            AgentStore::new(),
         );
         let callback_handler = MockCallback;
         let mut spammer = BlockwiseSpammer::new(scenario, callback_handler).await;

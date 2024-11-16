@@ -24,7 +24,9 @@ pub struct FunctionCallDefinition {
     /// Address of the contract to call.
     pub to: String,
     /// Address of the tx sender.
-    pub from: String,
+    pub from: Option<String>,
+    /// Get a `from` address from the pool of signers specified here.
+    pub from_pool: Option<String>,
     /// Name of the function to call.
     pub signature: String,
     /// Parameters to pass to the function.
@@ -34,6 +36,16 @@ pub struct FunctionCallDefinition {
     /// Parameters to fuzz during the test.
     pub fuzz: Option<Vec<FuzzParam>>,
     /// Optional type of the spam transaction for categorization.
+    pub kind: Option<String>,
+}
+
+pub struct FunctionCallDefinitionStrict {
+    pub to: String,
+    pub from: String,
+    pub signature: String,
+    pub args: Vec<String>,
+    pub value: Option<String>,
+    pub fuzz: Vec<FuzzParam>,
     pub kind: Option<String>,
 }
 

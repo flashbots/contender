@@ -1,4 +1,5 @@
 use crate::{
+    agent_controller::{AgentStore, SignerRegistry},
     db::DbOps,
     error::ContenderError,
     generator::{
@@ -8,13 +9,13 @@ use crate::{
     },
     Result,
 };
-use alloy::primitives::U256;
+use alloy::{hex::ToHexExt, primitives::U256};
 use async_trait::async_trait;
 use named_txs::ExecutionRequest;
 pub use named_txs::NamedTxRequestBuilder;
 pub use seeder::rand_seed::RandSeed;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
-use types::SpamRequest;
+use types::{FunctionCallDefinitionStrict, SpamRequest};
 
 pub use types::{CallbackResult, NamedTxRequest, PlanType};
 
@@ -97,6 +98,7 @@ where
     fn get_templater(&self) -> &T;
     fn get_db(&self) -> &D;
     fn get_fuzz_seeder(&self) -> &impl Seeder;
+    fn get_agent_store(&self) -> &AgentStore;
 
     /// Generates a map of N=`num_values` fuzzed values for each parameter in `fuzz_args`.
     fn create_fuzz_map(
@@ -118,6 +120,48 @@ where
         }
 
         Ok(map)
+    }
+
+    fn make_strict_call(
+        &self,
+        funcdef: &FunctionCallDefinition,
+        idx: usize,
+    ) -> Result<FunctionCallDefinitionStrict> {
+        let agents = self.get_agent_store();
+        let from_address: String = if let Some(from_pool) = &funcdef.from_pool {
+            let agent = agents
+                .get_agent(from_pool)
+                .ok_or(ContenderError::SpamError(
+                    "from_pool not found in agent store",
+                    Some(from_pool.to_owned()),
+                ))?;
+            agent
+                .get_address(idx)
+                .ok_or(ContenderError::SpamError(
+                    "signer not found in agent store",
+                    Some(format!("from_pool={}, idx={}", from_pool, idx)),
+                ))?
+                .encode_hex_with_prefix()
+        } else if let Some(from) = &funcdef.from {
+            from.to_owned()
+        } else {
+            return Err(ContenderError::SpamError(
+                "invalid runtime config: must specify 'from' or 'from_pool'",
+                None,
+            ));
+        };
+
+        println!("[make_strict_call] using 'from' address: {}", from_address);
+
+        Ok(FunctionCallDefinitionStrict {
+            to: funcdef.to.to_owned(),
+            from: from_address,
+            signature: funcdef.signature.to_owned(),
+            args: funcdef.args.to_owned().unwrap_or_default(),
+            value: funcdef.value.to_owned(),
+            fuzz: funcdef.fuzz.to_owned().unwrap_or_default(),
+            kind: funcdef.kind.to_owned(),
+        })
     }
 
     async fn load_txs<F: Send + Sync + Fn(NamedTxRequest) -> CallbackResult>(
@@ -167,7 +211,10 @@ where
 
                     // setup tx with template values
                     let tx = NamedTxRequest::new(
-                        templater.template_function_call(step, &placeholder_map)?,
+                        templater.template_function_call(
+                            &self.make_strict_call(step, 0)?,
+                            &placeholder_map,
+                        )?,
                         None,
                         step.kind.to_owned(),
                     );
@@ -212,7 +259,7 @@ where
                 };
 
                 for step in spam_steps.iter() {
-                    // populate maps for each step
+                    // populate placeholder map for each step
                     match step {
                         SpamRequest::Tx(tx) => {
                             lookup_tx_placeholders(tx)?;
@@ -226,7 +273,7 @@ where
                 }
 
                 for i in 0..(num_txs / num_steps) {
-                    for step in spam_steps.iter() {
+                    for (j, step) in spam_steps.iter().enumerate() {
                         // converts a FunctionCallDefinition to a NamedTxRequest (filling in fuzzable args),
                         // returns a callback handle and the processed tx request
                         let process_tx = |req| {
@@ -234,11 +281,24 @@ where
                             let fuzz_tx_value = get_fuzzed_tx_value(req, &canonical_fuzz_map, i);
                             let mut req = req.to_owned();
                             req.args = Some(args);
+
+                            // DELETE ME //////////////////
+                            if req.from_pool.is_some() {
+                                println!("i: {}", i);
+                                println!("j: {}", j);
+                                println!("step: {:?}", step);
+                            }
+                            //////////////////////////////
+
                             if fuzz_tx_value.is_some() {
                                 req.value = fuzz_tx_value;
                             }
+
                             let tx = NamedTxRequest::new(
-                                templater.template_function_call(&req, &placeholder_map)?,
+                                templater.template_function_call(
+                                    &self.make_strict_call(&req, j)?, // 'from' address injected here
+                                    &placeholder_map,
+                                )?,
                                 None,
                                 req.kind.to_owned(),
                             );

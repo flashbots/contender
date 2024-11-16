@@ -1,17 +1,20 @@
 mod commands;
 
 use alloy::{
-    network::AnyNetwork,
+    network::{AnyNetwork, EthereumWallet, TransactionBuilder},
+    node_bindings::WEI_IN_ETHER,
     primitives::{
         utils::{format_ether, parse_ether},
         Address, U256,
     },
-    providers::{Provider, ProviderBuilder},
+    providers::{fillers::WalletFiller, Provider, ProviderBuilder},
+    rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
     transports::http::reqwest::Url,
 };
 use commands::{ContenderCli, ContenderSubcommand};
 use contender_core::{
+    agent_controller::{AgentStore, SignerStore},
     db::{DbOps, RunTx},
     generator::{
         types::{AnyProvider, FunctionCallDefinition, SpamRequest},
@@ -90,6 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 None,
                 RandSeed::new(),
                 &signers,
+                Default::default(),
             );
 
             scenario.deploy_contracts().await?;
@@ -125,19 +129,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // distill all FunctionCallDefinitions from the spam requests
             let mut fn_calls = vec![];
+            let mut from_pools = vec![];
             for s in spam {
                 match s {
                     SpamRequest::Tx(fn_call) => {
                         fn_calls.push(fn_call.to_owned());
+                        if let Some(from_pool) = &fn_call.from_pool {
+                            from_pools.push(from_pool);
+                        }
                     }
                     SpamRequest::Bundle(bundle) => {
-                        fn_calls.extend(bundle.txs.iter().map(|s| s.to_owned()));
+                        fn_calls.extend(bundle.txs.iter().map(|s| {
+                            if let Some(from_pool) = &s.from_pool {
+                                from_pools.push(from_pool);
+                            }
+                            s.to_owned()
+                        }));
                     }
                 }
             }
 
             check_private_keys(&fn_calls, signers.as_slice());
             check_balances(signers.as_slice(), min_balance, &rpc_client).await;
+
+            let mut agents = AgentStore::new();
+            let signers_per_block = txs_per_block.unwrap_or(spam.len()) / spam.len();
+
+            for from_pool in from_pools {
+                if agents.has_agent(from_pool) {
+                    continue;
+                }
+
+                let agent = SignerStore::new_random(signers_per_block);
+                agents.add_agent(from_pool, agent);
+            }
 
             if txs_per_block.is_some() && txs_per_second.is_some() {
                 panic!("Cannot set both --txs-per-block and --txs-per-second");
@@ -154,6 +179,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     builder_url.map(|url| Url::parse(&url).expect("Invalid builder URL")),
                     rand_seed,
                     &signers,
+                    agents,
                 );
                 println!("Blockwise spamming with {} txs per block", txs_per_block);
                 match spam_callback_default(!disable_reports, Arc::new(rpc_client).into()).await {
@@ -186,6 +212,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 None,
                 rand_seed,
                 &signers,
+                agents,
             );
             let tps = txs_per_second.unwrap_or(10);
             println!("Timed spamming with {} txs per second", tps);
@@ -236,12 +263,11 @@ enum SpamCallbackType {
 /// Panics if any of the function calls' `from` addresses do not have a corresponding private key.
 fn check_private_keys(fn_calls: &[FunctionCallDefinition], prv_keys: &[PrivateKeySigner]) {
     for fn_call in fn_calls {
-        let address = fn_call
-            .from
-            .parse::<Address>()
-            .expect("invalid 'from' address");
-        if prv_keys.iter().all(|k| k.address() != address) {
-            panic!("No private key found for address: {}", address);
+        if let Some(from) = &fn_call.from {
+            let address = from.parse::<Address>().expect("invalid 'from' address");
+            if prv_keys.iter().all(|k| k.address() != address) {
+                panic!("No private key found for address: {}", address);
+            }
         }
     }
 }
