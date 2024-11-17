@@ -189,7 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     format_ether(min_balance)
                 );
 
-                let fund_amount = min_balance; // TODO: accept new fund amount from user
+                let fund_amount = min_balance;
                 pending_fund_txs.push(
                     fund_account(
                         &admin_signer,
@@ -355,7 +355,6 @@ async fn fund_account(
     rpc_client: &EthProvider,
     nonce: Option<u64>,
 ) -> Result<PendingTransactionConfig, Box<dyn std::error::Error>> {
-    // TODO
     println!(
         "funding account {} with user account {}",
         recipient,
