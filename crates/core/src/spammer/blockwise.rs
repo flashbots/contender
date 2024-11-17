@@ -147,11 +147,12 @@ where
             .get(&fn_sig)
             .expect("failed to get gas limit")
             .to_owned();
+
         let signer = self
             .scenario
             .wallet_map
             .get(&from)
-            .expect("failed to create signer")
+            .expect("failed to get signer from scenario wallet_map")
             .to_owned();
 
         let full_tx = tx_req
@@ -204,9 +205,6 @@ where
         let mut tasks = vec![];
 
         while let Some(block_hash) = stream.next().await {
-            // TODO: fund accounts if needed
-            // ...
-
             let block_txs = tx_req_chunks[block_offset].clone();
             block_offset += 1;
 

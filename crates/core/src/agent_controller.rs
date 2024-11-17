@@ -78,6 +78,7 @@ impl SignerStore {
         }
     }
 
+    // TODO: add RandSeed to allow for deterministic random generation
     pub fn new_random(num_signers: usize) -> Self {
         let signers: Vec<PrivateKeySigner> = (0..num_signers)
             .map(|_| PrivateKeySigner::random())
