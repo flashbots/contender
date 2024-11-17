@@ -433,7 +433,7 @@ mod tests {
             MockDb.into(),
             anvil.endpoint_url(),
             None,
-            seed,
+            seed.to_owned(),
             get_test_signers().as_slice(),
             AgentStore::new(),
         );

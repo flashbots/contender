@@ -1,6 +1,14 @@
 use std::collections::HashMap;
 
-use alloy::{primitives::Address, signers::local::PrivateKeySigner};
+use alloy::{
+    primitives::{Address, FixedBytes},
+    signers::local::PrivateKeySigner,
+};
+
+use crate::generator::{
+    seeder::{SeedValue, Seeder},
+    RandSeed,
+};
 
 pub trait SignerRegistry<Index: Ord> {
     fn get_signer(&self, idx: Index) -> Option<&PrivateKeySigner>;
@@ -36,8 +44,13 @@ impl AgentStore {
         self.agents.insert(name.as_ref().to_owned(), signers);
     }
 
-    pub fn add_random_agent(&mut self, name: impl AsRef<str>, num_signers: usize) {
-        let signers = SignerStore::new_random(num_signers);
+    pub fn add_random_agent(
+        &mut self,
+        name: impl AsRef<str>,
+        num_signers: usize,
+        rand_seeder: &RandSeed,
+    ) {
+        let signers = SignerStore::new_random(num_signers, rand_seeder);
         self.add_agent(name, signers);
     }
 
@@ -79,10 +92,19 @@ impl SignerStore {
     }
 
     // TODO: add RandSeed to allow for deterministic random generation
-    pub fn new_random(num_signers: usize) -> Self {
-        let signers: Vec<PrivateKeySigner> = (0..num_signers)
-            .map(|_| PrivateKeySigner::random())
+    pub fn new_random(num_signers: usize, rand_seeder: &RandSeed) -> Self {
+        let prv_keys = rand_seeder
+            .seed_values(num_signers, None, None)
+            .map(|sv| sv.as_bytes().to_vec())
+            .collect::<Vec<_>>();
+        let signers: Vec<PrivateKeySigner> = prv_keys
+            .into_iter()
+            .map(|s| FixedBytes::from_slice(&s))
+            .map(|b| PrivateKeySigner::from_bytes(&b).expect("Failed to create random seed signer"))
             .collect();
+        // let signers: Vec<PrivateKeySigner> = (0..num_signers)
+        //     .map(|_| PrivateKeySigner::random())
+        //     .collect();
         SignerStore { signers }
     }
 

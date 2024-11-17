@@ -417,7 +417,7 @@ pub mod tests {
             MockDb.into(),
             anvil.endpoint_url(),
             None,
-            seed,
+            seed.to_owned(),
             &signers,
             AgentStore::new(),
         )
