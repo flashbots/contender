@@ -55,7 +55,7 @@ where
             wallet_map.insert(addr, wallet);
         }
         for (name, signers) in agent_store.all_agents() {
-            println!("adding {} signers to wallet map", name);
+            println!("adding '{}' signers to wallet map", name);
             for signer in signers.signers.iter() {
                 wallet_map.insert(signer.address(), EthereumWallet::new(signer.clone()));
             }

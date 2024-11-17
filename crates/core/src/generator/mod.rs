@@ -151,8 +151,6 @@ where
             ));
         };
 
-        println!("[make_strict_call] using 'from' address: {}", from_address);
-
         Ok(FunctionCallDefinitionStrict {
             to: funcdef.to.to_owned(),
             from: from_address,
@@ -281,14 +279,6 @@ where
                             let fuzz_tx_value = get_fuzzed_tx_value(req, &canonical_fuzz_map, i);
                             let mut req = req.to_owned();
                             req.args = Some(args);
-
-                            // DELETE ME //////////////////
-                            if req.from_pool.is_some() {
-                                println!("i: {}", i);
-                                println!("j: {}", j);
-                                println!("step: {:?}", step);
-                            }
-                            //////////////////////////////
 
                             if fuzz_tx_value.is_some() {
                                 req.value = fuzz_tx_value;
