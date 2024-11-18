@@ -286,7 +286,7 @@ where
 
                             let tx = NamedTxRequest::new(
                                 templater.template_function_call(
-                                    &self.make_strict_call(&req, i)?, // 'from' address injected here
+                                    &self.make_strict_call(&req, i % num_steps)?, // 'from' address injected here
                                     &placeholder_map,
                                 )?,
                                 None,
