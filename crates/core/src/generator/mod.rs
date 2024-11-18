@@ -271,7 +271,7 @@ where
                 }
 
                 for i in 0..(num_txs / num_steps) {
-                    for (j, step) in spam_steps.iter().enumerate() {
+                    for step in spam_steps.iter() {
                         // converts a FunctionCallDefinition to a NamedTxRequest (filling in fuzzable args),
                         // returns a callback handle and the processed tx request
                         let process_tx = |req| {
@@ -286,7 +286,7 @@ where
 
                             let tx = NamedTxRequest::new(
                                 templater.template_function_call(
-                                    &self.make_strict_call(&req, j)?, // 'from' address injected here
+                                    &self.make_strict_call(&req, i)?, // 'from' address injected here
                                     &placeholder_map,
                                 )?,
                                 None,

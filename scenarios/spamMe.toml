@@ -16,7 +16,7 @@ signature = "transfer()"
 [[spam.tx.fuzz]]
 value = true
 min = "10000000000000"
-max = "1000000000000000"
+max = "100000000000000"
 
 
 # spam bundle

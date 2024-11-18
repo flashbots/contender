@@ -151,7 +151,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     continue;
                 }
 
-                let agent = SignerStore::new_random(signers_per_block, &rand_seed);
+                let agent = SignerStore::new_random(signers_per_block, &rand_seed, &from_pool);
                 all_signers.extend_from_slice(&agent.signers);
                 agents.add_agent(from_pool, agent);
             }
