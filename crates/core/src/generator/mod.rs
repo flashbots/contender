@@ -274,10 +274,8 @@ where
                 let num_accts = agentstore
                     .all_agents()
                     .next()
-                    .expect("agent has no signers")
-                    .1
-                    .signers
-                    .len();
+                    .map(|(_, store)| store.signers.len())
+                    .unwrap_or(1);
 
                 for i in 0..(num_txs / num_steps) {
                     for step in spam_steps.iter() {
