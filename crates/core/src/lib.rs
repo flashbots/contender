@@ -1,4 +1,4 @@
-pub mod bundle_provider;
+pub mod agent_controller;
 pub mod db;
 pub mod error;
 pub mod generator;

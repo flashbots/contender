@@ -143,7 +143,10 @@ pub mod tests {
     pub fn get_testconfig() -> TestConfig {
         let fncall = FunctionCallDefinition {
             to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD".to_owned(),
-            from: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD".to_owned(),
+            from: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD"
+                .to_owned()
+                .into(),
+            from_pool: None,
             signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
             args: vec![
                 "1".to_owned(),
@@ -168,7 +171,8 @@ pub mod tests {
     pub fn get_fuzzy_testconfig() -> TestConfig {
         let fn_call = |data: &str, from_addr: &str| FunctionCallDefinition {
             to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-            from: from_addr.to_owned(),
+            from: from_addr.to_owned().into(),
+            from_pool: None,
             value: None,
             signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
             args: vec![
@@ -224,7 +228,10 @@ pub mod tests {
             setup: vec![
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                    from: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned(),
+                    from: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+                        .to_owned()
+                        .into(),
+                    from_pool: None,
                     value: Some("4096".to_owned()),
                     signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
                     args: vec![
@@ -239,7 +246,10 @@ pub mod tests {
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                    from: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned(),
+                    from: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+                        .to_owned()
+                        .into(),
+                    from_pool: None,
                     value: Some("0x1000".to_owned()),
                     signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
                     args: vec![
@@ -299,7 +309,7 @@ pub mod tests {
         match spam[0] {
             SpamRequest::Tx(ref fncall) => {
                 assert_eq!(
-                    fncall.from,
+                    *fncall.from.as_ref().unwrap(),
                     "0x70997970C51812dc3A010C7d01b50e0d17dc79C8".to_owned()
                 );
                 assert_eq!(setup.len(), 1);
@@ -370,6 +380,7 @@ pub mod tests {
             None,
             seed,
             &get_test_signers(),
+            Default::default(),
         );
         // this seed can be used to recreate the same test tx(s)
         let spam_txs = test_gen
@@ -407,6 +418,7 @@ pub mod tests {
             None,
             seed.to_owned(),
             &signers,
+            Default::default(),
         );
         let scenario2 = TestScenario::new(
             test_file,
@@ -415,6 +427,7 @@ pub mod tests {
             None,
             seed,
             &signers,
+            Default::default(),
         );
 
         let num_txs = 13;

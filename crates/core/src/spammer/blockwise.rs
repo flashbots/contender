@@ -1,4 +1,3 @@
-use crate::bundle_provider::{BundleClient, EthSendBundle};
 use crate::db::DbOps;
 use crate::error::ContenderError;
 use crate::generator::named_txs::ExecutionRequest;
@@ -16,6 +15,7 @@ use alloy::network::{AnyNetwork, EthereumWallet, TransactionBuilder};
 use alloy::primitives::{Address, FixedBytes};
 use alloy::providers::{PendingTransactionConfig, Provider, ProviderBuilder};
 use alloy::rpc::types::TransactionRequest;
+use contender_bundle_provider::{BundleClient, EthSendBundle};
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -68,9 +68,22 @@ where
         ));
         let callback_handler = Arc::new(callback_handler);
 
-        // get nonce for each signer and put it into a hashmap
         let mut nonces = HashMap::new();
-        for (addr, _) in scenario.wallet_map.iter() {
+
+        // collect addresses from both wallet_map (user prvkeys) and agent_store (system prvkeys)
+        let mut all_addrs = scenario
+            .wallet_map
+            .iter()
+            .map(|(k, _)| *k)
+            .collect::<Vec<Address>>();
+        for (_, agent) in scenario.agent_store.all_agents() {
+            for signer in agent.signers.iter() {
+                all_addrs.push(signer.address());
+            }
+        }
+
+        // all nonces for all addrs into the map
+        for addr in &all_addrs {
             let nonce = eth_client
                 .get_transaction_count(*addr)
                 .await
@@ -134,11 +147,12 @@ where
             .get(&fn_sig)
             .expect("failed to get gas limit")
             .to_owned();
+
         let signer = self
             .scenario
             .wallet_map
             .get(&from)
-            .expect("failed to create signer")
+            .expect("failed to get signer from scenario wallet_map")
             .to_owned();
 
         let full_tx = tx_req
@@ -400,6 +414,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
+        agent_controller::AgentStore,
         db::MockDb,
         generator::util::test::spawn_anvil,
         spammer::util::test::{get_test_signers, MockCallback},
@@ -420,6 +435,7 @@ mod tests {
             None,
             seed,
             get_test_signers().as_slice(),
+            AgentStore::new(),
         );
         let callback_handler = MockCallback;
         let mut spammer = BlockwiseSpammer::new(scenario, callback_handler).await;
