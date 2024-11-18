@@ -270,6 +270,15 @@ where
                     };
                 }
 
+                let agentstore = self.get_agent_store();
+                let num_accts = agentstore
+                    .all_agents()
+                    .next()
+                    .expect("agent has no signers")
+                    .1
+                    .signers
+                    .len();
+
                 for i in 0..(num_txs / num_steps) {
                     for step in spam_steps.iter() {
                         // converts a FunctionCallDefinition to a NamedTxRequest (filling in fuzzable args),
@@ -286,7 +295,7 @@ where
 
                             let tx = NamedTxRequest::new(
                                 templater.template_function_call(
-                                    &self.make_strict_call(&req, i % num_steps)?, // 'from' address injected here
+                                    &self.make_strict_call(&req, i % num_accts)?, // 'from' address injected here
                                     &placeholder_map,
                                 )?,
                                 None,

@@ -19,6 +19,7 @@ pub trait AgentRegistry<Index: Ord> {
     fn get_agent(&self, idx: Index) -> Option<&Address>;
 }
 
+#[derive(Debug)]
 pub struct SignerStore {
     pub signers: Vec<PrivateKeySigner>,
 }
