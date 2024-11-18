@@ -26,11 +26,11 @@ max = "100000000000000"
 to = "{SpamMe}"
 from_pool = "bluepool"
 signature = "consumeGas(uint256 gasAmount)"
-args = ["510000"]
-fuzz = [{ param = "gasAmount", min = "100000", max = "500000" }]
+args = ["51000"]
+fuzz = [{ param = "gasAmount", min = "22000", max = "69000" }]
 
 [[spam.bundle.tx]]
 to = "{SpamMe}"
-from_pool = "bluepool"
+from_pool = "greenpool"
 signature = "tipCoinbase()"
 value = "10000000000000000"

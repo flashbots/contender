@@ -26,7 +26,7 @@ use super::tx_actor::TxActorHandle;
 use super::OnTxSent;
 
 /// Defines the number of blocks to target with a single bundle.
-const BUNDLE_BLOCK_TOLERANCE: usize = 4;
+const BUNDLE_BLOCK_TOLERANCE: usize = 2;
 
 pub struct BlockwiseSpammer<F, D, S, P>
 where
@@ -392,7 +392,7 @@ where
         if let Some(run_id) = run_id {
             loop {
                 timeout_counter += 1;
-                if timeout_counter > 12 {
+                if timeout_counter > BUNDLE_BLOCK_TOLERANCE + 2 {
                     println!("Quitting due to timeout.");
                     break;
                 }
