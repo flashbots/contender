@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use alloy::{
-    primitives::{Address, FixedBytes},
+    primitives::{Address, FixedBytes, U256},
     signers::local::PrivateKeySigner,
 };
 
@@ -19,6 +19,7 @@ pub trait AgentRegistry<Index: Ord> {
     fn get_agent(&self, idx: Index) -> Option<&Address>;
 }
 
+#[derive(Debug)]
 pub struct SignerStore {
     pub signers: Vec<PrivateKeySigner>,
 }
@@ -50,7 +51,7 @@ impl AgentStore {
         num_signers: usize,
         rand_seeder: &RandSeed,
     ) {
-        let signers = SignerStore::new_random(num_signers, rand_seeder);
+        let signers = SignerStore::new_random(num_signers, rand_seeder, name.as_ref());
         self.add_agent(name, signers);
     }
 
@@ -91,7 +92,12 @@ impl SignerStore {
         }
     }
 
-    pub fn new_random(num_signers: usize, rand_seeder: &RandSeed) -> Self {
+    pub fn new_random(num_signers: usize, rand_seeder: &RandSeed, acct_seed: &str) -> Self {
+        // add numerical value of acct_seed to given seed
+        let new_seed = rand_seeder.as_u256() + U256::from_be_slice(acct_seed.as_bytes());
+        let rand_seeder = RandSeed::from_u256(new_seed);
+
+        // generate random private keys with new seed
         let prv_keys = rand_seeder
             .seed_values(num_signers, None, None)
             .map(|sv| sv.as_bytes().to_vec())

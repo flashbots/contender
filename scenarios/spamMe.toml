@@ -16,7 +16,7 @@ signature = "transfer()"
 [[spam.tx.fuzz]]
 value = true
 min = "10000000000000"
-max = "1000000000000000"
+max = "100000000000000"
 
 
 # spam bundle
@@ -26,8 +26,8 @@ max = "1000000000000000"
 to = "{SpamMe}"
 from_pool = "bluepool"
 signature = "consumeGas(uint256 gasAmount)"
-args = ["510000"]
-fuzz = [{ param = "gasAmount", min = "100000", max = "500000" }]
+args = ["51000"]
+fuzz = [{ param = "gasAmount", min = "22000", max = "69000" }]
 
 [[spam.bundle.tx]]
 to = "{SpamMe}"

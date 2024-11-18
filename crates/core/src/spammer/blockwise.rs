@@ -26,7 +26,7 @@ use super::tx_actor::TxActorHandle;
 use super::OnTxSent;
 
 /// Defines the number of blocks to target with a single bundle.
-const BUNDLE_BLOCK_TOLERANCE: usize = 5;
+const BUNDLE_BLOCK_TOLERANCE: usize = 2;
 
 pub struct BlockwiseSpammer<F, D, S, P>
 where
@@ -249,6 +249,7 @@ where
                                 .await
                                 .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
 
+                            println!("bundle tx from {:?}", tx_req.from);
                             // sign tx
                             let tx_envelope = tx_req.build(&signer).await.map_err(|e| {
                                 ContenderError::with_err(e, "bad request: failed to build tx")
@@ -391,7 +392,7 @@ where
         if let Some(run_id) = run_id {
             loop {
                 timeout_counter += 1;
-                if timeout_counter > 12 {
+                if timeout_counter > BUNDLE_BLOCK_TOLERANCE + 2 {
                     println!("Quitting due to timeout.");
                     break;
                 }
