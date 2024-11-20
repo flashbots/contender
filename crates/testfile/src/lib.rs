@@ -126,11 +126,11 @@ pub mod tests {
         Anvil::new().block_time(1).try_spawn().unwrap()
     }
 
-    pub const COUNTER_BYTECODE: &'static str =
+    pub const COUNTER_BYTECODE: &str =
         "0x608060405234801561001057600080fd5b5060f78061001f6000396000f3fe6080604052348015600f57600080fd5b5060043610603c5760003560e01c80633fb5c1cb1460415780638381f58a146053578063d09de08a14606d575b600080fd5b6051604c3660046083565b600055565b005b605b60005481565b60405190815260200160405180910390f35b6051600080549080607c83609b565b9190505550565b600060208284031215609457600080fd5b5035919050565b60006001820160ba57634e487b7160e01b600052601160045260246000fd5b506001019056fea264697066735822122010f3077836fb83a22ad708a23102f2b487523767e1afef5a93c614619001648b64736f6c63430008170033";
 
     pub fn get_test_signers() -> Vec<PrivateKeySigner> {
-        vec![
+        [
             "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
             "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
             "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
@@ -411,7 +411,7 @@ pub mod tests {
     async fn fuzz_is_deterministic() {
         let anvil = spawn_anvil();
         let test_file = get_fuzzy_testconfig();
-        let seed = RandSeed::from_bytes(&[0x01; 32]);
+        let seed = RandSeed::seed_from_bytes(&[0x01; 32]);
         let signers = get_test_signers();
         let scenario1 = TestScenario::new(
             test_file.clone(),

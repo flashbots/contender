@@ -42,7 +42,7 @@ where
             };
             Ok(
                 futures::stream::unfold(0, move |t| async move { Some((do_poll(t).await, t + 1)) })
-                    .map(|t| SpamTrigger::Tick(t))
+                    .map(SpamTrigger::Tick)
                     .boxed(),
             )
         }

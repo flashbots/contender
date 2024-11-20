@@ -23,12 +23,6 @@ where
 
 pub struct NilCallback;
 
-impl NilCallback {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
 pub struct LogCallback {
     pub rpc_provider: Arc<AnyProvider>,
 }
@@ -62,13 +56,11 @@ impl OnTxSent for LogCallback {
     ) -> Option<JoinHandle<()>> {
         let start_timestamp = extra
             .as_ref()
-            .map(|e| e.get("start_timestamp").map(|t| t.parse::<usize>()))
-            .flatten()?
+            .and_then(|e| e.get("start_timestamp").map(|t| t.parse::<usize>()))?
             .unwrap_or(0);
         let kind = extra
             .as_ref()
-            .map(|e| e.get("kind").map(|k| k.to_string()))
-            .flatten();
+            .and_then(|e| e.get("kind").map(|k| k.to_string()));
         let handle = tokio::task::spawn(async move {
             if let Some(tx_actor) = tx_actor {
                 tx_actor

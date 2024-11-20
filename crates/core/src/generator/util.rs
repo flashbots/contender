@@ -17,7 +17,7 @@ use alloy::{
 /// assert_eq!(calldata.encode_hex(), "60fe47b10000000000000000000000000000000000000000000000000000000012345678");
 /// ```
 pub fn encode_calldata(args: &[impl AsRef<str>], sig: &str) -> Result<Vec<u8>> {
-    let func = json_abi::Function::parse(&sig).map_err(|e| {
+    let func = json_abi::Function::parse(sig).map_err(|e| {
         ContenderError::SpamError("failed to parse function name", Some(e.to_string()))
     })?;
     let values: Vec<DynSolValue> = args

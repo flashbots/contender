@@ -12,6 +12,7 @@ use crate::{
 
 use super::{OnTxSent, SpamTrigger, Spammer};
 
+#[derive(Default)]
 pub struct BlockwiseSpammer;
 
 impl BlockwiseSpammer {
@@ -27,26 +28,23 @@ where
     S: Seeder + Send + Sync,
     P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
-    fn on_spam(
+    async fn on_spam(
         &self,
         scenario: &mut TestScenario<D, S, P>,
-    ) -> impl std::future::Future<Output = crate::Result<Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>>>
-    {
-        async move {
-            let poller = scenario
-                .rpc_client
-                .watch_blocks()
-                .await
-                .map_err(|e| ContenderError::with_err(e, "failed to get block stream"))?;
-            Ok(poller
-                .into_stream()
-                .flat_map(futures::stream::iter)
-                .map(|b| {
-                    println!("new block detected: {:?}", b);
-                    SpamTrigger::BlockHash(b)
-                })
-                .boxed())
-        }
+    ) -> crate::Result<Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>> {
+        let poller = scenario
+            .rpc_client
+            .watch_blocks()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to get block stream"))?;
+        Ok(poller
+            .into_stream()
+            .flat_map(futures::stream::iter)
+            .map(|b| {
+                println!("new block detected: {:?}", b);
+                SpamTrigger::BlockHash(b)
+            })
+            .boxed())
     }
 }
 
@@ -67,7 +65,7 @@ mod tests {
     async fn watches_blocks_and_spams_them() {
         let anvil = spawn_anvil();
         println!("anvil url: {}", anvil.endpoint_url());
-        let seed = crate::generator::RandSeed::from_str("444444444444");
+        let seed = crate::generator::RandSeed::seed_from_str("444444444444");
         let mut scenario = TestScenario::new(
             MockConfig,
             MockDb.into(),

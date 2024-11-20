@@ -89,7 +89,7 @@ where
             .map_err(|e| ContenderError::with_err(e, "failed to get chain id"))?;
 
         let mut nonces = HashMap::new();
-        let all_addrs = wallet_map.iter().map(|(k, _)| *k).collect::<Vec<Address>>();
+        let all_addrs = wallet_map.keys().copied().collect::<Vec<Address>>();
         for addr in &all_addrs {
             let nonce = rpc_client
                 .get_transaction_count(*addr)
@@ -149,7 +149,7 @@ where
             let wallet_conf = self
                 .wallet_map
                 .get(from)
-                .expect(&format!("couldn't find wallet for 'from' address {}", from))
+                .unwrap_or_else(|| panic!("couldn't find wallet for 'from' address {}", from))
                 .to_owned();
             let wallet = ProviderBuilder::new()
                 // simple_nonce_management is unperformant but it's OK bc we're just deploying
@@ -296,7 +296,7 @@ where
         if !self.gas_limits.contains_key(fn_sig.as_slice()) {
             let gas_limit = self
                 .eth_client
-                .estimate_gas(&tx_req)
+                .estimate_gas(tx_req)
                 .await
                 .map_err(|e| ContenderError::with_err(e, "failed to estimate gas for tx"))?;
             self.gas_limits.insert(fn_sig, gas_limit);
@@ -501,10 +501,9 @@ where
                     }
                 };
 
-                for handle in handles {
-                    if let Some(handle) = handle {
-                        handle.await.expect("msg handle failed");
-                    } // ignore None values so we don't attempt to await them
+                for handle in handles.into_iter().flatten() {
+                    // ignore None values so we don't attempt to await them
+                    handle.await.expect("msg handle failed");
                 }
             }));
         }
@@ -518,7 +517,7 @@ where
 
         // lookup name of contract if it exists
         let to_name = to_address.map(|a| {
-            let named_tx = self.db.get_named_tx_by_address(&a);
+            let named_tx = self.db.get_named_tx_by_address(a);
             named_tx.map(|t| t.name).unwrap_or_default()
         });
 
@@ -591,7 +590,7 @@ pub mod tests {
 
     pub struct MockConfig;
 
-    pub const COUNTER_BYTECODE: &'static str =
+    pub const COUNTER_BYTECODE: &str =
         "0x608060405234801561001057600080fd5b5060f78061001f6000396000f3fe6080604052348015600f57600080fd5b5060043610603c5760003560e01c80633fb5c1cb1460415780638381f58a146053578063d09de08a14606d575b600080fd5b6051604c3660046083565b600055565b005b605b60005481565b60405190815260200160405180910390f35b6051600080549080607c83609b565b9190505550565b600060208284031215609457600080fd5b5035919050565b60006001820160ba57634e487b7160e01b600052601160045260246000fd5b506001019056fea264697066735822122010f3077836fb83a22ad708a23102f2b487523767e1afef5a93c614619001648b64736f6c63430008170033";
 
     impl PlanConfig<String> for MockConfig {
@@ -711,7 +710,7 @@ pub mod tests {
     pub async fn get_test_scenario(
         anvil: &AnvilInstance,
     ) -> TestScenario<MockDb, RandSeed, MockConfig> {
-        let seed = RandSeed::from_bytes(&[0x01; 32]);
+        let seed = RandSeed::seed_from_bytes(&[0x01; 32]);
         let signers = &get_test_signers();
 
         TestScenario::new(
@@ -720,7 +719,7 @@ pub mod tests {
             anvil.endpoint_url(),
             None,
             seed.to_owned(),
-            &signers,
+            signers,
             AgentStore::new(),
         )
         .await
