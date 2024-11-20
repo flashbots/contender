@@ -56,7 +56,7 @@ tokio = { version = "1.40.0", features = ["rt-multi-thread"] }
 use contender_core::{
     db::DbOps,
     generator::RandSeed,
-    spammer::{BlockwiseSpammer, NilCallback},
+    spammer::{BlockwiseSpammer, TimedSpammer, NilCallback, LogCallback},
     test_scenario::TestScenario,
 };
 use contender_sqlite::SqliteDb;
@@ -67,12 +67,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db = &SqliteDb::new_memory();
     db.create_tables()?;
     let cfg = TestConfig::from_file("testfile.toml")?;
+    let mut agents = AgentStore::new();
+    let rand_seed = RandSeed::new();
+    agents.add_random_agent(
+        "agentName",
+        4, // number of random signers to create
+        rand_seed
+    )
     let scenario = TestScenario::new(
         cfg,
         db.to_owned().into(),
         "http://localhost:8545".parse::<_>()?,
         None,
-        RandSeed::new(),
+        rand_seed,
         &[
             "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
             "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
@@ -81,6 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .iter()
         .map(|s| s.parse::<_>().unwrap())
         .collect::<Vec<_>>(),
+        agents
     );
 
     if db.get_named_tx("MyContract").is_err() {
@@ -88,8 +96,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         scenario.run_setup().await?;
     }
 
-    let mut spammer = BlockwiseSpammer::new(scenario, NilCallback).await;
-    spammer.spam_rpc(20, 10, None).await?;
+    let spammer = TimedSpammer::new(std::time::Duration::from_secs(1));
+    // or
+    // let spammer = BlockwiseSpammer {};
+
+    // callback is triggered when tx/bundle request is sent
+    // NilCallback does nothing, LogCallback writes tx data to DB
+    let tx_callback = LogCallback::new(scenario.rpc_client().clone());
+    // or
+    // let tx_callback = NilCallback;
+
+    // placeholder; this should identify the run in the DB
+    let run_id = 1_u64;
+    
+    // send 20 requests per second, over 10 seconds
+    spammer.spam_rpc(&mut scenario, 20, 10, Some(run_id), tx_callback.into()).await?;
 
     Ok(())
 }
