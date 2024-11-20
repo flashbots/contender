@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 alloy = { workspace = true, features = ["full", "node-bindings", "rpc-types-mev"] }
-eyre = { workspace = true }
+# eyre = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
