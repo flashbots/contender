@@ -80,7 +80,7 @@ where
             let mut timeout_counter = 0;
             if let Some(run_id) = run_id {
                 loop {
-                    if timeout_counter > 7 {
+                    if timeout_counter > 20 {
                         println!("quitting due to timeout");
                         break;
                     }
