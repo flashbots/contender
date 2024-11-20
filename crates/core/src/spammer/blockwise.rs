@@ -55,15 +55,14 @@ where
     ) -> impl std::future::Future<Output = Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>> {
         async move {
             let poller = scenario.rpc_client.watch_blocks().await.unwrap();
-            let m = poller
+            poller
                 .into_stream()
                 .flat_map(futures::stream::iter)
                 .map(|b| {
-                    println!("new block: {:?}", b);
+                    println!("new block detected: {:?}", b);
                     SpamTrigger::BlockHash(b)
                 })
-                .boxed();
-            m
+                .boxed()
         }
     }
 }

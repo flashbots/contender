@@ -77,24 +77,22 @@ where
                 tick += 1;
             }
 
-            let mut tock = 0;
             let mut timeout_counter = 0;
             if let Some(run_id) = run_id {
                 loop {
-                    timeout_counter += 1;
-                    if timeout_counter > 5 {
+                    if timeout_counter > 7 {
                         println!("quitting due to timeout");
                         break;
                     }
                     let cache_size = self
                         .msg_handler()
-                        .flush_cache(run_id, block_num + tock as u64)
+                        .flush_cache(run_id, block_num + timeout_counter as u64)
                         .await
                         .expect("failed to flush cache");
                     if cache_size == 0 {
                         break;
                     }
-                    tock += 1;
+                    timeout_counter += 1;
                 }
             }
 
