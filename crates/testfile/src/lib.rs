@@ -381,7 +381,9 @@ pub mod tests {
             seed,
             &get_test_signers(),
             Default::default(),
-        );
+        )
+        .await
+        .unwrap();
         // this seed can be used to recreate the same test tx(s)
         let spam_txs = test_gen
             .load_txs(PlanType::Spam(10, |_tx_req| {
@@ -419,7 +421,9 @@ pub mod tests {
             seed.to_owned(),
             &signers,
             Default::default(),
-        );
+        )
+        .await
+        .unwrap();
         let scenario2 = TestScenario::new(
             test_file,
             MockDb.into(),
@@ -428,7 +432,9 @@ pub mod tests {
             seed,
             &signers,
             Default::default(),
-        );
+        )
+        .await
+        .unwrap();
 
         let num_txs = 13;
         let spam_txs_1 = scenario1
