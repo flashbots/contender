@@ -12,6 +12,7 @@ use crate::{
 
 use super::{OnTxSent, SpamTrigger, Spammer};
 
+#[derive(Default)]
 pub struct BlockwiseSpammer;
 
 impl BlockwiseSpammer {
