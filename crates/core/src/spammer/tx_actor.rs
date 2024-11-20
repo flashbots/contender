@@ -99,14 +99,18 @@ where
                     maybe_block = self
                         .rpc
                         .get_block_by_number(target_block_num.into(), false)
-                        .await?;
-                    if maybe_block.is_some() {
-                        break;
+                        .await;
+                    if let Ok(maybe_block) = &maybe_block {
+                        if maybe_block.is_some() {
+                            break;
+                        }
                     }
                     println!("waiting for block {}", target_block_num);
                     std::thread::sleep(Duration::from_secs(1));
                 }
-                let target_block = maybe_block.expect("this should never happen");
+                let target_block = maybe_block
+                    .expect("this should never happen")
+                    .expect("this should never happen");
                 let receipts = self
                     .rpc
                     .get_block_receipts(target_block_num.into())
