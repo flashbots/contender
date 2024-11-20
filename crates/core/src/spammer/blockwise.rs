@@ -73,8 +73,8 @@ where
         // collect addresses from both wallet_map (user prvkeys) and agent_store (system prvkeys)
         let mut all_addrs = scenario
             .wallet_map
-            .iter()
-            .map(|(k, _)| *k)
+            .keys()
+            .copied()
             .collect::<Vec<Address>>();
         for (_, agent) in scenario.agent_store.all_agents() {
             for signer in agent.signers.iter() {
@@ -355,7 +355,7 @@ where
                             for (tx, req) in signed_txs.into_iter().zip(&reqs) {
                                 let maybe_handle = callback_handler.on_tx_sent(
                                     PendingTransactionConfig::new(tx.tx_hash().to_owned()),
-                                    &req,
+                                    req,
                                     extra.clone().into(),
                                     Some(tx_handler.clone()),
                                 );
@@ -364,10 +364,8 @@ where
                             tx_handles
                         }
                     };
-                    for handle in handles {
-                        if let Some(handle) = handle {
-                            handle.await.expect("callback task failed");
-                        }
+                    for handle in handles.into_iter().flatten() {
+                        handle.await.expect("callback task failed");
                     }
                 }));
             }
@@ -428,7 +426,7 @@ mod tests {
     async fn watches_blocks_and_spams_them() {
         let anvil = spawn_anvil();
         println!("anvil url: {}", anvil.endpoint_url());
-        let seed = crate::generator::RandSeed::from_str("444444444444");
+        let seed = crate::generator::RandSeed::seed_from_str("444444444444");
         let scenario = TestScenario::new(
             MockConfig,
             MockDb.into(),

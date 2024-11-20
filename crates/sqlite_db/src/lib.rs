@@ -186,7 +186,7 @@ impl DbOps for SqliteDb {
             .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
 
         let rows = stmt
-            .query_map(params![run_id], |row| RunTxRow::from_row(row))
+            .query_map(params![run_id], RunTxRow::from_row)
             .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
         let res = rows
             .map(|r| r.map(|r| r.into()))
@@ -227,7 +227,7 @@ impl DbOps for SqliteDb {
             .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
 
         let row = stmt
-            .query_map(params![name], |row| NamedTxRow::from_row(row))
+            .query_map(params![name], NamedTxRow::from_row)
             .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
         let res = row
             .last()
@@ -269,7 +269,7 @@ impl DbOps for SqliteDb {
                     tx.start_timestamp,
                     tx.end_timestamp,
                     tx.block_number,
-                    tx.gas_used.to_string(),
+                    tx.gas_used,
                     kind,
                 )
             } else {
@@ -280,7 +280,7 @@ impl DbOps for SqliteDb {
                     tx.start_timestamp,
                     tx.end_timestamp,
                     tx.block_number,
-                    tx.gas_used.to_string(),
+                    tx.gas_used,
                 )
             }
         });
@@ -371,7 +371,7 @@ mod tests {
                 kind: Some("test".to_string()),
             },
         ];
-        db.insert_run_txs(run_id as u64, run_txs).unwrap();
+        db.insert_run_txs(run_id, run_txs).unwrap();
         let count: i64 = db
             .get_pool()
             .unwrap()
@@ -379,7 +379,7 @@ mod tests {
             .unwrap();
         assert_eq!(count, 2);
 
-        let res = db.get_run_txs(run_id as u64).unwrap();
+        let res = db.get_run_txs(run_id).unwrap();
         assert_eq!(res.len(), 2);
     }
 }

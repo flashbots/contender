@@ -56,11 +56,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .as_ref()
                 .unwrap_or(&vec![])
                 .iter()
-                .map(|key| PrivateKeySigner::from_str(&key).expect("invalid private key"))
+                .map(|key| PrivateKeySigner::from_str(key).expect("invalid private key"))
                 .collect::<Vec<PrivateKeySigner>>();
             let signers = get_signers_with_defaults(private_keys);
             check_private_keys(
-                &testconfig.setup.to_owned().unwrap_or(vec![]),
+                &testconfig.setup.to_owned().unwrap_or_default(),
                 signers.as_slice(),
             );
             let broke_accounts = find_insufficient_balance_addrs(
@@ -100,7 +100,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             min_balance,
         } => {
             let testconfig = TestConfig::from_file(&testfile)?;
-            let rand_seed = seed.map(|s| RandSeed::from_str(&s)).unwrap_or_default();
+            let rand_seed = seed
+                .map(|s| RandSeed::seed_from_str(&s))
+                .unwrap_or_default();
             let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
             let rpc_client = ProviderBuilder::new()
                 .network::<AnyNetwork>()
@@ -151,7 +153,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     continue;
                 }
 
-                let agent = SignerStore::new_random(signers_per_block, &rand_seed, &from_pool);
+                let agent = SignerStore::new_random(signers_per_block, &rand_seed, from_pool);
                 all_signers.extend_from_slice(&agent.signers);
                 agents.add_agent(from_pool, agent);
             }
@@ -192,7 +194,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let fund_amount = min_balance;
                 pending_fund_txs.push(
                     fund_account(
-                        &admin_signer,
+                        admin_signer,
                         *address,
                         fund_amount,
                         &eth_client,
@@ -234,7 +236,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let run_id = DB.insert_run(timestamp as u64, txs_per_block * duration)?;
                         let mut spammer = BlockwiseSpammer::new(scenario, cback).await;
                         spammer
-                            .spam_rpc(txs_per_block, duration, Some(run_id.into()))
+                            .spam_rpc(txs_per_block, duration, Some(run_id))
                             .await?;
                         println!("Saved run. run_id = {}", run_id);
                     }
@@ -259,7 +261,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             let tps = txs_per_second.unwrap_or(10);
             println!("Timed spamming with {} txs per second", tps);
-            let spammer = TimedSpammer::new(scenario, NilCallback::new());
+            let spammer = TimedSpammer::new(scenario, NilCallback);
             spammer.spam_rpc(tps, duration).await?;
         }
         ContenderSubcommand::Report { id, out_file } => {
@@ -394,7 +396,7 @@ async fn spam_callback_default(
             return SpamCallbackType::Log(LogCallback::new(rpc_client.clone()));
         }
     }
-    SpamCallbackType::Nil(NilCallback::new())
+    SpamCallbackType::Nil(NilCallback)
 }
 
 async fn is_balance_sufficient(

@@ -30,14 +30,14 @@ impl RandSeed {
     /// - If `seed` is less than 32 bytes, it is right-padded with 0x01.
     /// - If `seed` is more than 32 bytes, only the first 32 bytes are used.
     /// - Number types created from these bytes are interpreted as big-endian.
-    pub fn from_bytes(seed_bytes: &[u8]) -> Self {
+    pub fn seed_from_bytes(seed_bytes: &[u8]) -> Self {
         let mut seed_arr = [0u8; 32];
         fill_bytes(seed_bytes, &mut seed_arr);
         Self { seed: seed_arr }
     }
 
     /// Interprets seed as a number in base 10 or 16.
-    pub fn from_str(seed: &str) -> Self {
+    pub fn seed_from_str(seed: &str) -> Self {
         let (radix, seed) = if seed.starts_with("0x") {
             (16u64, seed.split_at(2).1)
         } else {
@@ -45,10 +45,10 @@ impl RandSeed {
         };
         let n =
             U256::from_str_radix(seed, radix).expect("invalid seed number; must fit in 32 bytes");
-        Self::from_u256(n)
+        Self::seed_from_u256(n)
     }
 
-    pub fn from_u256(seed: U256) -> Self {
+    pub fn seed_from_u256(seed: U256) -> Self {
         Self {
             seed: seed.to_be_bytes(),
         }
@@ -92,7 +92,7 @@ impl Seeder for RandSeed {
             let val = keccak256(seed_num.as_le_slice());
             let val = U256::from_be_bytes(val.0);
             let val = val % (max - min) + min;
-            RandSeed::from_u256(val)
+            RandSeed::seed_from_u256(val)
         });
         Box::new(vals)
     }
@@ -116,7 +116,7 @@ mod tests {
         let mut seed_bytes = [0u8; 32];
         seed_bytes[seed_bytes.len() - 1] = 0x01;
         println!("{}", seed_bytes.encode_hex());
-        let seed = super::RandSeed::from_bytes(&seed_bytes);
+        let seed = super::RandSeed::seed_from_bytes(&seed_bytes);
         println!("{}", seed.as_bytes().encode_hex());
         assert_eq!(seed.as_bytes().len(), 32);
         assert_eq!(seed.as_u64(), 1);
@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn encodes_seed_string() {
-        let seed = super::RandSeed::from_str("0x01");
+        let seed = super::RandSeed::seed_from_str("0x01");
         assert_eq!(seed.as_u64(), 1);
         assert_eq!(seed.as_u128(), 1);
         assert_eq!(seed.as_u256(), U256::from(1));
@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn encodes_seed_u256() {
         let n = U256::MAX;
-        let seed = super::RandSeed::from_u256(n);
+        let seed = super::RandSeed::seed_from_u256(n);
         assert_eq!(seed.as_u256(), n);
     }
 }

@@ -19,7 +19,7 @@ pub trait AgentRegistry<Index: Ord> {
     fn get_agent(&self, idx: Index) -> Option<&Address>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SignerStore {
     pub signers: Vec<PrivateKeySigner>,
 }
@@ -86,16 +86,10 @@ where
 }
 
 impl SignerStore {
-    pub fn new() -> Self {
-        SignerStore {
-            signers: Vec::new(),
-        }
-    }
-
     pub fn new_random(num_signers: usize, rand_seeder: &RandSeed, acct_seed: &str) -> Self {
         // add numerical value of acct_seed to given seed
         let new_seed = rand_seeder.as_u256() + U256::from_be_slice(acct_seed.as_bytes());
-        let rand_seeder = RandSeed::from_u256(new_seed);
+        let rand_seeder = RandSeed::seed_from_u256(new_seed);
 
         // generate random private keys with new seed
         let prv_keys = rand_seeder

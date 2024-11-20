@@ -236,7 +236,7 @@ where
 
                 // finds fuzzed values for a function call definition and populates `canonical_fuzz_map` with fuzzy values.
                 let mut find_fuzz = |req: &FunctionCallDefinition| {
-                    let fuzz_args = req.fuzz.to_owned().unwrap_or(vec![]);
+                    let fuzz_args = req.fuzz.to_owned().unwrap_or_default();
                     let fuzz_map = self.create_fuzz_map(num_txs, &fuzz_args)?; // this may create more values than needed, but it's fine
                     canonical_fuzz_map.extend(fuzz_map);
                     Ok(())
@@ -299,7 +299,7 @@ where
                                 None,
                                 req.kind.to_owned(),
                             );
-                            return Ok((on_spam_setup(tx.to_owned())?, tx));
+                            Ok((on_spam_setup(tx.to_owned())?, tx))
                         };
 
                         match step {

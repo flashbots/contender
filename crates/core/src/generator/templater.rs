@@ -40,7 +40,7 @@ where
         let mut last_end = 0;
 
         for _ in 0..num_template_vals {
-            let template_value = self.copy_end(&arg, last_end);
+            let template_value = self.copy_end(arg, last_end);
             let (template_key, template_end) =
                 self.find_key(&template_value)
                     .ok_or(ContenderError::SpamError(
@@ -109,8 +109,7 @@ where
             .value
             .as_ref()
             .map(|s| self.replace_placeholders(s, placeholder_map))
-            .map(|s| s.parse::<U256>().ok())
-            .flatten();
+            .and_then(|s| s.parse::<U256>().ok());
 
         let from = funcdef
             .from
@@ -137,7 +136,7 @@ where
             .parse::<Address>()
             .map_err(|e| ContenderError::with_err(e, "failed to parse from address"))?;
 
-        let full_bytecode = self.replace_placeholders(&createdef.bytecode, &placeholder_map);
+        let full_bytecode = self.replace_placeholders(&createdef.bytecode, placeholder_map);
         let tx = alloy::rpc::types::TransactionRequest {
             from: Some(from),
             to: Some(alloy::primitives::TxKind::Create),

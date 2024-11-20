@@ -98,7 +98,7 @@ where
             let wallet_conf = self
                 .wallet_map
                 .get(from)
-                .expect(&format!("couldn't find wallet for 'from' address {}", from))
+                .unwrap_or_else(|| panic!("couldn't find wallet for 'from' address {}", from))
                 .to_owned();
             let wallet = ProviderBuilder::new()
                 // simple_nonce_management is unperformant but it's OK bc we're just deploying
@@ -218,7 +218,7 @@ where
 
         // lookup name of contract if it exists
         let to_name = to_address.map(|a| {
-            let named_tx = self.db.get_named_tx_by_address(&a);
+            let named_tx = self.db.get_named_tx_by_address(a);
             named_tx.map(|t| t.name).unwrap_or_default()
         });
 
@@ -291,7 +291,7 @@ pub mod tests {
 
     pub struct MockConfig;
 
-    pub const COUNTER_BYTECODE: &'static str =
+    pub const COUNTER_BYTECODE: &str =
         "0x608060405234801561001057600080fd5b5060f78061001f6000396000f3fe6080604052348015600f57600080fd5b5060043610603c5760003560e01c80633fb5c1cb1460415780638381f58a146053578063d09de08a14606d575b600080fd5b6051604c3660046083565b600055565b005b605b60005481565b60405190815260200160405180910390f35b6051600080549080607c83609b565b9190505550565b600060208284031215609457600080fd5b5035919050565b60006001820160ba57634e487b7160e01b600052601160045260246000fd5b506001019056fea264697066735822122010f3077836fb83a22ad708a23102f2b487523767e1afef5a93c614619001648b64736f6c63430008170033";
 
     impl PlanConfig<String> for MockConfig {
@@ -409,7 +409,7 @@ pub mod tests {
     }
 
     pub fn get_test_scenario(anvil: &AnvilInstance) -> TestScenario<MockDb, RandSeed, MockConfig> {
-        let seed = RandSeed::from_bytes(&[0x01; 32]);
+        let seed = RandSeed::seed_from_bytes(&[0x01; 32]);
         let signers = &get_test_signers();
 
         TestScenario::new(
@@ -418,7 +418,7 @@ pub mod tests {
             anvil.endpoint_url(),
             None,
             seed.to_owned(),
-            &signers,
+            signers,
             AgentStore::new(),
         )
     }

@@ -69,8 +69,7 @@ where
                             tx_req.from.map(|s| s.encode_hex()).unwrap_or_default(),
                             tx_req
                                 .to
-                                .map(|s| s.to().map(|s| *s))
-                                .flatten()
+                                .and_then(|s| s.to().copied())
                                 .map(|s| s.encode_hex())
                                 .unwrap_or_default(),
                             tx_req
@@ -94,10 +93,9 @@ where
                     }
                 };
 
-                for handle in handles {
-                    if let Some(handle) = handle {
-                        handle.await.expect("failed to join task handle");
-                    } // ignore None values so we don't attempt to await them
+                for handle in handles.into_iter().flatten() {
+                    // ignore None values so we don't attempt to await them
+                    handle.await.expect("failed to join task handle");
                 }
             }));
 
