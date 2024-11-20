@@ -22,8 +22,6 @@ where
     S: Seeder + Send + Sync,
     P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
-    fn sent_tx_callback(&self) -> Arc<F>;
-
     fn get_msg_handler(&self, db: Arc<D>, rpc_client: Arc<AnyProvider>) -> TxActorHandle {
         TxActorHandle::new(12, db.clone(), rpc_client.clone())
     }
@@ -39,6 +37,7 @@ where
         txs_per_period: usize,
         num_periods: usize,
         run_id: Option<u64>,
+        sent_tx_callback: Arc<F>,
     ) -> impl std::future::Future<Output = Result<()>> {
         async move {
             let tx_requests = scenario
@@ -61,7 +60,7 @@ where
                 let trigger = trigger.to_owned();
                 let payloads = scenario.prepare_spam(tx_req_chunks[tick]).await?;
                 let spam_tasks = scenario
-                    .execute_spam(trigger, &payloads, self.sent_tx_callback())
+                    .execute_spam(trigger, &payloads, sent_tx_callback.clone())
                     .await?;
                 for task in spam_tasks {
                     task.await

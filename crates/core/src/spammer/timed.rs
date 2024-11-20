@@ -1,5 +1,5 @@
+use std::pin::Pin;
 use std::time::Duration;
-use std::{pin::Pin, sync::Arc};
 
 use futures::Stream;
 use futures::StreamExt;
@@ -12,40 +12,23 @@ use crate::{
 
 use super::{OnTxSent, SpamTrigger, Spammer};
 
-pub struct TimedSpammer<F>
-where
-    F: OnTxSent + Send + Sync + 'static,
-{
-    callback_handle: Arc<F>,
+pub struct TimedSpammer {
     wait_interval: Duration,
 }
 
-impl<F> TimedSpammer<F>
-where
-    F: OnTxSent + Send + Sync + 'static,
-{
-    pub fn new<D: DbOps + Send + Sync + 'static>(
-        callback_handle: F,
-        wait_interval: Duration,
-    ) -> Self {
-        Self {
-            callback_handle: Arc::new(callback_handle),
-            wait_interval,
-        }
+impl TimedSpammer {
+    pub fn new(wait_interval: Duration) -> Self {
+        Self { wait_interval }
     }
 }
 
-impl<F, D, S, P> Spammer<F, D, S, P> for TimedSpammer<F>
+impl<F, D, S, P> Spammer<F, D, S, P> for TimedSpammer
 where
     F: OnTxSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync,
     P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
-    fn sent_tx_callback(&self) -> std::sync::Arc<F> {
-        self.callback_handle.clone()
-    }
-
     fn on_spam(
         &self,
         _scenario: &mut TestScenario<D, S, P>,

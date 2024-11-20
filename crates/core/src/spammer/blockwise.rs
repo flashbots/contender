@@ -1,4 +1,4 @@
-use std::{pin::Pin, sync::Arc};
+use std::pin::Pin;
 
 use alloy::providers::Provider;
 use futures::{Stream, StreamExt};
@@ -12,35 +12,21 @@ use crate::{
 
 use super::{OnTxSent, SpamTrigger, Spammer};
 
-pub struct BlockwiseSpammer<F>
-where
-    F: OnTxSent + Send + Sync + 'static,
-{
-    callback_handle: Arc<F>,
-}
+pub struct BlockwiseSpammer;
 
-impl<F> BlockwiseSpammer<F>
-where
-    F: OnTxSent + Send + Sync + 'static,
-{
-    pub fn new<D: DbOps + Send + Sync + 'static>(callback_handle: F) -> Self {
-        Self {
-            callback_handle: Arc::new(callback_handle),
-        }
+impl BlockwiseSpammer {
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
-impl<F, D, S, P> Spammer<F, D, S, P> for BlockwiseSpammer<F>
+impl<F, D, S, P> Spammer<F, D, S, P> for BlockwiseSpammer
 where
     F: OnTxSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync,
     P: PlanConfig<String> + Templater<String> + Send + Sync,
 {
-    fn sent_tx_callback(&self) -> std::sync::Arc<F> {
-        self.callback_handle.clone()
-    }
-
     async fn on_spam(
         &self,
         scenario: &mut TestScenario<D, S, P>,
@@ -70,6 +56,7 @@ mod tests {
         spammer::util::test::{get_test_signers, MockCallback},
         test_scenario::tests::MockConfig,
     };
+    use std::sync::Arc;
 
     use super::*;
 
@@ -90,9 +77,11 @@ mod tests {
         .await
         .unwrap();
         let callback_handler = MockCallback;
-        let spammer = BlockwiseSpammer::new::<MockDb>(callback_handler);
+        let spammer = BlockwiseSpammer {};
 
-        let result = spammer.spam_rpc(&mut scenario, 10, 3, None).await;
+        let result = spammer
+            .spam_rpc(&mut scenario, 10, 3, None, Arc::new(callback_handler))
+            .await;
         println!("{:?}", result);
         assert!(result.is_ok());
     }
