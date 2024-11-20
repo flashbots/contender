@@ -144,7 +144,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             let mut agents = AgentStore::new();
-            let signers_per_block = txs_per_block.unwrap_or(spam.len()) / spam.len();
+            let signers_per_period =
+                txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam.len())) / spam.len();
 
             let mut all_signers = vec![];
             all_signers.extend_from_slice(&user_signers);
@@ -154,7 +155,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     continue;
                 }
 
-                let agent = SignerStore::new_random(signers_per_block, &rand_seed, &from_pool);
+                let agent = SignerStore::new_random(signers_per_period, &rand_seed, &from_pool);
                 all_signers.extend_from_slice(&agent.signers);
                 agents.add_agent(from_pool, agent);
             }
@@ -256,7 +257,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let tps = txs_per_second.unwrap_or(10);
             println!("Timed spamming with {} txs per second", tps);
 
-            let interval = std::time::Duration::from_nanos(1_000_000_000 / tps as u64);
+            let interval = std::time::Duration::from_secs(1);
 
             match spam_callback_default(!disable_reports, Arc::new(rpc_client).into()).await {
                 SpamCallbackType::Log(cback) => {
@@ -267,7 +268,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let run_id = DB.insert_run(timestamp as u64, tps * duration)?;
                     let spammer = TimedSpammer::new::<SqliteDb>(cback, interval);
                     spammer
-                        .spam_rpc(&mut scenario, 1, tps * duration, Some(run_id))
+                        .spam_rpc(&mut scenario, tps, duration, Some(run_id))
                         .await?;
                     println!("Saved run. run_id = {}", run_id);
                 }

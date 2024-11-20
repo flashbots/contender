@@ -24,6 +24,7 @@ pub struct SignerStore {
     pub signers: Vec<PrivateKeySigner>,
 }
 
+#[derive(Debug)]
 pub struct AgentStore {
     agents: HashMap<String, SignerStore>,
 }

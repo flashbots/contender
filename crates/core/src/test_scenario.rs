@@ -415,6 +415,7 @@ where
         let payloads = payloads.to_owned();
 
         let mut tasks: Vec<tokio::task::JoinHandle<()>> = vec![];
+        let num_iterations = payloads.len();
 
         for payload in payloads {
             let rpc_client = self.rpc_client.clone();
