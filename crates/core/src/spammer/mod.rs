@@ -1,7 +1,5 @@
-pub mod blockwise;
 pub mod blockwise2;
 mod spammer_trait;
-pub mod timed;
 pub mod timed2;
 pub mod tx_actor;
 mod tx_callback;
@@ -11,8 +9,8 @@ use alloy::{consensus::TxEnvelope, primitives::FixedBytes};
 pub use spammer_trait::Spammer;
 pub use tx_callback::{LogCallback, NilCallback, OnTxSent};
 
-pub use blockwise::BlockwiseSpammer;
-pub use timed::TimedSpammer;
+pub use blockwise2::BlockwiseSpammer2;
+pub use timed2::TimedSpammer2;
 
 #[derive(Clone, Debug)]
 pub enum ExecutionPayload {

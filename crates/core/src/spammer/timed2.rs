@@ -64,10 +64,7 @@ where
                 tick
             };
             futures::stream::unfold(0, move |t| async move { Some((do_poll(t).await, t + 1)) })
-                .map(|t| {
-                    println!("[[timed2]] tick: {:?}", t);
-                    SpamTrigger::Tick(t)
-                })
+                .map(|t| SpamTrigger::Tick(t))
                 .boxed()
         }
     }
