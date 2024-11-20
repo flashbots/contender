@@ -20,7 +20,7 @@ use contender_core::{
         RandSeed,
     },
     spammer::{
-        blockwise2::BlockwiseSpammer2, timed2::TimedSpammer2, tx_actor::TxActorHandle, LogCallback,
+        blockwise::BlockwiseSpammer, timed::TimedSpammer, tx_actor::TxActorHandle, LogCallback,
         NilCallback, Spammer,
     },
     test_scenario::TestScenario,
@@ -240,14 +240,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .expect("Time went backwards")
                             .as_millis();
                         let run_id = DB.insert_run(timestamp as u64, txs_per_block * duration)?;
-                        let spammer = BlockwiseSpammer2::new::<SqliteDb>(msg_handle, cback);
+                        let spammer = BlockwiseSpammer::new::<SqliteDb>(msg_handle, cback);
                         spammer
                             .spam_rpc(&mut scenario, txs_per_block, duration, Some(run_id))
                             .await?;
                         println!("Saved run. run_id = {}", run_id);
                     }
                     SpamCallbackType::Nil(cback) => {
-                        let spammer = BlockwiseSpammer2::new::<SqliteDb>(msg_handle, cback);
+                        let spammer = BlockwiseSpammer::new::<SqliteDb>(msg_handle, cback);
                         spammer
                             .spam_rpc(&mut scenario, txs_per_block, duration, None)
                             .await?;
@@ -279,14 +279,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .expect("Time went backwards")
                         .as_millis();
                     let run_id = DB.insert_run(timestamp as u64, tps * duration)?;
-                    let spammer = TimedSpammer2::new::<SqliteDb>(msg_handle, cback, interval);
+                    let spammer = TimedSpammer::new::<SqliteDb>(msg_handle, cback, interval);
                     spammer
                         .spam_rpc(&mut scenario, 1, tps * duration, Some(run_id))
                         .await?;
                     println!("Saved run. run_id = {}", run_id);
                 }
                 SpamCallbackType::Nil(cback) => {
-                    let spammer = TimedSpammer2::new::<SqliteDb>(msg_handle, cback, interval);
+                    let spammer = TimedSpammer::new::<SqliteDb>(msg_handle, cback, interval);
                     spammer.spam_rpc(&mut scenario, tps, duration, None).await?;
                 }
             };

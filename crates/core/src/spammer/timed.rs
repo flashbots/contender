@@ -12,7 +12,7 @@ use crate::{
 
 use super::{tx_actor::TxActorHandle, OnTxSent, SpamTrigger, Spammer};
 
-pub struct TimedSpammer2<F>
+pub struct TimedSpammer<F>
 where
     F: OnTxSent + Send + Sync + 'static,
 {
@@ -21,7 +21,7 @@ where
     wait_interval: Duration,
 }
 
-impl<F> TimedSpammer2<F>
+impl<F> TimedSpammer<F>
 where
     F: OnTxSent + Send + Sync + 'static,
 {
@@ -38,7 +38,7 @@ where
     }
 }
 
-impl<F, D, S, P> Spammer<F, D, S, P> for TimedSpammer2<F>
+impl<F, D, S, P> Spammer<F, D, S, P> for TimedSpammer<F>
 where
     F: OnTxSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,

@@ -11,7 +11,7 @@ use crate::{
 
 use super::{tx_actor::TxActorHandle, OnTxSent, SpamTrigger, Spammer};
 
-pub struct BlockwiseSpammer2<F>
+pub struct BlockwiseSpammer<F>
 where
     F: OnTxSent + Send + Sync + 'static,
 {
@@ -19,7 +19,7 @@ where
     msg_handle: Arc<TxActorHandle>,
 }
 
-impl<F> BlockwiseSpammer2<F>
+impl<F> BlockwiseSpammer<F>
 where
     F: OnTxSent + Send + Sync + 'static,
 {
@@ -34,7 +34,7 @@ where
     }
 }
 
-impl<F, D, S, P> Spammer<F, D, S, P> for BlockwiseSpammer2<F>
+impl<F, D, S, P> Spammer<F, D, S, P> for BlockwiseSpammer<F>
 where
     F: OnTxSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
@@ -98,7 +98,7 @@ mod tests {
         .unwrap();
         let callback_handler = MockCallback;
         let msg_handle = TxActorHandle::new(12, scenario.db.clone(), scenario.rpc_client.clone());
-        let spammer = BlockwiseSpammer2::new::<MockDb>(msg_handle, callback_handler);
+        let spammer = BlockwiseSpammer::new::<MockDb>(msg_handle, callback_handler);
 
         let result = spammer.spam_rpc(&mut scenario, 10, 3, None).await;
         println!("{:?}", result);
