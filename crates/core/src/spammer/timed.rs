@@ -10,14 +10,13 @@ use crate::{
     test_scenario::TestScenario,
 };
 
-use super::{tx_actor::TxActorHandle, OnTxSent, SpamTrigger, Spammer};
+use super::{OnTxSent, SpamTrigger, Spammer};
 
 pub struct TimedSpammer<F>
 where
     F: OnTxSent + Send + Sync + 'static,
 {
     callback_handle: Arc<F>,
-    msg_handle: Arc<TxActorHandle>,
     wait_interval: Duration,
 }
 
@@ -26,13 +25,11 @@ where
     F: OnTxSent + Send + Sync + 'static,
 {
     pub fn new<D: DbOps + Send + Sync + 'static>(
-        msg_handle: TxActorHandle,
         callback_handle: F,
         wait_interval: Duration,
     ) -> Self {
         Self {
             callback_handle: Arc::new(callback_handle),
-            msg_handle: Arc::new(msg_handle),
             wait_interval,
         }
     }
@@ -49,23 +46,22 @@ where
         self.callback_handle.clone()
     }
 
-    fn msg_handler(&self) -> std::sync::Arc<TxActorHandle> {
-        self.msg_handle.clone()
-    }
-
     fn on_spam(
         &self,
         _scenario: &mut TestScenario<D, S, P>,
-    ) -> impl std::future::Future<Output = Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>> {
+    ) -> impl std::future::Future<Output = crate::Result<Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>>>
+    {
         let interval = self.wait_interval;
         async move {
             let do_poll = move |tick| async move {
                 tokio::time::sleep(interval).await;
                 tick
             };
-            futures::stream::unfold(0, move |t| async move { Some((do_poll(t).await, t + 1)) })
-                .map(|t| SpamTrigger::Tick(t))
-                .boxed()
+            Ok(
+                futures::stream::unfold(0, move |t| async move { Some((do_poll(t).await, t + 1)) })
+                    .map(|t| SpamTrigger::Tick(t))
+                    .boxed(),
+            )
         }
     }
 }

@@ -5,31 +5,27 @@ use futures::{Stream, StreamExt};
 
 use crate::{
     db::DbOps,
+    error::ContenderError,
     generator::{seeder::Seeder, templater::Templater, PlanConfig},
     test_scenario::TestScenario,
 };
 
-use super::{tx_actor::TxActorHandle, OnTxSent, SpamTrigger, Spammer};
+use super::{OnTxSent, SpamTrigger, Spammer};
 
 pub struct BlockwiseSpammer<F>
 where
     F: OnTxSent + Send + Sync + 'static,
 {
     callback_handle: Arc<F>,
-    msg_handle: Arc<TxActorHandle>,
 }
 
 impl<F> BlockwiseSpammer<F>
 where
     F: OnTxSent + Send + Sync + 'static,
 {
-    pub fn new<D: DbOps + Send + Sync + 'static>(
-        msg_handle: TxActorHandle,
-        callback_handle: F,
-    ) -> Self {
+    pub fn new<D: DbOps + Send + Sync + 'static>(callback_handle: F) -> Self {
         Self {
             callback_handle: Arc::new(callback_handle),
-            msg_handle: Arc::new(msg_handle),
         }
     }
 }
@@ -45,24 +41,25 @@ where
         self.callback_handle.clone()
     }
 
-    fn msg_handler(&self) -> std::sync::Arc<TxActorHandle> {
-        self.msg_handle.clone()
-    }
-
     fn on_spam(
         &self,
         scenario: &mut TestScenario<D, S, P>,
-    ) -> impl std::future::Future<Output = Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>> {
+    ) -> impl std::future::Future<Output = crate::Result<Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>>>
+    {
         async move {
-            let poller = scenario.rpc_client.watch_blocks().await.unwrap();
-            poller
+            let poller = scenario
+                .rpc_client
+                .watch_blocks()
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to get block stream"))?;
+            Ok(poller
                 .into_stream()
                 .flat_map(futures::stream::iter)
                 .map(|b| {
                     println!("new block detected: {:?}", b);
                     SpamTrigger::BlockHash(b)
                 })
-                .boxed()
+                .boxed())
         }
     }
 }
@@ -96,8 +93,7 @@ mod tests {
         .await
         .unwrap();
         let callback_handler = MockCallback;
-        let msg_handle = TxActorHandle::new(12, scenario.db.clone(), scenario.rpc_client.clone());
-        let spammer = BlockwiseSpammer::new::<MockDb>(msg_handle, callback_handler);
+        let spammer = BlockwiseSpammer::new::<MockDb>(callback_handler);
 
         let result = spammer.spam_rpc(&mut scenario, 10, 3, None).await;
         println!("{:?}", result);

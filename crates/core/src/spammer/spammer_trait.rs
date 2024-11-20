@@ -28,12 +28,10 @@ where
         TxActorHandle::new(12, db.clone(), rpc_client.clone())
     }
 
-    fn msg_handler(&self) -> Arc<TxActorHandle>;
-
     fn on_spam(
         &self,
         scenario: &mut TestScenario<D, S, P>,
-    ) -> impl std::future::Future<Output = Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>>;
+    ) -> impl std::future::Future<Output = Result<Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>>>;
 
     fn spam_rpc(
         &self,
@@ -57,18 +55,13 @@ where
                 .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
 
             let mut tick = 0;
-            let mut cursor = self.on_spam(scenario).await.take(num_periods);
+            let mut cursor = self.on_spam(scenario).await?.take(num_periods);
 
             while let Some(trigger) = cursor.next().await {
                 let trigger = trigger.to_owned();
                 let payloads = scenario.prepare_spam(tx_req_chunks[tick]).await?;
                 let spam_tasks = scenario
-                    .execute_spam(
-                        trigger,
-                        &payloads,
-                        self.sent_tx_callback(),
-                        self.msg_handler(),
-                    )
+                    .execute_spam(trigger, &payloads, self.sent_tx_callback())
                     .await?;
                 for task in spam_tasks {
                     task.await
@@ -84,8 +77,8 @@ where
                         println!("quitting due to timeout");
                         break;
                     }
-                    let cache_size = self
-                        .msg_handler()
+                    let cache_size = scenario
+                        .msg_handle
                         .flush_cache(run_id, block_num + timeout_counter as u64)
                         .await
                         .expect("failed to flush cache");

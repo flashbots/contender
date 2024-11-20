@@ -6,6 +6,7 @@ use crate::generator::templater::Templater;
 use crate::generator::types::{AnyProvider, EthProvider};
 use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
+use crate::spammer::tx_actor::TxActorHandle;
 use crate::spammer::{ExecutionPayload, OnTxSent, SpamTrigger};
 use crate::Result;
 use alloy::consensus::Transaction;
@@ -43,6 +44,7 @@ where
     pub nonces: HashMap<Address, u64>,
     pub chain_id: u64,
     pub gas_limits: HashMap<FixedBytes<4>, u128>,
+    pub msg_handle: Arc<TxActorHandle>,
 }
 
 impl<D, S, P> TestScenario<D, S, P>
@@ -60,9 +62,11 @@ where
         signers: &[PrivateKeySigner],
         agent_store: AgentStore,
     ) -> Result<Self> {
-        let rpc_client = ProviderBuilder::new()
-            .network::<AnyNetwork>()
-            .on_http(rpc_url.to_owned());
+        let rpc_client = Arc::new(
+            ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .on_http(rpc_url.to_owned()),
+        );
 
         let mut wallet_map = HashMap::new();
         let wallets = signers.iter().map(|s| {
@@ -99,11 +103,13 @@ where
             .as_ref()
             .map(|url| Arc::new(BundleClient::new(url.clone())));
 
+        let msg_handle = Arc::new(TxActorHandle::new(12, db.clone(), rpc_client.clone()));
+
         Ok(Self {
             config,
             db: db.clone(),
             rpc_url: rpc_url.to_owned(),
-            rpc_client: Arc::new(rpc_client),
+            rpc_client: rpc_client.clone(),
             eth_client: Arc::new(ProviderBuilder::new().on_http(rpc_url)),
             bundle_client,
             builder_rpc_url,
@@ -113,6 +119,7 @@ where
             chain_id,
             nonces,
             gas_limits,
+            msg_handle,
         })
     }
 
@@ -404,7 +411,6 @@ where
         trigger: SpamTrigger,
         payloads: &[ExecutionPayload],
         callback_handler: Arc<impl OnTxSent + Send + Sync + 'static>,
-        tx_handler: Arc<crate::spammer::tx_actor::TxActorHandle>,
     ) -> Result<Vec<tokio::task::JoinHandle<()>>> {
         let payloads = payloads.to_owned();
 
@@ -414,7 +420,7 @@ where
             let rpc_client = self.rpc_client.clone();
             let bundle_client = self.bundle_client.clone();
             let callback_handler = callback_handler.clone();
-            let tx_handler = tx_handler.clone();
+            let tx_handler = self.msg_handle.clone();
 
             tasks.push(tokio::task::spawn(async move {
                 let mut extra = HashMap::new();

@@ -103,8 +103,6 @@ where
                     if let Ok(maybe_block) = &maybe_block {
                         if maybe_block.is_some() {
                             break;
-                        } else {
-                            println!("block {} not found", target_block_num);
                         }
                     }
                     println!("waiting for block {}", target_block_num);
