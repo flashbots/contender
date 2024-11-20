@@ -14,7 +14,7 @@ pub struct EthSendBundleResponse {
 }
 
 impl BundleClient {
-    pub fn new(url: String) -> Self {
+    pub fn new(url: impl AsRef<str>) -> Self {
         let client = HttpClient::builder()
             .build(url)
             .expect("failed to connect to RPC provider");

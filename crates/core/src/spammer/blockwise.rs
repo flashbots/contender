@@ -60,7 +60,7 @@ where
         let bundle_client = scenario
             .builder_rpc_url
             .to_owned()
-            .map(|url| Arc::new(BundleClient::new(url.into())));
+            .map(|url| Arc::new(BundleClient::new(&url.to_string())));
         let msg_handler = Arc::new(TxActorHandle::new(
             12,
             scenario.db.clone(),
@@ -437,7 +437,9 @@ mod tests {
             seed,
             get_test_signers().as_slice(),
             AgentStore::new(),
-        );
+        )
+        .await
+        .unwrap();
         let callback_handler = MockCallback;
         let mut spammer = BlockwiseSpammer::new(scenario, callback_handler).await;
 
