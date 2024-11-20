@@ -6,7 +6,7 @@ use crate::generator::templater::Templater;
 use crate::generator::types::{AnyProvider, EthProvider};
 use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
-use crate::spammer::{ExecutionPayload, OnTxSent};
+use crate::spammer::{ExecutionPayload, OnTxSent, SpamTrigger};
 use crate::Result;
 use alloy::consensus::Transaction;
 use alloy::eips::eip2718::Encodable2718;
@@ -563,14 +563,6 @@ where
     fn get_agent_store(&self) -> &AgentStore {
         &self.agent_store
     }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum SpamTrigger {
-    Nil,
-    BlockNumber(u64),
-    Tick(u64),
-    BlockHash(FixedBytes<32>),
 }
 
 #[cfg(test)]

@@ -8,10 +8,11 @@ use crate::{
     db::DbOps,
     error::ContenderError,
     generator::{seeder::Seeder, templater::Templater, types::AnyProvider, Generator, PlanConfig},
-    test_scenario::{SpamTrigger, TestScenario},
+    test_scenario::TestScenario,
     Result,
 };
 
+use super::SpamTrigger;
 use super::{tx_actor::TxActorHandle, OnTxSent};
 
 pub trait Spammer<F, D, S, P>
@@ -57,6 +58,7 @@ where
 
             let mut tick = 0;
             let mut cursor = self.on_spam(scenario).await.take(num_periods);
+
             while let Some(trigger) = cursor.next().await {
                 let trigger = trigger.to_owned();
                 let payloads = scenario.prepare_spam(tx_req_chunks[tick]).await?;
@@ -72,25 +74,27 @@ where
                     task.await
                         .map_err(|e| ContenderError::with_err(e, "spam task failed"))?;
                 }
+                tick += 1;
+            }
 
-                let mut timeout_counter = 0;
-                if let Some(run_id) = run_id {
-                    loop {
-                        timeout_counter += 1;
-                        if timeout_counter > 5 {
-                            println!("quitting due to timeout");
-                            break;
-                        }
-                        let cache_size = self
-                            .msg_handler()
-                            .flush_cache(run_id, block_num + tick as u64)
-                            .await
-                            .expect("failed to flush cache");
-                        if cache_size == 0 {
-                            break;
-                        }
-                        tick += 1;
+            let mut tock = 0;
+            let mut timeout_counter = 0;
+            if let Some(run_id) = run_id {
+                loop {
+                    timeout_counter += 1;
+                    if timeout_counter > 5 {
+                        println!("quitting due to timeout");
+                        break;
                     }
+                    let cache_size = self
+                        .msg_handler()
+                        .flush_cache(run_id, block_num + tock as u64)
+                        .await
+                        .expect("failed to flush cache");
+                    if cache_size == 0 {
+                        break;
+                    }
+                    tock += 1;
                 }
             }
 

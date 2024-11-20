@@ -20,8 +20,8 @@ use contender_core::{
         RandSeed,
     },
     spammer::{
-        blockwise2::BlockwiseSpammer2, tx_actor::TxActorHandle, BlockwiseSpammer, LogCallback,
-        NilCallback, Spammer, TimedSpammer,
+        blockwise2::BlockwiseSpammer2, timed2::TimedSpammer2, tx_actor::TxActorHandle, LogCallback,
+        NilCallback, Spammer,
     },
     test_scenario::TestScenario,
 };
@@ -229,6 +229,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     agents,
                 )
                 .await?;
+                let msg_handle =
+                    TxActorHandle::new(12, Arc::new(DB.clone()), scenario.rpc_client.clone());
+
                 println!("Blockwise spamming with {} txs per block", txs_per_block);
                 match spam_callback_default(!disable_reports, Arc::new(rpc_client).into()).await {
                     SpamCallbackType::Log(cback) => {
@@ -237,12 +240,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .expect("Time went backwards")
                             .as_millis();
                         let run_id = DB.insert_run(timestamp as u64, txs_per_block * duration)?;
-                        // let mut spammer = BlockwiseSpammer::new(scenario, cback).await;
-                        let msg_handle = TxActorHandle::new(
-                            12,
-                            Arc::new(DB.clone()),
-                            scenario.rpc_client.clone(),
-                        );
                         let spammer = BlockwiseSpammer2::new::<SqliteDb>(msg_handle, cback);
                         spammer
                             .spam_rpc(&mut scenario, txs_per_block, duration, Some(run_id))
@@ -250,29 +247,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("Saved run. run_id = {}", run_id);
                     }
                     SpamCallbackType::Nil(cback) => {
-                        let mut spammer = BlockwiseSpammer::new(scenario, cback).await;
-                        spammer.spam_rpc(txs_per_block, duration, None).await?;
+                        let spammer = BlockwiseSpammer2::new::<SqliteDb>(msg_handle, cback);
+                        spammer
+                            .spam_rpc(&mut scenario, txs_per_block, duration, None)
+                            .await?;
                     }
                 };
                 return Ok(());
             }
 
-            // NOTE: private keys are not currently used for timed spamming.
-            // Timed spamming only works with unlocked accounts, because it uses the `eth_sendTransaction` RPC method.
-            let scenario = TestScenario::new(
+            let tps = txs_per_second.unwrap_or(10);
+            println!("Timed spamming with {} txs per second", tps);
+            let mut scenario = TestScenario::new(
                 testconfig,
                 DB.clone().into(),
                 url,
-                None,
+                builder_url.map(|url| Url::parse(&url).expect("Invalid builder URL")),
                 rand_seed,
                 &user_signers,
                 agents,
             )
             .await?;
-            let tps = txs_per_second.unwrap_or(10);
-            println!("Timed spamming with {} txs per second", tps);
-            let spammer = TimedSpammer::new(scenario, NilCallback::new());
-            spammer.spam_rpc(tps, duration).await?;
+            let msg_handle =
+                TxActorHandle::new(12, Arc::new(DB.clone()), scenario.rpc_client.clone());
+            let interval = std::time::Duration::from_nanos(1_000_000_000 / tps as u64);
+
+            match spam_callback_default(!disable_reports, Arc::new(rpc_client).into()).await {
+                SpamCallbackType::Log(cback) => {
+                    let timestamp = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("Time went backwards")
+                        .as_millis();
+                    let run_id = DB.insert_run(timestamp as u64, tps * duration)?;
+                    let spammer = TimedSpammer2::new::<SqliteDb>(msg_handle, cback, interval);
+                    spammer
+                        .spam_rpc(&mut scenario, 1, tps * duration, Some(run_id))
+                        .await?;
+                    println!("Saved run. run_id = {}", run_id);
+                }
+                SpamCallbackType::Nil(cback) => {
+                    let spammer = TimedSpammer2::new::<SqliteDb>(msg_handle, cback, interval);
+                    spammer.spam_rpc(&mut scenario, tps, duration, None).await?;
+                }
+            };
         }
         ContenderSubcommand::Report { id, out_file } => {
             let num_runs = DB.clone().num_runs()?;

@@ -1,7 +1,8 @@
+use std::time::Duration;
 use std::{pin::Pin, sync::Arc};
 
-use alloy::providers::Provider;
-use futures::{Stream, StreamExt};
+use futures::Stream;
+use futures::StreamExt;
 
 use crate::{
     db::DbOps,
@@ -11,30 +12,33 @@ use crate::{
 
 use super::{tx_actor::TxActorHandle, OnTxSent, SpamTrigger, Spammer};
 
-pub struct BlockwiseSpammer2<F>
+pub struct TimedSpammer2<F>
 where
     F: OnTxSent + Send + Sync + 'static,
 {
     callback_handle: Arc<F>,
     msg_handle: Arc<TxActorHandle>,
+    wait_interval: Duration,
 }
 
-impl<F> BlockwiseSpammer2<F>
+impl<F> TimedSpammer2<F>
 where
     F: OnTxSent + Send + Sync + 'static,
 {
     pub fn new<D: DbOps + Send + Sync + 'static>(
         msg_handle: TxActorHandle,
         callback_handle: F,
+        wait_interval: Duration,
     ) -> Self {
         Self {
             callback_handle: Arc::new(callback_handle),
             msg_handle: Arc::new(msg_handle),
+            wait_interval,
         }
     }
 }
 
-impl<F, D, S, P> Spammer<F, D, S, P> for BlockwiseSpammer2<F>
+impl<F, D, S, P> Spammer<F, D, S, P> for TimedSpammer2<F>
 where
     F: OnTxSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
@@ -51,19 +55,20 @@ where
 
     fn on_spam(
         &self,
-        scenario: &mut TestScenario<D, S, P>,
+        _scenario: &mut TestScenario<D, S, P>,
     ) -> impl std::future::Future<Output = Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>> {
+        let interval = self.wait_interval;
         async move {
-            let poller = scenario.rpc_client.watch_blocks().await.unwrap();
-            let m = poller
-                .into_stream()
-                .flat_map(futures::stream::iter)
-                .map(|b| {
-                    println!("[[bw2]] block: {:?}", b);
-                    SpamTrigger::BlockHash(b)
+            let do_poll = move |tick| async move {
+                tokio::time::sleep(interval).await;
+                tick
+            };
+            futures::stream::unfold(0, move |t| async move { Some((do_poll(t).await, t + 1)) })
+                .map(|t| {
+                    println!("[[timed2]] tick: {:?}", t);
+                    SpamTrigger::Tick(t)
                 })
-                .boxed();
-            m
+                .boxed()
         }
     }
 }
