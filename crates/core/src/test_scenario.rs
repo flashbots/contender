@@ -45,6 +45,8 @@ where
     pub chain_id: u64,
     pub gas_limits: HashMap<FixedBytes<4>, u128>,
     pub msg_handle: Arc<TxActorHandle>,
+    /// Whether to send legacy transactions instead of EIP-1559 transactions
+    pub legacy: bool,
 }
 
 impl<D, S, P> TestScenario<D, S, P>
@@ -61,6 +63,7 @@ where
         rand_seed: S,
         signers: &[PrivateKeySigner],
         agent_store: AgentStore,
+        legacy: bool,
     ) -> Result<Self> {
         let rpc_client = Arc::new(
             ProviderBuilder::new()
@@ -120,6 +123,7 @@ where
             nonces,
             gas_limits,
             msg_handle,
+            legacy,
         })
     }
 
@@ -320,10 +324,20 @@ where
         let full_tx = tx_req
             .to_owned()
             .with_nonce(nonce)
-            .with_max_fee_per_gas(gas_price + (gas_price / 5))
-            .with_max_priority_fee_per_gas(gas_price)
             .with_chain_id(self.chain_id)
-            .with_gas_limit(gas_limit + (gas_limit / 6));
+            .with_gas_limit(if self.legacy {
+                gas_limit
+            } else {
+                gas_limit + (gas_limit / 6)
+            });
+
+        let full_tx = if self.legacy {
+            full_tx.with_gas_price(gas_price)
+        } else {
+            full_tx
+                .with_max_fee_per_gas(gas_price + (gas_price / 5))
+                .with_max_priority_fee_per_gas(gas_price)
+        };
 
         Ok((full_tx, signer))
     }
@@ -721,6 +735,7 @@ pub mod tests {
             seed.to_owned(),
             signers,
             AgentStore::new(),
+            false,
         )
         .await
         .unwrap()
