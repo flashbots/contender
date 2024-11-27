@@ -2,13 +2,14 @@ mod commands;
 mod default_scenarios;
 
 use alloy::{
+    eips::BlockId,
     network::{AnyNetwork, EthereumWallet, TransactionBuilder},
     primitives::{
         utils::{format_ether, parse_ether},
         Address, U256,
     },
     providers::{PendingTransactionConfig, Provider, ProviderBuilder},
-    rpc::types::TransactionRequest,
+    rpc::types::{BlockTransactionsKind, TransactionRequest},
     signers::local::PrivateKeySigner,
     transports::http::reqwest::Url,
 };
@@ -16,6 +17,7 @@ use commands::{ContenderCli, ContenderSubcommand};
 use contender_core::{
     agent_controller::{AgentStore, SignerStore},
     db::{DbOps, RunTx},
+    error::ContenderError,
     generator::{
         types::{AnyProvider, EthProvider, FunctionCallDefinition, SpamRequest},
         RandSeed,
@@ -268,15 +270,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let user_signers = get_signers_with_defaults(private_key.map(|s| vec![s]));
             let admin_signer = &user_signers[0];
             let rand_seed = RandSeed::default();
-            let txs_per_duration = 150;
-            // TODO: get max_gas_per_block from chain
-            let max_gas_per_block = 30_000_000;
+            let txs_per_duration = 99;
+            let provider = ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .on_http(Url::parse(&rpc_url).expect("Invalid RPC URL"));
+            let block_gas_limit = provider
+                .get_block(BlockId::latest(), BlockTransactionsKind::Hashes)
+                .await?
+                .map(|b| b.header.gas_limit)
+                .ok_or(ContenderError::SetupError(
+                    "failed getting gas limit from block",
+                    None,
+                ))?;
 
             let scenario_config = match scenario {
                 BuiltinScenario::FillBlock => {
                     // TODO: should we parameterize num_txs?
                     BuiltinScenarioConfig::fill_block(
-                        max_gas_per_block,
+                        block_gas_limit,
                         txs_per_duration,
                         admin_signer.address(),
                     )

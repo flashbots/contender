@@ -12,14 +12,14 @@ pub enum BuiltinScenario {
 
 pub enum BuiltinScenarioConfig {
     FillBlock {
-        max_gas_per_block: u64,
+        max_gas_per_block: u128,
         num_txs: u64,
         sender: Address,
     },
 }
 
 impl BuiltinScenarioConfig {
-    pub fn fill_block(max_gas_per_block: u64, num_txs: u64, sender: Address) -> Self {
+    pub fn fill_block(max_gas_per_block: u128, num_txs: u64, sender: Address) -> Self {
         Self::FillBlock {
             max_gas_per_block,
             num_txs,
@@ -36,7 +36,7 @@ impl Into<TestConfig> for BuiltinScenarioConfig {
                 num_txs,
                 sender,
             } => {
-                let gas_per_tx = max_gas_per_block / num_txs;
+                let gas_per_tx = max_gas_per_block / num_txs as u128;
                 let spam_txs = (0..num_txs)
                     .map(|_| {
                         SpamRequest::Tx(FunctionCallDefinition {
