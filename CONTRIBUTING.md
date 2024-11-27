@@ -77,7 +77,7 @@ cargo test --workspace
 cargo +nightly clippy --workspace
 ```
 
-> 💡 you need [anvil from Foundry](https://book.getfoundry.sh/) and [sqlite3]() to run the tests
+> 💡 you need [anvil from Foundry](https://book.getfoundry.sh/) and [sqlite3](https://packages.debian.org/sid/libsqlite3-dev) to run the tests
 
 ### Tests
 
