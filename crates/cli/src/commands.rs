@@ -90,6 +90,13 @@ May be specified multiple times."
             default_value = "1.0"
         )]
         min_balance: String,
+
+        /// Whether to send legacy transactions.
+        #[arg(
+            long,
+            long_help = "If set, will send legacy Ethereum transactions instead of EIP-1559 transactions."
+        )]
+        legacy: bool,
     },
 
     #[command(
@@ -119,6 +126,13 @@ May be specified multiple times."
             default_value = "1.0"
         )]
         min_balance: String,
+
+        /// Whether to send legacy transactions.
+        #[arg(
+            long,
+            long_help = "If set, will send legacy Ethereum transactions instead of EIP-1559 transactions."
+        )]
+        legacy: bool,
     },
 
     #[command(

@@ -381,6 +381,7 @@ pub mod tests {
             seed,
             &get_test_signers(),
             Default::default(),
+            false,
         )
         .await
         .unwrap();
@@ -421,6 +422,7 @@ pub mod tests {
             seed.to_owned(),
             &signers,
             Default::default(),
+            false,
         )
         .await
         .unwrap();
@@ -432,6 +434,7 @@ pub mod tests {
             seed,
             &signers,
             Default::default(),
+            false,
         )
         .await
         .unwrap();

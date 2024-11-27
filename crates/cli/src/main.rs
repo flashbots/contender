@@ -46,6 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             rpc_url,
             private_keys,
             min_balance,
+            legacy,
         } => {
             let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
             let rpc_client = ProviderBuilder::new()
@@ -83,6 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 RandSeed::new(),
                 &signers,
                 Default::default(),
+                legacy,
             )
             .await?;
 
@@ -101,6 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             private_keys,
             disable_reports,
             min_balance,
+            legacy,
         } => {
             let testconfig = TestConfig::from_file(&testfile)?;
             let rand_seed = seed
@@ -228,6 +231,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 rand_seed,
                 &user_signers,
                 agents,
+                legacy,
             )
             .await?;
 

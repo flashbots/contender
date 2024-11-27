@@ -74,6 +74,7 @@ mod tests {
             seed,
             get_test_signers().as_slice(),
             AgentStore::new(),
+            false,
         )
         .await
         .unwrap();

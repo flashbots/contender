@@ -69,6 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cfg = TestConfig::from_file("testfile.toml")?;
     let mut agents = AgentStore::new();
     let rand_seed = RandSeed::new();
+    let legacy = false;
     agents.add_random_agent(
         "agentName",
         4, // number of random signers to create
@@ -88,7 +89,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .iter()
         .map(|s| s.parse::<_>().unwrap())
         .collect::<Vec<_>>(),
-        agents
+        agents,
+        legacy,
     );
 
     if db.get_named_tx("MyContract").is_err() {
