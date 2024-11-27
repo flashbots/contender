@@ -268,11 +268,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let user_signers = get_signers_with_defaults(private_key.map(|s| vec![s]));
             let admin_signer = &user_signers[0];
             let rand_seed = RandSeed::default();
+            let txs_per_duration = 150;
+            // TODO: get max_gas_per_block from chain
+            let max_gas_per_block = 30_000_000;
 
             let scenario_config = match scenario {
                 BuiltinScenario::FillBlock => {
-                    BuiltinScenarioConfig::fill_block(25_000_000, 1, admin_signer.address())
-                } // TODO: get max_gas_per_block from chain
+                    // TODO: should we parameterize num_txs?
+                    BuiltinScenarioConfig::fill_block(
+                        max_gas_per_block,
+                        txs_per_duration,
+                        admin_signer.address(),
+                    )
+                }
             };
             let testconfig: TestConfig = scenario_config.into();
             check_private_keys(&testconfig, &user_signers);
@@ -290,6 +298,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?;
 
             scenario.deploy_contracts().await?;
+
+            // TODO: read for existing contract, prompt user to re-deploy if exists
+
             scenario.run_setup().await?;
             let wait_duration = std::time::Duration::from_secs(interval as u64);
             let spammer = TimedSpammer::new(wait_duration);
@@ -304,7 +315,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .on_http(rpc_url),
             ));
             spammer
-                .spam_rpc(&mut scenario, 1, duration, Some(run_id), callback.into())
+                .spam_rpc(
+                    &mut scenario,
+                    txs_per_duration as usize,
+                    duration,
+                    Some(run_id),
+                    callback.into(),
+                )
                 .await?;
         }
     }

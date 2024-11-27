@@ -3,7 +3,7 @@ use contender_core::generator::types::{CreateDefinition, FunctionCallDefinition,
 use contender_testfile::TestConfig;
 use serde::{Deserialize, Serialize};
 
-use super::bytecode::SPAM_ME;
+use super::bytecode;
 
 #[derive(Serialize, Deserialize, Debug, Clone, clap::ValueEnum)]
 pub enum BuiltinScenario {
@@ -56,7 +56,7 @@ impl Into<TestConfig> for BuiltinScenarioConfig {
                     env: None,
                     create: Some(vec![CreateDefinition {
                         name: "SpamMe".to_owned(),
-                        bytecode: SPAM_ME.to_owned(),
+                        bytecode: bytecode::SPAM_ME.to_owned(),
                         from: sender.to_string(),
                     }]),
                     setup: None,

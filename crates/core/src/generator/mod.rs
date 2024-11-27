@@ -15,7 +15,7 @@ use named_txs::ExecutionRequest;
 pub use named_txs::NamedTxRequestBuilder;
 pub use seeder::rand_seed::RandSeed;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
-use types::{FunctionCallDefinitionStrict, Plan, SpamRequest};
+use types::{FunctionCallDefinitionStrict, SpamRequest};
 
 pub use types::{CallbackResult, NamedTxRequest, PlanType};
 
