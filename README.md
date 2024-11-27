@@ -14,7 +14,7 @@ Contender is a high-performance Ethereum network spammer and testing tool design
 
 ## Installation
 
-To install the Contender CLI, you need to have the [Rust toolchain](https://rustup.rs/) installed on your system. Then install from github:
+To install the Contender CLI, you need to have the [Rust toolchain](https://rustup.rs/) and [libsqlite3-dev](https://packages.debian.org/sid/libsqlite3-dev) installed on your system. Then install from github:
 
 ```bash
 cargo install --git https://github.com/flashbots/contender --bin contender
