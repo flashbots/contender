@@ -4,7 +4,7 @@ Thanks for helping improve the project! We're glad you're here.
 
 There are opportunities to contribute to Contender at any level, whether you're new to Rust or an expert. Every contribution matters and is sincerely appreciated.
 
-This guide will help you get started with technical breakdowns of the system, but don't feel like you have to read the whole thing ;)
+This guide will help you get started, but don't feel like you have to read the whole thing all at once! See this as a reference to return to when you're uncertain.
 
 ## Conduct
 
