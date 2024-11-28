@@ -309,7 +309,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?;
 
             let contract_name = "SpamMe";
-            let contract_result = DB.clone().get_named_tx(&contract_name)?;
+            let contract_result = DB.clone().get_named_tx(contract_name)?;
             let do_deploy_contracts = if contract_result.is_some() {
                 let input = prompt_cli(format!(
                     "{} deployment already detected. Re-deploy? [y/N]",
@@ -345,7 +345,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             spammer
                 .spam_rpc(
                     &mut scenario,
-                    txs_per_duration as usize,
+                    txs_per_duration,
                     duration,
                     Some(run_id),
                     callback.into(),
@@ -495,7 +495,7 @@ async fn fund_accounts(
         .get_transaction_count(admin_signer.address())
         .await?;
     for (idx, address) in insufficient_balance_addrs.iter().enumerate() {
-        if !is_balance_sufficient(&admin_signer.address(), min_balance, &rpc_client).await? {
+        if !is_balance_sufficient(&admin_signer.address(), min_balance, rpc_client).await? {
             // panic early if admin account runs out of funds
             return Err(format!(
                 "Admin account {} has insufficient balance to fund this account.",
@@ -518,7 +518,7 @@ async fn fund_accounts(
                 admin_signer,
                 *address,
                 fund_amount,
-                &eth_client,
+                eth_client,
                 Some(admin_nonce + idx as u64),
             )
             .await?,
