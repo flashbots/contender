@@ -1,6 +1,12 @@
 mod commands;
 mod default_scenarios;
 
+use std::{
+    io::Write,
+    str::FromStr,
+    sync::{Arc, LazyLock},
+};
+
 use alloy::{
     eips::BlockId,
     network::{AnyNetwork, EthereumWallet, TransactionBuilder},
@@ -31,10 +37,7 @@ use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
 use csv::{Writer, WriterBuilder};
 use default_scenarios::{BuiltinScenario, BuiltinScenarioConfig};
-use std::{
-    str::FromStr,
-    sync::{Arc, LazyLock},
-};
+use termcolor::{ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     SqliteDb::from_file("contender.db").expect("failed to open contender.db")
@@ -362,7 +365,13 @@ enum SpamCallbackType {
 }
 
 fn prompt_cli(msg: impl AsRef<str>) -> String {
-    println!("{}", msg.as_ref());
+    let mut stdout = StandardStream::stdout(ColorChoice::Always);
+    stdout
+        .set_color(ColorSpec::new().set_fg(Some(termcolor::Color::Rgb(252, 186, 3))))
+        .expect("failed to set stdout color");
+    writeln!(&mut stdout, "{}", msg.as_ref()).expect("failed to write to stdout");
+    stdout.reset().expect("failed to reset color");
+
     let mut input = String::new();
     std::io::stdin()
         .read_line(&mut input)
