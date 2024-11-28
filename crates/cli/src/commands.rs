@@ -148,13 +148,12 @@ May be specified multiple times."
 
     #[command(name = "run", long_about = "Run a builtin scenario.")]
     Run {
-        /// The scenario to run. Currently only `fill-block` is supported.
+        /// The scenario to run.
         scenario: BuiltinScenario,
 
         /// The HTTP JSON-RPC URL to target with the scenario.
         rpc_url: String,
 
-        /// The private keys to use for the scenario.
         #[arg(
             short,
             long = "priv-key",
@@ -162,29 +161,26 @@ May be specified multiple times."
         )]
         private_key: Option<String>,
 
-        /// The time to wait in seconds between sending another tx.
         #[arg(
             short,
             long = "interval",
-            long_help = "Interval in seconds between each transaction.",
+            long_help = "Interval in seconds between each batch of requests.",
             default_value = "12"
         )]
         interval: usize,
 
-        /// The time to wait in seconds between sending another tx.
         #[arg(
             short,
             long = "duration",
-            long_help = "Number of txs to send for the whole run.",
+            long_help = "The number of batches of requests to send.",
             default_value = "10"
         )]
         duration: usize,
 
-        /// The number of txs to send for each duration.
         #[arg(
             short = 'n',
             long = "num-txs",
-            long_help = "Number of txs to send for each duration.",
+            long_help = "The number of txs to send on each elapsed interval.",
             default_value = "100"
         )]
         txs_per_duration: usize,

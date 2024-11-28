@@ -334,7 +334,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_millis();
-            let run_id = DB.insert_run(timestamp as u64, duration)?;
+            let run_id = DB.insert_run(timestamp as u64, duration * txs_per_duration)?;
             let callback = LogCallback::new(Arc::new(
                 ProviderBuilder::new()
                     .network::<AnyNetwork>()
