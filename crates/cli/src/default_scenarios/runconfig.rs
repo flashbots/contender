@@ -28,10 +28,10 @@ impl BuiltinScenarioConfig {
     }
 }
 
-impl Into<TestConfig> for BuiltinScenarioConfig {
-    fn into(self) -> TestConfig {
-        match self {
-            Self::FillBlock {
+impl From<BuiltinScenarioConfig> for TestConfig {
+    fn from(scenario: BuiltinScenarioConfig) -> Self {
+        match scenario {
+            BuiltinScenarioConfig::FillBlock {
                 max_gas_per_block,
                 num_txs,
                 sender,
