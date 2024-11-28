@@ -179,6 +179,15 @@ May be specified multiple times."
             default_value = "10"
         )]
         duration: usize,
+
+        /// The number of txs to send for each duration.
+        #[arg(
+            short = 'n',
+            long = "num-txs",
+            long_help = "Number of txs to send for each duration.",
+            default_value = "100"
+        )]
+        txs_per_duration: usize,
         // TODO: DRY duplicate args
     },
 }

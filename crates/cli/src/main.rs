@@ -269,11 +269,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             private_key,
             interval,
             duration,
+            txs_per_duration,
         } => {
             let user_signers = get_signers_with_defaults(private_key.map(|s| vec![s]));
             let admin_signer = &user_signers[0];
             let rand_seed = RandSeed::default();
-            let txs_per_duration = 99;
             let provider = ProviderBuilder::new()
                 .network::<AnyNetwork>()
                 .on_http(Url::parse(&rpc_url).expect("Invalid RPC URL"));
@@ -287,14 +287,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ))?;
 
             let scenario_config = match scenario {
-                BuiltinScenario::FillBlock => {
-                    // TODO: should we parameterize num_txs?
-                    BuiltinScenarioConfig::fill_block(
-                        block_gas_limit,
-                        txs_per_duration,
-                        admin_signer.address(),
-                    )
-                }
+                BuiltinScenario::FillBlock => BuiltinScenarioConfig::fill_block(
+                    block_gas_limit,
+                    txs_per_duration as u64,
+                    admin_signer.address(),
+                ),
             };
             let testconfig: TestConfig = scenario_config.into();
             check_private_keys(&testconfig, &user_signers);
