@@ -54,12 +54,19 @@ where
                 continue;
             }
 
-            let template_value = db.get_named_tx(&template_key.to_string()).map_err(|e| {
-                ContenderError::SpamError(
-                    "failed to get placeholder value from DB",
-                    Some(format!("value={:?} ({})", template_key, e)),
-                )
-            })?;
+            let template_value = db
+                .get_named_tx(&template_key.to_string())
+                .map_err(|e| {
+                    ContenderError::SpamError(
+                        "failed to get placeholder value from DB",
+                        Some(format!("value={:?} ({})", template_key, e)),
+                    )
+                })?
+                .ok_or(ContenderError::SpamError(
+                    "failed to find placeholder value in DB",
+                    Some(template_key.to_string()),
+                ))?;
+
             placeholder_map.insert(
                 template_key,
                 template_value

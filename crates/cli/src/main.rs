@@ -308,11 +308,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .await?;
 
-            scenario.deploy_contracts().await?;
+            let contract_name = "SpamMe";
+            let contract_result = DB.clone().get_named_tx(&contract_name)?;
+            let do_deploy_contracts = if contract_result.is_some() {
+                let input = prompt_cli(format!(
+                    "{} deployment already detected. Re-deploy? [y/N]",
+                    contract_name
+                ));
+                input.to_lowercase() == "y"
+            } else {
+                true
+            };
 
-            // TODO: read for existing contract, prompt user to re-deploy if exists
+            if do_deploy_contracts {
+                println!("deploying contracts...");
+                scenario.deploy_contracts().await?;
+            }
 
+            println!("running setup...");
             scenario.run_setup().await?;
+
             let wait_duration = std::time::Duration::from_secs(interval as u64);
             let spammer = TimedSpammer::new(wait_duration);
             let timestamp = std::time::SystemTime::now()
@@ -325,6 +340,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .network::<AnyNetwork>()
                     .on_http(rpc_url),
             ));
+
+            println!("starting spammer...");
             spammer
                 .spam_rpc(
                     &mut scenario,
@@ -342,6 +359,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 enum SpamCallbackType {
     Log(LogCallback),
     Nil(NilCallback),
+}
+
+fn prompt_cli(msg: impl AsRef<str>) -> String {
+    println!("{}", msg.as_ref());
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .expect("Failed to read line");
+    input.trim().to_owned()
 }
 
 fn check_private_keys(testconfig: &TestConfig, prv_keys: &[PrivateKeySigner]) {

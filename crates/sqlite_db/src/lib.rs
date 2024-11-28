@@ -218,7 +218,7 @@ impl DbOps for SqliteDb {
         Ok(())
     }
 
-    fn get_named_tx(&self, name: &str) -> Result<NamedTx> {
+    fn get_named_tx(&self, name: &str) -> Result<Option<NamedTx>> {
         let pool = self.get_pool()?;
         let mut stmt = pool
             .prepare(
@@ -232,12 +232,12 @@ impl DbOps for SqliteDb {
         let res = row
             .last()
             .transpose()
-            .map_err(|e| ContenderError::with_err(e, "no row found"))?
-            .ok_or(ContenderError::DbError("no existing row", None))?;
-        Ok(res.into())
+            .map_err(|e| ContenderError::with_err(e, "failed to query row"))?
+            .map(|r| r.into());
+        Ok(res)
     }
 
-    fn get_named_tx_by_address(&self, address: &Address) -> Result<NamedTx> {
+    fn get_named_tx_by_address(&self, address: &Address) -> Result<Option<NamedTx>> {
         let pool = self.get_pool()?;
         let mut stmt = pool
             .prepare(
@@ -249,13 +249,13 @@ impl DbOps for SqliteDb {
             .query_map(params![address.encode_hex()], |row| {
                 NamedTxRow::from_row(row)
             })
-            .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
+            .map_err(|e| ContenderError::with_err(e, "failed to map row query"))?;
         let res = row
             .last()
             .transpose()
-            .map_err(|e| ContenderError::with_err(e, "no row found"))?
-            .ok_or(ContenderError::DbError("no existing row", None))?;
-        Ok(res.into())
+            .map_err(|e| ContenderError::with_err(e, "failed to query row"))?
+            .map(|r| r.into());
+        Ok(res)
     }
 
     fn insert_run_txs(&self, run_id: u64, run_txs: Vec<RunTx>) -> Result<()> {
@@ -342,7 +342,7 @@ mod tests {
             .unwrap();
         assert_eq!(count, 2);
 
-        let res1 = db.get_named_tx(&name1).unwrap();
+        let res1 = db.get_named_tx(&name1).unwrap().unwrap();
         assert_eq!(res1.name, name1);
         assert_eq!(res1.tx_hash, tx_hash);
         assert_eq!(res1.address, contract_address);

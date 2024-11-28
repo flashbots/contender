@@ -532,7 +532,9 @@ where
         // lookup name of contract if it exists
         let to_name = to_address.map(|a| {
             let named_tx = self.db.get_named_tx_by_address(a);
-            named_tx.map(|t| t.name).unwrap_or_default()
+            named_tx
+                .map(|t| t.map(|tt| tt.name).unwrap_or_default())
+                .unwrap_or_default()
         });
 
         format!(
