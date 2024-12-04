@@ -17,3 +17,4 @@ contender_testfile = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 alloy = { workspace = true, features = ["full", "node-bindings"] }
 csv = { workspace = true }
+termcolor = "1.4.1"

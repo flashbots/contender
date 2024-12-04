@@ -1,13 +1,21 @@
 mod commands;
+mod default_scenarios;
+
+use std::{
+    io::Write,
+    str::FromStr,
+    sync::{Arc, LazyLock},
+};
 
 use alloy::{
+    eips::BlockId,
     network::{AnyNetwork, EthereumWallet, TransactionBuilder},
     primitives::{
         utils::{format_ether, parse_ether},
         Address, U256,
     },
     providers::{PendingTransactionConfig, Provider, ProviderBuilder},
-    rpc::types::TransactionRequest,
+    rpc::types::{BlockTransactionsKind, TransactionRequest},
     signers::local::PrivateKeySigner,
     transports::http::reqwest::Url,
 };
@@ -15,6 +23,7 @@ use commands::{ContenderCli, ContenderSubcommand};
 use contender_core::{
     agent_controller::{AgentStore, SignerStore},
     db::{DbOps, RunTx},
+    error::ContenderError,
     generator::{
         types::{AnyProvider, EthProvider, FunctionCallDefinition, SpamRequest},
         RandSeed,
@@ -27,10 +36,8 @@ use contender_core::{
 use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
 use csv::{Writer, WriterBuilder};
-use std::{
-    str::FromStr,
-    sync::{Arc, LazyLock},
-};
+use default_scenarios::{BuiltinScenario, BuiltinScenarioConfig};
+use termcolor::{ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     SqliteDb::from_file("contender.db").expect("failed to open contender.db")
@@ -61,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map(|key| PrivateKeySigner::from_str(key).expect("invalid private key"))
                 .collect::<Vec<PrivateKeySigner>>();
             let signers = get_signers_with_defaults(private_keys);
-            check_private_keys(
+            check_private_keys_fns(
                 &testconfig.setup.to_owned().unwrap_or_default(),
                 signers.as_slice(),
             );
@@ -75,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 panic!("Some accounts do not have sufficient balance");
             }
 
-            let scenario = TestScenario::new(
+            let mut scenario = TestScenario::new(
                 testconfig.to_owned(),
                 Arc::new(DB.clone()),
                 url,
@@ -121,29 +128,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .as_ref()
                 .expect("No spam function calls found in testfile");
 
-            // distill all FunctionCallDefinitions from the spam requests
-            let mut fn_calls = vec![];
             // distill all from_pool arguments from the spam requests
-            let mut from_pools = vec![];
-
-            for s in spam {
-                match s {
-                    SpamRequest::Tx(fn_call) => {
-                        fn_calls.push(fn_call.to_owned());
-                        if let Some(from_pool) = &fn_call.from_pool {
-                            from_pools.push(from_pool);
-                        }
-                    }
-                    SpamRequest::Bundle(bundle) => {
-                        fn_calls.extend(bundle.txs.iter().map(|s| {
-                            if let Some(from_pool) = &s.from_pool {
-                                from_pools.push(from_pool);
-                            }
-                            s.to_owned()
-                        }));
-                    }
-                }
-            }
+            let from_pools = get_from_pools(&testconfig);
 
             let mut agents = AgentStore::new();
             let signers_per_period =
@@ -152,7 +138,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut all_signers = vec![];
             all_signers.extend_from_slice(&user_signers);
 
-            for from_pool in from_pools {
+            for from_pool in &from_pools {
                 if agents.has_agent(from_pool) {
                     continue;
                 }
@@ -162,56 +148,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 agents.add_agent(from_pool, agent);
             }
 
-            check_private_keys(&fn_calls, &all_signers);
+            check_private_keys(&testconfig, &all_signers);
 
-            let insufficient_balance_addrs = find_insufficient_balance_addrs(
-                &all_signers.iter().map(|s| s.address()).collect::<Vec<_>>(),
-                min_balance,
+            fund_accounts(
                 &rpc_client,
+                &eth_client,
+                min_balance,
+                &all_signers,
+                &user_signers[0],
             )
             .await?;
-
-            let admin_signer = &user_signers[0];
-            let mut pending_fund_txs = vec![];
-            let admin_nonce = rpc_client
-                .get_transaction_count(admin_signer.address())
-                .await?;
-            for (idx, address) in insufficient_balance_addrs.iter().enumerate() {
-                if !is_balance_sufficient(&admin_signer.address(), min_balance, &rpc_client).await?
-                {
-                    // panic early if admin account runs out of funds
-                    return Err(format!(
-                        "Admin account {} has insufficient balance to fund this account.",
-                        admin_signer.address()
-                    )
-                    .into());
-                }
-
-                let balance = rpc_client.get_balance(*address).await?;
-                println!(
-                    "Account {} has insufficient balance. (has {}, needed {})",
-                    address,
-                    format_ether(balance),
-                    format_ether(min_balance)
-                );
-
-                let fund_amount = min_balance;
-                pending_fund_txs.push(
-                    fund_account(
-                        admin_signer,
-                        *address,
-                        fund_amount,
-                        &eth_client,
-                        Some(admin_nonce + idx as u64),
-                    )
-                    .await?,
-                );
-            }
-
-            for tx in pending_fund_txs {
-                let pending = rpc_client.watch_pending_transaction(tx).await?;
-                println!("funding tx confirmed ({})", pending.await?);
-            }
 
             if txs_per_block.is_some() && txs_per_second.is_some() {
                 panic!("Cannot set both --txs-per-block and --txs-per-second");
@@ -251,7 +197,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 cback.into(),
                             )
                             .await?;
-                        println!("Saved run. run_id = {}", run_id);
                     }
                     SpamCallbackType::Nil(cback) => {
                         spammer
@@ -278,7 +223,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     spammer
                         .spam_rpc(&mut scenario, tps, duration, Some(run_id), cback.into())
                         .await?;
-                    println!("Saved run. run_id = {}", run_id);
                 }
                 SpamCallbackType::Nil(cback) => {
                     spammer
@@ -319,6 +263,95 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 write_run_txs(&mut writer, &txs)?; // TODO: write a macro that lets us generalize the writer param to write_run_txs, then refactor this duplication
             };
         }
+        ContenderSubcommand::Run {
+            scenario,
+            rpc_url,
+            private_key,
+            interval,
+            duration,
+            txs_per_duration,
+        } => {
+            let user_signers = get_signers_with_defaults(private_key.map(|s| vec![s]));
+            let admin_signer = &user_signers[0];
+            let rand_seed = RandSeed::default();
+            let provider = ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .on_http(Url::parse(&rpc_url).expect("Invalid RPC URL"));
+            let block_gas_limit = provider
+                .get_block(BlockId::latest(), BlockTransactionsKind::Hashes)
+                .await?
+                .map(|b| b.header.gas_limit)
+                .ok_or(ContenderError::SetupError(
+                    "failed getting gas limit from block",
+                    None,
+                ))?;
+
+            let scenario_config = match scenario {
+                BuiltinScenario::FillBlock => BuiltinScenarioConfig::fill_block(
+                    block_gas_limit,
+                    txs_per_duration as u64,
+                    admin_signer.address(),
+                ),
+            };
+            let testconfig: TestConfig = scenario_config.into();
+            check_private_keys(&testconfig, &user_signers);
+
+            let rpc_url = Url::parse(&rpc_url).expect("Invalid RPC URL");
+            let mut scenario = TestScenario::new(
+                testconfig,
+                DB.clone().into(),
+                rpc_url.to_owned(),
+                None,
+                rand_seed,
+                &user_signers,
+                AgentStore::default(),
+            )
+            .await?;
+
+            let contract_name = "SpamMe";
+            let contract_result = DB.clone().get_named_tx(contract_name)?;
+            let do_deploy_contracts = if contract_result.is_some() {
+                let input = prompt_cli(format!(
+                    "{} deployment already detected. Re-deploy? [y/N]",
+                    contract_name
+                ));
+                input.to_lowercase() == "y"
+            } else {
+                true
+            };
+
+            if do_deploy_contracts {
+                println!("deploying contracts...");
+                scenario.deploy_contracts().await?;
+            }
+
+            println!("running setup...");
+            scenario.run_setup().await?;
+
+            let wait_duration = std::time::Duration::from_secs(interval as u64);
+            let spammer = TimedSpammer::new(wait_duration);
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("Time went backwards")
+                .as_millis();
+            let run_id = DB.insert_run(timestamp as u64, duration * txs_per_duration)?;
+            let callback = LogCallback::new(Arc::new(
+                ProviderBuilder::new()
+                    .network::<AnyNetwork>()
+                    .on_http(rpc_url),
+            ));
+
+            println!("starting spammer...");
+            spammer
+                .spam_rpc(
+                    &mut scenario,
+                    txs_per_duration,
+                    duration,
+                    Some(run_id),
+                    callback.into(),
+                )
+                .await?;
+        }
     }
     Ok(())
 }
@@ -328,8 +361,51 @@ enum SpamCallbackType {
     Nil(NilCallback),
 }
 
+fn prompt_cli(msg: impl AsRef<str>) -> String {
+    let mut stdout = StandardStream::stdout(ColorChoice::Always);
+    stdout
+        .set_color(ColorSpec::new().set_fg(Some(termcolor::Color::Rgb(252, 186, 3))))
+        .expect("failed to set stdout color");
+    writeln!(&mut stdout, "{}", msg.as_ref()).expect("failed to write to stdout");
+    stdout.reset().expect("failed to reset color");
+
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .expect("Failed to read line");
+    input.trim().to_owned()
+}
+
+fn check_private_keys(testconfig: &TestConfig, prv_keys: &[PrivateKeySigner]) {
+    let setup = testconfig.setup.to_owned().unwrap_or_default();
+    let spam = testconfig
+        .spam
+        .as_ref()
+        .expect("No spam function calls found in testfile");
+
+    // distill all FunctionCallDefinitions from the spam requests
+    let mut fn_calls = vec![];
+
+    for s in setup {
+        fn_calls.push(s.to_owned());
+    }
+
+    for s in spam {
+        match s {
+            SpamRequest::Tx(fn_call) => {
+                fn_calls.push(fn_call.to_owned());
+            }
+            SpamRequest::Bundle(bundle) => {
+                fn_calls.extend(bundle.txs.iter().map(|s| s.to_owned()));
+            }
+        }
+    }
+
+    check_private_keys_fns(&fn_calls, prv_keys);
+}
+
 /// Panics if any of the function calls' `from` addresses do not have a corresponding private key.
-fn check_private_keys(fn_calls: &[FunctionCallDefinition], prv_keys: &[PrivateKeySigner]) {
+fn check_private_keys_fns(fn_calls: &[FunctionCallDefinition], prv_keys: &[PrivateKeySigner]) {
     for fn_call in fn_calls {
         if let Some(from) = &fn_call.from {
             let address = from.parse::<Address>().expect("invalid 'from' address");
@@ -338,6 +414,33 @@ fn check_private_keys(fn_calls: &[FunctionCallDefinition], prv_keys: &[PrivateKe
             }
         }
     }
+}
+
+fn get_from_pools(testconfig: &TestConfig) -> Vec<String> {
+    let mut from_pools = vec![];
+    let spam = testconfig
+        .spam
+        .as_ref()
+        .expect("No spam function calls found in testfile");
+
+    for s in spam {
+        match s {
+            SpamRequest::Tx(fn_call) => {
+                if let Some(from_pool) = &fn_call.from_pool {
+                    from_pools.push(from_pool.to_owned());
+                }
+            }
+            SpamRequest::Bundle(bundle) => {
+                for tx in &bundle.txs {
+                    if let Some(from_pool) = &tx.from_pool {
+                        from_pools.push(from_pool.to_owned());
+                    }
+                }
+            }
+        }
+    }
+
+    from_pools
 }
 
 const DEFAULT_PRV_KEYS: [&str; 10] = [
@@ -371,6 +474,63 @@ fn get_signers_with_defaults(private_keys: Option<Vec<String>>) -> Vec<PrivateKe
         .into_iter()
         .map(|k| PrivateKeySigner::from_str(&k).expect("Invalid private key"))
         .collect::<Vec<PrivateKeySigner>>()
+}
+
+async fn fund_accounts(
+    rpc_client: &AnyProvider,
+    eth_client: &EthProvider,
+    min_balance: U256,
+    all_signers: &[PrivateKeySigner],
+    admin_signer: &PrivateKeySigner,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let insufficient_balance_addrs = find_insufficient_balance_addrs(
+        &all_signers.iter().map(|s| s.address()).collect::<Vec<_>>(),
+        min_balance,
+        rpc_client,
+    )
+    .await?;
+
+    let mut pending_fund_txs = vec![];
+    let admin_nonce = rpc_client
+        .get_transaction_count(admin_signer.address())
+        .await?;
+    for (idx, address) in insufficient_balance_addrs.iter().enumerate() {
+        if !is_balance_sufficient(&admin_signer.address(), min_balance, rpc_client).await? {
+            // panic early if admin account runs out of funds
+            return Err(format!(
+                "Admin account {} has insufficient balance to fund this account.",
+                admin_signer.address()
+            )
+            .into());
+        }
+
+        let balance = rpc_client.get_balance(*address).await?;
+        println!(
+            "Account {} has insufficient balance. (has {}, needed {})",
+            address,
+            format_ether(balance),
+            format_ether(min_balance)
+        );
+
+        let fund_amount = min_balance;
+        pending_fund_txs.push(
+            fund_account(
+                admin_signer,
+                *address,
+                fund_amount,
+                eth_client,
+                Some(admin_nonce + idx as u64),
+            )
+            .await?,
+        );
+    }
+
+    for tx in pending_fund_txs {
+        let pending = rpc_client.watch_pending_transaction(tx).await?;
+        println!("funding tx confirmed ({})", pending.await?);
+    }
+
+    Ok(())
 }
 
 async fn fund_account(

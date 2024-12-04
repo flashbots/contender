@@ -123,10 +123,20 @@ where
         })
     }
 
-    pub async fn deploy_contracts(
-        &self,
-        // only_with_names: Option<&[impl AsRef<str>]>,
-    ) -> Result<()> {
+    pub async fn sync_nonces(&mut self) -> Result<()> {
+        let all_addrs = self.wallet_map.keys().copied().collect::<Vec<Address>>();
+        for addr in &all_addrs {
+            let nonce = self
+                .rpc_client
+                .get_transaction_count(*addr)
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to retrieve nonce from RPC"))?;
+            self.nonces.insert(*addr, nonce);
+        }
+        Ok(())
+    }
+
+    pub async fn deploy_contracts(&mut self) -> Result<()> {
         let pub_provider = &self.rpc_client;
         let gas_price = pub_provider
             .get_gas_price()
@@ -198,10 +208,12 @@ where
         }))
         .await?;
 
+        self.sync_nonces().await?;
+
         Ok(())
     }
 
-    pub async fn run_setup(&self) -> Result<()> {
+    pub async fn run_setup(&mut self) -> Result<()> {
         self.load_txs(PlanType::Setup(|tx_req| {
             /* callback */
             println!("{}", self.format_setup_log(&tx_req));
@@ -259,6 +271,8 @@ where
             Ok(Some(handle))
         }))
         .await?;
+
+        self.sync_nonces().await?;
 
         Ok(())
     }
@@ -518,7 +532,9 @@ where
         // lookup name of contract if it exists
         let to_name = to_address.map(|a| {
             let named_tx = self.db.get_named_tx_by_address(a);
-            named_tx.map(|t| t.name).unwrap_or_default()
+            named_tx
+                .map(|t| t.map(|tt| tt.name).unwrap_or_default())
+                .unwrap_or_default()
         });
 
         format!(
@@ -762,7 +778,7 @@ pub mod tests {
     #[tokio::test]
     async fn scenario_creates_contracts() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil).await;
+        let mut scenario = get_test_scenario(&anvil).await;
         let res = scenario.deploy_contracts().await;
         assert!(res.is_ok());
     }
@@ -770,7 +786,7 @@ pub mod tests {
     #[tokio::test]
     async fn scenario_runs_setup() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil).await;
+        let mut scenario = get_test_scenario(&anvil).await;
         scenario.deploy_contracts().await.unwrap();
         let res = scenario.run_setup().await;
         println!("{:?}", res);

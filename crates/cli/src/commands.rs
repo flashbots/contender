@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
 
+use crate::default_scenarios::BuiltinScenario;
+
 #[derive(Parser, Debug)]
 pub struct ContenderCli {
     #[command(subcommand)]
@@ -142,5 +144,46 @@ May be specified multiple times."
             long_help = "Filename of the saved report. May be a fully-qualified path. If not provided, the report is saved to the current directory."
         )]
         out_file: Option<String>,
+    },
+
+    #[command(name = "run", long_about = "Run a builtin scenario.")]
+    Run {
+        /// The scenario to run.
+        scenario: BuiltinScenario,
+
+        /// The HTTP JSON-RPC URL to target with the scenario.
+        rpc_url: String,
+
+        #[arg(
+            short,
+            long = "priv-key",
+            long_help = "Private key used to send all transactions."
+        )]
+        private_key: Option<String>,
+
+        #[arg(
+            short,
+            long = "interval",
+            long_help = "Interval in seconds between each batch of requests.",
+            default_value = "12"
+        )]
+        interval: usize,
+
+        #[arg(
+            short,
+            long = "duration",
+            long_help = "The number of batches of requests to send.",
+            default_value = "10"
+        )]
+        duration: usize,
+
+        #[arg(
+            short = 'n',
+            long = "num-txs",
+            long_help = "The number of txs to send on each elapsed interval.",
+            default_value = "100"
+        )]
+        txs_per_duration: usize,
+        // TODO: DRY duplicate args
     },
 }

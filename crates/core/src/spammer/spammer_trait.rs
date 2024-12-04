@@ -72,7 +72,7 @@ where
             let mut timeout_counter = 0;
             if let Some(run_id) = run_id {
                 loop {
-                    if timeout_counter > (num_periods * txs_per_period) {
+                    if timeout_counter > (num_periods * txs_per_period + 1) {
                         println!("quitting due to timeout");
                         break;
                     }
@@ -86,6 +86,7 @@ where
                     }
                     timeout_counter += 1;
                 }
+                println!("done spamming. run_id={}", run_id);
             }
 
             Ok(())
