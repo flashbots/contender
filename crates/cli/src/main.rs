@@ -2,6 +2,7 @@ mod commands;
 mod default_scenarios;
 
 use std::{
+    env,
     io::Write,
     str::FromStr,
     sync::{Arc, LazyLock},
@@ -286,11 +287,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     None,
                 ))?;
 
+            let fill_percent = env::var("C_FILL_PERCENT")
+                .map(|s| u16::from_str(&s).expect("invalid u16: fill_percent"))
+                .unwrap_or(100u16);
+
             let scenario_config = match scenario {
                 BuiltinScenario::FillBlock => BuiltinScenarioConfig::fill_block(
                     block_gas_limit,
                     txs_per_duration as u64,
                     admin_signer.address(),
+                    fill_percent,
                 ),
             };
             let testconfig: TestConfig = scenario_config.into();

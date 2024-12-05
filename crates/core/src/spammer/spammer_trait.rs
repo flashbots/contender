@@ -69,22 +69,18 @@ where
                 tick += 1;
             }
 
-            let mut timeout_counter = 0;
+            let mut block_counter = 0;
             if let Some(run_id) = run_id {
                 loop {
-                    if timeout_counter > (num_periods * txs_per_period + 1) {
-                        println!("quitting due to timeout");
-                        break;
-                    }
                     let cache_size = scenario
                         .msg_handle
-                        .flush_cache(run_id, block_num + timeout_counter as u64)
+                        .flush_cache(run_id, block_num + block_counter as u64)
                         .await
                         .expect("failed to flush cache");
                     if cache_size == 0 {
                         break;
                     }
-                    timeout_counter += 1;
+                    block_counter += 1;
                 }
                 println!("done spamming. run_id={}", run_id);
             }
