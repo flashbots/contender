@@ -117,7 +117,7 @@ where
                     .await?
                     .unwrap_or_default();
                 println!(
-                    "found {} receipts for block #{}",
+                    "found {} receipts for block {}",
                     receipts.len(),
                     target_block_num
                 );
