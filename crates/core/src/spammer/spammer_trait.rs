@@ -63,8 +63,10 @@ where
                     .execute_spam(trigger, &payloads, sent_tx_callback.clone())
                     .await?;
                 for task in spam_tasks {
-                    task.await
-                        .map_err(|e| ContenderError::with_err(e, "spam task failed"))?;
+                    let res = task.await;
+                    if let Err(e) = res {
+                        eprintln!("spam task failed: {:?}", e);
+                    }
                 }
                 tick += 1;
             }
