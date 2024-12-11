@@ -9,8 +9,9 @@ from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 to = "{SpamMe3}"
 from_pool = "pool1"
 signature = "consumeGas(string memory method, uint256 iterations)"
-args = ["sstore", "1000"]
-fuzz = [{ param = "iterations", min = "100", max = "5000" }]
+args = ["sstore", "8000"]
+# note: the `fuzz` field will spam the network with `estimateGas` calls; every unique calldata requires a new call
+# fuzz = [{ param = "iterations", min = "3000", max = "8000" }]
 
 [[spam]]
 
@@ -18,8 +19,8 @@ fuzz = [{ param = "iterations", min = "100", max = "5000" }]
 to = "{SpamMe3}"
 from_pool = "pool2"
 signature = "consumeGas(string memory method, uint256 iterations)"
-args = ["sload", "1000"]
-fuzz = [{ param = "iterations", min = "100", max = "5000" }]
+args = ["sload", "8000"]
+# fuzz = [{ param = "iterations", min = "3000", max = "8000" }]
 
 [[spam]]
 
@@ -27,8 +28,8 @@ fuzz = [{ param = "iterations", min = "100", max = "5000" }]
 to = "{SpamMe3}"
 from_pool = "pool3"
 signature = "consumeGas(string memory method, uint256 iterations)"
-args = ["mload", "1000"]
-fuzz = [{ param = "iterations", min = "100", max = "5000" }]
+args = ["mload", "8000"]
+# fuzz = [{ param = "iterations", min = "3000", max = "8000" }]
 
 [[spam]]
 
@@ -36,5 +37,5 @@ fuzz = [{ param = "iterations", min = "100", max = "5000" }]
 to = "{SpamMe3}"
 from_pool = "pool4"
 signature = "consumeGas(string memory method, uint256 iterations)"
-args = ["mstore", "1000"]
-fuzz = [{ param = "iterations", min = "100", max = "5000" }]
+args = ["mstore", "8000"]
+# fuzz = [{ param = "iterations", min = "3000", max = "8000" }]
