@@ -92,7 +92,7 @@ where
                     if cache_size == 0 {
                         break;
                     }
-                    if quit.lock().expect("lock failure").clone() {
+                    if *quit.lock().expect("lock failure") {
                         println!("CTRL-C received, stopping spam...");
                         break;
                     }
