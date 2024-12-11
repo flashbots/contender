@@ -313,7 +313,7 @@ where
             .concat(),
         );
 
-        if !self.gas_limits.contains_key(&key) {
+        if let std::collections::hash_map::Entry::Vacant(_) = self.gas_limits.entry(key) {
             let gas_limit = self
                 .eth_client
                 .estimate_gas(tx_req)
