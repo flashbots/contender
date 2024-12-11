@@ -1,3 +1,4 @@
+use std::sync::Mutex;
 use std::{pin::Pin, sync::Arc};
 
 use alloy::providers::Provider;
@@ -39,6 +40,15 @@ where
         run_id: Option<u64>,
         sent_tx_callback: Arc<F>,
     ) -> impl std::future::Future<Output = Result<()>> {
+        let quit = Arc::new(Mutex::new(false));
+
+        let quit_clone = quit.clone();
+        tokio::task::spawn(async move {
+            let _ = tokio::signal::ctrl_c().await;
+            let mut quit = quit_clone.lock().unwrap();
+            *quit = true;
+        });
+
         async move {
             let tx_requests = scenario
                 .load_txs(crate::generator::PlanType::Spam(
@@ -80,6 +90,10 @@ where
                         .await
                         .expect("failed to flush cache");
                     if cache_size == 0 {
+                        break;
+                    }
+                    if quit.lock().expect("lock failure").clone() {
+                        println!("CTRL-C received, stopping spam...");
                         break;
                     }
                     block_counter += 1;
