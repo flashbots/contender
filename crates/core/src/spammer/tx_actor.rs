@@ -153,6 +153,15 @@ where
                         if !receipt.status() {
                             println!("tx failed: {:?}", pending_tx.tx_hash);
                         }
+                        println!(
+                            "tx {} used {} gas, included in block {}",
+                            pending_tx.tx_hash,
+                            receipt.gas_used,
+                            receipt
+                                .block_number
+                                .map(|n| n.to_string())
+                                .unwrap_or("N/A".to_owned())
+                        );
                         RunTx {
                             tx_hash: pending_tx.tx_hash,
                             start_timestamp: pending_tx.start_timestamp,
