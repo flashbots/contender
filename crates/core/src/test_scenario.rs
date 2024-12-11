@@ -296,22 +296,7 @@ where
             .to_owned();
         self.nonces.insert(from.to_owned(), nonce + 1);
 
-        let key = keccak256(
-            [
-                tx_req
-                    .input
-                    .input
-                    .to_owned()
-                    .map(|b| b.split_at(4).0.to_owned())
-                    .ok_or(ContenderError::SetupError(
-                        "invalid function call",
-                        Some(format!("{:?}", tx_req.input.input)),
-                    ))?
-                    .as_slice(),
-                &tx_req.input.input.to_owned().unwrap_or_default(),
-            ]
-            .concat(),
-        );
+        let key = keccak256(&tx_req.input.input.to_owned().unwrap_or_default());
 
         if let std::collections::hash_map::Entry::Vacant(_) = self.gas_limits.entry(key) {
             let gas_limit = self
