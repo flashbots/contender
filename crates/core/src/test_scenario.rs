@@ -13,7 +13,7 @@ use alloy::consensus::Transaction;
 use alloy::eips::eip2718::Encodable2718;
 use alloy::hex::ToHexExt;
 use alloy::network::{AnyNetwork, EthereumWallet, TransactionBuilder};
-use alloy::primitives::{Address, FixedBytes};
+use alloy::primitives::{keccak256, Address, FixedBytes};
 use alloy::providers::{PendingTransactionConfig, Provider, ProviderBuilder};
 use alloy::rpc::types::TransactionRequest;
 use alloy::signers::local::PrivateKeySigner;
@@ -43,7 +43,7 @@ where
     pub agent_store: AgentStore,
     pub nonces: HashMap<Address, u64>,
     pub chain_id: u64,
-    pub gas_limits: HashMap<FixedBytes<4>, u128>,
+    pub gas_limits: HashMap<FixedBytes<32>, u128>,
     pub msg_handle: Arc<TxActorHandle>,
 }
 
@@ -295,29 +295,35 @@ where
             ))?
             .to_owned();
         self.nonces.insert(from.to_owned(), nonce + 1);
-        let fn_sig = FixedBytes::<4>::from_slice(
-            tx_req
-                .input
-                .input
-                .to_owned()
-                .map(|b| b.split_at(4).0.to_owned())
-                .ok_or(ContenderError::SetupError(
-                    "invalid function call",
-                    Some(format!("{:?}", tx_req.input.input)),
-                ))?
-                .as_slice(),
+
+        let key = keccak256(
+            [
+                tx_req
+                    .input
+                    .input
+                    .to_owned()
+                    .map(|b| b.split_at(4).0.to_owned())
+                    .ok_or(ContenderError::SetupError(
+                        "invalid function call",
+                        Some(format!("{:?}", tx_req.input.input)),
+                    ))?
+                    .as_slice(),
+                &tx_req.input.input.to_owned().unwrap_or_default(),
+            ]
+            .concat(),
         );
-        if !self.gas_limits.contains_key(fn_sig.as_slice()) {
+
+        if !self.gas_limits.contains_key(&key) {
             let gas_limit = self
                 .eth_client
                 .estimate_gas(tx_req)
                 .await
                 .map_err(|e| ContenderError::with_err(e, "failed to estimate gas for tx"))?;
-            self.gas_limits.insert(fn_sig, gas_limit);
+            self.gas_limits.insert(key, gas_limit);
         }
         let gas_limit = self
             .gas_limits
-            .get(&fn_sig)
+            .get(&key)
             .ok_or(ContenderError::SetupError(
                 "failed to lookup gas limit",
                 None,
@@ -337,7 +343,7 @@ where
             .with_max_fee_per_gas(gas_price + (gas_price / 5))
             .with_max_priority_fee_per_gas(gas_price)
             .with_chain_id(self.chain_id)
-            .with_gas_limit(gas_limit + (gas_limit / 6));
+            .with_gas_limit(gas_limit);
 
         Ok((full_tx, signer))
     }
