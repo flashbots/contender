@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use alloy::{primitives::TxHash, providers::Provider};
+use alloy::{network::ReceiptResponse, primitives::TxHash, providers::Provider};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
@@ -150,6 +150,9 @@ where
                             .iter()
                             .find(|r| r.transaction_hash == pending_tx.tx_hash)
                             .expect("this should never happen");
+                        if !receipt.status() {
+                            println!("tx failed: {:?}", pending_tx.tx_hash);
+                        }
                         RunTx {
                             tx_hash: pending_tx.tx_hash,
                             start_timestamp: pending_tx.start_timestamp,
