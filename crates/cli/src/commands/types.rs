@@ -1,18 +1,6 @@
-use clap::{Parser, Subcommand};
+use clap::Subcommand;
 
 use crate::default_scenarios::BuiltinScenario;
-
-#[derive(Parser, Debug)]
-pub struct ContenderCli {
-    #[command(subcommand)]
-    pub command: ContenderSubcommand,
-}
-
-impl ContenderCli {
-    pub fn parse_args() -> Self {
-        Self::parse()
-    }
-}
 
 #[derive(Debug, Subcommand)]
 pub enum ContenderSubcommand {
