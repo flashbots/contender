@@ -1,3 +1,4 @@
+use std::sync::Mutex;
 use std::{pin::Pin, sync::Arc};
 
 use alloy::providers::Provider;
@@ -39,6 +40,17 @@ where
         run_id: Option<u64>,
         sent_tx_callback: Arc<F>,
     ) -> impl std::future::Future<Output = Result<()>> {
+        let quit = Arc::new(Mutex::new(false));
+
+        let quit_clone = quit.clone();
+        tokio::task::spawn(async move {
+            loop {
+                let _ = tokio::signal::ctrl_c().await;
+                let mut quit = quit_clone.lock().unwrap();
+                *quit = true;
+            }
+        });
+
         async move {
             let tx_requests = scenario
                 .load_txs(crate::generator::PlanType::Spam(
@@ -57,36 +69,45 @@ where
             let mut cursor = self.on_spam(scenario).await?.take(num_periods);
 
             while let Some(trigger) = cursor.next().await {
+                if *quit.lock().expect("lock failure") {
+                    println!("CTRL-C received, stopping spam and collecting results...");
+                    let mut quit = quit.lock().expect("lock failure");
+                    *quit = false;
+                    break;
+                }
+
                 let trigger = trigger.to_owned();
                 let payloads = scenario.prepare_spam(tx_req_chunks[tick]).await?;
                 let spam_tasks = scenario
                     .execute_spam(trigger, &payloads, sent_tx_callback.clone())
                     .await?;
                 for task in spam_tasks {
-                    task.await
-                        .map_err(|e| ContenderError::with_err(e, "spam task failed"))?;
+                    let res = task.await;
+                    if let Err(e) = res {
+                        eprintln!("spam task failed: {:?}", e);
+                    }
                 }
                 tick += 1;
             }
 
-            let mut timeout_counter = 0;
+            let mut block_counter = 0;
             if let Some(run_id) = run_id {
                 loop {
-                    if timeout_counter > (num_periods * txs_per_period + 1) {
-                        println!("quitting due to timeout");
-                        break;
-                    }
                     let cache_size = scenario
                         .msg_handle
-                        .flush_cache(run_id, block_num + timeout_counter as u64)
+                        .flush_cache(run_id, block_num + block_counter as u64)
                         .await
                         .expect("failed to flush cache");
                     if cache_size == 0 {
                         break;
                     }
-                    timeout_counter += 1;
+                    if *quit.lock().expect("lock failure") {
+                        println!("CTRL-C received, stopping result collection...");
+                        break;
+                    }
+                    block_counter += 1;
                 }
-                println!("done spamming. run_id={}", run_id);
+                println!("done. run_id={}", run_id);
             }
 
             Ok(())

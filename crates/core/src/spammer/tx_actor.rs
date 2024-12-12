@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use alloy::{primitives::TxHash, providers::Provider};
+use alloy::{network::ReceiptResponse, primitives::TxHash, providers::Provider};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
@@ -117,7 +117,7 @@ where
                     .await?
                     .unwrap_or_default();
                 println!(
-                    "found {} receipts for block #{}",
+                    "found {} receipts for block {}",
                     receipts.len(),
                     target_block_num
                 );
@@ -150,6 +150,19 @@ where
                             .iter()
                             .find(|r| r.transaction_hash == pending_tx.tx_hash)
                             .expect("this should never happen");
+                        if !receipt.status() {
+                            println!("tx failed: {:?}", pending_tx.tx_hash);
+                        } else {
+                            println!(
+                                "tx landed. hash={}\tgas_used={}\tblock_num={}",
+                                pending_tx.tx_hash,
+                                receipt.gas_used,
+                                receipt
+                                    .block_number
+                                    .map(|n| n.to_string())
+                                    .unwrap_or("N/A".to_owned())
+                            );
+                        }
                         RunTx {
                             tx_hash: pending_tx.tx_hash,
                             start_timestamp: pending_tx.start_timestamp,
