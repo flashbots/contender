@@ -16,6 +16,7 @@ static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = ContenderCli::parse_args();
     let _ = DB.create_tables(); // ignore error; tables already exist
+    let db = DB.clone();
 
     match args.command {
         ContenderSubcommand::Setup {
@@ -23,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             rpc_url,
             private_keys,
             min_balance,
-        } => commands::setup(&DB.clone(), testfile, rpc_url, private_keys, min_balance).await?,
+        } => commands::setup(&db, testfile, rpc_url, private_keys, min_balance).await?,
 
         ContenderSubcommand::Spam {
             testfile,
@@ -38,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             min_balance,
         } => {
             commands::spam(
-                &DB.clone(),
+                &db,
                 SpamCommandArgs {
                     testfile,
                     rpc_url,
@@ -55,9 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?
         }
 
-        ContenderSubcommand::Report { id, out_file } => {
-            commands::report(&DB.clone(), id, out_file)?
-        }
+        ContenderSubcommand::Report { id, out_file } => commands::report(&db, id, out_file)?,
 
         ContenderSubcommand::Run {
             scenario,
@@ -68,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             txs_per_duration,
         } => {
             commands::run(
-                &DB.clone(),
+                &db,
                 scenario,
                 rpc_url,
                 private_key,
