@@ -140,8 +140,11 @@ args = [
      "10000000000000"
 ]
 
-### the spam step will be repeated
+## SPAM ########################################################################
+
 [[spam]]
+
+[spam.tx]
 kind = "uniswap_v2"
 to = "{uniRouterV2}"
 from = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
@@ -153,13 +156,11 @@ args = [
      "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
      "10000000000000" # TODO: implement block-aware variables for dynamic values like `deadline`. For now, this is just so far in the future I won't be alive to hear about it reverting.
 ]
-
-[[spam.fuzz]]
-param = "amountIn"
-min = "1"
-max = "100000000000000000"
+fuzz = [{param = "amountIn", min = "1", max = "100000000000000000"}]
 
 [[spam]]
+
+[spam.tx]
 kind = "uniswap_v2"
 to = "{uniRouterV2}"
 from = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
@@ -172,7 +173,7 @@ args = [
      "10000000000000"
 ]
 
-[[spam.fuzz]]
+[[spam.tx.fuzz]]
 param = "amountIn"
 min = "100000"
 max = "10000000000"
