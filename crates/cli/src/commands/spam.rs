@@ -18,33 +18,39 @@ use crate::util::{
     spam_callback_default, SpamCallbackType,
 };
 
+#[derive(Debug)]
+pub struct SpamCommandArgs {
+    pub testfile: String,
+    pub rpc_url: String,
+    pub builder_url: Option<String>,
+    pub txs_per_block: Option<usize>,
+    pub txs_per_second: Option<usize>,
+    pub duration: Option<usize>,
+    pub seed: Option<String>,
+    pub private_keys: Option<Vec<String>>,
+    pub disable_reports: bool,
+    pub min_balance: String,
+}
+
 pub async fn spam(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
-    testfile: impl AsRef<str>,
-    rpc_url: impl AsRef<str>,
-    builder_url: Option<String>,
-    txs_per_block: Option<usize>,
-    txs_per_second: Option<usize>,
-    duration: Option<usize>,
-    seed: Option<String>,
-    private_keys: Option<Vec<String>>,
-    disable_reports: bool,
-    min_balance: String,
+    args: SpamCommandArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let testconfig = TestConfig::from_file(testfile.as_ref())?;
-    let rand_seed = seed
+    let testconfig = TestConfig::from_file(&args.testfile)?;
+    let rand_seed = args
+        .seed
         .map(|s| RandSeed::seed_from_str(s.as_ref()))
         .unwrap_or_default();
-    let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
+    let url = Url::parse(&args.rpc_url).expect("Invalid RPC URL");
     let rpc_client = ProviderBuilder::new()
         .network::<AnyNetwork>()
         .on_http(url.to_owned());
     let eth_client = ProviderBuilder::new().on_http(url.to_owned());
 
-    let duration = duration.unwrap_or_default();
-    let min_balance = parse_ether(min_balance.as_ref())?;
+    let duration = args.duration.unwrap_or_default();
+    let min_balance = parse_ether(&args.min_balance)?;
 
-    let user_signers = get_signers_with_defaults(private_keys);
+    let user_signers = get_signers_with_defaults(args.private_keys);
     let spam = testconfig
         .spam
         .as_ref()
@@ -54,8 +60,10 @@ pub async fn spam(
     let from_pools = get_from_pools(&testconfig);
 
     let mut agents = AgentStore::new();
-    let signers_per_period =
-        txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam.len())) / spam.len();
+    let signers_per_period = args
+        .txs_per_block
+        .unwrap_or(args.txs_per_second.unwrap_or(spam.len()))
+        / spam.len();
 
     let mut all_signers = vec![];
     all_signers.extend_from_slice(&user_signers);
@@ -81,10 +89,10 @@ pub async fn spam(
     )
     .await?;
 
-    if txs_per_block.is_some() && txs_per_second.is_some() {
+    if args.txs_per_block.is_some() && args.txs_per_second.is_some() {
         panic!("Cannot set both --txs-per-block and --txs-per-second");
     }
-    if txs_per_block.is_none() && txs_per_second.is_none() {
+    if args.txs_per_block.is_none() && args.txs_per_second.is_none() {
         panic!("Must set either --txs-per-block (--tpb) or --txs-per-second (--tps)");
     }
 
@@ -92,18 +100,19 @@ pub async fn spam(
         testconfig,
         db.clone().into(),
         url,
-        builder_url.map(|url| Url::parse(&url).expect("Invalid builder URL")),
+        args.builder_url
+            .map(|url| Url::parse(&url).expect("Invalid builder URL")),
         rand_seed,
         &user_signers,
         agents,
     )
     .await?;
 
-    if let Some(txs_per_block) = txs_per_block {
+    if let Some(txs_per_block) = args.txs_per_block {
         println!("Blockwise spamming with {} txs per block", txs_per_block);
         let spammer = BlockwiseSpammer {};
 
-        match spam_callback_default(!disable_reports, Arc::new(rpc_client).into()).await {
+        match spam_callback_default(!args.disable_reports, Arc::new(rpc_client).into()).await {
             SpamCallbackType::Log(cback) => {
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -129,13 +138,13 @@ pub async fn spam(
         return Ok(());
     }
 
-    let tps = txs_per_second.unwrap_or(10);
+    let tps = args.txs_per_second.unwrap_or(10);
     println!("Timed spamming with {} txs per second", tps);
 
     let interval = std::time::Duration::from_secs(1);
     let spammer = TimedSpammer::new(interval);
 
-    match spam_callback_default(!disable_reports, Arc::new(rpc_client).into()).await {
+    match spam_callback_default(!args.disable_reports, Arc::new(rpc_client).into()).await {
         SpamCallbackType::Log(cback) => {
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

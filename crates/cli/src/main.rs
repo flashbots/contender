@@ -4,7 +4,7 @@ mod util;
 
 use std::sync::LazyLock;
 
-use commands::{ContenderCli, ContenderSubcommand};
+use commands::{ContenderCli, ContenderSubcommand, SpamCommandArgs};
 use contender_core::db::DbOps;
 use contender_sqlite::SqliteDb;
 
@@ -39,16 +39,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             commands::spam(
                 &DB.clone(),
-                testfile,
-                rpc_url,
-                builder_url,
-                txs_per_block,
-                txs_per_second,
-                duration,
-                seed,
-                private_keys,
-                disable_reports,
-                min_balance,
+                SpamCommandArgs {
+                    testfile,
+                    rpc_url,
+                    builder_url,
+                    txs_per_block,
+                    txs_per_second,
+                    duration,
+                    seed,
+                    private_keys,
+                    disable_reports,
+                    min_balance,
+                },
             )
             .await?
         }

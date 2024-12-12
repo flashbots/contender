@@ -9,7 +9,7 @@ use clap::Parser;
 pub use report::report;
 pub use run::run;
 pub use setup::setup;
-pub use spam::spam;
+pub use spam::{spam, SpamCommandArgs};
 pub use types::ContenderSubcommand;
 
 #[derive(Parser, Debug)]
