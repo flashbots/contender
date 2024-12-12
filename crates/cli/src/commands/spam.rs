@@ -14,7 +14,7 @@ use contender_core::{
 use contender_testfile::TestConfig;
 
 use crate::util::{
-    check_private_keys, fund_accounts, get_from_pools, get_signers_with_defaults,
+    check_private_keys, fund_accounts, get_signers_with_defaults, get_spam_pools,
     spam_callback_default, SpamCallbackType,
 };
 
@@ -57,7 +57,7 @@ pub async fn spam(
         .expect("No spam function calls found in testfile");
 
     // distill all from_pool arguments from the spam requests
-    let from_pools = get_from_pools(&testconfig);
+    let from_pools = get_spam_pools(&testconfig);
 
     let mut agents = AgentStore::new();
     let signers_per_period = args

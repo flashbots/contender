@@ -234,6 +234,7 @@ where
             let db = self.db.clone();
             let rpc_url = self.rpc_url.clone();
             let handle = tokio::task::spawn(async move {
+                println!("___running setup: {:?}", tx_req);
                 let wallet = ProviderBuilder::new()
                     .with_simple_nonce_management()
                     .wallet(wallet)

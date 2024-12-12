@@ -5,7 +5,7 @@ mod util;
 use std::sync::LazyLock;
 
 use commands::{ContenderCli, ContenderSubcommand, SpamCommandArgs};
-use contender_core::db::DbOps;
+use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::SqliteDb;
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
@@ -24,7 +24,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             rpc_url,
             private_keys,
             min_balance,
-        } => commands::setup(&db, testfile, rpc_url, private_keys, min_balance).await?,
+            seed,
+            num_signers_per_pool,
+        } => {
+            if num_signers_per_pool.is_none() {
+                eprintln!("Warning: --signers-per-pool (-n) not specified; defaulting to 1");
+            }
+            commands::setup(
+                &db,
+                testfile,
+                rpc_url,
+                private_keys,
+                min_balance,
+                RandSeed::seed_from_str(&seed),
+                num_signers_per_pool.unwrap_or(1),
+            )
+            .await?
+        }
 
         ContenderSubcommand::Spam {
             testfile,
