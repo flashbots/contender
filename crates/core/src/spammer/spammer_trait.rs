@@ -44,9 +44,11 @@ where
 
         let quit_clone = quit.clone();
         tokio::task::spawn(async move {
-            let _ = tokio::signal::ctrl_c().await;
-            let mut quit = quit_clone.lock().unwrap();
-            *quit = true;
+            loop {
+                let _ = tokio::signal::ctrl_c().await;
+                let mut quit = quit_clone.lock().unwrap();
+                *quit = true;
+            }
         });
 
         async move {
@@ -67,6 +69,13 @@ where
             let mut cursor = self.on_spam(scenario).await?.take(num_periods);
 
             while let Some(trigger) = cursor.next().await {
+                if *quit.lock().expect("lock failure") {
+                    println!("CTRL-C received, stopping spam and collecting results...");
+                    let mut quit = quit.lock().expect("lock failure");
+                    *quit = false;
+                    break;
+                }
+
                 let trigger = trigger.to_owned();
                 let payloads = scenario.prepare_spam(tx_req_chunks[tick]).await?;
                 let spam_tasks = scenario
@@ -93,12 +102,12 @@ where
                         break;
                     }
                     if *quit.lock().expect("lock failure") {
-                        println!("CTRL-C received, stopping spam...");
+                        println!("CTRL-C received, stopping result collection...");
                         break;
                     }
                     block_counter += 1;
                 }
-                println!("done spamming. run_id={}", run_id);
+                println!("done. run_id={}", run_id);
             }
 
             Ok(())
