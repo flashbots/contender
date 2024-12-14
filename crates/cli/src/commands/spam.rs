@@ -26,7 +26,7 @@ pub struct SpamCommandArgs {
     pub txs_per_block: Option<usize>,
     pub txs_per_second: Option<usize>,
     pub duration: Option<usize>,
-    pub seed: Option<String>,
+    pub seed: String,
     pub private_keys: Option<Vec<String>>,
     pub disable_reports: bool,
     pub min_balance: String,
@@ -37,10 +37,7 @@ pub async fn spam(
     args: SpamCommandArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let testconfig = TestConfig::from_file(&args.testfile)?;
-    let rand_seed = args
-        .seed
-        .map(|s| RandSeed::seed_from_str(s.as_ref()))
-        .unwrap_or_default();
+    let rand_seed = RandSeed::seed_from_str(&args.seed);
     let url = Url::parse(&args.rpc_url).expect("Invalid RPC URL");
     let rpc_client = ProviderBuilder::new()
         .network::<AnyNetwork>()

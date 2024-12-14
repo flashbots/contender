@@ -87,7 +87,7 @@ pub async fn setup(
         db.clone().into(),
         url,
         None,
-        RandSeed::new(),
+        seed,
         &default_signers,
         agents,
     )

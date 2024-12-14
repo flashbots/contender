@@ -47,13 +47,14 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         )]
         duration: Option<usize>,
 
-        /// The seed to use for generating spam transactions. If not provided, one is generated.
+        /// The seed to use for generating spam transactions & accounts.
         #[arg(
             short,
             long,
-            long_help = "The seed to use for generating spam transactions"
+            long_help = "The seed to use for generating spam transactions",
+            default_value = "0xffffffffffffffffffffffffffffffff13131313131313131313131313131313"
         )]
-        seed: Option<String>,
+        seed: String,
 
         /// The private keys to use for blockwise spamming.
         /// Required if `txs_per_block` is set.
