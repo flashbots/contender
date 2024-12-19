@@ -27,9 +27,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             seed,
             num_signers_per_pool,
         } => {
-            if num_signers_per_pool.is_none() {
-                eprintln!("Warning: --signers-per-pool (-n) not specified; defaulting to 1");
-            }
             commands::setup(
                 &db,
                 testfile,
