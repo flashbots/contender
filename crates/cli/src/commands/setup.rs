@@ -68,9 +68,6 @@ pub async fn setup(
         agents.add_agent(from_pool, agent);
     }
 
-    println!("all signers: {:?}", all_signers);
-    println!("default_signers[0]: {:?}", default_signers[0]);
-
     fund_accounts(
         &rpc_client,
         &eth_client,
@@ -79,8 +76,6 @@ pub async fn setup(
         &default_signers[0],
     )
     .await?;
-
-    println!("****** funded accounts");
 
     let mut scenario = TestScenario::new(
         testconfig.to_owned(),
