@@ -750,14 +750,17 @@ pub mod tests {
             .get_transaction_count(admin.address())
             .await
             .unwrap();
+        let chain_id = anvil.chain_id();
         for signer in &pool_signers {
             let tx = TransactionRequest::default()
                 .with_from(signers[0].address())
                 .with_to(signer.address())
                 .with_value(U256::from(100_000_000_000_000_000u128))
                 .with_nonce(nonce)
-                .with_gas_price(10_000_000_000_u128)
-                .with_gas_limit(21000);
+                .with_max_fee_per_gas(10_000_000_000_u128)
+                .with_max_priority_fee_per_gas(1_000_000_000_u128)
+                .with_gas_limit(21000)
+                .with_chain_id(chain_id);
             nonce += 1;
             let signed_tx = tx
                 .build::<EthereumWallet>(&admin.to_owned().into())
