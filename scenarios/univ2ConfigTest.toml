@@ -41,18 +41,17 @@ value = "10000000000000000000"
 
 [[setup]]
 to = "{weth}"
-from = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+from_pool = "pool1"
 signature = "function deposit() public payable"
 value = "10000000000000000000"
 
 [[setup]]
 to = "{weth}"
-from = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
+from_pool = "pool2"
 signature = "function deposit() public payable"
 value = "10000000000000000000"
 
 ## uniV2 pair: weth/token ######################################################
-
 
 [[setup]]
 to = "{uniV2Factory}"
@@ -87,7 +86,7 @@ args = [
 # contender1
 [[setup]]
 to = "{weth}"
-from = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
+from_pool = "pool1"
 signature = "approve(address spender, uint256 amount) returns (bool)"
 args = [
      "{uniRouterV2}",
@@ -96,7 +95,7 @@ args = [
 
 [[setup]]
 to = "{testToken}"
-from = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
+from_pool = "pool1"
 signature = "approve(address spender, uint256 amount) returns (bool)"
 args = [
      "{uniRouterV2}",
@@ -106,7 +105,7 @@ args = [
 # contender2
 [[setup]]
 to = "{weth}"
-from = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+from_pool = "pool2"
 signature = "approve(address spender, uint256 amount) returns (bool)"
 args = [
      "{uniRouterV2}",
@@ -115,7 +114,7 @@ args = [
 
 [[setup]]
 to = "{testToken}"
-from = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+from_pool = "pool2"
 signature = "approve(address spender, uint256 amount) returns (bool)"
 args = [
      "{uniRouterV2}",
@@ -147,7 +146,7 @@ args = [
 [spam.tx]
 kind = "uniswap_v2"
 to = "{uniRouterV2}"
-from = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+from_pool = "pool1"
 signature = "swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline) external returns (uint256[] memory)"
 args = [
      "1000000000000000000",
@@ -163,7 +162,7 @@ fuzz = [{param = "amountIn", min = "1", max = "100000000000000000"}]
 [spam.tx]
 kind = "uniswap_v2"
 to = "{uniRouterV2}"
-from = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
+from_pool = "pool2"
 signature = "swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline) external returns (uint256[] memory)"
 args = [
      "1000000000000000000",

@@ -583,8 +583,9 @@ where
 
 #[cfg(test)]
 pub mod tests {
-    use crate::agent_controller::AgentStore;
+    use crate::agent_controller::{AgentStore, SignerStore};
     use crate::db::MockDb;
+    use crate::generator::named_txs::ExecutionRequest;
     use crate::generator::templater::Templater;
     use crate::generator::types::{
         CreateDefinition, FunctionCallDefinition, FuzzParam, SpamRequest,
@@ -595,8 +596,11 @@ pub mod tests {
     use crate::test_scenario::TestScenario;
     use crate::Result;
     use alloy::hex::ToHexExt;
+    use alloy::network::{Ethereum, EthereumWallet, TransactionBuilder};
     use alloy::node_bindings::AnvilInstance;
-    use alloy::primitives::Address;
+    use alloy::primitives::{Address, U256};
+    use alloy::providers::{Provider, ProviderBuilder};
+    use alloy::rpc::types::TransactionRequest;
     use std::collections::HashMap;
 
     pub struct MockConfig;
@@ -651,6 +655,16 @@ pub mod tests {
                         "0xbeef".to_owned(),
                     ]
                     .into(),
+                    fuzz: None,
+                    kind: None,
+                },
+                FunctionCallDefinition {
+                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
+                    from: None,
+                    from_pool: Some("pool1".to_owned()),
+                    value: None,
+                    signature: "increment()".to_owned(),
+                    args: vec![].into(),
                     fuzz: None,
                     kind: None,
                 },
@@ -723,6 +737,39 @@ pub mod tests {
     ) -> TestScenario<MockDb, RandSeed, MockConfig> {
         let seed = RandSeed::seed_from_bytes(&[0x01; 32]);
         let signers = &get_test_signers();
+        let provider = ProviderBuilder::new()
+            .network::<Ethereum>()
+            .on_http(anvil.endpoint_url());
+        let mut agents = AgentStore::new();
+        let pool1 =
+            SignerStore::new_random(10, &RandSeed::seed_from_str("0x0defa117"), "0x0defa117");
+        let pool_signers = pool1.signers.to_vec();
+        let admin = &signers[0];
+        agents.add_agent("pool1", pool1);
+        let mut nonce = provider
+            .get_transaction_count(admin.address())
+            .await
+            .unwrap();
+        let chain_id = anvil.chain_id();
+        for signer in &pool_signers {
+            let tx = TransactionRequest::default()
+                .with_from(signers[0].address())
+                .with_to(signer.address())
+                .with_value(U256::from(100_000_000_000_000_000u128))
+                .with_nonce(nonce)
+                .with_max_fee_per_gas(10_000_000_000_u128)
+                .with_max_priority_fee_per_gas(1_000_000_000_u128)
+                .with_gas_limit(21000)
+                .with_chain_id(chain_id);
+            nonce += 1;
+            let signed_tx = tx
+                .build::<EthereumWallet>(&admin.to_owned().into())
+                .await
+                .unwrap();
+
+            let res = provider.send_tx_envelope(signed_tx).await.unwrap();
+            res.get_receipt().await.unwrap();
+        }
 
         TestScenario::new(
             MockConfig,
@@ -731,7 +778,7 @@ pub mod tests {
             None,
             seed.to_owned(),
             signers,
-            AgentStore::new(),
+            agents,
         )
         .await
         .unwrap()
@@ -758,7 +805,7 @@ pub mod tests {
             }))
             .await
             .unwrap();
-        assert_eq!(setup_txs.len(), 2);
+        assert_eq!(setup_txs.len(), 12);
 
         let spam_txs = scenario
             .load_txs(PlanType::Spam(20, |tx| {
@@ -768,6 +815,41 @@ pub mod tests {
             .await
             .unwrap();
         assert!(spam_txs.len() >= 20);
+    }
+
+    #[tokio::test]
+    async fn setup_steps_use_agent_signers() {
+        let anvil = spawn_anvil();
+        let mut scenario = get_test_scenario(&anvil).await;
+        scenario.deploy_contracts().await.unwrap();
+        let setup_steps = scenario
+            .load_txs(PlanType::Setup(|_| Ok(None)))
+            .await
+            .unwrap();
+        scenario.run_setup().await.unwrap();
+        let mut used_agent_keys = 0;
+        for step in setup_steps {
+            let tx = match step {
+                ExecutionRequest::Tx(tx) => tx,
+                _ => continue,
+            };
+            let from = tx.tx.from.unwrap();
+            assert!(scenario.wallet_map.contains_key(&from));
+            assert!(scenario.agent_store.has_agent("pool1"));
+            if scenario
+                .agent_store
+                .get_agent("pool1")
+                .unwrap()
+                .signers
+                .iter()
+                .map(|s| s.address())
+                .collect::<Vec<_>>()
+                .contains(&from)
+            {
+                used_agent_keys += 1;
+            }
+        }
+        assert!(used_agent_keys > 1);
     }
 
     #[tokio::test]
