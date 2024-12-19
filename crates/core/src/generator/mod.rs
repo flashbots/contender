@@ -203,27 +203,41 @@ where
             }
             PlanType::Setup(on_setup_step) => {
                 let setup_steps = conf.get_setup_steps()?;
-                for step in setup_steps.iter() {
-                    // lookup placeholders in DB & update map before templating
-                    templater.find_fncall_placeholders(step, db, &mut placeholder_map)?;
 
-                    // setup tx with template values
-                    let tx = NamedTxRequest::new(
-                        templater.template_function_call(
-                            &self.make_strict_call(step, 0)?,
-                            &placeholder_map,
-                        )?,
-                        None,
-                        step.kind.to_owned(),
-                    );
+                let agents = self.get_agent_store();
+                let num_accts = agents
+                    .all_agents()
+                    .next()
+                    .map(|(_, store)| store.signers.len())
+                    .unwrap_or(1);
 
-                    let handle = on_setup_step(tx.to_owned())?;
-                    if let Some(handle) = handle {
-                        handle.await.map_err(|e| {
-                            ContenderError::with_err(e, "join error; callback crashed")
-                        })?;
+                for i in 0..(num_accts) {
+                    for step in setup_steps.iter() {
+                        if i > 0 && step.from_pool.is_none() {
+                            // only loop on from_pool steps; single-account steps can't be repeated
+                            continue;
+                        }
+                        // lookup placeholders in DB & update map before templating
+                        templater.find_fncall_placeholders(step, db, &mut placeholder_map)?;
+
+                        // setup tx with template values
+                        let tx = NamedTxRequest::new(
+                            templater.template_function_call(
+                                &self.make_strict_call(step, i)?, // 'from' address injected here
+                                &placeholder_map,
+                            )?,
+                            None,
+                            step.kind.to_owned(),
+                        );
+
+                        let handle = on_setup_step(tx.to_owned())?;
+                        if let Some(handle) = handle {
+                            handle.await.map_err(|e| {
+                                ContenderError::with_err(e, "join error; callback crashed")
+                            })?;
+                        }
+                        txs.push(tx.into());
                     }
-                    txs.push(tx.into());
                 }
             }
             PlanType::Spam(num_txs, on_spam_setup) => {
@@ -281,7 +295,7 @@ where
                     for step in spam_steps.iter() {
                         // converts a FunctionCallDefinition to a NamedTxRequest (filling in fuzzable args),
                         // returns a callback handle and the processed tx request
-                        let process_tx = |req| {
+                        let prepare_tx = |req| {
                             let args = get_fuzzed_args(req, &canonical_fuzz_map, i);
                             let fuzz_tx_value = get_fuzzed_tx_value(req, &canonical_fuzz_map, i);
                             let mut req = req.to_owned();
@@ -304,7 +318,7 @@ where
 
                         match step {
                             SpamRequest::Tx(req) => {
-                                let (handle, tx) = process_tx(req)?;
+                                let (handle, tx) = prepare_tx(req)?;
                                 if let Some(handle) = handle {
                                     handle.await.map_err(|e| {
                                         ContenderError::with_err(e, "error from callback")
@@ -315,7 +329,7 @@ where
                             SpamRequest::Bundle(req) => {
                                 let mut bundle_txs = vec![];
                                 for tx in req.txs.iter() {
-                                    let (handle, txr) = process_tx(tx)?;
+                                    let (handle, txr) = prepare_tx(tx)?;
                                     if let Some(handle) = handle {
                                         handle.await.map_err(|e| {
                                             ContenderError::with_err(e, "error from callback")
