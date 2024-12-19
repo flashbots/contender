@@ -1,16 +1,16 @@
+mod contender_subcommand;
 mod report;
 mod run;
 mod setup;
 mod spam;
-mod types;
 
 use clap::Parser;
 
+pub use contender_subcommand::ContenderSubcommand;
 pub use report::report;
 pub use run::run;
 pub use setup::setup;
 pub use spam::{spam, SpamCommandArgs};
-pub use types::ContenderSubcommand;
 
 #[derive(Parser, Debug)]
 pub struct ContenderCli {

@@ -5,7 +5,7 @@ mod util;
 use std::sync::LazyLock;
 
 use commands::{ContenderCli, ContenderSubcommand, SpamCommandArgs};
-use contender_core::db::DbOps;
+use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::SqliteDb;
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
@@ -16,6 +16,7 @@ static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = ContenderCli::parse_args();
     let _ = DB.create_tables(); // ignore error; tables already exist
+    let db = DB.clone();
 
     match args.command {
         ContenderSubcommand::Setup {
@@ -23,7 +24,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             rpc_url,
             private_keys,
             min_balance,
-        } => commands::setup(&DB.clone(), testfile, rpc_url, private_keys, min_balance).await?,
+            seed,
+            num_signers_per_pool,
+        } => {
+            commands::setup(
+                &db,
+                testfile,
+                rpc_url,
+                private_keys,
+                min_balance,
+                RandSeed::seed_from_str(&seed),
+                num_signers_per_pool.unwrap_or(1),
+            )
+            .await?
+        }
 
         ContenderSubcommand::Spam {
             testfile,
@@ -38,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             min_balance,
         } => {
             commands::spam(
-                &DB.clone(),
+                &db,
                 SpamCommandArgs {
                     testfile,
                     rpc_url,
@@ -55,9 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?
         }
 
-        ContenderSubcommand::Report { id, out_file } => {
-            commands::report(&DB.clone(), id, out_file)?
-        }
+        ContenderSubcommand::Report { id, out_file } => commands::report(&db, id, out_file)?,
 
         ContenderSubcommand::Run {
             scenario,
@@ -68,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             txs_per_duration,
         } => {
             commands::run(
-                &DB.clone(),
+                &db,
                 scenario,
                 rpc_url,
                 private_key,
