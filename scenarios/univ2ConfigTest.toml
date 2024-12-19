@@ -42,6 +42,8 @@ bytecode = "0x608060405234801561001057600080fd5b506040516104d13803806104d1833981
 
 ### setup contracts
 
+# TODO: enable from_pool for [[create]] steps too
+
 ## weth deposits ###############################################################
 
 [[setup]]
@@ -207,7 +209,7 @@ args = [
 [spam.tx]
 kind = "uniswap_v2_swap_weth-testToken"
 to = "{unicheat}"
-from_pool = "pool1"
+from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 signature = "function swap(address tokenIn, address tokenOut, uint256 amountIn) public"
 args = [
      "{weth}",
@@ -220,7 +222,7 @@ args = [
 [spam.tx]
 kind = "uniswap_v2_swap_testToken-weth"
 to = "{unicheat}"
-from_pool = "pool2"
+from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 signature = "function swap(address tokenIn, address tokenOut, uint256 amountIn) public"
 args = [
      "{testToken}",
@@ -233,7 +235,7 @@ args = [
 [spam.tx]
 kind = "uniswap_v2_swap_weth-testToken2"
 to = "{unicheat}"
-from_pool = "pool3"
+from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 signature = "function swap(address tokenIn, address tokenOut, uint256 amountIn) public"
 args = [
      "{weth}",
@@ -246,7 +248,7 @@ args = [
 [spam.tx]
 kind = "uniswap_v2_swap_testToken2-weth"
 to = "{unicheat}"
-from_pool = "pool4"
+from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 signature = "function swap(address tokenIn, address tokenOut, uint256 amountIn) public"
 args = [
      "{testToken2}",
@@ -259,7 +261,7 @@ args = [
 [spam.tx]
 kind = "uniswap_v2_swap_testToken-testToken2"
 to = "{unicheat}"
-from_pool = "pool5"
+from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 signature = "function swap(address tokenIn, address tokenOut, uint256 amountIn) public"
 args = [
      "{testToken}",
@@ -272,7 +274,7 @@ args = [
 [spam.tx]
 kind = "uniswap_v2_swap_testToken2-testToken"
 to = "{unicheat}"
-from_pool = "pool6"
+from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 signature = "function swap(address tokenIn, address tokenOut, uint256 amountIn) public"
 args = [
      "{testToken2}",
