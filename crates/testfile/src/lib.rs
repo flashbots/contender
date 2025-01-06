@@ -276,7 +276,8 @@ pub mod tests {
             create: Some(vec![CreateDefinition {
                 bytecode: COUNTER_BYTECODE.to_string(),
                 name: "test_counter".to_string(),
-                from: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned(),
+                from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
+                from_pool: None,
             }]),
             spam: None,
             setup: None,

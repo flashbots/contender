@@ -78,11 +78,11 @@ pub async fn spam(
     check_private_keys(&testconfig, &all_signers);
 
     fund_accounts(
+        &all_signers,
+        &user_signers[0],
         &rpc_client,
         &eth_client,
         min_balance,
-        &all_signers,
-        &user_signers[0],
     )
     .await?;
 

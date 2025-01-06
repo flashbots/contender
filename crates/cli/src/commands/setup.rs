@@ -11,8 +11,8 @@ use contender_testfile::TestConfig;
 use std::str::FromStr;
 
 use crate::util::{
-    check_private_keys_fns, find_insufficient_balance_addrs, fund_accounts, get_setup_pools,
-    get_signers_with_defaults,
+    check_private_keys_fns, find_insufficient_balance_addrs, fund_accounts, get_create_pools,
+    get_setup_pools, get_signers_with_defaults,
 };
 
 pub async fn setup(
@@ -38,11 +38,15 @@ pub async fn setup(
         .iter()
         .map(|key| PrivateKeySigner::from_str(key).expect("invalid private key"))
         .collect::<Vec<PrivateKeySigner>>();
-    let default_signers = get_signers_with_defaults(private_keys);
+
+    let user_signers_with_defaults = get_signers_with_defaults(private_keys);
+
     check_private_keys_fns(
         &testconfig.setup.to_owned().unwrap_or_default(),
-        &default_signers,
+        &user_signers_with_defaults,
     );
+
+    // ensure user-provided accounts have sufficient balance
     let broke_accounts = find_insufficient_balance_addrs(
         &user_signers.iter().map(|s| s.address()).collect::<Vec<_>>(),
         min_balance,
@@ -53,11 +57,14 @@ pub async fn setup(
         panic!("Insufficient balance in provided user account(s)");
     }
 
-    let mut agents = AgentStore::new();
-    let from_pools = get_setup_pools(&testconfig);
+    // collect all signers
     let mut all_signers = vec![];
     all_signers.extend_from_slice(&user_signers);
 
+    // load agents from setup and create pools
+    let mut from_pools = get_setup_pools(&testconfig);
+    from_pools.extend(get_create_pools(&testconfig));
+    let mut agents = AgentStore::new();
     for from_pool in &from_pools {
         if agents.has_agent(from_pool) {
             continue;
@@ -69,11 +76,11 @@ pub async fn setup(
     }
 
     fund_accounts(
+        &all_signers,
+        &user_signers_with_defaults[0],
         &rpc_client,
         &eth_client,
         min_balance,
-        &all_signers,
-        &default_signers[0],
     )
     .await?;
 
@@ -83,7 +90,7 @@ pub async fn setup(
         url,
         None,
         seed,
-        &default_signers,
+        &user_signers_with_defaults,
         agents,
     )
     .await?;

@@ -33,6 +33,16 @@ pub const DEFAULT_PRV_KEYS: [&str; 10] = [
     "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6",
 ];
 
+pub fn get_create_pools(testconfig: &TestConfig) -> Vec<String> {
+    testconfig
+        .create
+        .to_owned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|s| s.from_pool)
+        .collect()
+}
+
 pub fn get_setup_pools(testconfig: &TestConfig) -> Vec<String> {
     testconfig
         .setup
@@ -139,15 +149,16 @@ async fn is_balance_sufficient(
     Ok(balance >= min_balance)
 }
 
+///
 pub async fn fund_accounts(
+    accounts: &[PrivateKeySigner],
+    fund_with: &PrivateKeySigner,
     rpc_client: &AnyProvider,
     eth_client: &EthProvider,
     min_balance: U256,
-    all_signers: &[PrivateKeySigner],
-    admin_signer: &PrivateKeySigner,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let insufficient_balance_addrs = find_insufficient_balance_addrs(
-        &all_signers.iter().map(|s| s.address()).collect::<Vec<_>>(),
+        &accounts.iter().map(|s| s.address()).collect::<Vec<_>>(),
         min_balance,
         rpc_client,
     )
@@ -155,14 +166,14 @@ pub async fn fund_accounts(
 
     let mut pending_fund_txs = vec![];
     let admin_nonce = rpc_client
-        .get_transaction_count(admin_signer.address())
+        .get_transaction_count(fund_with.address())
         .await?;
     for (idx, address) in insufficient_balance_addrs.iter().enumerate() {
-        if !is_balance_sufficient(&admin_signer.address(), min_balance, rpc_client).await? {
+        if !is_balance_sufficient(&fund_with.address(), min_balance, rpc_client).await? {
             // panic early if admin account runs out of funds
             return Err(format!(
                 "Admin account {} has insufficient balance to fund this account.",
-                admin_signer.address()
+                fund_with.address()
             )
             .into());
         }
@@ -178,7 +189,7 @@ pub async fn fund_accounts(
         let fund_amount = min_balance;
         pending_fund_txs.push(
             fund_account(
-                admin_signer,
+                fund_with,
                 *address,
                 fund_amount,
                 eth_client,
@@ -197,7 +208,7 @@ pub async fn fund_accounts(
 }
 
 pub async fn fund_account(
-    admin_signer: &PrivateKeySigner,
+    sender: &PrivateKeySigner,
     recipient: Address,
     amount: U256,
     rpc_client: &EthProvider,
@@ -206,18 +217,14 @@ pub async fn fund_account(
     println!(
         "funding account {} with user account {}",
         recipient,
-        admin_signer.address()
+        sender.address()
     );
 
     let gas_price = rpc_client.get_gas_price().await?;
-    let nonce = nonce.unwrap_or(
-        rpc_client
-            .get_transaction_count(admin_signer.address())
-            .await?,
-    );
+    let nonce = nonce.unwrap_or(rpc_client.get_transaction_count(sender.address()).await?);
     let chain_id = rpc_client.get_chain_id().await?;
     let tx_req = TransactionRequest {
-        from: Some(admin_signer.address()),
+        from: Some(sender.address()),
         to: Some(alloy::primitives::TxKind::Call(recipient)),
         value: Some(amount),
         gas: Some(21000),
@@ -226,7 +233,7 @@ pub async fn fund_account(
         chain_id: Some(chain_id),
         ..Default::default()
     };
-    let eth_wallet = EthereumWallet::from(admin_signer.to_owned());
+    let eth_wallet = EthereumWallet::from(sender.to_owned());
     let tx = tx_req.build(&eth_wallet).await?;
     let res = rpc_client.send_tx_envelope(tx).await?;
 

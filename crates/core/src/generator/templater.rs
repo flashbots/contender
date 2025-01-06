@@ -1,10 +1,7 @@
 use crate::{
     db::DbOps,
     error::ContenderError,
-    generator::{
-        types::{CreateDefinition, FunctionCallDefinition},
-        util::encode_calldata,
-    },
+    generator::{types::FunctionCallDefinition, util::encode_calldata},
     Result,
 };
 use alloy::{
@@ -14,7 +11,7 @@ use alloy::{
 };
 use std::collections::HashMap;
 
-use super::types::FunctionCallDefinitionStrict;
+use super::types::{CreateDefinitionStrict, FunctionCallDefinitionStrict};
 
 pub trait Templater<K>
 where
@@ -80,6 +77,7 @@ where
 
     /// Finds {placeholders} in `fncall` and looks them up in `db`,
     /// then inserts the values it finds into `placeholder_map`.
+    /// NOTE: only finds placeholders in `args` and `to` fields.
     fn find_fncall_placeholders(
         &self,
         fncall: &FunctionCallDefinition,
@@ -118,15 +116,10 @@ where
             .map(|s| self.replace_placeholders(s, placeholder_map))
             .and_then(|s| s.parse::<U256>().ok());
 
-        let from = funcdef
-            .from
-            .parse::<Address>()
-            .map_err(|e| ContenderError::with_err(e, "failed to parse from address"))?;
-
         Ok(TransactionRequest {
             to: Some(TxKind::Call(to)),
             input: alloy::rpc::types::TransactionInput::both(input.into()),
-            from: Some(from),
+            from: Some(funcdef.from),
             value,
             ..Default::default()
         })
@@ -134,18 +127,12 @@ where
 
     fn template_contract_deploy(
         &self,
-        createdef: &CreateDefinition,
+        createdef: &CreateDefinitionStrict,
         placeholder_map: &HashMap<K, String>,
     ) -> Result<TransactionRequest> {
-        let from = createdef
-            .from
-            .to_owned()
-            .parse::<Address>()
-            .map_err(|e| ContenderError::with_err(e, "failed to parse from address"))?;
-
         let full_bytecode = self.replace_placeholders(&createdef.bytecode, placeholder_map);
         let tx = alloy::rpc::types::TransactionRequest {
-            from: Some(from),
+            from: Some(createdef.from),
             to: Some(alloy::primitives::TxKind::Create),
             input: alloy::rpc::types::TransactionInput::both(
                 Bytes::from_hex(&full_bytecode).expect("invalid bytecode hex"),
