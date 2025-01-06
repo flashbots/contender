@@ -77,6 +77,9 @@ pub fn get_spam_pools(testconfig: &TestConfig) -> Vec<String> {
         }
     }
 
+    // filter out non-unique pools
+    from_pools.sort();
+    from_pools.dedup();
     from_pools
 }
 
