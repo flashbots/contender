@@ -234,6 +234,7 @@ where
                     .map(|(_, store)| store.signers.len())
                     .unwrap_or(1);
 
+                // txs will be grouped by account [from=1, from=1, from=1, from=2, from=2, from=2, ...]
                 for idx in 0..num_accts {
                     for step in create_steps.iter() {
                         // lookup placeholder values in DB & update map before templating
@@ -271,6 +272,7 @@ where
                     .map(|(_, store)| store.signers.len())
                     .unwrap_or(1);
 
+                // txs will be grouped by account [from=1, from=1, from=1, from=2, from=2, from=2, ...]
                 for i in 0..(num_accts) {
                     for step in setup_steps.iter() {
                         if i > 0 && step.from_pool.is_none() {
@@ -351,8 +353,9 @@ where
                     .map(|(_, store)| store.signers.len())
                     .unwrap_or(1);
 
-                for i in 0..(num_txs / num_steps) {
-                    for step in spam_steps.iter() {
+                // txs will be grouped by step [from=1, from=2, from=3, from=1, from=2, from=3, ...]
+                for step in spam_steps.iter() {
+                    for i in 0..(num_txs / num_steps) {
                         // converts a FunctionCallDefinition to a NamedTxRequest (filling in fuzzable args),
                         // returns a callback handle and the processed tx request
                         let prepare_tx = |req| {
