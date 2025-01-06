@@ -97,7 +97,6 @@ pub async fn setup(
 
     scenario.deploy_contracts().await?;
     scenario.run_setup().await?;
-    // TODO: catch failures and prompt user to retry specific steps
 
     Ok(())
 }

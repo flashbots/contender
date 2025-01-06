@@ -149,7 +149,6 @@ async fn is_balance_sufficient(
     Ok(balance >= min_balance)
 }
 
-///
 pub async fn fund_accounts(
     accounts: &[PrivateKeySigner],
     fund_with: &PrivateKeySigner,
