@@ -59,8 +59,7 @@ pub async fn spam(
     let mut agents = AgentStore::new();
     let signers_per_period = args
         .txs_per_block
-        .unwrap_or(args.txs_per_second.unwrap_or(spam.len()))
-        / spam.len();
+        .unwrap_or(args.txs_per_second.unwrap_or(spam.len()));
 
     let mut all_signers = vec![];
     all_signers.extend_from_slice(&user_signers);
@@ -78,11 +77,11 @@ pub async fn spam(
     check_private_keys(&testconfig, &all_signers);
 
     fund_accounts(
+        &all_signers,
+        &user_signers[0],
         &rpc_client,
         &eth_client,
         min_balance,
-        &all_signers,
-        &user_signers[0],
     )
     .await?;
 

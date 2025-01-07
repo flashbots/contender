@@ -9,13 +9,13 @@ use crate::{
     },
     Result,
 };
-use alloy::{hex::ToHexExt, primitives::U256};
+use alloy::primitives::{Address, U256};
 use async_trait::async_trait;
 use named_txs::ExecutionRequest;
 pub use named_txs::NamedTxRequestBuilder;
 pub use seeder::rand_seed::RandSeed;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
-use types::{FunctionCallDefinitionStrict, SpamRequest};
+use types::{CreateDefinitionStrict, FunctionCallDefinitionStrict, SpamRequest};
 
 pub use types::{CallbackResult, NamedTxRequest, PlanType};
 
@@ -122,28 +122,68 @@ where
         Ok(map)
     }
 
-    fn make_strict_call(
+    fn make_strict_create(
         &self,
-        funcdef: &FunctionCallDefinition,
+        create_def: &CreateDefinition,
         idx: usize,
-    ) -> Result<FunctionCallDefinitionStrict> {
+    ) -> Result<CreateDefinitionStrict> {
         let agents = self.get_agent_store();
-        let from_address: String = if let Some(from_pool) = &funcdef.from_pool {
+        let from_address: Address = if let Some(from_pool) = &create_def.from_pool {
             let agent = agents
                 .get_agent(from_pool)
                 .ok_or(ContenderError::SpamError(
                     "from_pool not found in agent store",
                     Some(from_pool.to_owned()),
                 ))?;
-            agent
-                .get_address(idx)
+            agent.get_address(idx).ok_or(ContenderError::SpamError(
+                "signer not found in agent store",
+                Some(format!("from_pool={}, idx={}", from_pool, idx)),
+            ))?
+        } else if let Some(from) = &create_def.from {
+            from.parse().map_err(|e| {
+                ContenderError::SpamError(
+                    "failed to parse 'from' address",
+                    Some(format!("from={}, error={}", from, e)),
+                )
+            })?
+        } else {
+            return Err(ContenderError::SpamError(
+                "invalid runtime config: must specify 'from' or 'from_pool'",
+                None,
+            ));
+        };
+
+        Ok(CreateDefinitionStrict {
+            name: create_def.name.to_owned(),
+            bytecode: create_def.bytecode.to_owned(),
+            from: from_address,
+        })
+    }
+
+    fn make_strict_call(
+        &self,
+        funcdef: &FunctionCallDefinition,
+        idx: usize,
+    ) -> Result<FunctionCallDefinitionStrict> {
+        let agents = self.get_agent_store();
+        let from_address: Address = if let Some(from_pool) = &funcdef.from_pool {
+            let agent = agents
+                .get_agent(from_pool)
                 .ok_or(ContenderError::SpamError(
-                    "signer not found in agent store",
-                    Some(format!("from_pool={}, idx={}", from_pool, idx)),
-                ))?
-                .encode_hex_with_prefix()
+                    "from_pool not found in agent store",
+                    Some(from_pool.to_owned()),
+                ))?;
+            agent.get_address(idx).ok_or(ContenderError::SpamError(
+                "signer not found in agent store",
+                Some(format!("from_pool={}, idx={}", from_pool, idx)),
+            ))?
         } else if let Some(from) = &funcdef.from {
-            from.to_owned()
+            from.parse().map_err(|e| {
+                ContenderError::SpamError(
+                    "failed to parse 'from' address",
+                    Some(format!("from={}, error={}", from, e)),
+                )
+            })?
         } else {
             return Err(ContenderError::SpamError(
                 "invalid runtime config: must specify 'from' or 'from_pool'",
@@ -152,7 +192,12 @@ where
         };
 
         Ok(FunctionCallDefinitionStrict {
-            to: funcdef.to.to_owned(),
+            to: funcdef.to.parse().map_err(|e| {
+                ContenderError::SpamError(
+                    "failed to parse 'to' address",
+                    Some(format!("to={}, error={}", funcdef.to, e)),
+                )
+            })?,
             from: from_address,
             signature: funcdef.signature.to_owned(),
             args: funcdef.args.to_owned().unwrap_or_default(),
@@ -181,13 +226,18 @@ where
         match plan_type {
             PlanType::Create(on_create_step) => {
                 let create_steps = conf.get_create_steps()?;
+
+                // txs will be grouped by account [from=1, from=1, from=1, from=2, from=2, from=2, ...]
                 for step in create_steps.iter() {
                     // lookup placeholder values in DB & update map before templating
                     templater.find_placeholder_values(&step.bytecode, &mut placeholder_map, db)?;
 
+                    // populate step with from address
+                    let step = self.make_strict_create(step, 0)?;
+
                     // create tx with template values
                     let tx = NamedTxRequestBuilder::new(
-                        templater.template_contract_deploy(step, &placeholder_map)?,
+                        templater.template_contract_deploy(&step, &placeholder_map)?,
                     )
                     .with_name(&step.name)
                     .build();
@@ -204,40 +254,29 @@ where
             PlanType::Setup(on_setup_step) => {
                 let setup_steps = conf.get_setup_steps()?;
 
-                let agents = self.get_agent_store();
-                let num_accts = agents
-                    .all_agents()
-                    .next()
-                    .map(|(_, store)| store.signers.len())
-                    .unwrap_or(1);
+                // txs will be grouped by account [from=1, from=1, from=1, from=2, from=2, from=2, ...]
 
-                for i in 0..(num_accts) {
-                    for step in setup_steps.iter() {
-                        if i > 0 && step.from_pool.is_none() {
-                            // only loop on from_pool steps; single-account steps can't be repeated
-                            continue;
-                        }
-                        // lookup placeholders in DB & update map before templating
-                        templater.find_fncall_placeholders(step, db, &mut placeholder_map)?;
+                for step in setup_steps.iter() {
+                    // lookup placeholders in DB & update map before templating
+                    templater.find_fncall_placeholders(step, db, &mut placeholder_map)?;
 
-                        // setup tx with template values
-                        let tx = NamedTxRequest::new(
-                            templater.template_function_call(
-                                &self.make_strict_call(step, i)?, // 'from' address injected here
-                                &placeholder_map,
-                            )?,
-                            None,
-                            step.kind.to_owned(),
-                        );
+                    // setup tx with template values
+                    let tx = NamedTxRequest::new(
+                        templater.template_function_call(
+                            &self.make_strict_call(step, 0)?, // 'from' address injected here
+                            &placeholder_map,
+                        )?,
+                        None,
+                        step.kind.to_owned(),
+                    );
 
-                        let handle = on_setup_step(tx.to_owned())?;
-                        if let Some(handle) = handle {
-                            handle.await.map_err(|e| {
-                                ContenderError::with_err(e, "join error; callback crashed")
-                            })?;
-                        }
-                        txs.push(tx.into());
+                    let handle = on_setup_step(tx.to_owned())?;
+                    if let Some(handle) = handle {
+                        handle.await.map_err(|e| {
+                            ContenderError::with_err(e, "join error; callback crashed")
+                        })?;
                     }
+                    txs.push(tx.into());
                 }
             }
             PlanType::Spam(num_txs, on_spam_setup) => {
@@ -291,8 +330,9 @@ where
                     .map(|(_, store)| store.signers.len())
                     .unwrap_or(1);
 
-                for i in 0..(num_txs / num_steps) {
-                    for step in spam_steps.iter() {
+                // txs will be grouped by step [from=1, from=2, from=3, from=1, from=2, from=3, ...]
+                for step in spam_steps.iter() {
+                    for i in 0..(num_txs / num_steps) {
                         // converts a FunctionCallDefinition to a NamedTxRequest (filling in fuzzable args),
                         // returns a callback handle and the processed tx request
                         let prepare_tx = |req| {

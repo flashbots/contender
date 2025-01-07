@@ -70,7 +70,8 @@ impl From<BuiltinScenarioConfig> for TestConfig {
                     create: Some(vec![CreateDefinition {
                         name: "SpamMe".to_owned(),
                         bytecode: bytecode::SPAM_ME.to_owned(),
-                        from: sender.to_string(),
+                        from: Some(sender.to_string()),
+                        from_pool: None,
                     }]),
                     setup: None,
                     spam: Some(spam_txs),

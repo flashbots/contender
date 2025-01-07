@@ -1,7 +1,7 @@
 use super::named_txs::ExecutionRequest;
 use alloy::{
     network::AnyNetwork,
-    primitives::U256,
+    primitives::{Address, U256},
     providers::RootProvider,
     transports::http::{Client, Http},
 };
@@ -40,8 +40,8 @@ pub struct FunctionCallDefinition {
 }
 
 pub struct FunctionCallDefinitionStrict {
-    pub to: String,
-    pub from: String,
+    pub to: String, // may be a placeholder, so we can't use Address
+    pub from: Address,
     pub signature: String,
     pub args: Vec<String>,
     pub value: Option<String>,
@@ -73,7 +73,15 @@ pub struct CreateDefinition {
     /// Name to identify the contract later.
     pub name: String,
     /// Address of the tx sender.
-    pub from: String,
+    pub from: Option<String>,
+    /// Get a `from` address from the pool of signers specified here.
+    pub from_pool: Option<String>,
+}
+
+pub struct CreateDefinitionStrict {
+    pub bytecode: String,
+    pub name: String,
+    pub from: Address,
 }
 
 #[derive(Clone, Deserialize, Debug, Serialize)]

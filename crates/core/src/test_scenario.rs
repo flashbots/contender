@@ -617,11 +617,26 @@ pub mod tests {
         }
 
         fn get_create_steps(&self) -> Result<Vec<CreateDefinition>> {
-            Ok(vec![CreateDefinition {
-                bytecode: COUNTER_BYTECODE.to_string(),
-                name: "test_counter".to_string(),
-                from: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned(),
-            }])
+            Ok(vec![
+                CreateDefinition {
+                    bytecode: COUNTER_BYTECODE.to_string(),
+                    name: "test_counter".to_string(),
+                    from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
+                    from_pool: None,
+                },
+                CreateDefinition {
+                    bytecode: COUNTER_BYTECODE.to_string(),
+                    name: "test_counter2".to_string(),
+                    from: None,
+                    from_pool: Some("admin1".to_owned()),
+                },
+                CreateDefinition {
+                    bytecode: COUNTER_BYTECODE.to_string(),
+                    name: "test_counter3".to_string(),
+                    from: None,
+                    from_pool: Some("admin2".to_owned()),
+                },
+            ])
         }
 
         fn get_setup_steps(&self) -> Result<Vec<FunctionCallDefinition>> {
@@ -741,11 +756,16 @@ pub mod tests {
             .network::<Ethereum>()
             .on_http(anvil.endpoint_url());
         let mut agents = AgentStore::new();
-        let pool1 =
-            SignerStore::new_random(10, &RandSeed::seed_from_str("0x0defa117"), "0x0defa117");
-        let pool_signers = pool1.signers.to_vec();
+        let pool1 = SignerStore::new_random(10, &seed, "0x0defa117");
+        let admin1_signers = SignerStore::new_random(1, &seed, "admin1");
+        let admin2_signers = SignerStore::new_random(1, &seed, "admin2");
+        let mut pool_signers = pool1.signers.to_vec();
+        pool_signers.extend_from_slice(&admin1_signers.signers);
+        pool_signers.extend_from_slice(&admin2_signers.signers);
         let admin = &signers[0];
         agents.add_agent("pool1", pool1);
+        agents.add_agent("admin1", admin1_signers);
+        agents.add_agent("admin2", admin2_signers);
         let mut nonce = provider
             .get_transaction_count(admin.address())
             .await
@@ -796,7 +816,7 @@ pub mod tests {
             }))
             .await
             .unwrap();
-        assert_eq!(create_txs.len(), 1);
+        assert_eq!(create_txs.len(), 3);
 
         let setup_txs = scenario
             .load_txs(PlanType::Setup(|tx| {
@@ -805,7 +825,7 @@ pub mod tests {
             }))
             .await
             .unwrap();
-        assert_eq!(setup_txs.len(), 12);
+        assert_eq!(setup_txs.len(), 3);
 
         let spam_txs = scenario
             .load_txs(PlanType::Spam(20, |tx| {
@@ -815,6 +835,46 @@ pub mod tests {
             .await
             .unwrap();
         assert!(spam_txs.len() >= 20);
+    }
+
+    #[tokio::test]
+    async fn create_steps_use_agent_signers() {
+        let anvil = spawn_anvil();
+        let scenario = get_test_scenario(&anvil).await;
+
+        // assert that the agent store has the correct number of signers
+        let create_steps = scenario
+            .load_txs(PlanType::Create(|_| Ok(None)))
+            .await
+            .unwrap();
+        let mut used_agent_keys = 0;
+        for step in create_steps {
+            let tx = match step {
+                ExecutionRequest::Tx(tx) => tx,
+                _ => continue,
+            };
+            if tx.tx.from.is_some() {
+                assert!(scenario.wallet_map.contains_key(&tx.tx.from.unwrap()));
+            }
+            assert!(scenario.agent_store.has_agent("admin1"));
+            assert!(scenario.agent_store.has_agent("admin2"));
+            let admin_pools = ["admin1", "admin2"];
+            for pool in admin_pools {
+                if scenario
+                    .agent_store
+                    .get_agent(pool)
+                    .unwrap()
+                    .signers
+                    .iter()
+                    .map(|s| s.address())
+                    .collect::<Vec<_>>()
+                    .contains(&tx.tx.from.unwrap())
+                {
+                    used_agent_keys += 1;
+                }
+            }
+        }
+        assert_eq!(used_agent_keys, 2);
     }
 
     #[tokio::test]
@@ -849,7 +909,7 @@ pub mod tests {
                 used_agent_keys += 1;
             }
         }
-        assert!(used_agent_keys > 1);
+        assert_eq!(used_agent_keys, 1);
     }
 
     #[tokio::test]
