@@ -227,79 +227,56 @@ where
             PlanType::Create(on_create_step) => {
                 let create_steps = conf.get_create_steps()?;
 
-                let agents = self.get_agent_store();
-                let num_accts = agents
-                    .all_agents()
-                    .next()
-                    .map(|(_, store)| store.signers.len())
-                    .unwrap_or(1);
-
                 // txs will be grouped by account [from=1, from=1, from=1, from=2, from=2, from=2, ...]
-                for idx in 0..num_accts {
-                    for step in create_steps.iter() {
-                        // lookup placeholder values in DB & update map before templating
-                        templater.find_placeholder_values(
-                            &step.bytecode,
-                            &mut placeholder_map,
-                            db,
-                        )?;
+                for step in create_steps.iter() {
+                    // lookup placeholder values in DB & update map before templating
+                    templater.find_placeholder_values(&step.bytecode, &mut placeholder_map, db)?;
 
-                        // create tx with template values
-                        let step = self.make_strict_create(step, idx)?;
-                        let tx = NamedTxRequestBuilder::new(
-                            templater.template_contract_deploy(&step, &placeholder_map)?,
-                        )
-                        .with_name(&step.name)
-                        .build();
+                    // populate step with from address
+                    let step = self.make_strict_create(step, 0)?;
 
-                        let handle = on_create_step(tx.to_owned())?;
-                        if let Some(handle) = handle {
-                            handle.await.map_err(|e| {
-                                ContenderError::with_err(e, "join error; callback crashed")
-                            })?;
-                        }
-                        txs.push(tx.into());
+                    // create tx with template values
+                    let tx = NamedTxRequestBuilder::new(
+                        templater.template_contract_deploy(&step, &placeholder_map)?,
+                    )
+                    .with_name(&step.name)
+                    .build();
+
+                    let handle = on_create_step(tx.to_owned())?;
+                    if let Some(handle) = handle {
+                        handle.await.map_err(|e| {
+                            ContenderError::with_err(e, "join error; callback crashed")
+                        })?;
                     }
+                    txs.push(tx.into());
                 }
             }
             PlanType::Setup(on_setup_step) => {
                 let setup_steps = conf.get_setup_steps()?;
 
-                let agents = self.get_agent_store();
-                let num_accts = agents
-                    .all_agents()
-                    .next()
-                    .map(|(_, store)| store.signers.len())
-                    .unwrap_or(1);
-
                 // txs will be grouped by account [from=1, from=1, from=1, from=2, from=2, from=2, ...]
-                for i in 0..(num_accts) {
-                    for step in setup_steps.iter() {
-                        if i > 0 && step.from_pool.is_none() {
-                            // only loop on from_pool steps; single-account steps can't be repeated
-                            continue;
-                        }
-                        // lookup placeholders in DB & update map before templating
-                        templater.find_fncall_placeholders(step, db, &mut placeholder_map)?;
 
-                        // setup tx with template values
-                        let tx = NamedTxRequest::new(
-                            templater.template_function_call(
-                                &self.make_strict_call(step, i)?, // 'from' address injected here
-                                &placeholder_map,
-                            )?,
-                            None,
-                            step.kind.to_owned(),
-                        );
+                for step in setup_steps.iter() {
+                    // lookup placeholders in DB & update map before templating
+                    templater.find_fncall_placeholders(step, db, &mut placeholder_map)?;
 
-                        let handle = on_setup_step(tx.to_owned())?;
-                        if let Some(handle) = handle {
-                            handle.await.map_err(|e| {
-                                ContenderError::with_err(e, "join error; callback crashed")
-                            })?;
-                        }
-                        txs.push(tx.into());
+                    // setup tx with template values
+                    let tx = NamedTxRequest::new(
+                        templater.template_function_call(
+                            &self.make_strict_call(step, 0)?, // 'from' address injected here
+                            &placeholder_map,
+                        )?,
+                        None,
+                        step.kind.to_owned(),
+                    );
+
+                    let handle = on_setup_step(tx.to_owned())?;
+                    if let Some(handle) = handle {
+                        handle.await.map_err(|e| {
+                            ContenderError::with_err(e, "join error; callback crashed")
+                        })?;
                     }
+                    txs.push(tx.into());
                 }
             }
             PlanType::Spam(num_txs, on_spam_setup) => {

@@ -806,7 +806,7 @@ pub mod tests {
             }))
             .await
             .unwrap();
-        assert_eq!(setup_txs.len(), 12);
+        assert_eq!(setup_txs.len(), 3);
 
         let spam_txs = scenario
             .load_txs(PlanType::Spam(20, |tx| {
@@ -850,7 +850,7 @@ pub mod tests {
                 used_agent_keys += 1;
             }
         }
-        assert!(used_agent_keys > 1);
+        assert_eq!(used_agent_keys, 1);
     }
 
     #[tokio::test]
