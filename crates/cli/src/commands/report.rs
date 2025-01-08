@@ -33,10 +33,15 @@ pub fn report(
         let mut writer = WriterBuilder::new().has_headers(true).from_path(out_file)?;
         write_run_txs(&mut writer, &txs)?;
     } else {
+        // print to stdout and write to default file
         let mut writer = WriterBuilder::new()
             .has_headers(true)
             .from_writer(std::io::stdout());
         write_run_txs(&mut writer, &txs)?; // TODO: write a macro that lets us generalize the writer param to write_run_txs, then refactor this duplication
+        let mut writer = WriterBuilder::new()
+            .has_headers(true)
+            .from_path("report.csv")?;
+        write_run_txs(&mut writer, &txs)?;
     };
 
     Ok(())
