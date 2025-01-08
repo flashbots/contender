@@ -9,7 +9,15 @@ use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::SqliteDb;
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
-    SqliteDb::from_file("contender.db").expect("failed to open contender.db")
+    let path = &format!(
+        "{}{}",
+        std::env::var("HOME").unwrap(),
+        "/.contender/contender.db"
+    );
+    println!("opening DB at {}", path);
+    std::fs::create_dir_all(std::env::var("HOME").unwrap() + "/.contender")
+        .expect("failed to create ~/.contender directory");
+    SqliteDb::from_file(path).expect("failed to open contender DB file")
 });
 
 #[tokio::main]

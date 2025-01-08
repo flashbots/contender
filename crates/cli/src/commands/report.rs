@@ -33,10 +33,20 @@ pub fn report(
         let mut writer = WriterBuilder::new().has_headers(true).from_path(out_file)?;
         write_run_txs(&mut writer, &txs)?;
     } else {
+        // print to stdout and write to default file
         let mut writer = WriterBuilder::new()
             .has_headers(true)
             .from_writer(std::io::stdout());
         write_run_txs(&mut writer, &txs)?; // TODO: write a macro that lets us generalize the writer param to write_run_txs, then refactor this duplication
+        let home_dir = std::env::var("HOME").expect("Could not get home directory");
+        let contender_dir = format!("{}/.contender", home_dir);
+        std::fs::create_dir_all(&contender_dir)?;
+        let report_path = format!("{}/report.csv", contender_dir);
+        let mut writer = WriterBuilder::new()
+            .has_headers(true)
+            .from_path(&report_path)?;
+        write_run_txs(&mut writer, &txs)?;
+        println!("saved report to {}", report_path);
     };
 
     Ok(())

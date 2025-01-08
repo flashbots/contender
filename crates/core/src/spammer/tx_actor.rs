@@ -165,7 +165,7 @@ where
                         }
                         RunTx {
                             tx_hash: pending_tx.tx_hash,
-                            start_timestamp: pending_tx.start_timestamp,
+                            start_timestamp: pending_tx.start_timestamp / 1000,
                             end_timestamp: target_block.header.timestamp as usize,
                             block_number: target_block.header.number,
                             gas_used: receipt.gas_used,
