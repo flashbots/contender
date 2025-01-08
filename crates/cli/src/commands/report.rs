@@ -44,7 +44,7 @@ pub fn report(
         let report_path = format!("{}/report.csv", contender_dir);
         let mut writer = WriterBuilder::new()
             .has_headers(true)
-            .from_path(report_path.to_owned())?;
+            .from_path(&report_path)?;
         write_run_txs(&mut writer, &txs)?;
         println!("saved report to {}", report_path);
     };
