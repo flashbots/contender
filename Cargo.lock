@@ -1162,6 +1162,7 @@ dependencies = [
  "contender_sqlite",
  "contender_testfile",
  "csv",
+ "rand",
  "serde",
  "termcolor",
  "tokio",

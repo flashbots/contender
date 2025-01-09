@@ -51,10 +51,9 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         #[arg(
             short,
             long,
-            long_help = "The seed to use for generating spam transactions",
-            default_value = "0xffffffffffffffffffffffffffffffff13131313131313131313131313131313"
+            long_help = "The seed to use for generating spam transactions"
         )]
-        seed: String,
+        seed: Option<String>,
 
         /// The private keys to use for blockwise spamming.
         /// Required if `txs_per_block` is set.
@@ -112,13 +111,8 @@ May be specified multiple times."
         min_balance: String,
 
         /// The seed used to generate pool accounts.
-        #[arg(
-            short,
-            long,
-            long_help = "The seed used to generate pool accounts.",
-            default_value = "0xffffffffffffffffffffffffffffffff13131313131313131313131313131313"
-        )]
-        seed: String,
+        #[arg(short, long, long_help = "The seed used to generate pool accounts.")]
+        seed: Option<String>,
 
         /// The number of signers to generate for each pool.
         #[arg(
