@@ -20,6 +20,13 @@ To install the Contender CLI, you need to have the [Rust toolchain](https://rust
 cargo install --git https://github.com/flashbots/contender --bin contender
 ```
 
+You may also want to clone the repo to use the built-in scenarios:
+
+```sh
+git clone https://github.com/flashbots/contender
+cd contender
+```
+
 ## Usage
 
 Contender can be used as both a library and a command-line tool.
@@ -30,12 +37,90 @@ Contender can be used as both a library and a command-line tool.
 contender setup <testfile> <rpc_url> [OPTIONS]
 contender spam <testfile> <rpc_url> [OPTIONS]
 contender report [OPTIONS]
+contender run [OPTIONS]
 ```
 
 For detailed usage instructions, run:
 
 ```bash
 contender --help
+```
+
+#### Example Calls
+
+Run a zero-config scenario that attempts to fill a block to its gas limit:
+
+```bash
+contender run fill-block $RPC_URL
+```
+
+Send txs every 1 second instead of the default 12s:
+
+```bash
+contender run fill-block $RPC_URL -i 1
+```
+
+Pass a private key to send txs from your own account:
+
+```bash
+contender run fill-block $RPC_URL -i 1 -p $PRIVATE_KEY
+```
+
+---
+
+Deploy custom scenario:
+
+```bash
+contender setup ./scenarios/stress.toml $RPC_URL
+```
+
+Pass a private key to use your own account (default anvil accounts are used otherwise):
+
+```bash
+contender setup ./scenarios/stress.toml $RPC_URL -p $PRIVATE_KEY
+```
+
+Pass a custom seed to generate unique accounts (if the scenario uses `from_pool` in [[create]] or [[setup]] steps):
+
+```bash
+# seed can be a string or a hex number (max 32 bytes)
+export SEED=0x$(openssl rand -hex 32 | tr -d '\n')
+contender setup ./scenarios/uniV2ConfigTest.toml $RPC_URL -p $PRIVATE_KEY -s $SEED
+```
+
+---
+
+Run the spammer with a custom scenario (10 tx/sec for 3 seconds):
+
+```bash
+contender spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3
+```
+
+Setting `--tps` defines the number of "agent accounts" (generated EOAs used to send txs).
+Pass a private key with `-p` to fund agent accounts from your account:
+
+```bash
+contender spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRV_KEY
+```
+
+Pass a custom seed with `-s` to define unique agent accounts (otherwise a default seed is used and you'll use the same accounts as others):
+
+```bash
+# seed can be a string or a hex number (max 32 bytes)
+export SEED=0x$(openssl rand -hex 32 | tr -d '\n')
+contender spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRV_KEY -s $SEED
+```
+
+### Scenarios
+
+A "scenario" in contender defines contracts to be deployed and transaction calls that should run before and during a spam session.
+
+We provide some scenarios in the repo under the [`scenarios/`](./scenarios/) directory. To run these, you'll need to clone the repo:
+
+```sh
+git clone https://github.com/flashbots/contender
+cd contender
+cargo run -- setup ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRIVATE_KEY
 ```
 
 ### Library Usage
@@ -116,9 +201,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## Configuration
+## Scenario Configuration
 
-Contender uses TOML files for test configuration. Single brackets `[]` indicate the item may only be specified once. Double brackets `[[]]` indicate an array, which allows the directive to be specified multiple times.
+Contender uses TOML files to define scenarios. Single brackets `[]` indicate the item may only be specified once. Double brackets `[[]]` indicate an array, which allows the directive to be specified multiple times.
 
 The key directives are:
 
