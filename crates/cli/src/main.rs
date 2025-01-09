@@ -81,9 +81,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             private_keys,
             disable_reports,
             min_balance,
+            report_file,
         } => {
             let seed = seed.unwrap_or(stored_seed);
-            commands::spam(
+            let run_id = commands::spam(
                 &db,
                 SpamCommandArgs {
                     testfile,
@@ -98,7 +99,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     min_balance,
                 },
             )
-            .await?
+            .await?;
+            if report_file.is_some() {
+                commands::report(
+                    &db,
+                    Some(run_id),
+                    report_file.map(|rf| format!("{}.csv", rf)),
+                )?;
+            }
         }
 
         ContenderSubcommand::Report { id, out_file } => commands::report(&db, id, out_file)?,

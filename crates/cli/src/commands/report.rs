@@ -24,10 +24,12 @@ pub fn report(
     };
     let txs = db.get_run_txs(id)?;
     println!("found {} txs", txs.len());
-    println!(
-        "Exporting report for run ID {:?} to out_file {:?}",
-        id, out_file
-    );
+    if let Some(out_file) = &out_file {
+        println!(
+            "Exporting report for run ID {:?} to out_file {:?}",
+            id, out_file
+        );
+    }
 
     if let Some(out_file) = out_file {
         let mut writer = WriterBuilder::new().has_headers(true).from_path(out_file)?;
