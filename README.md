@@ -80,14 +80,6 @@ Pass a private key to use your own account (default anvil accounts are used othe
 contender setup ./scenarios/stress.toml $RPC_URL -p $PRIVATE_KEY
 ```
 
-Pass a custom seed to generate unique accounts (if the scenario uses `from_pool` in [[create]] or [[setup]] steps):
-
-```bash
-# seed can be a string or a hex number (max 32 bytes)
-export SEED=0x$(openssl rand -hex 32 | tr -d '\n')
-contender setup ./scenarios/uniV2ConfigTest.toml $RPC_URL -p $PRIVATE_KEY -s $SEED
-```
-
 ---
 
 Run the spammer with a custom scenario (10 tx/sec for 3 seconds):
@@ -101,14 +93,6 @@ Pass a private key with `-p` to fund agent accounts from your account:
 
 ```bash
 contender spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRV_KEY
-```
-
-Pass a custom seed with `-s` to define unique agent accounts (otherwise a default seed is used and you'll use the same accounts as others):
-
-```bash
-# seed can be a string or a hex number (max 32 bytes)
-export SEED=0x$(openssl rand -hex 32 | tr -d '\n')
-contender spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRV_KEY -s $SEED
 ```
 
 ### Scenarios
