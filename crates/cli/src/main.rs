@@ -4,9 +4,11 @@ mod util;
 
 use std::sync::LazyLock;
 
+use alloy::hex;
 use commands::{ContenderCli, ContenderSubcommand, SpamCommandArgs};
 use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::SqliteDb;
+use rand::Rng;
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     let path = &format!(
@@ -26,6 +28,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = DB.create_tables(); // ignore error; tables already exist
     let db = DB.clone();
 
+    let home = std::env::var("HOME").expect("$HOME not found in environment");
+    let contender_path = format!("{}/.contender", home);
+    if !std::path::Path::new(&contender_path).exists() {
+        std::fs::create_dir_all(&contender_path).expect("failed to create contender directory");
+    }
+
+    let seed_path = format!("{}/seed", &contender_path);
+    if !std::path::Path::new(&seed_path).exists() {
+        println!("generating seed file at {}", &seed_path);
+        let mut rng = rand::thread_rng();
+        let seed: [u8; 32] = rng.gen();
+        let seed_hex = hex::encode(seed);
+        std::fs::write(&seed_path, seed_hex).expect("failed to write seed file");
+    }
+
+    let stored_seed = format!(
+        "0x{}",
+        std::fs::read_to_string(&seed_path).expect("failed to read seed file")
+    );
+
     match args.command {
         ContenderSubcommand::Setup {
             testfile,
@@ -35,6 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             seed,
             num_signers_per_pool,
         } => {
+            let seed = seed.unwrap_or(stored_seed);
             commands::setup(
                 &db,
                 testfile,
@@ -59,6 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             disable_reports,
             min_balance,
         } => {
+            let seed = seed.unwrap_or(stored_seed);
             commands::spam(
                 &db,
                 SpamCommandArgs {
