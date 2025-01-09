@@ -32,10 +32,11 @@ pub struct SpamCommandArgs {
     pub min_balance: String,
 }
 
+/// Runs spammer and returns run ID.
 pub async fn spam(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     args: SpamCommandArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<u64, Box<dyn std::error::Error>> {
     let testconfig = TestConfig::from_file(&args.testfile)?;
     let rand_seed = RandSeed::seed_from_str(&args.seed);
     let url = Url::parse(&args.rpc_url).expect("Invalid RPC URL");
@@ -92,6 +93,8 @@ pub async fn spam(
         panic!("Must set either --txs-per-block (--tpb) or --txs-per-second (--tps)");
     }
 
+    let mut run_id = 0;
+
     let mut scenario = TestScenario::new(
         testconfig,
         db.clone().into(),
@@ -114,7 +117,7 @@ pub async fn spam(
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("Time went backwards")
                     .as_millis();
-                let run_id = db.insert_run(timestamp as u64, txs_per_block * duration)?;
+                run_id = db.insert_run(timestamp as u64, txs_per_block * duration)?;
                 spammer
                     .spam_rpc(
                         &mut scenario,
@@ -131,7 +134,7 @@ pub async fn spam(
                     .await?;
             }
         };
-        return Ok(());
+        return Ok(run_id);
     }
 
     let tps = args.txs_per_second.unwrap_or(10);
@@ -146,7 +149,7 @@ pub async fn spam(
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_millis();
-            let run_id = db.insert_run(timestamp as u64, tps * duration)?;
+            run_id = db.insert_run(timestamp as u64, tps * duration)?;
             spammer
                 .spam_rpc(&mut scenario, tps, duration, Some(run_id), cback.into())
                 .await?;
@@ -158,5 +161,5 @@ pub async fn spam(
         }
     };
 
-    Ok(())
+    Ok(run_id)
 }

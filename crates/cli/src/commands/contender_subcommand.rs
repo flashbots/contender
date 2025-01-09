@@ -80,6 +80,16 @@ May be specified multiple times."
             default_value = "1.0"
         )]
         min_balance: String,
+
+        /// The path to save the report to.
+        /// If not provided, the report can be generated with the `report` subcommand.
+        /// If provided, the report is saved to the given path.
+        #[arg(
+            short,
+            long,
+            long_help = "Filename of the saved report. May be a fully-qualified path. If not provided, the report can be generated with the `report` subcommand. '.csv' extension is added automatically."
+        )]
+        report_file: Option<String>,
     },
 
     #[command(
