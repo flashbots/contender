@@ -101,6 +101,7 @@ where
         placeholder_map: &HashMap<K, String>,
     ) -> Result<TransactionRequest> {
         let mut args = Vec::new();
+
         for arg in funcdef.args.iter() {
             let val = self.replace_placeholders(arg, placeholder_map);
             args.push(val);

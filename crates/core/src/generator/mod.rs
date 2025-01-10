@@ -9,7 +9,10 @@ use crate::{
     },
     Result,
 };
-use alloy::primitives::{Address, U256};
+use alloy::{
+    hex::ToHexExt,
+    primitives::{Address, U256},
+};
 use async_trait::async_trait;
 use named_txs::ExecutionRequest;
 pub use named_txs::NamedTxRequestBuilder;
@@ -153,9 +156,14 @@ where
             ));
         };
 
+        let bytecode = create_def
+            .bytecode
+            .to_owned()
+            .replace("{_sender}", &from_address.encode_hex());
+
         Ok(CreateDefinitionStrict {
             name: create_def.name.to_owned(),
-            bytecode: create_def.bytecode.to_owned(),
+            bytecode,
             from: from_address,
         })
     }
@@ -191,6 +199,13 @@ where
             ));
         };
 
+        // manually replace {_sender} with the 'from' address
+        let args = funcdef.args.to_owned().unwrap_or_default();
+        let args = args
+            .iter()
+            .map(|arg| arg.replace("{_sender}", &from_address.to_string()))
+            .collect::<Vec<String>>();
+
         Ok(FunctionCallDefinitionStrict {
             to: funcdef.to.parse().map_err(|e| {
                 ContenderError::SpamError(
@@ -200,7 +215,7 @@ where
             })?,
             from: from_address,
             signature: funcdef.signature.to_owned(),
-            args: funcdef.args.to_owned().unwrap_or_default(),
+            args,
             value: funcdef.value.to_owned(),
             fuzz: funcdef.fuzz.to_owned().unwrap_or_default(),
             kind: funcdef.kind.to_owned(),
