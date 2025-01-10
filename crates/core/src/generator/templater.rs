@@ -84,17 +84,23 @@ where
         db: &impl DbOps,
         placeholder_map: &mut HashMap<K, String>,
     ) -> Result<()> {
-        // find templates in fn args & `to`
+        // find placehodlers in args
         let fn_args = fncall.args.to_owned().unwrap_or_default();
         for arg in fn_args.iter() {
             self.find_placeholder_values(arg, placeholder_map, db)?;
         }
+        // find placeholders in `to` address
         self.find_placeholder_values(&fncall.to, placeholder_map, db)?;
         Ok(())
     }
 
     /// Returns a transaction request for a given function call definition with all
     /// {placeholders} filled in using corresponding values from `placeholder_map`.
+    /// Supported fields:
+    /// - `to`
+    /// - `input`
+    /// - `value`
+    /// - `signature`
     fn template_function_call(
         &self,
         funcdef: &FunctionCallDefinitionStrict,
@@ -105,16 +111,20 @@ where
             let val = self.replace_placeholders(arg, placeholder_map);
             args.push(val);
         }
-        let input = encode_calldata(&args, &funcdef.signature)?;
+
         let to = self.replace_placeholders(&funcdef.to, placeholder_map);
         let to = to
             .parse::<Address>()
             .map_err(|e| ContenderError::with_err(e, "failed to parse address"))?;
+
         let value = funcdef
             .value
             .as_ref()
             .map(|s| self.replace_placeholders(s, placeholder_map))
             .and_then(|s| s.parse::<U256>().ok());
+
+        let signature = self.replace_placeholders(&funcdef.signature, placeholder_map);
+        let input = encode_calldata(&args, &signature)?;
 
         Ok(TransactionRequest {
             to: Some(TxKind::Call(to)),
