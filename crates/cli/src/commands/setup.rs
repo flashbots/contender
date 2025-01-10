@@ -54,7 +54,10 @@ pub async fn setup(
     )
     .await?;
     if !broke_accounts.is_empty() {
-        panic!("Insufficient balance in provided user account(s)");
+        panic!(
+            "Insufficient balance in provided user account(s): {:?}",
+            broke_accounts
+        );
     }
 
     // collect all signers

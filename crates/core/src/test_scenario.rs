@@ -152,13 +152,13 @@ where
             /* callback */
             // copy data/refs from self before spawning the task
             let db = self.db.clone();
-            let from = tx_req.tx.from.as_ref().ok_or(ContenderError::SetupError(
+            let from = tx_req.tx.from.to_owned().ok_or(ContenderError::SetupError(
                 "failed to get 'from' address",
                 None,
             ))?;
             let wallet_conf = self
                 .wallet_map
-                .get(from)
+                .get(&from)
                 .unwrap_or_else(|| panic!("couldn't find wallet for 'from' address {}", from))
                 .to_owned();
             let wallet = ProviderBuilder::new()
@@ -185,10 +185,26 @@ where
                     .with_chain_id(chain_id)
                     .with_gas_limit(gas_limit);
 
-                let res = wallet
-                    .send_transaction(tx)
-                    .await
-                    .expect("failed to send tx");
+                let res = wallet.send_transaction(tx).await;
+                if let Err(err) = res {
+                    let err = err.to_string();
+                    if err.to_lowercase().contains("already known") {
+                        eprintln!("Transaction already known. You may be using the same seed (or private key) as another spammer. Try modifying seed with `-s`, or waiting if you set `-p`. JSON-RPC Error: {:?}", err);
+                    } else if err.to_lowercase().contains("insufficient funds") {
+                        eprintln!(
+                            "Insufficient funds for transaction (account: {}). Try passing a funded private key with `-p`. JSON-RPC Error: {:?}",
+                            from,
+                            err
+                        );
+                    } else if err.to_lowercase().contains("replacement transaction underpriced") {
+                        eprintln!("Replacement transaction underpriced. You may have to wait, or replace the currently-pending transactions manually. JSON-RPC Error: {:?}", err);
+                    } else {
+                        eprintln!("failed to send tx: {:?}", err);
+                    }
+                    return;
+                }
+                let res =
+                    res.expect("this will never happen. If it does, I'm a terrible programmer.");
                 let receipt = res.get_receipt().await.expect("failed to get receipt");
                 println!(
                     "contract address: {}",
