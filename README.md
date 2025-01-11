@@ -209,6 +209,73 @@ The key directives are:
 
   - `[[spam.bundle.tx.fuzz]]` or `[[spam.tx.fuzz]]`: Configures fuzzing parameters for specific fields in spam transactions, allowing for randomized inputs or ETH values within defined ranges.
 
+### Placeholders
+
+Placeholders may be used to specify contract addresses, the sender's address, or any variables you specify in `[env]`.
+
+In `[[create]]` transactions, placeholders are supported in the `bytecode` field only.
+
+In `[[setup]]` and `[[spam]]` transactions, placeholders are supported in the following fields: `to`, `args`, & `value`.
+
+`{_sender}` is a special placeholder that gets replaced with the `from` address at runtime.
+
+**Examples**
+
+Contract address placeholder:
+
+```toml
+[[create]]
+name = "weth"
+...
+
+[[create]]
+name = "testToken"
+...
+
+[[setup]]
+kind = "univ2_create_pair"
+to = "{uniV2Factory}"
+from_pool = "admin"
+signature = "function createPair(address tokenA, address tokenB) external returns (address pair)"
+args = [
+     "{weth}",
+     "{testToken}"
+]
+```
+
+Custom variable placeholder:
+
+```toml
+[env]
+initialSupply = "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+
+[[create]]
+name = "testToken"
+from_pool = "admin"
+# pass {initialSupply} as a constructor argument (must be exactly 32 bytes long)
+bytecode = "0x60806040...{initialSupply}"
+```
+
+Sender address placeholder:
+
+```toml
+[[setup]]
+kind = "admin_univ2_add_liquidity_weth-testToken"
+to = "{uniRouterV2}"
+from_pool = "admin"
+signature = "addLiquidity(address tokenA, address tokenB, uint amountADesired, uint amountBDesired, uint amountAMin, uint amountBMin, address to, uint deadline) returns (uint amountA, uint amountB, uint liquidity)"
+args = [
+     "{weth}",
+     "{testToken}",
+     "2500000000000000000",
+     "50000000000000000000000",
+     "100000000000000",
+     "5000000000000000",
+     "{_sender}",
+     "10000000000000"
+]
+```
+
 See [scenarios/](./scenarios/) for examples.
 
 ## Architecture
