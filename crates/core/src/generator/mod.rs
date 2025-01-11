@@ -254,11 +254,11 @@ where
 
                 // txs will be grouped by account [from=1, from=1, from=1, from=2, from=2, from=2, ...]
                 for step in create_steps.iter() {
-                    // lookup placeholder values in DB & update map before templating
-                    templater.find_placeholder_values(&step.bytecode, &mut placeholder_map, db)?;
-
                     // populate step with from address
                     let step = self.make_strict_create(step, 0)?;
+
+                    // lookup placeholder values in DB & update map before templating
+                    templater.find_placeholder_values(&step.bytecode, &mut placeholder_map, db)?;
 
                     // create tx with template values
                     let tx = NamedTxRequestBuilder::new(
