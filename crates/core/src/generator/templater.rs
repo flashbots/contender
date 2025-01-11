@@ -51,6 +51,11 @@ where
                 continue;
             }
 
+            // ignore {_sender} placeholder; it's handled outside the templater
+            if template_key.to_string() == "_sender" {
+                continue;
+            }
+
             let template_value = db
                 .get_named_tx(&template_key.to_string())
                 .map_err(|e| {
@@ -101,6 +106,7 @@ where
         placeholder_map: &HashMap<K, String>,
     ) -> Result<TransactionRequest> {
         let mut args = Vec::new();
+
         for arg in funcdef.args.iter() {
             let val = self.replace_placeholders(arg, placeholder_map);
             args.push(val);
