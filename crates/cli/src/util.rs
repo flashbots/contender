@@ -166,6 +166,20 @@ pub async fn fund_accounts(
     let admin_nonce = rpc_client
         .get_transaction_count(fund_with.address())
         .await?;
+
+    // pre-check if admin account has sufficient balance
+    let gas_price = rpc_client.get_gas_price().await?;
+    let gas_cost_per_tx = U256::from(21000) * U256::from(gas_price + (gas_price / 10));
+
+    let total_cost = U256::from(insufficient_balance_addrs.len()) * (min_balance + gas_cost_per_tx);
+    if !is_balance_sufficient(&fund_with.address(), total_cost, rpc_client).await? {
+        return Err(format!(
+            "Admin account {} has insufficient balance to fund all accounts.",
+            fund_with.address()
+        )
+        .into());
+    }
+
     for (idx, address) in insufficient_balance_addrs.iter().enumerate() {
         if !is_balance_sufficient(&fund_with.address(), min_balance, rpc_client).await? {
             // panic early if admin account runs out of funds
@@ -178,7 +192,7 @@ pub async fn fund_accounts(
 
         let balance = rpc_client.get_balance(*address).await?;
         println!(
-            "Account {} has insufficient balance. (has {}, needed {})",
+            "Account {} has {}, needed {}",
             address,
             format_ether(balance),
             format_ether(min_balance)
