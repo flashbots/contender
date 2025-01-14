@@ -156,7 +156,7 @@ mod tests {
             println!("unique address: {}", addr);
         }
 
-        assert!(unique_addresses.len() >= (txs_per_period / periods) as usize);
-        assert!(unique_addresses.len() <= (txs_per_period) as usize);
+        assert!(unique_addresses.len() >= (txs_per_period / periods));
+        assert!(unique_addresses.len() <= txs_per_period);
     }
 }
