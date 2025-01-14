@@ -2,11 +2,18 @@
 pub mod test {
     use std::{collections::HashMap, str::FromStr, sync::Arc};
 
-    use alloy::{providers::PendingTransactionConfig, signers::local::PrivateKeySigner};
+    use alloy::{
+        network::{EthereumWallet, TransactionBuilder},
+        primitives::{Address, U256},
+        providers::PendingTransactionConfig,
+        providers::Provider,
+        rpc::types::TransactionRequest,
+        signers::local::PrivateKeySigner,
+    };
     use tokio::task::JoinHandle;
 
     use crate::{
-        generator::NamedTxRequest,
+        generator::{types::EthProvider, NamedTxRequest},
         spammer::{tx_actor::TxActorHandle, OnTxSent},
     };
 
@@ -33,5 +40,38 @@ pub mod test {
         .iter()
         .map(|s| PrivateKeySigner::from_str(s).unwrap())
         .collect::<Vec<PrivateKeySigner>>()
+    }
+
+    pub async fn fund_account(
+        sender: &PrivateKeySigner,
+        recipient: Address,
+        amount: U256,
+        rpc_client: &EthProvider,
+        nonce: Option<u64>,
+    ) -> Result<PendingTransactionConfig, Box<dyn std::error::Error>> {
+        println!(
+            "funding account {} with user account {}",
+            recipient,
+            sender.address()
+        );
+
+        let gas_price = rpc_client.get_gas_price().await?;
+        let nonce = nonce.unwrap_or(rpc_client.get_transaction_count(sender.address()).await?);
+        let chain_id = rpc_client.get_chain_id().await?;
+        let tx_req = TransactionRequest {
+            from: Some(sender.address()),
+            to: Some(alloy::primitives::TxKind::Call(recipient)),
+            value: Some(amount),
+            gas: Some(21000),
+            gas_price: Some(gas_price + 4_200_000_000),
+            nonce: Some(nonce),
+            chain_id: Some(chain_id),
+            ..Default::default()
+        };
+        let eth_wallet = EthereumWallet::from(sender.to_owned());
+        let tx = tx_req.build(&eth_wallet).await?;
+        let res = rpc_client.send_tx_envelope(tx).await?;
+
+        Ok(res.into_inner())
     }
 }

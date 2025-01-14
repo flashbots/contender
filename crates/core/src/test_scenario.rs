@@ -752,6 +752,52 @@ pub mod tests {
                 fn_call("0xbeef", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
                 fn_call("0xea75", "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
                 fn_call("0xf00d", "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
+                SpamRequest::Tx(FunctionCallDefinition {
+                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
+                    from: None,
+                    from_pool: Some("pool1".to_owned()),
+                    value: None,
+                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    args: vec![
+                        "1".to_owned(),
+                        "2".to_owned(),
+                        // {_sender} will be replaced with the `from` address
+                        "{_sender}".to_owned(),
+                        "0xd00d".to_owned(),
+                    ]
+                    .into(),
+                    fuzz: vec![FuzzParam {
+                        param: Some("x".to_string()),
+                        value: None,
+                        min: None,
+                        max: None,
+                    }]
+                    .into(),
+                    kind: None,
+                }),
+                SpamRequest::Tx(FunctionCallDefinition {
+                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
+                    from: None,
+                    from_pool: Some("pool2".to_owned()),
+                    value: None,
+                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    args: vec![
+                        "1".to_owned(),
+                        "2".to_owned(),
+                        // {_sender} will be replaced with the `from` address
+                        "{_sender}".to_owned(),
+                        "0xd00d".to_owned(),
+                    ]
+                    .into(),
+                    fuzz: vec![FuzzParam {
+                        param: Some("x".to_string()),
+                        value: None,
+                        min: None,
+                        max: None,
+                    }]
+                    .into(),
+                    kind: None,
+                }),
             ])
         }
     }
@@ -794,6 +840,7 @@ pub mod tests {
             .on_http(anvil.endpoint_url());
         let mut agents = AgentStore::new();
         let pool1 = SignerStore::new_random(10, &seed, "0x0defa117");
+        let pool2 = SignerStore::new_random(10, &seed, "0xf00d1337");
         let admin1_signers = SignerStore::new_random(1, &seed, "admin1");
         let admin2_signers = SignerStore::new_random(1, &seed, "admin2");
         let mut pool_signers = pool1.signers.to_vec();
@@ -801,6 +848,7 @@ pub mod tests {
         pool_signers.extend_from_slice(&admin2_signers.signers);
         let admin = &signers[0];
         agents.add_agent("pool1", pool1);
+        agents.add_agent("pool2", pool2);
         agents.add_agent("admin1", admin1_signers);
         agents.add_agent("admin2", admin2_signers);
         let mut nonce = provider
