@@ -22,7 +22,6 @@ pub async fn setup(
     private_keys: Option<Vec<String>>,
     min_balance: String,
     seed: RandSeed,
-    signers_per_period: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
     let rpc_client = ProviderBuilder::new()
@@ -60,27 +59,39 @@ pub async fn setup(
         );
     }
 
-    // collect all signers
-    let mut all_signers = vec![];
-    all_signers.extend_from_slice(&user_signers);
-
     // load agents from setup and create pools
-    let mut from_pools = get_setup_pools(&testconfig);
-    from_pools.extend(get_create_pools(&testconfig));
+    let from_pool_declarations =
+        [get_setup_pools(&testconfig), get_create_pools(&testconfig)].concat();
+
+    // create agents for each from_pool declaration
     let mut agents = AgentStore::new();
-    for from_pool in &from_pools {
+    for from_pool in &from_pool_declarations {
         if agents.has_agent(from_pool) {
             continue;
         }
 
-        let agent = SignerStore::new_random(signers_per_period, &seed, from_pool);
-        all_signers.extend_from_slice(&agent.signers);
+        let agent = SignerStore::new_random(1, &seed, from_pool);
         agents.add_agent(from_pool, agent);
     }
 
+    let all_signer_addrs = [
+        // don't include default accounts (`user_signers_with_defaults`) here because if you're using them, they should already be funded
+        user_signers
+            .iter()
+            .map(|signer| signer.address())
+            .collect::<Vec<_>>(),
+        agents
+            .all_agents()
+            .flat_map(|(_, agent)| agent.signers.iter().map(|signer| signer.address()))
+            .collect::<Vec<_>>(),
+    ]
+    .concat();
+
+    let admin_signer = &user_signers_with_defaults[0];
+
     fund_accounts(
-        &all_signers,
-        &user_signers_with_defaults[0],
+        &all_signer_addrs,
+        admin_signer,
         &rpc_client,
         &eth_client,
         min_balance,

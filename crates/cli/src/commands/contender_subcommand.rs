@@ -123,14 +123,6 @@ May be specified multiple times."
         /// The seed used to generate pool accounts.
         #[arg(short, long, long_help = "The seed used to generate pool accounts.")]
         seed: Option<String>,
-
-        /// The number of signers to generate for each pool.
-        #[arg(
-            short,
-            long = "signers-per-pool",
-            long_help = "The number of signers to generate for each pool."
-        )]
-        num_signers_per_pool: Option<usize>,
     },
 
     #[command(

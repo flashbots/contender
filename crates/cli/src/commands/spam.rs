@@ -55,30 +55,42 @@ pub async fn spam(
         .expect("No spam function calls found in testfile");
 
     // distill all from_pool arguments from the spam requests
-    let from_pools = get_spam_pools(&testconfig);
+    let from_pool_declarations = get_spam_pools(&testconfig);
 
     let mut agents = AgentStore::new();
     let signers_per_period = args
         .txs_per_block
         .unwrap_or(args.txs_per_second.unwrap_or(spam.len()));
 
-    let mut all_signers = vec![];
-    all_signers.extend_from_slice(&user_signers);
-
-    for from_pool in &from_pools {
+    for from_pool in &from_pool_declarations {
         if agents.has_agent(from_pool) {
             continue;
         }
 
-        let agent = SignerStore::new_random(signers_per_period, &rand_seed, from_pool);
-        all_signers.extend_from_slice(&agent.signers);
+        let agent = SignerStore::new_random(
+            signers_per_period / from_pool_declarations.len(),
+            &rand_seed,
+            from_pool,
+        );
         agents.add_agent(from_pool, agent);
     }
 
-    check_private_keys(&testconfig, &all_signers);
+    let all_signer_addrs = [
+        user_signers
+            .iter()
+            .map(|signer| signer.address())
+            .collect::<Vec<_>>(),
+        agents
+            .all_agents()
+            .flat_map(|(_, agent)| agent.signers.iter().map(|signer| signer.address()))
+            .collect::<Vec<_>>(),
+    ]
+    .concat();
+
+    check_private_keys(&testconfig, &user_signers);
 
     fund_accounts(
-        &all_signers,
+        &all_signer_addrs,
         &user_signers[0],
         &rpc_client,
         &eth_client,
