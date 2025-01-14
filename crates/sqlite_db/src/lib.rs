@@ -377,6 +377,8 @@ mod tests {
         assert_eq!(res1.name, name1);
         assert_eq!(res1.tx_hash, tx_hash);
         assert_eq!(res1.address, contract_address);
+        let res2 = db.get_named_tx(&name1, "http://wrong.url:8545").unwrap();
+        assert!(res2.is_none());
     }
 
     #[test]
