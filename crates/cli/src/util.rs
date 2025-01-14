@@ -160,7 +160,7 @@ pub async fn fund_accounts(
     min_balance: U256,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let insufficient_balance_addrs =
-        find_insufficient_balance_addrs(&recipient_addresses, min_balance, rpc_client).await?;
+        find_insufficient_balance_addrs(recipient_addresses, min_balance, rpc_client).await?;
 
     let mut pending_fund_txs = vec![];
     let admin_nonce = rpc_client
