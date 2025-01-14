@@ -61,22 +61,24 @@ where
                 .get_named_tx(&template_key.to_string(), rpc_url)
                 .map_err(|e| {
                     ContenderError::SpamError(
-                        "failed to get placeholder value from DB",
+                        "Failed to get named tx from DB. There may be an issue with your database.",
                         Some(format!("value={:?} ({})", template_key, e)),
                     )
-                })?
-                .ok_or(ContenderError::SpamError(
-                    "failed to find placeholder value in DB",
+                })?;
+            if let Some(template_value) = template_value {
+                placeholder_map.insert(
+                    template_key,
+                    template_value
+                        .address
+                        .map(|a| self.encode_contract_address(&a))
+                        .unwrap_or_default(),
+                );
+            } else {
+                return Err(ContenderError::SpamError(
+                    "Address for named contract not found in DB. You may need to run setup steps first.",
                     Some(template_key.to_string()),
-                ))?;
-
-            placeholder_map.insert(
-                template_key,
-                template_value
-                    .address
-                    .map(|a| self.encode_contract_address(&a))
-                    .unwrap_or_default(),
-            );
+                ));
+            }
         }
         Ok(())
     }
