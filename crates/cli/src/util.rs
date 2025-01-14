@@ -153,18 +153,14 @@ async fn is_balance_sufficient(
 }
 
 pub async fn fund_accounts(
-    accounts: &[PrivateKeySigner],
+    recipient_addresses: &[Address],
     fund_with: &PrivateKeySigner,
     rpc_client: &AnyProvider,
     eth_client: &EthProvider,
     min_balance: U256,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let insufficient_balance_addrs = find_insufficient_balance_addrs(
-        &accounts.iter().map(|s| s.address()).collect::<Vec<_>>(),
-        min_balance,
-        rpc_client,
-    )
-    .await?;
+    let insufficient_balance_addrs =
+        find_insufficient_balance_addrs(&recipient_addresses, min_balance, rpc_client).await?;
 
     let mut pending_fund_txs = vec![];
     let admin_nonce = rpc_client
