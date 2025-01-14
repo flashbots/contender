@@ -88,7 +88,8 @@ Run the spammer with a custom scenario (10 tx/sec for 3 seconds):
 contender spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3
 ```
 
-Setting `--tps` defines the number of "agent accounts" (generated EOAs used to send txs).
+Setting `--tps` defines the number of "agent accounts" (generated EOAs used to send txs). The number of accounts each agent has is determined by `txs_per_period / num_agents`, where `num_agents` is defined by the scenario. For example, if the `stress.toml` scenario has 4 agents (defined by `from_pool` declarations), passing `--tps` 10 will generate `10 / 4 = 2.5` accounts, rounded down.
+
 Pass a private key with `-p` to fund agent accounts from your account:
 
 ```bash
