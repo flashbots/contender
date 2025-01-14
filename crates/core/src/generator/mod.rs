@@ -102,6 +102,7 @@ where
     fn get_db(&self) -> &D;
     fn get_fuzz_seeder(&self) -> &impl Seeder;
     fn get_agent_store(&self) -> &AgentStore;
+    fn get_rpc_url(&self) -> String;
 
     /// Generates a map of N=`num_values` fuzzed values for each parameter in `fuzz_args`.
     fn create_fuzz_map(
@@ -258,7 +259,12 @@ where
                     let step = self.make_strict_create(step, 0)?;
 
                     // lookup placeholder values in DB & update map before templating
-                    templater.find_placeholder_values(&step.bytecode, &mut placeholder_map, db)?;
+                    templater.find_placeholder_values(
+                        &step.bytecode,
+                        &mut placeholder_map,
+                        db,
+                        &self.get_rpc_url(),
+                    )?;
 
                     // create tx with template values
                     let tx = NamedTxRequestBuilder::new(
@@ -280,10 +286,11 @@ where
                 let setup_steps = conf.get_setup_steps()?;
 
                 // txs will be grouped by account [from=1, from=1, from=1, from=2, from=2, from=2, ...]
+                let rpc_url = self.get_rpc_url();
 
                 for step in setup_steps.iter() {
                     // lookup placeholders in DB & update map before templating
-                    templater.find_fncall_placeholders(step, db, &mut placeholder_map)?;
+                    templater.find_fncall_placeholders(step, db, &mut placeholder_map, &rpc_url)?;
 
                     // setup tx with template values
                     let tx = NamedTxRequest::new(
@@ -321,8 +328,10 @@ where
                 };
 
                 // finds placeholders in a function call definition and populates `placeholder_map` and `canonical_fuzz_map` with injectable values.
+                let rpc_url = self.get_rpc_url();
                 let mut lookup_tx_placeholders = |tx: &FunctionCallDefinition| {
-                    let res = templater.find_fncall_placeholders(tx, db, &mut placeholder_map);
+                    let res =
+                        templater.find_fncall_placeholders(tx, db, &mut placeholder_map, &rpc_url);
                     if let Err(e) = res {
                         eprintln!("error finding placeholders: {}", e);
                         return Err(ContenderError::SpamError(

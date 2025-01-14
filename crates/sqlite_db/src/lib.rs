@@ -137,11 +137,20 @@ impl DbOps for SqliteDb {
             params![],
         )?;
         self.execute(
+            "CREATE TABLE rpc_urls (
+                id INTEGER PRIMARY KEY,
+                url TEXT NOT NULL UNIQUE
+            )",
+            params![],
+        )?;
+        self.execute(
             "CREATE TABLE named_txs (
                 id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL,
                 tx_hash TEXT NOT NULL,
-                contract_address TEXT
+                contract_address TEXT,
+                rpc_url_id INTEGER NOT NULL,
+                FOREIGN KEY (rpc_url_id) REFERENCES rpc_urls(id)
             )",
             params![],
         )?;
@@ -196,14 +205,30 @@ impl DbOps for SqliteDb {
         Ok(res)
     }
 
-    fn insert_named_txs(&self, named_txs: Vec<NamedTx>) -> Result<()> {
+    fn insert_named_txs(&self, named_txs: Vec<NamedTx>, rpc_url: &str) -> Result<()> {
         let pool = self.get_pool()?;
+
+        // first check the rpc_urls table; insert if not present
+        pool.execute(
+            "INSERT OR IGNORE INTO rpc_urls (url) VALUES (?)",
+            params![rpc_url],
+        )
+        .map_err(|e| ContenderError::with_err(e, "failed to insert rpc_url into DB"))?;
+
+        // then get the rpc_url ID
+        let rpc_url_id: i64 = self.query_row(
+            "SELECT id FROM rpc_urls WHERE url = ?1",
+            params![rpc_url],
+            |row| row.get(0),
+        )?;
+
         let stmts = named_txs.iter().map(|tx| {
             format!(
-                "INSERT INTO named_txs (name, tx_hash, contract_address) VALUES ('{}', '{}', '{}');",
+                "INSERT INTO named_txs (name, tx_hash, contract_address, rpc_url_id) VALUES ('{}', '{}', '{}', {});",
                 tx.name,
                 tx.tx_hash.encode_hex(),
-                tx.address.map(|a| a.encode_hex()).unwrap_or_default()
+                tx.address.map(|a| a.encode_hex()).unwrap_or_default(),
+                rpc_url_id,
             )
         });
         pool.execute_batch(&format!(
@@ -218,16 +243,18 @@ impl DbOps for SqliteDb {
         Ok(())
     }
 
-    fn get_named_tx(&self, name: &str) -> Result<Option<NamedTx>> {
+    fn get_named_tx(&self, name: &str, rpc_url: &str) -> Result<Option<NamedTx>> {
         let pool = self.get_pool()?;
         let mut stmt = pool
             .prepare(
-                "SELECT name, tx_hash, contract_address FROM named_txs WHERE name = ?1 ORDER BY id DESC LIMIT 1",
+                "SELECT name, tx_hash, contract_address, rpc_url_id FROM named_txs WHERE name = ?1 AND rpc_url_id = (
+                    SELECT id FROM rpc_urls WHERE url = ?2
+                ) ORDER BY id DESC LIMIT 1",
             )
             .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
 
         let row = stmt
-            .query_map(params![name], NamedTxRow::from_row)
+            .query_map(params![name, rpc_url], NamedTxRow::from_row)
             .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
         let res = row
             .last()
@@ -328,10 +355,14 @@ mod tests {
         let contract_address = Some(Address::from_slice(&[4u8; 20]));
         let name1 = "test_tx".to_string();
         let name2 = "test_tx2";
-        db.insert_named_txs(vec![
-            NamedTx::new(name1.to_owned(), tx_hash, contract_address),
-            NamedTx::new(name2.to_string(), tx_hash, contract_address),
-        ])
+        let rpc_url = "http://test.url:8545";
+        db.insert_named_txs(
+            vec![
+                NamedTx::new(name1.to_owned(), tx_hash, contract_address),
+                NamedTx::new(name2.to_string(), tx_hash, contract_address),
+            ],
+            rpc_url,
+        )
         .unwrap();
         let count: i64 = db
             .get_pool()
@@ -342,7 +373,7 @@ mod tests {
             .unwrap();
         assert_eq!(count, 2);
 
-        let res1 = db.get_named_tx(&name1).unwrap().unwrap();
+        let res1 = db.get_named_tx(&name1, &rpc_url).unwrap().unwrap();
         assert_eq!(res1.name, name1);
         assert_eq!(res1.tx_hash, tx_hash);
         assert_eq!(res1.address, contract_address);
