@@ -373,7 +373,7 @@ mod tests {
             .unwrap();
         assert_eq!(count, 2);
 
-        let res1 = db.get_named_tx(&name1, &rpc_url).unwrap().unwrap();
+        let res1 = db.get_named_tx(&name1, rpc_url).unwrap().unwrap();
         assert_eq!(res1.name, name1);
         assert_eq!(res1.tx_hash, tx_hash);
         assert_eq!(res1.address, contract_address);
