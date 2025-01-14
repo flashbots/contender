@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Configuration to run a test scenario; used to generate PlanConfigs.
+/// Defines TOML schema for scenario files.
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct TestConfig {
     /// Template variables

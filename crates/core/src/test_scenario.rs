@@ -171,6 +171,7 @@ where
                 "deploying contract: {:?}",
                 tx_req.name.as_ref().unwrap_or(&"".to_string())
             );
+            let rpc_url = self.rpc_url.to_owned();
             let handle = tokio::task::spawn(async move {
                 // estimate gas limit
                 let gas_limit = wallet
@@ -217,6 +218,7 @@ where
                         receipt.contract_address,
                     )
                     .into(),
+                    rpc_url.as_str(),
                 )
                 .expect("failed to insert tx into db");
             });
@@ -253,7 +255,7 @@ where
                 let wallet = ProviderBuilder::new()
                     .with_simple_nonce_management()
                     .wallet(wallet)
-                    .on_http(rpc_url);
+                    .on_http(rpc_url.to_owned());
 
                 let chain_id = wallet.get_chain_id().await.expect("failed to get chain id");
                 let gas_price = wallet
@@ -280,6 +282,7 @@ where
                     db.insert_named_txs(
                         NamedTx::new(name, receipt.transaction_hash, receipt.contract_address)
                             .into(),
+                        rpc_url.as_str(),
                     )
                     .expect("failed to insert tx into db");
                 }
@@ -594,6 +597,10 @@ where
 
     fn get_agent_store(&self) -> &AgentStore {
         &self.agent_store
+    }
+
+    fn get_rpc_url(&self) -> String {
+        self.rpc_url.to_string()
     }
 }
 

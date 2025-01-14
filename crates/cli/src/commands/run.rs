@@ -74,7 +74,7 @@ pub async fn run(
     .await?;
 
     let contract_name = "SpamMe";
-    let contract_result = db.get_named_tx(contract_name)?;
+    let contract_result = db.get_named_tx(contract_name, rpc_url.as_str())?;
     let do_deploy_contracts = if contract_result.is_some() {
         let input = prompt_cli(format!(
             "{} deployment already detected. Re-deploy? [y/N]",

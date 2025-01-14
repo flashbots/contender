@@ -18,11 +18,11 @@ impl DbOps for MockDb {
         Ok(0)
     }
 
-    fn insert_named_txs(&self, _named_txs: Vec<NamedTx>) -> Result<()> {
+    fn insert_named_txs(&self, _named_txs: Vec<NamedTx>, _rpc_url: &str) -> Result<()> {
         Ok(())
     }
 
-    fn get_named_tx(&self, _name: &str) -> Result<Option<NamedTx>> {
+    fn get_named_tx(&self, _name: &str, _rpc_url: &str) -> Result<Option<NamedTx>> {
         Ok(Some(NamedTx::new(
             String::default(),
             TxHash::default(),

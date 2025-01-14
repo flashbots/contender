@@ -50,9 +50,9 @@ pub trait DbOps {
 
     fn num_runs(&self) -> Result<u64>;
 
-    fn insert_named_txs(&self, named_txs: Vec<NamedTx>) -> Result<()>;
+    fn insert_named_txs(&self, named_txs: Vec<NamedTx>, rpc_url: &str) -> Result<()>;
 
-    fn get_named_tx(&self, name: &str) -> Result<Option<NamedTx>>;
+    fn get_named_tx(&self, name: &str, rpc_url: &str) -> Result<Option<NamedTx>>;
 
     fn get_named_tx_by_address(&self, address: &Address) -> Result<Option<NamedTx>>;
 
