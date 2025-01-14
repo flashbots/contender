@@ -22,7 +22,6 @@ pub async fn setup(
     private_keys: Option<Vec<String>>,
     min_balance: String,
     seed: RandSeed,
-    signers_per_period: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
     let rpc_client = ProviderBuilder::new()
@@ -71,11 +70,7 @@ pub async fn setup(
             continue;
         }
 
-        let agent = SignerStore::new_random(
-            signers_per_period / from_pool_declarations.len(),
-            &seed,
-            from_pool,
-        );
+        let agent = SignerStore::new_random(1, &seed, from_pool);
         agents.add_agent(from_pool, agent);
     }
 

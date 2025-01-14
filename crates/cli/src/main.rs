@@ -55,7 +55,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             private_keys,
             min_balance,
             seed,
-            num_signers_per_pool,
         } => {
             let seed = seed.unwrap_or(stored_seed);
             commands::setup(
@@ -65,7 +64,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 private_keys,
                 min_balance,
                 RandSeed::seed_from_str(&seed),
-                num_signers_per_pool.unwrap_or(1),
             )
             .await?
         }
