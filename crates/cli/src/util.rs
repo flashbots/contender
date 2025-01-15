@@ -304,3 +304,76 @@ pub fn prompt_cli(msg: impl AsRef<str>) -> String {
         .expect("Failed to read line");
     input.trim().to_owned()
 }
+
+#[cfg(test)]
+mod test {
+    use std::str::FromStr;
+
+    use alloy::{
+        consensus::constants::ETH_TO_WEI,
+        network::AnyNetwork,
+        node_bindings::{Anvil, AnvilInstance},
+        primitives::{Address, U256},
+        providers::{Provider, ProviderBuilder},
+        signers::local::PrivateKeySigner,
+    };
+
+    use super::fund_accounts;
+
+    pub fn spawn_anvil() -> AnvilInstance {
+        Anvil::new().block_time(1).spawn()
+    }
+
+    #[tokio::test]
+    async fn fund_accounts_disallows_insufficient_balance() {
+        let anvil = spawn_anvil();
+        let rpc_client = ProviderBuilder::new()
+            .network::<AnyNetwork>()
+            .on_http(anvil.endpoint_url());
+        let eth_client = ProviderBuilder::new().on_http(anvil.endpoint_url());
+        let min_balance = U256::from(ETH_TO_WEI);
+        let default_signer = PrivateKeySigner::from_str(super::DEFAULT_PRV_KEYS[0]).unwrap();
+        // address: 0x7E57f00F16dE6A0D6B720E9C0af5C869a1f71c66
+        let new_signer = PrivateKeySigner::from_str(
+            "0x08a418b870bf01990abc730a1cfc4ff04811f8e88bafa9edb8d40d802a33891f",
+        )
+        .unwrap();
+        let recipient_addresses: Vec<Address> = [
+            "0x0000000000000000000000000000000000000013",
+            "0x7E57f00F16dE6A0D6B720E9C0af5C869a1f71c66",
+        ]
+        .iter()
+        .map(|s| s.parse().unwrap())
+        .collect();
+
+        // send eth to the new signer
+        fund_accounts(
+            &recipient_addresses,
+            &default_signer,
+            &rpc_client,
+            &eth_client,
+            min_balance,
+        )
+        .await
+        .unwrap();
+
+        for addr in &recipient_addresses {
+            let balance = rpc_client.get_balance(*addr).await.unwrap();
+            println!("balance of {}: {}", addr, balance);
+            assert_eq!(balance, U256::from(ETH_TO_WEI));
+        }
+
+        let res = fund_accounts(
+            &vec!["0x0000000000000000000000000000000000000014"
+                .parse::<Address>()
+                .unwrap()],
+            &new_signer,
+            &rpc_client,
+            &eth_client,
+            min_balance,
+        )
+        .await;
+        println!("res: {:?}", res);
+        assert!(res.is_err());
+    }
+}
