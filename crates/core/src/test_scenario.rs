@@ -615,9 +615,10 @@ pub mod tests {
     };
     use crate::generator::{types::PlanType, util::test::spawn_anvil, RandSeed};
     use crate::generator::{Generator, PlanConfig};
-    use crate::spammer::util::test::get_test_signers;
+    use crate::spammer::util::test::{fund_account, get_test_signers};
     use crate::test_scenario::TestScenario;
     use crate::Result;
+    use alloy::consensus::constants::ETH_TO_WEI;
     use alloy::hex::ToHexExt;
     use alloy::network::{Ethereum, EthereumWallet, TransactionBuilder};
     use alloy::node_bindings::AnvilInstance;
@@ -851,10 +852,29 @@ pub mod tests {
         agents.add_agent("pool2", pool2);
         agents.add_agent("admin1", admin1_signers);
         agents.add_agent("admin2", admin2_signers);
+
+        // fund accounts
         let mut nonce = provider
             .get_transaction_count(admin.address())
             .await
             .unwrap();
+        for (_pool_name, agent) in agents.all_agents() {
+            for signer in &agent.signers {
+                let res = fund_account(
+                    &signers[0],
+                    signer.address(),
+                    U256::from(ETH_TO_WEI),
+                    &provider,
+                    Some(nonce),
+                )
+                .await
+                .unwrap();
+                println!("funded signer: {:?}", res);
+                provider.watch_pending_transaction(res).await.unwrap();
+                nonce += 1;
+            }
+        }
+
         let chain_id = anvil.chain_id();
         for signer in &pool_signers {
             let tx = TransactionRequest::default()
