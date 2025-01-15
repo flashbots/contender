@@ -364,7 +364,7 @@ mod test {
         }
 
         let res = fund_accounts(
-            &vec!["0x0000000000000000000000000000000000000014"
+            &["0x0000000000000000000000000000000000000014"
                 .parse::<Address>()
                 .unwrap()],
             &new_signer,
