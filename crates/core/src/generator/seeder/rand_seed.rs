@@ -86,6 +86,7 @@ impl Seeder for RandSeed {
     ) -> Box<impl Iterator<Item = impl SeedValue>> {
         let min = min.unwrap_or(U256::ZERO);
         let max = max.unwrap_or(U256::MAX);
+        assert!(min < max, "min must be less than max");
         let vals = (0..amount).map(move |i| {
             // generate random-looking value between min and max from seed
             let seed_num = self.as_u256() + U256::from(i);
