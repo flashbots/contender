@@ -19,17 +19,17 @@ max = "100000000000000"
 
 
 # spam bundle
-# [[spam]]
+[[spam]]
 
-# [[spam.bundle.tx]]
-# to = "{SpamMe}"
-# from_pool = "bluepool"
-# signature = "consumeGas(uint256 gasAmount)"
-# args = ["51000"]
-# fuzz = [{ param = "gasAmount", min = "22000", max = "69000" }]
+[[spam.bundle.tx]]
+to = "{SpamMe}"
+from_pool = "bluepool"
+signature = "consumeGas(uint256 gasAmount)"
+args = ["51000"]
+fuzz = [{ param = "gasAmount", min = "22000", max = "69000" }]
 
-# [[spam.bundle.tx]]
-# to = "{SpamMe}"
-# from_pool = "bluepool"
-# signature = "tipCoinbase()"
-# value = "10000000000000000"
+[[spam.bundle.tx]]
+to = "{SpamMe}"
+from_pool = "bluepool"
+signature = "tipCoinbase()"
+value = "10000000000000000"

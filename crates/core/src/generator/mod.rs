@@ -218,16 +218,13 @@ where
             .collect::<Vec<String>>();
 
         let to_address = if funcdef.to == "{_sender}" {
-            from_address
+            from_address.to_string()
         } else {
-            funcdef
-                .to
-                .parse()
-                .map_err(|e| ContenderError::with_err(e, "failed to parse 'to' address"))?
+            funcdef.to.to_owned()
         };
 
         Ok(FunctionCallDefinitionStrict {
-            to: to_address.to_string(),
+            to: to_address,
             from: from_address,
             signature: funcdef.signature.to_owned(),
             args,
