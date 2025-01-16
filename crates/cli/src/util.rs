@@ -147,9 +147,9 @@ async fn is_balance_sufficient(
     address: &Address,
     min_balance: U256,
     rpc_client: &AnyProvider,
-) -> Result<bool, Box<dyn std::error::Error>> {
+) -> Result<(bool, U256), Box<dyn std::error::Error>> {
     let balance = rpc_client.get_balance(*address).await?;
-    Ok(balance >= min_balance)
+    Ok((balance >= min_balance, balance))
 }
 
 pub async fn fund_accounts(
@@ -159,8 +159,8 @@ pub async fn fund_accounts(
     eth_client: &EthProvider,
     min_balance: U256,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let insufficient_balance_addrs =
-        find_insufficient_balance_addrs(recipient_addresses, min_balance, rpc_client).await?;
+    let insufficient_balances =
+        find_insufficient_balances(recipient_addresses, min_balance, rpc_client).await?;
 
     let mut pending_fund_txs = vec![];
     let admin_nonce = rpc_client
@@ -170,33 +170,37 @@ pub async fn fund_accounts(
     // pre-check if admin account has sufficient balance
     let gas_price = rpc_client.get_gas_price().await?;
     let gas_cost_per_tx = U256::from(21000) * U256::from(gas_price + (gas_price / 10));
+    let chain_id = rpc_client.get_chain_id().await?;
 
-    let total_cost = U256::from(insufficient_balance_addrs.len()) * (min_balance + gas_cost_per_tx);
-    if !is_balance_sufficient(&fund_with.address(), total_cost, rpc_client).await? {
+    let total_cost = U256::from(insufficient_balances.len()) * (min_balance + gas_cost_per_tx);
+    let (balance_sufficient, balance) =
+        is_balance_sufficient(&fund_with.address(), total_cost, rpc_client).await?;
+    if !balance_sufficient {
         return Err(format!(
-            "Admin account {} has insufficient balance to fund all accounts.",
-            fund_with.address()
+            "User account {} has insufficient balance to fund all accounts. Have {}, needed {}. Chain ID: {}",
+            fund_with.address(),
+            format_ether(balance),
+            format_ether(total_cost),
+            chain_id,
         )
         .into());
     }
 
-    for (idx, address) in insufficient_balance_addrs.iter().enumerate() {
-        if !is_balance_sufficient(&fund_with.address(), min_balance, rpc_client).await? {
-            // panic early if admin account runs out of funds
+    for (idx, (address, _)) in insufficient_balances.iter().enumerate() {
+        let (balance_sufficient, balance) =
+            is_balance_sufficient(&fund_with.address(), min_balance, rpc_client).await?;
+        if !balance_sufficient {
+            // error early if admin account runs out of funds
             return Err(format!(
-                "Admin account {} has insufficient balance to fund this account.",
-                fund_with.address()
+                "User account {} has insufficient balance to fund account {}. Have {}, needed {}. Chain ID: {}",
+                fund_with.address(),
+                address,
+                format_ether(balance),
+                format_ether(min_balance),
+                chain_id,
             )
             .into());
         }
-
-        let balance = rpc_client.get_balance(*address).await?;
-        println!(
-            "Account {} has {}, needed {}",
-            address,
-            format_ether(balance),
-            format_ether(min_balance)
-        );
 
         let fund_amount = min_balance;
         pending_fund_txs.push(
@@ -253,18 +257,21 @@ pub async fn fund_account(
 }
 
 /// Returns an error if any of the private keys do not have sufficient balance.
-pub async fn find_insufficient_balance_addrs(
+pub async fn find_insufficient_balances(
     addresses: &[Address],
     min_balance: U256,
     rpc_client: &AnyProvider,
-) -> Result<Vec<Address>, Box<dyn std::error::Error>> {
-    let mut insufficient_balance_addrs = vec![];
+) -> Result<Vec<(Address, U256)>, Box<dyn std::error::Error>> {
+    let mut insufficient_balances = vec![];
     for address in addresses {
-        if !is_balance_sufficient(address, min_balance, rpc_client).await? {
-            insufficient_balance_addrs.push(*address);
+        let (balance_sufficient, balance) = is_balance_sufficient(address, min_balance, rpc_client)
+            .await
+            .map_err(|e| format!("Error checking balance for address {}: {}", address, e))?;
+        if !balance_sufficient {
+            insufficient_balances.push((*address, balance));
         }
     }
-    Ok(insufficient_balance_addrs)
+    Ok(insufficient_balances)
 }
 
 pub async fn spam_callback_default(

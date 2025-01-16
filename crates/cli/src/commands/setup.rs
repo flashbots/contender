@@ -1,9 +1,13 @@
 use alloy::{
-    network::AnyNetwork, primitives::utils::parse_ether, providers::ProviderBuilder,
-    signers::local::PrivateKeySigner, transports::http::reqwest::Url,
+    network::AnyNetwork,
+    primitives::utils::{format_ether, parse_ether},
+    providers::ProviderBuilder,
+    signers::local::PrivateKeySigner,
+    transports::http::reqwest::Url,
 };
 use contender_core::{
     agent_controller::{AgentStore, SignerStore},
+    error::ContenderError,
     generator::RandSeed,
     test_scenario::TestScenario,
 };
@@ -11,7 +15,7 @@ use contender_testfile::TestConfig;
 use std::str::FromStr;
 
 use crate::util::{
-    check_private_keys_fns, find_insufficient_balance_addrs, fund_accounts, get_create_pools,
+    check_private_keys_fns, find_insufficient_balances, fund_accounts, get_create_pools,
     get_setup_pools, get_signers_with_defaults,
 };
 
@@ -46,17 +50,24 @@ pub async fn setup(
     );
 
     // ensure user-provided accounts have sufficient balance
-    let broke_accounts = find_insufficient_balance_addrs(
+    let broke_accounts = find_insufficient_balances(
         &user_signers.iter().map(|s| s.address()).collect::<Vec<_>>(),
         min_balance,
         &rpc_client,
     )
     .await?;
     if !broke_accounts.is_empty() {
-        panic!(
-            "Insufficient balance in provided user account(s): {:?}",
-            broke_accounts
-        );
+        return Err(ContenderError::SetupError(
+            "Insufficient balance in provided user account(s).",
+            Some(format!(
+                "{:?}",
+                broke_accounts
+                    .iter()
+                    .map(|(addr, bal)| format!("{}: {} ETH", addr, format_ether(*bal)))
+                    .collect::<Vec<_>>()
+            )),
+        )
+        .into());
     }
 
     // load agents from setup and create pools
