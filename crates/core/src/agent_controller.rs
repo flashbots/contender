@@ -19,12 +19,12 @@ pub trait AgentRegistry<Index: Ord> {
     fn get_agent(&self, idx: Index) -> Option<&Address>;
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct SignerStore {
     pub signers: Vec<PrivateKeySigner>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct AgentStore {
     agents: HashMap<String, SignerStore>,
 }

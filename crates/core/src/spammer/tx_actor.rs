@@ -33,7 +33,7 @@ where
     rpc: Arc<AnyProvider>,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PendingRunTx {
     tx_hash: TxHash,
     start_timestamp: usize,
@@ -191,6 +191,7 @@ where
     }
 }
 
+#[derive(Debug)]
 pub struct TxActorHandle {
     sender: mpsc::Sender<TxActorMessage>,
 }

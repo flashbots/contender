@@ -3,6 +3,7 @@ use jsonrpsee::http_client::HttpClient;
 use jsonrpsee::{core::client::ClientT, rpc_params};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug)]
 pub struct BundleClient {
     client: HttpClient,
 }
