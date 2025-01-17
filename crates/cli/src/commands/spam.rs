@@ -116,7 +116,8 @@ pub async fn spam(
     )
     .await?;
 
-    let total_cost = get_max_spam_cost(scenario.to_owned(), &rpc_client, duration).await?;
+    let total_cost =
+        get_max_spam_cost(scenario.to_owned(), &rpc_client).await? * U256::from(duration);
     if min_balance < U256::from(total_cost) {
         return Err(ContenderError::SpamError(
             "min_balance is not enough to cover the cost of the spam transactions",
@@ -196,7 +197,7 @@ pub async fn spam(
     Ok(run_id)
 }
 
-/// Returns the maximum total cost of spam transactions for one account.
+/// Returns the maximum cost of a spam transaction.
 ///
 /// We take `scenario` by value rather than by reference, because we call `prepare_tx_request`
 /// and `prepare_spam` which will mutate the scenario (namely the overly-optimistic internal nonce counter).
@@ -205,7 +206,6 @@ pub async fn spam(
 async fn get_max_spam_cost<D: DbOps + Send + Sync + 'static, S: Seeder + Send + Sync>(
     scenario: TestScenario<D, S, TestConfig>,
     rpc_client: &AnyProvider,
-    duration: usize,
 ) -> Result<U256, Box<dyn std::error::Error>> {
     let mut scenario = scenario;
 
@@ -271,6 +271,5 @@ async fn get_max_spam_cost<D: DbOps + Send + Sync + 'static, S: Seeder + Send + 
         ))?;
 
     // we assume the highest possible cost to minimize the chances of running out of ETH mid-test
-    let total_cost = highest_gas_cost * U256::from(duration);
-    Ok(total_cost)
+    Ok(highest_gas_cost)
 }
