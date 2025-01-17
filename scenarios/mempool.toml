@@ -9,8 +9,8 @@ from_pool = "admin"
 to = "{SpamMe2}"
 from_pool = "redpool"
 signature = "consumeGas(uint256 gasAmount)"
-args = ["910000"]
-fuzz = [{ param = "gasAmount", min = "10000000", max = "30000000" }]
+args = ["3000000"]
+fuzz = [{ param = "gasAmount", min = "1000000", max = "3000000" }]
 
 [[spam]]
 
@@ -18,4 +18,4 @@ fuzz = [{ param = "gasAmount", min = "10000000", max = "30000000" }]
 to = "{SpamMe2}"
 from_pool = "bluepool"
 signature = "consumeGas(uint256 gasAmount)"
-args = ["13500000"]
+args = ["1350000"]

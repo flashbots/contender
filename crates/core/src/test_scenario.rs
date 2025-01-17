@@ -23,6 +23,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// A test scenario can be used to run a test with a specific configuration, database, and RPC provider.
+#[derive(Clone, Debug)]
 pub struct TestScenario<D, S, P>
 where
     D: DbOps + Send + Sync + 'static,
