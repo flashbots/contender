@@ -29,6 +29,8 @@ cd contender
 
 ## Usage
 
+*See [the docs](./docs/) for detailed explanations and examples.*
+
 Contender can be used as both a library and a command-line tool.
 
 ### Command-line Interface
