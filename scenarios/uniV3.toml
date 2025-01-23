@@ -107,7 +107,17 @@ to = "{nftPositionManager}"
 from_pool = "admin"
 signature = "function mint((address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint256 amount0Desired, uint256 amount1Desired, uint256 amount0Min, uint256 amount1Min, address recipient, uint256 deadline)) external payable returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)"
 args = [
-    "[{weth}, {testToken}, 3000, -887220, 887220, 1000000000000000000, 1000000000000000000000, 0, 0, {_sender}, 10000000000000]"
+    "{weth}",
+    "{testToken}",
+    "3000",
+    "-887220",
+    "887220",
+    "1000000000000000000",
+    "1000000000000000000000",
+    "0",
+    "0",
+    "{_sender}",
+    "10000000000000"
 ]
 
 [[setup]]
@@ -116,7 +126,17 @@ to = "{nftPositionManager}"
 from_pool = "admin"
 signature = "function mint((address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint256 amount0Desired, uint256 amount1Desired, uint256 amount0Min, uint256 amount1Min, address recipient, uint256 deadline)) external payable returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)"
 args = [
-    "[{weth}, {testToken2}, 3000, -887220, 887220, 1000000000000000000, 1000000000000000000000, 0, 0, {_sender}, 10000000000000]"
+    "{weth}",
+    "{testToken2}",
+    "3000",
+    "-887220",
+    "887220",
+    "1000000000000000000",
+    "1000000000000000000000",
+    "0",
+    "0",
+    "{_sender}",
+    "10000000000000"
 ]
 
 ### Spam Steps
@@ -130,7 +150,14 @@ to = "{uniV3Router}"
 from_pool = "spammers"
 signature = "function exactInputSingle((address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external returns (uint256 amountOut)"
 args = [
-    "[{weth}, {testToken}, 3000, {_sender}, 10000000000000, 10000000000000000, 0, 0]"
+    "{weth}",
+    "{testToken}",
+    "3000",
+    "{_sender}",
+    "10000000000000",
+    "10000000000000000",
+    "0",
+    "0"
 ]
 
 # Swap Token1 for WETH
@@ -142,7 +169,14 @@ to = "{uniV3Router}"
 from_pool = "spammers"
 signature = "function exactInputSingle((address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external returns (uint256 amountOut)"
 args = [
-    "[{testToken}, {weth}, 3000, {_sender}, 10000000000000, 1000000000000000000, 0, 0]"
+    "{testToken}",
+    "{weth}",
+    "3000",
+    "{_sender}",
+    "10000000000000",
+    "1000000000000000000",
+    "0",
+    "0"
 ]
 
 # Swap WETH for Token2
@@ -154,7 +188,14 @@ to = "{uniV3Router}"
 from_pool = "spammers"
 signature = "function exactInputSingle((address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external returns (uint256 amountOut)"
 args = [
-    "[{weth}, {testToken2}, 3000, {_sender}, 10000000000000, 10000000000000000, 0, 0]"
+    "{weth}",
+    "{testToken2}",
+    "3000",
+    "{_sender}",
+    "10000000000000",
+    "10000000000000000",
+    "0",
+    "0"
 ]
 
 # Swap Token2 for WETH
@@ -166,5 +207,12 @@ to = "{uniV3Router}"
 from_pool = "spammers"
 signature = "function exactInputSingle((address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external returns (uint256 amountOut)"
 args = [
-    "[{testToken2}, {weth}, 3000, {_sender}, 10000000000000, 1000000000000000000, 0, 0]"
+    "{testToken2}",
+    "{weth}",
+    "3000",
+    "{_sender}",
+    "10000000000000",
+    "1000000000000000000",
+    "0",
+    "0"
 ]
