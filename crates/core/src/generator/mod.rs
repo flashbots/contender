@@ -19,6 +19,7 @@ pub use named_txs::NamedTxRequestBuilder;
 pub use seeder::rand_seed::RandSeed;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
 use types::{CreateDefinitionStrict, FunctionCallDefinitionStrict, SpamRequest};
+use util::remove_inner_parentheses;
 
 pub use types::{CallbackResult, NamedTxRequest, PlanType};
 
@@ -160,7 +161,7 @@ where
         let bytecode = create_def
             .bytecode
             .to_owned()
-            .replace("{_sender}", &from_address.encode_hex());
+            .replace("{_sender}", &from_address.encode_hex()); // inject address WITHOUT 0x prefix
 
         Ok(CreateDefinitionStrict {
             name: create_def.name.to_owned(),
@@ -205,12 +206,9 @@ where
         let args = args
             .iter()
             .map(|arg| {
-                if arg == "{_sender}" {
-                    // return `from` address WITH 0x prefix when {_sender} is the whole word
-                    from_address.to_string()
-                } else if arg.contains("{_sender}") {
-                    // if {_sender} is a substring, return `from` address WITHOUT 0x prefix
-                    arg.replace("{_sender}", &from_address.encode_hex())
+                if arg.contains("{_sender}") {
+                    // return `from` address WITH 0x prefix
+                    arg.replace("{_sender}", &from_address.to_string())
                 } else {
                     arg.to_owned()
                 }
@@ -431,8 +429,8 @@ fn get_fuzzed_args(
     fuzz_idx: usize,
 ) -> Vec<String> {
     // let mut args = Vec::new();
-    let func =
-        alloy::json_abi::Function::parse(&tx.signature).expect("failed to parse function name");
+    let sig = remove_inner_parentheses(&tx.signature);
+    let func = alloy::json_abi::Function::parse(&sig).expect("failed to parse function name");
     let tx_args = tx.args.as_deref().unwrap_or_default();
     tx_args
         .iter()

@@ -36,24 +36,25 @@ where
         // count number of placeholders (by left brace) in arg
         let num_template_vals = self.num_placeholders(arg);
         let mut last_end = 0;
+        let mut template_input = arg.to_owned();
 
         for _ in 0..num_template_vals {
-            let template_value = self.copy_end(arg, last_end);
+            template_input = self.copy_end(&template_input, last_end);
             let (template_key, template_end) =
-                self.find_key(&template_value)
+                self.find_key(&template_input)
                     .ok_or(ContenderError::SpamError(
                         "failed to find placeholder key",
                         Some(arg.to_string()),
                     ))?;
             last_end = template_end + 1;
 
-            // skip if value in map, else look up in DB
-            if placeholder_map.contains_key(&template_key) {
+            // ignore {_sender} placeholder; it's handled outside the templater
+            if template_key.to_string() == "_sender" {
                 continue;
             }
 
-            // ignore {_sender} placeholder; it's handled outside the templater
-            if template_key.to_string() == "_sender" {
+            // skip if value in map, else look up in DB
+            if placeholder_map.contains_key(&template_key) {
                 continue;
             }
 
