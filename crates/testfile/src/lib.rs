@@ -494,11 +494,17 @@ pub mod tests {
         let test_config = TestConfig::default();
 
         let mut placeholder_map = HashMap::new();
-        test_config.find_placeholder_values("{lol}{baa}{hahaa}",  &mut placeholder_map, &MockDb, "http://localhost:8545").unwrap();
+        test_config
+            .find_placeholder_values(
+                "{lol}{baa}{hahaa}",
+                &mut placeholder_map,
+                &MockDb,
+                "http://localhost:8545",
+            )
+            .unwrap();
 
         println!("{:#?}", placeholder_map);
 
         assert_eq!(placeholder_map.len(), 3);
     }
-
 }
