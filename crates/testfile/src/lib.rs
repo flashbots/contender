@@ -503,8 +503,6 @@ pub mod tests {
             )
             .unwrap();
 
-        println!("{:#?}", placeholder_map);
-
         assert_eq!(placeholder_map.len(), 3);
     }
 }
