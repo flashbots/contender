@@ -39,13 +39,14 @@ where
 
         for _ in 0..num_template_vals {
             let template_value = self.copy_end(arg, last_end);
+
             let (template_key, template_end) =
                 self.find_key(&template_value)
                     .ok_or(ContenderError::SpamError(
                         "failed to find placeholder key",
                         Some(arg.to_string()),
                     ))?;
-            last_end = template_end + 1;
+            last_end += template_end + 1;
 
             // skip if value in map, else look up in DB
             if placeholder_map.contains_key(&template_key) {
