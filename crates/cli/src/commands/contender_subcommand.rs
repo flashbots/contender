@@ -1,9 +1,16 @@
 use clap::Subcommand;
+use std::path::PathBuf;
 
 use crate::default_scenarios::BuiltinScenario;
 
 #[derive(Debug, Subcommand)]
 pub enum ContenderSubcommand {
+    #[command(name = "db", about = "Database management commands")]
+    Db {
+        #[command(subcommand)]
+        command: DbCommand,
+    },
+
     #[command(
         name = "spam",
         long_about = "Spam the RPC with tx requests as designated in the given testfile."
@@ -187,5 +194,28 @@ May be specified multiple times."
         )]
         txs_per_duration: usize,
         // TODO: DRY duplicate args
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DbCommand {
+    #[command(name = "drop", about = "Delete the database file")]
+    Drop,
+
+    #[command(name = "reset", about = "Drop and re-initialize the database")]
+    Reset,
+
+    #[command(name = "export", about = "Save database to a new file")]
+    Export {
+        /// Path where to save the database file
+        #[arg(help = "Path where to save the database file")]
+        out_path: PathBuf,
+    },
+
+    #[command(name = "import", about = "Import database from a file")]
+    Import {
+        /// Path to the database file to import
+        #[arg(help = "Path to the database file to import")]
+        src_path: PathBuf,
     },
 }

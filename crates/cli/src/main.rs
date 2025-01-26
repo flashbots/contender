@@ -5,7 +5,7 @@ mod util;
 use std::sync::LazyLock;
 
 use alloy::hex;
-use commands::{ContenderCli, ContenderSubcommand, SpamCommandArgs};
+use commands::{ContenderCli, ContenderSubcommand, DbCommand, SpamCommandArgs};
 use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::SqliteDb;
 use rand::Rng;
@@ -49,6 +49,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     match args.command {
+        ContenderSubcommand::Db { command } => match command {
+            DbCommand::Drop => commands::drop_db().await?,
+            DbCommand::Reset => commands::reset_db(&db).await?,
+            DbCommand::Export { out_path } => commands::export_db(out_path).await?,
+            DbCommand::Import { src_path } => commands::import_db(src_path).await?,
+        },
+
         ContenderSubcommand::Setup {
             testfile,
             rpc_url,

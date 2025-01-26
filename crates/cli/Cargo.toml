@@ -19,3 +19,6 @@ alloy = { workspace = true, features = ["full", "node-bindings"] }
 csv = { workspace = true }
 termcolor = "1.4.1"
 rand.workspace = true
+
+[dev-dependencies]
+tempfile = "3.15.0"
