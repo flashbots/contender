@@ -130,6 +130,9 @@ May be specified multiple times."
         long_about = "Export chain performance report for a spam run."
     )]
     Report {
+        /// The HTTP JSON-RPC URL to use for setup.
+        rpc_url: String,
+
         /// The run ID to include in the report.
         #[arg(
             short = 'i',

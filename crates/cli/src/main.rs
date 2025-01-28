@@ -86,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &db,
                 SpamCommandArgs {
                     testfile,
-                    rpc_url,
+                    rpc_url: rpc_url.to_owned(),
                     builder_url,
                     txs_per_block,
                     txs_per_second,
@@ -99,15 +99,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .await?;
             if gen_report {
-                commands::report(&db, Some(run_id), 0)?;
+                commands::report(Some(run_id), 0, &db, &rpc_url).await?;
             }
         }
 
         ContenderSubcommand::Report {
+            rpc_url,
             last_run_id,
             preceding_runs,
         } => {
-            commands::report(&db, last_run_id, preceding_runs)?;
+            commands::report(last_run_id, preceding_runs, &db, &rpc_url).await?;
         }
 
         ContenderSubcommand::Run {

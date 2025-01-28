@@ -310,6 +310,7 @@ dependencies = [
  "alloy-rpc-client",
  "alloy-rpc-types-anvil",
  "alloy-rpc-types-eth",
+ "alloy-rpc-types-trace",
  "alloy-signer-local",
  "alloy-transport",
  "alloy-transport-http",
@@ -407,6 +408,7 @@ dependencies = [
  "alloy-rpc-types-engine",
  "alloy-rpc-types-eth",
  "alloy-rpc-types-mev",
+ "alloy-rpc-types-trace",
  "alloy-serde 0.3.6",
  "serde",
 ]
@@ -467,6 +469,20 @@ dependencies = [
  "alloy-serde 0.3.6",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "alloy-rpc-types-trace"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98db35cd42c90b484377e6bc44d95377a7a38a5ebee996e67754ac0446d542ab"
+dependencies = [
+ "alloy-primitives",
+ "alloy-rpc-types-eth",
+ "alloy-serde 0.3.6",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
