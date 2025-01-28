@@ -7,7 +7,7 @@ mod spam;
 use clap::Parser;
 
 pub use contender_subcommand::ContenderSubcommand;
-pub use report::report;
+pub use report::{report, ReportOutput};
 pub use run::run;
 pub use setup::setup;
 pub use spam::{spam, SpamCommandArgs};

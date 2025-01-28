@@ -98,16 +98,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
             )
             .await?;
-            if report_file.is_some() {
-                commands::report(
-                    &db,
-                    Some(run_id),
-                    report_file.map(|rf| format!("{}.csv", rf)),
-                )?;
+            if let Some(report_file) = report_file {
+                commands::report(&db, Some(run_id), commands::ReportOutput::File(report_file))?;
             }
         }
 
-        ContenderSubcommand::Report { id, out_file } => commands::report(&db, id, out_file)?,
+        ContenderSubcommand::Report { id, out_file } => {
+            let home_dir = std::env::var("HOME").expect("Could not get home directory");
+            let contender_dir = format!("{}/.contender", home_dir);
+            std::fs::create_dir_all(&contender_dir)?;
+            let out_filename = out_file.unwrap_or("report".to_owned());
+            let report_path = format!("{}/{}.csv", contender_dir, out_filename);
+            commands::report(&db, id, commands::ReportOutput::File(report_path))?;
+        }
 
         ContenderSubcommand::Run {
             scenario,
