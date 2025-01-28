@@ -127,16 +127,26 @@ May be specified multiple times."
 
     #[command(
         name = "report",
-        long_about = "Export performance reports for data analysis."
+        long_about = "Export chain performance report for a spam run."
     )]
     Report {
-        /// The run ID to export reports for. If not provided, the latest run is used.
+        /// The run ID to include in the report.
+        #[arg(
+            short = 'i',
+            long,
+            long_help = "The first run to include in the report. If not provided, the latest run is used."
+        )]
+        last_run_id: Option<u64>,
+
+        /// The number of runs preceding `last_run_id` to include in the report.
+        /// If not provided, only the run with ID `last_run_id` is included.
         #[arg(
             short,
             long,
-            long_help = "The run ID to export reports for. If not provided, the latest run is used."
+            long_help = "The number of runs preceding `last_run_id` to include in the report. If not provided, only the run with ID `end_run_id` is included.",
+            default_value = "0"
         )]
-        id: Option<u64>,
+        preceding_runs: u64,
     },
 
     #[command(name = "run", long_about = "Run a builtin scenario.")]

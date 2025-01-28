@@ -99,12 +99,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .await?;
             if gen_report {
-                commands::report(&db, Some(run_id))?;
+                commands::report(&db, Some(run_id), 0)?;
             }
         }
 
-        ContenderSubcommand::Report { id } => {
-            commands::report(&db, id)?;
+        ContenderSubcommand::Report {
+            last_run_id,
+            preceding_runs,
+        } => {
+            commands::report(&db, last_run_id, preceding_runs)?;
         }
 
         ContenderSubcommand::Run {
