@@ -85,11 +85,11 @@ May be specified multiple times."
         /// If not provided, the report can be generated with the `report` subcommand.
         /// If provided, the report is saved to the given path.
         #[arg(
-            short,
+            short = 'r',
             long,
             long_help = "Filename of the saved report. May be a fully-qualified path. If not provided, the report can be generated with the `report` subcommand. '.csv' extension is added automatically."
         )]
-        report_file: Option<String>,
+        gen_report: bool,
     },
 
     #[command(
@@ -137,15 +137,6 @@ May be specified multiple times."
             long_help = "The run ID to export reports for. If not provided, the latest run is used."
         )]
         id: Option<u64>,
-
-        /// The path to save the report to.
-        /// If not provided, the report is saved to the current directory.
-        #[arg(
-            short,
-            long,
-            long_help = "Filename of the saved report. May be a fully-qualified path. If not provided, the report is saved to the current directory."
-        )]
-        out_file: Option<String>,
     },
 
     #[command(name = "run", long_about = "Run a builtin scenario.")]

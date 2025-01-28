@@ -3,15 +3,9 @@ use csv::WriterBuilder;
 
 use crate::util::write_run_txs;
 
-pub enum ReportOutput {
-    // Stdout,
-    File(String),
-}
-
 pub fn report(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     id: Option<u64>,
-    data_output: ReportOutput,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let num_runs = db.num_runs()?;
     if num_runs == 0 {
@@ -34,19 +28,15 @@ pub fn report(
 
     let txs = db.get_run_txs(id)?;
 
-    match data_output {
-        // ReportOutput::Stdout => {
-        //     let mut writer = WriterBuilder::new()
-        //         .has_headers(true)
-        //         .from_writer(std::io::stdout());
-        //     write_run_txs(&mut writer, &txs)?;
-        // }
-        ReportOutput::File(out_file) => {
-            println!("Exporting report for run #{:?} to file {:?}", id, out_file);
-            let mut writer = WriterBuilder::new().has_headers(true).from_path(out_file)?;
-            write_run_txs(&mut writer, &txs)?;
-        }
-    }
+    // make path to ~/.contender/report_<id>.csv
+    let home_dir = std::env::var("HOME").expect("Could not get home directory");
+    let contender_dir = format!("{}/.contender", home_dir);
+    std::fs::create_dir_all(&contender_dir)?;
+    let out_path = format!("{}/report_{}.csv", contender_dir, id);
+
+    println!("Exporting report for run #{:?} to {:?}", id, out_path);
+    let mut writer = WriterBuilder::new().has_headers(true).from_path(out_path)?;
+    write_run_txs(&mut writer, &txs)?;
 
     Ok(())
 }

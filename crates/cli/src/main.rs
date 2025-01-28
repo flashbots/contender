@@ -79,7 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             private_keys,
             disable_reports,
             min_balance,
-            report_file,
+            gen_report,
         } => {
             let seed = seed.unwrap_or(stored_seed);
             let run_id = commands::spam(
@@ -98,18 +98,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
             )
             .await?;
-            if let Some(report_file) = report_file {
-                commands::report(&db, Some(run_id), commands::ReportOutput::File(report_file))?;
+            if gen_report {
+                commands::report(&db, Some(run_id))?;
             }
         }
 
-        ContenderSubcommand::Report { id, out_file } => {
-            let home_dir = std::env::var("HOME").expect("Could not get home directory");
-            let contender_dir = format!("{}/.contender", home_dir);
-            std::fs::create_dir_all(&contender_dir)?;
-            let out_filename = out_file.unwrap_or("report".to_owned());
-            let report_path = format!("{}/{}.csv", contender_dir, out_filename);
-            commands::report(&db, id, commands::ReportOutput::File(report_path))?;
+        ContenderSubcommand::Report { id } => {
+            commands::report(&db, id)?;
         }
 
         ContenderSubcommand::Run {
