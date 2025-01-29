@@ -35,7 +35,7 @@ impl HeatMap {
         }
     }
 
-    fn get_keys(&self) -> Vec<u64> {
+    fn get_block_numbers(&self) -> Vec<u64> {
         self.updates_per_slot_per_block.keys().cloned().collect()
     }
 
@@ -80,20 +80,19 @@ impl HeatMapBuilder {
                 let update = account_map
                     .get(key)
                     .expect("invalid key; this should never happen");
-                // "for every storage slot in this frame, increment the count for the slot at this block number"
+                // for every storage slot in this frame, increment the count for the slot at this block number
                 update.storage.iter().for_each(|(slot, _)| {
                     heatmap.add_update(block_num, *slot);
                 });
             }
         }
 
-        let keys = heatmap.get_keys();
-        println!("KEYS: {:?}", keys);
-        for key in keys {
+        let block_nums = heatmap.get_block_numbers();
+        for bn in block_nums {
             let slot_map = heatmap
-                .get_slot_map(key)
+                .get_slot_map(bn)
                 .expect("invalid key; this should never happen");
-            println!("BLOCK: {}", key);
+            println!("BLOCK: {}", bn);
             for (slot, count) in slot_map {
                 println!("  SLOT: {} COUNT: {}", slot, count);
             }
