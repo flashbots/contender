@@ -19,3 +19,4 @@ alloy = { workspace = true, features = ["full", "node-bindings", "rpc-types-debu
 csv = { workspace = true }
 termcolor = "1.4.1"
 rand.workspace = true
+serde_json = { workspace = true }

@@ -1180,6 +1180,7 @@ dependencies = [
  "csv",
  "rand",
  "serde",
+ "serde_json",
  "termcolor",
  "tokio",
 ]

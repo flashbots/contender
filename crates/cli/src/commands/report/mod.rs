@@ -1,3 +1,5 @@
+mod heatmap;
+
 use std::str::FromStr;
 
 use alloy::{
@@ -18,6 +20,8 @@ use contender_core::{
     db::{DbOps, RunTx},
     generator::types::EthProvider,
 };
+use heatmap::HeatMapBuilder;
+use serde::{Deserialize, Serialize};
 
 use crate::util::write_run_txs;
 
@@ -58,31 +62,24 @@ pub async fn report(
     let url = Url::from_str(rpc_url).expect("Invalid URL");
     let rpc_client = ProviderBuilder::new().on_http(url);
 
-    // make the high-level report
+    // get trace data for reports
     let trace_data = get_block_trace_data(&all_txs, &rpc_client).await?;
-    make_report(&trace_data).await?;
+
+    // make heatmap
+    let heatmap = HeatMapBuilder::new().build(&trace_data)?;
+    heatmap.save()?;
 
     Ok(())
 }
 
-/// Compiles a high-level report from RunTxs.
-async fn make_report(trace_data: &[TxTraceReceipt]) -> Result<(), Box<dyn std::error::Error>> {
-    // TODO: add functions for generating each chart, then generate them here
-    for t in trace_data {
-        println!("[TRACE] {:?}", t.trace);
-        println!("[RECEIPT] {:?}", t.receipt);
-    }
-    Ok(())
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 struct TxTraceReceipt {
     trace: GethTrace,
-    receipt: Option<TransactionReceipt>,
+    receipt: TransactionReceipt,
 }
 
 impl TxTraceReceipt {
-    fn new(trace: GethTrace, receipt: Option<TransactionReceipt>) -> Self {
+    fn new(trace: GethTrace, receipt: TransactionReceipt) -> Self {
         Self { trace, receipt }
     }
 }
@@ -91,6 +88,18 @@ async fn get_block_trace_data(
     txs: &[RunTx],
     rpc_client: &EthProvider,
 ) -> Result<Vec<TxTraceReceipt>, Box<dyn std::error::Error>> {
+    if std::env::var("DEBUG_USEFILE").is_ok() {
+        println!("DEBUG: using ~/.contender/debug_trace.json");
+        // load trace data from file at ~/.contender/debug_trace.json
+        let path = format!(
+            "{}/.contender/debug_trace.json",
+            std::env::var("HOME").unwrap()
+        );
+        let file = std::fs::File::open(path)?;
+        let traces: Vec<TxTraceReceipt> = serde_json::from_reader(file)?;
+        return Ok(traces);
+    }
+
     // find block range of txs
     let (min_block, max_block) = txs.iter().fold((u64::MAX, 0), |(min, max), tx| {
         (min.min(tx.block_number), max.max(tx.block_number))
@@ -138,13 +147,25 @@ async fn get_block_trace_data(
             // so if it does fail, we just ignore it
             let receipt = rpc_client.get_transaction_receipt(tx_hash).await;
             if let Ok(receipt) = receipt {
-                println!("got receipt for tx {:?}", tx_hash);
-                all_traces.push(TxTraceReceipt::new(trace, receipt));
+                if let Some(receipt) = receipt {
+                    println!("got receipt for tx {:?}", tx_hash);
+                    all_traces.push(TxTraceReceipt::new(trace, receipt));
+                } else {
+                    println!("no receipt for tx {:?}", tx_hash);
+                }
             } else {
-                println!("ignored non-standard tx {:?}", tx_hash);
+                println!("ignored receipt for tx {:?} (failed to decode)", tx_hash);
             }
         }
     }
+
+    // write all_traces to ~/.contender/debug_trace.json
+    let path = format!(
+        "{}/.contender/debug_trace.json",
+        std::env::var("HOME").unwrap()
+    );
+    let file = std::fs::File::create(path)?;
+    serde_json::to_writer(file, &all_traces)?;
 
     Ok(all_traces)
 }
