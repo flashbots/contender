@@ -86,9 +86,6 @@ impl HeatMap {
     pub fn draw(&self, filename: impl AsRef<str>) -> Result<(), Box<dyn std::error::Error>> {
         println!("drawing heatmap");
         let matrix = self.get_matrix();
-        for row in &matrix {
-            println!("{:?} ({})", row, row.len());
-        }
 
         // plotters
         let root = BitMapBackend::new(filename.as_ref(), (1024, 768)).into_drawing_area();
@@ -102,7 +99,7 @@ impl HeatMap {
             .max()
             .unwrap();
         let mut chart = ChartBuilder::on(&root)
-            .caption("Heatmap", ("sans-serif", 80))
+            .caption("Storage Slot Heatmap", ("sans-serif", 40))
             .margin(5)
             .top_x_label_area_size(40)
             .y_label_area_size(40)
@@ -120,17 +117,13 @@ impl HeatMap {
             .label_style(("sans-serif", 15))
             .draw()?;
 
-        println!("max_incidence: {}", max_incidence);
-
         chart.draw_series(
             matrix
                 .iter()
                 .zip(0..)
                 .flat_map(|(l, x)| l.iter().zip(0..).map(move |(v, y)| (x, y, v)))
                 .map(|(x, y, v)| {
-                    println!("x: {}, y: {}, v: {}", x, y, v);
                     let brightness = (v * 255 / max_incidence) as u8;
-                    println!("brightness: {}", brightness);
                     let (r, g, b) = rgb_gradient(brightness);
                     Rectangle::new([(x, y), (x + 1, y + 1)], RGBColor(r, g, b).filled())
                 }),
@@ -144,8 +137,9 @@ impl HeatMap {
 
 fn rgb_gradient(value: u8) -> (u8, u8, u8) {
     match value {
-        0..=127 => (value * 2, 0, 0), // Transition from black (0,0,0) to red (255,0,0)
-        128..=255 => (255, (value - 128) * 2, (value - 128) * 2), // Transition from red to white
+        0..=85 => (value * 3, 0, 0),                // Black to Red (R increases)
+        86..=170 => (255, (value - 85) * 3, 0),     // Red to Yellow (G increases)
+        171..=255 => (255, 255, (value - 170) * 3), // Yellow to White (B increases)
     }
 }
 
@@ -169,10 +163,10 @@ impl HeatMapBuilder {
                 .trace
                 .to_owned()
                 .try_into_pre_state_frame()
-                .expect("failed to decode prestate frame");
+                .expect("failed to decode PreStateFrame");
             let account_map = &trace_frame
                 .as_default()
-                .expect("failed to decode PreStateMode")
+                .expect("failed to decode default PreStateMode")
                 .0;
 
             // "for each account in this transaction trace"
