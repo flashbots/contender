@@ -59,20 +59,16 @@ pub async fn report(
     let rpc_client = ProviderBuilder::new().on_http(url);
 
     // make the high-level report
-    make_report(&all_txs, &rpc_client).await?;
+    let trace_data = get_block_trace_data(&all_txs, &rpc_client).await?;
+    make_report(&trace_data).await?;
 
     Ok(())
 }
 
 /// Compiles a high-level report from RunTxs.
-async fn make_report(
-    txs: &[RunTx],
-    rpc_client: &EthProvider,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let trace_data = get_block_trace_data(txs, rpc_client).await?;
-
+async fn make_report(trace_data: &[TxTraceReceipt]) -> Result<(), Box<dyn std::error::Error>> {
     // TODO: add functions for generating each chart, then generate them here
-    for t in &trace_data {
+    for t in trace_data {
         println!("[TRACE] {:?}", t.trace);
         println!("[RECEIPT] {:?}", t.receipt);
     }
