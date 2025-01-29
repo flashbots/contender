@@ -43,8 +43,51 @@ impl HeatMap {
         self.updates_per_slot_per_block.get(&block_num)
     }
 
+    fn get_num_blocks(&self) -> usize {
+        self.updates_per_slot_per_block.len()
+    }
+
+    fn get_num_slots(&self) -> usize {
+        self.updates_per_slot_per_block
+            .values()
+            .flat_map(|slot_map| slot_map.keys())
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+    }
+
+    fn get_matrix(&self) -> Vec<Vec<u64>> {
+        let mut matrix = vec![vec![0; self.get_num_slots()]; self.get_num_blocks()];
+        let block_nums = self.get_block_numbers();
+        let mut slot_indices = BTreeMap::new();
+        let mut slot_counter = 0;
+
+        for slot_map in self.updates_per_slot_per_block.values() {
+            for slot in slot_map.keys() {
+                if !slot_indices.contains_key(slot) {
+                    slot_indices.insert(slot.clone(), slot_counter);
+                    slot_counter += 1;
+                }
+            }
+        }
+
+        for (i, bn) in block_nums.iter().enumerate() {
+            let slot_map = self
+                .get_slot_map(*bn)
+                .expect("invalid key; this should never happen");
+            for (slot, count) in slot_map {
+                let j = *slot_indices.get(slot).expect("slot index not found");
+                matrix[i][j] = *count;
+            }
+        }
+        matrix
+    }
+
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
         println!("saving heatmap");
+        let matrix = self.get_matrix();
+        for row in matrix {
+            println!("{:?} ({})", row, row.len());
+        }
         Ok(())
     }
 }
