@@ -20,3 +20,4 @@ csv = { workspace = true }
 termcolor = "1.4.1"
 rand.workspace = true
 serde_json = { workspace = true }
+plotters = { workspace = true }

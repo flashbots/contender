@@ -1,6 +1,6 @@
-use alloy::primitives::FixedBytes;
-
 use crate::commands::report::TxTraceReceipt;
+use alloy::primitives::FixedBytes;
+use plotters::prelude::*;
 use std::collections::BTreeMap;
 
 pub struct HeatMapBuilder;
@@ -58,6 +58,7 @@ impl HeatMap {
     fn get_matrix(&self) -> Vec<Vec<u64>> {
         let mut matrix = vec![vec![0; self.get_num_slots()]; self.get_num_blocks()];
         let block_nums = self.get_block_numbers();
+
         let mut slot_indices = BTreeMap::new();
         let mut slot_counter = 0;
 
@@ -82,13 +83,69 @@ impl HeatMap {
         matrix
     }
 
-    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        println!("saving heatmap");
+    pub fn draw(&self, filename: impl AsRef<str>) -> Result<(), Box<dyn std::error::Error>> {
+        println!("drawing heatmap");
         let matrix = self.get_matrix();
-        for row in matrix {
+        for row in &matrix {
             println!("{:?} ({})", row, row.len());
         }
+
+        // plotters
+        let root = BitMapBackend::new(filename.as_ref(), (1024, 768)).into_drawing_area();
+        root.fill(&WHITE)?;
+
+        let x_size = matrix.len();
+        let y_size = matrix[0].len();
+        let max_incidence = matrix
+            .iter()
+            .map(|r| r.iter().max().unwrap())
+            .max()
+            .unwrap();
+        let mut chart = ChartBuilder::on(&root)
+            .caption("Heatmap", ("sans-serif", 80))
+            .margin(5)
+            .top_x_label_area_size(40)
+            .y_label_area_size(40)
+            .build_cartesian_2d(0..x_size, 0..y_size)?;
+
+        chart
+            .configure_mesh()
+            .x_labels(x_size)
+            .y_labels(y_size)
+            .max_light_lines(x_size)
+            .x_label_offset(35)
+            .y_label_offset(24)
+            .disable_x_mesh()
+            .disable_y_mesh()
+            .label_style(("sans-serif", 15))
+            .draw()?;
+
+        println!("max_incidence: {}", max_incidence);
+
+        chart.draw_series(
+            matrix
+                .iter()
+                .zip(0..)
+                .flat_map(|(l, x)| l.iter().zip(0..).map(move |(v, y)| (x, y, v)))
+                .map(|(x, y, v)| {
+                    println!("x: {}, y: {}, v: {}", x, y, v);
+                    let brightness = (v * 255 / max_incidence) as u8;
+                    println!("brightness: {}", brightness);
+                    let (r, g, b) = rgb_gradient(brightness);
+                    Rectangle::new([(x, y), (x + 1, y + 1)], RGBColor(r, g, b).filled())
+                }),
+        )?;
+
+        root.present().expect("failed to write plot to file.");
+
         Ok(())
+    }
+}
+
+fn rgb_gradient(value: u8) -> (u8, u8, u8) {
+    match value {
+        0..=127 => (value * 2, 0, 0), // Transition from black (0,0,0) to red (255,0,0)
+        128..=255 => (255, (value - 128) * 2, (value - 128) * 2), // Transition from red to white
     }
 }
 

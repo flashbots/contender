@@ -67,7 +67,7 @@ pub async fn report(
 
     // make heatmap
     let heatmap = HeatMapBuilder::new().build(&trace_data)?;
-    heatmap.save()?;
+    heatmap.draw(format!("heatmap-run-{}-{}.png", start_run_id, end_run_id))?;
 
     Ok(())
 }
