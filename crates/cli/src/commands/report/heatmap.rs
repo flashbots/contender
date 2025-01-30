@@ -104,8 +104,8 @@ impl HeatMap {
         let root = BitMapBackend::new(filename.as_ref(), (1024, 768)).into_drawing_area();
         root.fill(&RGBColor(240, 240, 240))?;
 
-        let (chart_area, legend_area) = root.split_horizontally(800);
-        let legend_area = legend_area.margin(40, 40, 40, 10);
+        let (chart_area, legend_area) = root.split_horizontally(900);
+        let legend_area = legend_area.margin(40, 40, 10, 10);
 
         let block_nums = self.get_block_numbers();
         let slot_names = self.get_slot_names();
@@ -118,15 +118,15 @@ impl HeatMap {
             .max()
             .expect("empty matrix");
         let mut chart = ChartBuilder::on(&chart_area)
-            .caption("Storage Slot Heatmap", ("sans-serif", 40))
-            .margin(10)
-            .x_label_area_size(90)
+            // .caption("Storage Slot Update Incidence", ("sans-serif", 30))
+            .margin(20)
+            .x_label_area_size(80)
             .y_label_area_size(160)
             .build_cartesian_2d(0..x_size, 0..y_size)?;
 
         chart
             .configure_mesh()
-            .x_desc("Block #")
+            .x_desc("Block")
             .x_labels(x_size)
             .x_label_formatter(&|i| {
                 if *i == block_nums.len() {
