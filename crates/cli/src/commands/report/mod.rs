@@ -1,4 +1,4 @@
-mod heatmap;
+mod chart;
 
 use crate::util::{data_dir, write_run_txs};
 use alloy::providers::ext::DebugApi;
@@ -14,12 +14,12 @@ use alloy::{
     },
     transports::http::reqwest::Url,
 };
+use chart::{GasPerBlockChart, HeatMap};
 use contender_core::{
     db::{DbOps, RunTx},
     generator::types::EthProvider,
 };
 use csv::WriterBuilder;
-use heatmap::HeatMapBuilder;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
@@ -61,22 +61,22 @@ fn report_dir() -> Result<String, Box<dyn std::error::Error>> {
     Ok(path)
 }
 
-enum ReportChart {
+enum ReportChartId {
     Heatmap,
-    // GasPerBlock
-    // TimeToInclusion
-    // TxGasUsed
+    GasPerBlock, // TimeToInclusion
+                 // TxGasUsed
 }
 
-impl ToString for ReportChart {
+impl ToString for ReportChartId {
     fn to_string(&self) -> String {
         match self {
-            ReportChart::Heatmap => "heatmap".to_string(),
+            ReportChartId::Heatmap => "heatmap".to_string(),
+            ReportChartId::GasPerBlock => "gas_per_block".to_string(),
         }
     }
 }
 
-impl ReportChart {
+impl ReportChartId {
     fn filename(
         &self,
         start_run_id: u64,
@@ -126,10 +126,9 @@ pub async fn report(
         save_csv_report(id, &txs)?;
     }
 
+    // get trace data for reports
     let url = Url::from_str(rpc_url).expect("Invalid URL");
     let rpc_client = ProviderBuilder::new().on_http(url);
-
-    // get trace data for reports
     let (trace_data, blocks) = get_block_trace_data(&all_txs, &rpc_client).await?;
 
     // cache data to file
@@ -137,8 +136,13 @@ pub async fn report(
     cache_data.save()?;
 
     // make heatmap
-    let heatmap = HeatMapBuilder::new().build(&cache_data.traces)?;
-    heatmap.draw(ReportChart::Heatmap.filename(start_run_id, end_run_id)?)?;
+    let heatmap = HeatMap::build(&cache_data.traces)?;
+    heatmap.draw(ReportChartId::Heatmap.filename(start_run_id, end_run_id)?)?;
+    // make gasPerBlock chart
+    let gas_per_block = GasPerBlockChart::build(&cache_data.blocks);
+    gas_per_block.draw(ReportChartId::GasPerBlock.filename(start_run_id, end_run_id)?)?;
+    // make timeToInclusion chart
+    // make txGasUsed chart
 
     Ok(())
 }

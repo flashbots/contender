@@ -3,8 +3,6 @@ use alloy::primitives::FixedBytes;
 use plotters::prelude::*;
 use std::collections::BTreeMap;
 
-pub struct HeatMapBuilder;
-
 pub struct HeatMap {
     updates_per_slot_per_block: BTreeMap<u64, BTreeMap<FixedBytes<32>, u64>>,
 }
@@ -21,6 +19,50 @@ impl HeatMap {
         Self {
             updates_per_slot_per_block: Default::default(),
         }
+    }
+
+    pub fn build(trace_data: &[TxTraceReceipt]) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut heatmap = HeatMap::new();
+
+        for t in trace_data {
+            let block_num = t
+                .receipt
+                .block_number
+                .expect("block number not found in receipt");
+            let trace_frame = t
+                .trace
+                .to_owned()
+                .try_into_pre_state_frame()
+                .expect("failed to decode PreStateFrame");
+            let account_map = &trace_frame
+                .as_default()
+                .expect("failed to decode default PreStateMode")
+                .0;
+
+            // "for each account in this transaction trace"
+            for key in account_map.keys() {
+                let update = account_map
+                    .get(key)
+                    .expect("invalid key; this should never happen");
+                // for every storage slot in this frame, increment the count for the slot at this block number
+                update.storage.iter().for_each(|(slot, _)| {
+                    heatmap.add_update(block_num, *slot);
+                });
+            }
+        }
+
+        let block_nums = heatmap.get_block_numbers();
+        for bn in block_nums {
+            let slot_map = heatmap
+                .get_slot_map(bn)
+                .expect("invalid key; this should never happen");
+            println!("BLOCK: {}", bn);
+            for (slot, count) in slot_map {
+                println!("  SLOT: {} COUNT: {}", slot, count);
+            }
+        }
+
+        Ok(heatmap)
     }
 
     fn add_update(&mut self, block_num: u64, slot: FixedBytes<32>) {
@@ -228,58 +270,5 @@ fn rgb_gradient(value: u8) -> (u8, u8, u8) {
         0..=85 => (value * 3, 0, 0),                // Black to Red (R increases)
         86..=170 => (255, (value - 85) * 3, 0),     // Red to Yellow (G increases)
         171..=255 => (255, 255, (value - 170) * 3), // Yellow to White (B increases)
-    }
-}
-
-impl HeatMapBuilder {
-    pub fn new() -> Self {
-        Self {}
-    }
-
-    pub fn build(
-        &self,
-        trace_data: &[TxTraceReceipt],
-    ) -> Result<HeatMap, Box<dyn std::error::Error>> {
-        let mut heatmap = HeatMap::new();
-
-        for t in trace_data {
-            let block_num = t
-                .receipt
-                .block_number
-                .expect("block number not found in receipt");
-            let trace_frame = t
-                .trace
-                .to_owned()
-                .try_into_pre_state_frame()
-                .expect("failed to decode PreStateFrame");
-            let account_map = &trace_frame
-                .as_default()
-                .expect("failed to decode default PreStateMode")
-                .0;
-
-            // "for each account in this transaction trace"
-            for key in account_map.keys() {
-                let update = account_map
-                    .get(key)
-                    .expect("invalid key; this should never happen");
-                // for every storage slot in this frame, increment the count for the slot at this block number
-                update.storage.iter().for_each(|(slot, _)| {
-                    heatmap.add_update(block_num, *slot);
-                });
-            }
-        }
-
-        let block_nums = heatmap.get_block_numbers();
-        for bn in block_nums {
-            let slot_map = heatmap
-                .get_slot_map(bn)
-                .expect("invalid key; this should never happen");
-            println!("BLOCK: {}", bn);
-            for (slot, count) in slot_map {
-                println!("  SLOT: {} COUNT: {}", slot, count);
-            }
-        }
-
-        Ok(heatmap)
     }
 }
