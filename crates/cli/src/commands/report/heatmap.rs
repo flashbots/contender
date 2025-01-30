@@ -89,7 +89,10 @@ impl HeatMap {
 
         // plotters
         let root = BitMapBackend::new(filename.as_ref(), (1024, 768)).into_drawing_area();
-        root.fill(&WHITE)?;
+        root.fill(&RGBColor(240, 240, 240))?;
+
+        let (chart_area, legend_area) = root.split_horizontally(800);
+        let legend_area = legend_area.margin(40, 20, 40, 10);
 
         let x_size = matrix.len();
         let y_size = matrix[0].len();
@@ -98,10 +101,10 @@ impl HeatMap {
             .map(|r| r.iter().max().unwrap())
             .max()
             .unwrap();
-        let mut chart = ChartBuilder::on(&root)
+        let mut chart = ChartBuilder::on(&chart_area)
             .caption("Storage Slot Heatmap", ("sans-serif", 40))
-            .margin(5)
-            .top_x_label_area_size(40)
+            .margin(10)
+            .x_label_area_size(40)
             .y_label_area_size(40)
             .build_cartesian_2d(0..x_size, 0..y_size)?;
 
@@ -117,17 +120,46 @@ impl HeatMap {
             .label_style(("sans-serif", 15))
             .draw()?;
 
-        chart.draw_series(
-            matrix
-                .iter()
-                .zip(0..)
-                .flat_map(|(l, x)| l.iter().zip(0..).map(move |(v, y)| (x, y, v)))
-                .map(|(x, y, v)| {
-                    let brightness = (v * 255 / max_incidence) as u8;
-                    let (r, g, b) = rgb_gradient(brightness);
-                    Rectangle::new([(x, y), (x + 1, y + 1)], RGBColor(r, g, b).filled())
-                }),
-        )?;
+        chart
+            .draw_series(
+                matrix
+                    .iter()
+                    .zip(0..)
+                    .flat_map(|(l, x)| l.iter().zip(0..).map(move |(v, y)| (x, y, v)))
+                    .map(|(x, y, v)| {
+                        let brightness = (v * 255 / max_incidence) as u8;
+                        let (r, g, b) = rgb_gradient(brightness);
+                        Rectangle::new([(x, y), (x + 1, y + 1)], RGBColor(r, g, b).filled())
+                    }),
+            )?
+            .label("heatmap");
+
+        // Draw vertical color gradient in the legend area
+        let legend_height = 700;
+
+        for i in 0..=*max_incidence {
+            let brightness = (i * 255 / max_incidence) as u8;
+            let (r, g, b) = rgb_gradient(brightness);
+            let y_start = legend_height - (i * (legend_height / max_incidence));
+            let y_end = y_start - (legend_height / max_incidence);
+
+            legend_area.draw(&Rectangle::new(
+                [(50, y_start as i32), (80, y_end as i32)], // Small vertical bar
+                RGBColor(r, g, b).filled(),
+            ))?;
+        }
+
+        // Draw legend labels
+        legend_area.draw(&Text::new(
+            format!("{:.1}", max_incidence),
+            (90, 0),
+            ("sans-serif", 15),
+        ))?;
+        legend_area.draw(&Text::new(
+            "0",
+            (90, legend_height as i32),
+            ("sans-serif", 15),
+        ))?;
 
         root.present().expect("failed to write plot to file.");
 
