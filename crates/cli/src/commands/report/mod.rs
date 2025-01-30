@@ -2,6 +2,7 @@ mod heatmap;
 
 use crate::util::{data_dir, write_run_txs};
 use alloy::providers::ext::DebugApi;
+use alloy::rpc::types::Block;
 use alloy::{
     providers::{Provider, ProviderBuilder},
     rpc::types::{
@@ -24,11 +25,37 @@ use std::str::FromStr;
 
 static CACHE_FILENAME: &str = "debug_trace.json";
 
-fn cache_path() -> Result<String, Box<dyn std::error::Error>> {
-    Ok(format!("{}/{}", data_dir()?, CACHE_FILENAME))
+#[derive(Serialize, Deserialize)]
+struct CacheFile {
+    traces: Vec<TxTraceReceipt>,
+    blocks: Vec<Block>,
 }
 
-fn report_path() -> Result<String, Box<dyn std::error::Error>> {
+impl CacheFile {
+    fn new(traces: Vec<TxTraceReceipt>, blocks: Vec<Block>) -> Self {
+        Self { traces, blocks }
+    }
+
+    /// Returns the fully-qualified path to the cache file.
+    fn cache_path() -> Result<String, Box<dyn std::error::Error>> {
+        Ok(format!("{}/{}", data_dir()?, CACHE_FILENAME))
+    }
+
+    fn load() -> Result<Self, Box<dyn std::error::Error>> {
+        let file = std::fs::File::open(CacheFile::cache_path()?)?;
+        let cache_data: CacheFile = serde_json::from_reader(file)?;
+        Ok(cache_data)
+    }
+
+    fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let file = std::fs::File::create(CacheFile::cache_path()?)?;
+        serde_json::to_writer(file, self)?;
+        Ok(())
+    }
+}
+
+/// Returns the fully-qualified path to the report directory.
+fn report_dir() -> Result<String, Box<dyn std::error::Error>> {
     let path = format!("{}/reports", data_dir()?);
     std::fs::create_dir_all(&path)?;
     Ok(path)
@@ -72,13 +99,17 @@ pub async fn report(
     let rpc_client = ProviderBuilder::new().on_http(url);
 
     // get trace data for reports
-    let trace_data = get_block_trace_data(&all_txs, &rpc_client).await?;
+    let (trace_data, blocks) = get_block_trace_data(&all_txs, &rpc_client).await?;
+
+    // cache data to file
+    let cache_data = CacheFile::new(trace_data, blocks);
+    cache_data.save()?;
 
     // make heatmap
-    let heatmap = HeatMapBuilder::new().build(&trace_data)?;
+    let heatmap = HeatMapBuilder::new().build(&cache_data.traces)?;
     heatmap.draw(format!(
         "{}/heatmap-run-{}-{}.png",
-        report_path()?,
+        report_dir()?,
         start_run_id,
         end_run_id
     ))?;
@@ -101,14 +132,12 @@ impl TxTraceReceipt {
 async fn get_block_trace_data(
     txs: &[RunTx],
     rpc_client: &EthProvider,
-) -> Result<Vec<TxTraceReceipt>, Box<dyn std::error::Error>> {
+) -> Result<(Vec<TxTraceReceipt>, Vec<Block>), Box<dyn std::error::Error>> {
     if std::env::var("DEBUG_USEFILE").is_ok() {
+        println!("DEBUG_USEFILE detected: using cached data");
         // load trace data from file
-        let path = cache_path()?;
-        println!("DEBUG: using data stored at {}", path);
-        let file = std::fs::File::open(path)?;
-        let traces: Vec<TxTraceReceipt> = serde_json::from_reader(file)?;
-        return Ok(traces);
+        let cache_data = CacheFile::load()?;
+        return Ok((cache_data.traces, cache_data.blocks));
     }
 
     // find block range of txs
@@ -135,10 +164,9 @@ async fn get_block_trace_data(
 
     // get tx traces for all txs in all_blocks
     let mut all_traces = vec![];
-    for block in all_blocks {
+    for block in &all_blocks {
         for tx_hash in block.transactions.hashes() {
             println!("tracing tx {:?}", tx_hash);
-            // rpc_client.trace_block(block)
             let trace = rpc_client
                 .debug_trace_transaction(
                     tx_hash,
@@ -152,8 +180,7 @@ async fn get_block_trace_data(
                     },
                 )
                 .await?;
-            println!("here's your trace: {:?}", trace);
-            println!("getting receipt for tx {:?}", tx_hash);
+
             // receipt might fail if we target a non-ETH chain
             // so if it does fail, we just ignore it
             let receipt = rpc_client.get_transaction_receipt(tx_hash).await;
@@ -170,16 +197,12 @@ async fn get_block_trace_data(
         }
     }
 
-    // write all_traces to file
-    let file = std::fs::File::create(cache_path()?)?;
-    serde_json::to_writer(file, &all_traces)?;
-
-    Ok(all_traces)
+    Ok((all_traces, all_blocks))
 }
 
 /// Saves RunTxs to `{data_dir}/reports/{id}.csv`.
 fn save_csv_report(id: u64, txs: &[RunTx]) -> Result<(), Box<dyn std::error::Error>> {
-    let report_dir = report_path()?;
+    let report_dir = report_dir()?;
     let out_path = format!("{report_dir}/{id}.csv");
 
     println!("Exporting report for run #{:?} to {:?}", id, out_path);
