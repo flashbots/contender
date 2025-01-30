@@ -61,6 +61,37 @@ fn report_dir() -> Result<String, Box<dyn std::error::Error>> {
     Ok(path)
 }
 
+enum ReportChart {
+    Heatmap,
+    // GasPerBlock
+    // TimeToInclusion
+    // TxGasUsed
+}
+
+impl ToString for ReportChart {
+    fn to_string(&self) -> String {
+        match self {
+            ReportChart::Heatmap => "heatmap".to_string(),
+        }
+    }
+}
+
+impl ReportChart {
+    fn filename(
+        &self,
+        start_run_id: u64,
+        end_run_id: u64,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        Ok(format!(
+            "{}/{}_run-{}-{}.png",
+            report_dir()?,
+            self.to_string(),
+            start_run_id,
+            end_run_id
+        ))
+    }
+}
+
 pub async fn report(
     last_run_id: Option<u64>,
     preceding_runs: u64,
@@ -107,12 +138,7 @@ pub async fn report(
 
     // make heatmap
     let heatmap = HeatMapBuilder::new().build(&cache_data.traces)?;
-    heatmap.draw(format!(
-        "{}/heatmap-run-{}-{}.png",
-        report_dir()?,
-        start_run_id,
-        end_run_id
-    ))?;
+    heatmap.draw(ReportChart::Heatmap.filename(start_run_id, end_run_id)?)?;
 
     Ok(())
 }
