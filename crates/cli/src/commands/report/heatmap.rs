@@ -59,18 +59,23 @@ impl HeatMap {
         let mut matrix = vec![vec![0; self.get_num_slots()]; self.get_num_blocks()];
         let block_nums = self.get_block_numbers();
 
+        // map slots to matrix indices
         let mut slot_indices = BTreeMap::new();
-        let mut slot_counter = 0;
-
+        let mut all_keys = vec![];
         for slot_map in self.updates_per_slot_per_block.values() {
-            for slot in slot_map.keys() {
-                if !slot_indices.contains_key(slot) {
-                    slot_indices.insert(slot.clone(), slot_counter);
-                    slot_counter += 1;
-                }
+            // collect keys (slots) from all slot maps
+            all_keys.extend_from_slice(slot_map.keys().collect::<Vec<_>>().as_slice());
+        }
+        all_keys.sort();
+        let mut slot_counter = 0;
+        for slot in all_keys {
+            if !slot_indices.contains_key(slot) {
+                slot_indices.insert(slot.clone(), slot_counter);
+                slot_counter += 1;
             }
         }
 
+        // build matrix
         for (i, bn) in block_nums.iter().enumerate() {
             let slot_map = self
                 .get_slot_map(*bn)
@@ -97,7 +102,6 @@ impl HeatMap {
     }
 
     pub fn draw(&self, filename: impl AsRef<str>) -> Result<(), Box<dyn std::error::Error>> {
-        println!("drawing heatmap");
         let matrix = self.get_matrix();
 
         // plotters
@@ -118,7 +122,6 @@ impl HeatMap {
             .max()
             .expect("empty matrix");
         let mut chart = ChartBuilder::on(&chart_area)
-            // .caption("Storage Slot Update Incidence", ("sans-serif", 30))
             .margin(20)
             .x_label_area_size(80)
             .y_label_area_size(160)
