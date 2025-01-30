@@ -1,6 +1,6 @@
 use crate::commands::report::TxTraceReceipt;
 use alloy::primitives::FixedBytes;
-use plotters::prelude::*;
+use plotters::{prelude::*, style::text_anchor::Pos};
 use std::collections::BTreeMap;
 
 pub struct HeatMapBuilder;
@@ -83,6 +83,19 @@ impl HeatMap {
         matrix
     }
 
+    fn get_slot_names(&self) -> Vec<String> {
+        let mut slots = self
+            .updates_per_slot_per_block
+            .values()
+            .flat_map(|slot_map| slot_map.keys())
+            // filter out duplicates
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        slots.sort();
+        slots.iter().map(|s| format!("{:?}", s)).collect()
+    }
+
     pub fn draw(&self, filename: impl AsRef<str>) -> Result<(), Box<dyn std::error::Error>> {
         println!("drawing heatmap");
         let matrix = self.get_matrix();
@@ -92,32 +105,60 @@ impl HeatMap {
         root.fill(&RGBColor(240, 240, 240))?;
 
         let (chart_area, legend_area) = root.split_horizontally(800);
-        let legend_area = legend_area.margin(40, 20, 40, 10);
+        let legend_area = legend_area.margin(40, 40, 40, 10);
+
+        let block_nums = self.get_block_numbers();
+        let slot_names = self.get_slot_names();
 
         let x_size = matrix.len();
         let y_size = matrix[0].len();
         let max_incidence = matrix
             .iter()
-            .map(|r| r.iter().max().unwrap())
+            .map(|r| r.iter().max().expect("empty row"))
             .max()
-            .unwrap();
+            .expect("empty matrix");
         let mut chart = ChartBuilder::on(&chart_area)
             .caption("Storage Slot Heatmap", ("sans-serif", 40))
             .margin(10)
-            .x_label_area_size(40)
-            .y_label_area_size(40)
+            .x_label_area_size(90)
+            .y_label_area_size(160)
             .build_cartesian_2d(0..x_size, 0..y_size)?;
 
         chart
             .configure_mesh()
             .x_labels(x_size)
+            .x_label_formatter(&|i| {
+                if *i == block_nums.len() {
+                    return String::default();
+                }
+                let block_num = block_nums.get(*i).unwrap();
+                format!("            {}", block_num)
+            })
             .y_labels(y_size)
-            .max_light_lines(x_size)
-            .x_label_offset(35)
+            .y_label_formatter(&|i| {
+                if *i == 0 {
+                    return String::default();
+                }
+                let slot_name = slot_names
+                    .get(*i - 1)
+                    .map(|n| n.to_owned())
+                    .unwrap_or_default();
+                format!(
+                    "{}...{}",
+                    slot_name[..8].to_string(),
+                    slot_name[60..].to_string()
+                )
+            })
+            .x_label_offset(24)
             .y_label_offset(24)
             .disable_x_mesh()
             .disable_y_mesh()
             .label_style(("sans-serif", 15))
+            .x_label_style(
+                ("sans-serif", 15)
+                    .into_text_style(&chart_area)
+                    .transform(FontTransform::Rotate90),
+            )
             .draw()?;
 
         chart
