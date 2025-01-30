@@ -217,6 +217,7 @@ impl HeatMap {
         ))?;
 
         root.present().expect("failed to write plot to file.");
+        println!("saved heatmap at {}", filepath.as_ref());
 
         Ok(())
     }

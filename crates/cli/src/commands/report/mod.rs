@@ -28,6 +28,12 @@ fn cache_path() -> Result<String, Box<dyn std::error::Error>> {
     Ok(format!("{}/{}", data_dir()?, CACHE_FILENAME))
 }
 
+fn report_path() -> Result<String, Box<dyn std::error::Error>> {
+    let path = format!("{}/reports", data_dir()?);
+    std::fs::create_dir_all(&path)?;
+    Ok(path)
+}
+
 pub async fn report(
     last_run_id: Option<u64>,
     preceding_runs: u64,
@@ -70,7 +76,12 @@ pub async fn report(
 
     // make heatmap
     let heatmap = HeatMapBuilder::new().build(&trace_data)?;
-    heatmap.draw(format!("heatmap-run-{}-{}.png", start_run_id, end_run_id))?;
+    heatmap.draw(format!(
+        "{}/heatmap-run-{}-{}.png",
+        report_path()?,
+        start_run_id,
+        end_run_id
+    ))?;
 
     Ok(())
 }
@@ -168,10 +179,8 @@ async fn get_block_trace_data(
 
 /// Saves RunTxs to `{data_dir}/reports/{id}.csv`.
 fn save_csv_report(id: u64, txs: &[RunTx]) -> Result<(), Box<dyn std::error::Error>> {
-    let contender_dir = data_dir()?;
-    let reports_dir = format!("{}/reports", contender_dir);
-    std::fs::create_dir_all(&reports_dir)?;
-    let out_path = format!("{}/{}.csv", reports_dir, id);
+    let report_dir = report_path()?;
+    let out_path = format!("{report_dir}/{id}.csv");
 
     println!("Exporting report for run #{:?} to {:?}", id, out_path);
     let mut writer = WriterBuilder::new().has_headers(true).from_path(out_path)?;
