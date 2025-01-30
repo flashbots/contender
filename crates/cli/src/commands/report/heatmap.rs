@@ -151,7 +151,7 @@ impl HeatMap {
 
         // Draw legend labels
         legend_area.draw(&Text::new(
-            format!("{:.1}", max_incidence),
+            max_incidence.to_string(),
             (90, 0),
             ("sans-serif", 15),
         ))?;
@@ -159,6 +159,15 @@ impl HeatMap {
             "0",
             (90, legend_height as i32),
             ("sans-serif", 15),
+        ))?;
+
+        // draw legend title
+        legend_area.draw(&Text::new(
+            "# Slot Updates",
+            (40, legend_height as i32 / 2),
+            ("sans-serif", 15)
+                .into_font()
+                .transform(FontTransform::Rotate90),
         ))?;
 
         root.present().expect("failed to write plot to file.");
