@@ -101,11 +101,11 @@ impl HeatMap {
         slots.iter().map(|s| format!("{:?}", s)).collect()
     }
 
-    pub fn draw(&self, filename: impl AsRef<str>) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn draw(&self, filepath: impl AsRef<str>) -> Result<(), Box<dyn std::error::Error>> {
         let matrix = self.get_matrix();
 
         // plotters
-        let root = BitMapBackend::new(filename.as_ref(), (1024, 768)).into_drawing_area();
+        let root = BitMapBackend::new(filepath.as_ref(), (1024, 768)).into_drawing_area();
         root.fill(&RGBColor(240, 240, 240))?;
 
         let (chart_area, legend_area) = root.split_horizontally(900);

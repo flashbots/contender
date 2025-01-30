@@ -1,7 +1,7 @@
 mod heatmap;
 
-use std::str::FromStr;
-
+use crate::util::{data_dir, write_run_txs};
+use alloy::providers::ext::DebugApi;
 use alloy::{
     providers::{Provider, ProviderBuilder},
     rpc::types::{
@@ -13,17 +13,20 @@ use alloy::{
     },
     transports::http::reqwest::Url,
 };
-use csv::WriterBuilder;
-
-use alloy::providers::ext::DebugApi;
 use contender_core::{
     db::{DbOps, RunTx},
     generator::types::EthProvider,
 };
+use csv::WriterBuilder;
 use heatmap::HeatMapBuilder;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
-use crate::util::write_run_txs;
+static CACHE_FILENAME: &str = "debug_trace.json";
+
+fn cache_path() -> Result<String, Box<dyn std::error::Error>> {
+    Ok(format!("{}/{}", data_dir()?, CACHE_FILENAME))
+}
 
 pub async fn report(
     last_run_id: Option<u64>,
@@ -89,12 +92,9 @@ async fn get_block_trace_data(
     rpc_client: &EthProvider,
 ) -> Result<Vec<TxTraceReceipt>, Box<dyn std::error::Error>> {
     if std::env::var("DEBUG_USEFILE").is_ok() {
-        println!("DEBUG: using ~/.contender/debug_trace.json");
-        // load trace data from file at ~/.contender/debug_trace.json
-        let path = format!(
-            "{}/.contender/debug_trace.json",
-            std::env::var("HOME").unwrap()
-        );
+        // load trace data from file
+        let path = cache_path()?;
+        println!("DEBUG: using data stored at {}", path);
         let file = std::fs::File::open(path)?;
         let traces: Vec<TxTraceReceipt> = serde_json::from_reader(file)?;
         return Ok(traces);
@@ -159,24 +159,19 @@ async fn get_block_trace_data(
         }
     }
 
-    // write all_traces to ~/.contender/debug_trace.json
-    let path = format!(
-        "{}/.contender/debug_trace.json",
-        std::env::var("HOME").unwrap()
-    );
-    let file = std::fs::File::create(path)?;
+    // write all_traces to file
+    let file = std::fs::File::create(cache_path()?)?;
     serde_json::to_writer(file, &all_traces)?;
 
     Ok(all_traces)
 }
 
-/// Saves RunTxs to `~/.contender/report_{id}.csv`.
+/// Saves RunTxs to `{data_dir}/reports/{id}.csv`.
 fn save_csv_report(id: u64, txs: &[RunTx]) -> Result<(), Box<dyn std::error::Error>> {
-    // make path to ~/.contender/report_<id>.csv
-    let home_dir = std::env::var("HOME").expect("Could not get home directory");
-    let contender_dir = format!("{}/.contender", home_dir);
-    std::fs::create_dir_all(&contender_dir)?;
-    let out_path = format!("{}/report_{}.csv", contender_dir, id);
+    let contender_dir = data_dir()?;
+    let reports_dir = format!("{}/reports", contender_dir);
+    std::fs::create_dir_all(&reports_dir)?;
+    let out_path = format!("{}/{}.csv", reports_dir, id);
 
     println!("Exporting report for run #{:?} to {:?}", id, out_path);
     let mut writer = WriterBuilder::new().has_headers(true).from_path(out_path)?;

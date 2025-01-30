@@ -9,16 +9,15 @@ use commands::{ContenderCli, ContenderSubcommand, SpamCommandArgs};
 use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::SqliteDb;
 use rand::Rng;
+use util::data_dir;
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     let path = &format!(
-        "{}{}",
-        std::env::var("HOME").unwrap(),
-        "/.contender/contender.db"
+        "{}/{}",
+        data_dir().expect("failed to get data directory"),
+        "contender.db"
     );
     println!("opening DB at {}", path);
-    std::fs::create_dir_all(std::env::var("HOME").unwrap() + "/.contender")
-        .expect("failed to create ~/.contender directory");
     SqliteDb::from_file(path).expect("failed to open contender DB file")
 });
 
@@ -27,14 +26,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = ContenderCli::parse_args();
     let _ = DB.create_tables(); // ignore error; tables already exist
     let db = DB.clone();
+    let data_path = data_dir()?;
 
-    let home = std::env::var("HOME").expect("$HOME not found in environment");
-    let contender_path = format!("{}/.contender", home);
-    if !std::path::Path::new(&contender_path).exists() {
-        std::fs::create_dir_all(&contender_path).expect("failed to create contender directory");
-    }
-
-    let seed_path = format!("{}/seed", &contender_path);
+    let seed_path = format!("{}/seed", &data_path);
     if !std::path::Path::new(&seed_path).exists() {
         println!("generating seed file at {}", &seed_path);
         let mut rng = rand::thread_rng();
