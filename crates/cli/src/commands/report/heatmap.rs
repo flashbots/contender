@@ -1,6 +1,6 @@
 use crate::commands::report::TxTraceReceipt;
 use alloy::primitives::FixedBytes;
-use plotters::{prelude::*, style::text_anchor::Pos};
+use plotters::prelude::*;
 use std::collections::BTreeMap;
 
 pub struct HeatMapBuilder;
@@ -126,6 +126,7 @@ impl HeatMap {
 
         chart
             .configure_mesh()
+            .x_desc("Block #")
             .x_labels(x_size)
             .x_label_formatter(&|i| {
                 if *i == block_nums.len() {
@@ -134,6 +135,7 @@ impl HeatMap {
                 let block_num = block_nums.get(*i).unwrap();
                 format!("            {}", block_num)
             })
+            .y_desc("Storage Slot")
             .y_labels(y_size)
             .y_label_formatter(&|i| {
                 if *i == 0 {
@@ -153,7 +155,7 @@ impl HeatMap {
             .y_label_offset(24)
             .disable_x_mesh()
             .disable_y_mesh()
-            .label_style(("sans-serif", 15))
+            .label_style(("monospace", 15))
             .x_label_style(
                 ("sans-serif", 15)
                     .into_text_style(&chart_area)
