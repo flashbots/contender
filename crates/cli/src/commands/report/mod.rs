@@ -167,7 +167,10 @@ pub async fn report(
     tx_gas_used.draw(ReportChartId::TxGasUsed.filename(start_run_id, end_run_id)?)?;
 
     // compile report
-    build_html_report(start_run_id, end_run_id)?;
+    let report_path = build_html_report(start_run_id, end_run_id)?;
+
+    // Open the report in the default web browser
+    webbrowser::open(&report_path)?;
 
     Ok(())
 }

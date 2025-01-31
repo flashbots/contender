@@ -2,10 +2,11 @@ use std::collections::HashMap;
 
 use super::{report_dir, ReportChartId};
 
+/// Builds an HTML report for the given run IDs. Returns the path to the report.
 pub fn build_html_report(
     start_run_id: u64,
     end_run_id: u64,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<String, Box<dyn std::error::Error>> {
     let report_dir = report_dir()?;
     let mut charts = Vec::new();
     for chart_id in &[
@@ -27,5 +28,5 @@ pub fn build_html_report(
     std::fs::write(&path, html)?;
     println!("saved report to {}", path);
 
-    Ok(())
+    Ok(path)
 }
