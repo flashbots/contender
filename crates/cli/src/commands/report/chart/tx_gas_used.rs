@@ -3,10 +3,7 @@ use plotters::{
     chart::ChartBuilder,
     drawing::IntoDrawingArea,
     series::Histogram,
-    style::{
-        full_palette::{BLUE, WHITE},
-        Color,
-    },
+    style::{full_palette::BLUE, Color, RGBColor},
 };
 
 use crate::commands::report::TxTraceReceipt;
@@ -45,7 +42,7 @@ impl TxGasUsedChart {
 
     pub fn draw(&self, filepath: impl AsRef<str>) -> Result<(), Box<dyn std::error::Error>> {
         let root = BitMapBackend::new(filepath.as_ref(), (1024, 768)).into_drawing_area();
-        root.fill(&WHITE)?;
+        root.fill(&RGBColor(240, 240, 240))?;
 
         let max_gas_used = self.gas_used.iter().max().copied().unwrap_or_default();
 

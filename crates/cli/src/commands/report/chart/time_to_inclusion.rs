@@ -4,10 +4,7 @@ use plotters::{
     chart::ChartBuilder,
     drawing::IntoDrawingArea,
     series::Histogram,
-    style::{
-        full_palette::{BLUE, WHITE},
-        Color,
-    },
+    style::{full_palette::BLUE, Color, RGBColor},
 };
 
 pub struct TimeToInclusionChart {
@@ -39,7 +36,7 @@ impl TimeToInclusionChart {
 
     pub fn draw(&self, filepath: impl AsRef<str>) -> Result<(), Box<dyn std::error::Error>> {
         let root = BitMapBackend::new(filepath.as_ref(), (1024, 768)).into_drawing_area();
-        root.fill(&WHITE)?;
+        root.fill(&RGBColor(240, 240, 240))?;
 
         let min_tti = self
             .inclusion_times

@@ -8,8 +8,8 @@ use plotters::{
     prelude::Circle,
     series::LineSeries,
     style::{
-        full_palette::{BLUEGREY_500, GREEN_400, WHITE},
-        FontTransform, IntoFont, IntoTextStyle, ShapeStyle,
+        full_palette::{BLUEGREY_500, GREEN_400},
+        FontTransform, IntoFont, IntoTextStyle, RGBColor, ShapeStyle,
     },
 };
 
@@ -47,7 +47,7 @@ impl GasPerBlockChart {
 
     pub fn draw(&self, filepath: impl AsRef<str>) -> Result<(), Box<dyn std::error::Error>> {
         let root = BitMapBackend::new(filepath.as_ref(), (1024, 768)).into_drawing_area();
-        root.fill(&WHITE)?;
+        root.fill(&RGBColor(240, 240, 240))?;
 
         let start_block = self
             .gas_used_per_block
