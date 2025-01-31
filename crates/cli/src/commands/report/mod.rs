@@ -1,5 +1,6 @@
 mod chart;
 mod gen_html;
+mod util;
 
 use crate::util::{data_dir, write_run_txs};
 use alloy::providers::ext::DebugApi;

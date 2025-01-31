@@ -6,7 +6,7 @@ use plotters::{
     style::{full_palette::BLUE, Color, RGBColor},
 };
 
-use crate::commands::report::TxTraceReceipt;
+use crate::commands::report::{util::abbreviate_num, TxTraceReceipt};
 
 pub struct TxGasUsedChart {
     gas_used: Vec<u128>,
@@ -57,7 +57,7 @@ impl TxGasUsedChart {
             .x_label_area_size(40)
             .y_label_area_size(60)
             .build_cartesian_2d(
-                0..max_gas_used + 1,
+                0..max_gas_used + (10_000 - (max_gas_used % 10_000)),
                 0..highest_peak + (5 - (highest_peak % 5)),
             )?;
 
@@ -66,15 +66,7 @@ impl TxGasUsedChart {
             .disable_x_mesh()
             .label_style(("sans-serif", 15))
             .x_desc("Gas Used")
-            .x_label_formatter(&|x| {
-                if *x >= 1_000_000 {
-                    format!("{}M", x / 1_000_000)
-                } else if *x >= 1_000 {
-                    format!("{}k", x / 1_000)
-                } else {
-                    format!("{}", x)
-                }
-            })
+            .x_label_formatter(&|x| abbreviate_num(*x as u64))
             .y_desc("# Transactions")
             .draw()?;
 

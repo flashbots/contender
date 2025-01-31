@@ -13,6 +13,8 @@ use plotters::{
     },
 };
 
+use crate::commands::report::util::abbreviate_num;
+
 pub struct GasPerBlockChart {
     /// Maps `block_num` to `gas_used`
     gas_used_per_block: BTreeMap<u64, u128>,
@@ -75,7 +77,7 @@ impl GasPerBlockChart {
         chart
             .configure_mesh()
             .disable_x_mesh()
-            .disable_y_mesh()
+            // .disable_y_mesh()
             .x_desc("Block")
             .x_labels(self.gas_used_per_block.len())
             .x_label_formatter(&|block| format!("            {}", block))
@@ -86,6 +88,8 @@ impl GasPerBlockChart {
             )
             .y_desc("Gas Used")
             .y_labels(25)
+            .y_max_light_lines(1)
+            .y_label_formatter(&|gas| abbreviate_num(*gas as u64))
             .draw()?;
 
         // draw line chart
