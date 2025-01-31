@@ -9,7 +9,7 @@ use plotters::{
     series::LineSeries,
     style::{
         full_palette::{BLUEGREY_500, GREEN_400},
-        FontTransform, IntoFont, IntoTextStyle, RGBColor, ShapeStyle,
+        FontTransform, IntoTextStyle, RGBColor, ShapeStyle,
     },
 };
 
@@ -63,7 +63,6 @@ impl GasPerBlockChart {
             .unwrap_or_default();
 
         let mut chart = ChartBuilder::on(&root)
-            .caption("Gas Used Per Block", ("sans-serif", 50).into_font())
             .margin(15)
             .margin_bottom(25)
             .x_label_area_size(100)

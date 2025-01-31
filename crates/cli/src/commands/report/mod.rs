@@ -1,4 +1,5 @@
 mod chart;
+mod gen_html;
 
 use crate::util::{data_dir, write_run_txs};
 use alloy::providers::ext::DebugApi;
@@ -20,6 +21,7 @@ use contender_core::{
     generator::types::EthProvider,
 };
 use csv::WriterBuilder;
+use gen_html::build_html_report;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
@@ -93,6 +95,16 @@ impl ReportChartId {
             end_run_id
         ))
     }
+
+    fn proper_name(&self) -> String {
+        match self {
+            ReportChartId::Heatmap => "Heatmap",
+            ReportChartId::GasPerBlock => "Gas Per Block",
+            ReportChartId::TimeToInclusion => "Time To Inclusion",
+            ReportChartId::TxGasUsed => "Tx Gas Used",
+        }
+        .to_string()
+    }
 }
 
 pub async fn report(
@@ -141,15 +153,21 @@ pub async fn report(
     // make heatmap
     let heatmap = HeatMapChart::build(&cache_data.traces)?;
     heatmap.draw(ReportChartId::Heatmap.filename(start_run_id, end_run_id)?)?;
+
     // make gasPerBlock chart
     let gas_per_block = GasPerBlockChart::build(&cache_data.blocks);
     gas_per_block.draw(ReportChartId::GasPerBlock.filename(start_run_id, end_run_id)?)?;
+
     // make timeToInclusion chart
     let time_to_inclusion = TimeToInclusionChart::build(&all_txs);
     time_to_inclusion.draw(ReportChartId::TimeToInclusion.filename(start_run_id, end_run_id)?)?;
+
     // make txGasUsed chart
     let tx_gas_used = TxGasUsedChart::build(&cache_data.traces)?;
     tx_gas_used.draw(ReportChartId::TxGasUsed.filename(start_run_id, end_run_id)?)?;
+
+    // compile report
+    build_html_report(start_run_id, end_run_id)?;
 
     Ok(())
 }

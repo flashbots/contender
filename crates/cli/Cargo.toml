@@ -17,6 +17,7 @@ contender_testfile = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 alloy = { workspace = true, features = ["full", "node-bindings", "rpc-types-debug", "rpc-types-trace"] }
 csv = { workspace = true }
+handlebars = { workspace = true }
 termcolor = "1.4.1"
 rand.workspace = true
 serde_json = { workspace = true }
