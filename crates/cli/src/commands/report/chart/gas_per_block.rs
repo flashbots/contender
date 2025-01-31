@@ -77,7 +77,6 @@ impl GasPerBlockChart {
         chart
             .configure_mesh()
             .disable_x_mesh()
-            // .disable_y_mesh()
             .x_desc("Block")
             .x_labels(self.gas_used_per_block.len())
             .x_label_formatter(&|block| format!("            {}", block))
