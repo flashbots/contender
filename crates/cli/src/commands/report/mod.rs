@@ -99,7 +99,7 @@ impl ReportChartId {
 
     fn proper_name(&self) -> String {
         match self {
-            ReportChartId::Heatmap => "Heatmap",
+            ReportChartId::Heatmap => "Storage Slot Heatmap",
             ReportChartId::GasPerBlock => "Gas Per Block",
             ReportChartId::TimeToInclusion => "Time To Inclusion",
             ReportChartId::TxGasUsed => "Tx Gas Used",
