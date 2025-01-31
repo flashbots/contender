@@ -14,7 +14,7 @@ use alloy::{
     },
     transports::http::reqwest::Url,
 };
-use chart::{GasPerBlockChart, HeatMap, TimeToInclusionChart};
+use chart::{GasPerBlockChart, HeatMapChart, TimeToInclusionChart, TxGasUsedChart};
 use contender_core::{
     db::{DbOps, RunTx},
     generator::types::EthProvider,
@@ -139,7 +139,7 @@ pub async fn report(
     cache_data.save()?;
 
     // make heatmap
-    let heatmap = HeatMap::build(&cache_data.traces)?;
+    let heatmap = HeatMapChart::build(&cache_data.traces)?;
     heatmap.draw(ReportChartId::Heatmap.filename(start_run_id, end_run_id)?)?;
     // make gasPerBlock chart
     let gas_per_block = GasPerBlockChart::build(&cache_data.blocks);
@@ -148,6 +148,8 @@ pub async fn report(
     let time_to_inclusion = TimeToInclusionChart::build(&all_txs);
     time_to_inclusion.draw(ReportChartId::TimeToInclusion.filename(start_run_id, end_run_id)?)?;
     // make txGasUsed chart
+    let tx_gas_used = TxGasUsedChart::build(&cache_data.traces)?;
+    tx_gas_used.draw(ReportChartId::TxGasUsed.filename(start_run_id, end_run_id)?)?;
 
     Ok(())
 }

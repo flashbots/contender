@@ -3,18 +3,18 @@ use alloy::primitives::FixedBytes;
 use plotters::prelude::*;
 use std::collections::BTreeMap;
 
-pub struct HeatMap {
+pub struct HeatMapChart {
     updates_per_slot_per_block: BTreeMap<u64, BTreeMap<FixedBytes<32>, u64>>,
 }
 
-impl Default for HeatMap {
+impl Default for HeatMapChart {
     fn default() -> Self {
         Self::new()
     }
 }
 
 /// Represents data as a mapping of block_num => slot => count.
-impl HeatMap {
+impl HeatMapChart {
     fn new() -> Self {
         Self {
             updates_per_slot_per_block: Default::default(),
@@ -22,7 +22,7 @@ impl HeatMap {
     }
 
     pub fn build(trace_data: &[TxTraceReceipt]) -> Result<Self, Box<dyn std::error::Error>> {
-        let mut heatmap = HeatMap::new();
+        let mut heatmap = HeatMapChart::new();
 
         for t in trace_data {
             let block_num = t
@@ -48,17 +48,6 @@ impl HeatMap {
                 update.storage.iter().for_each(|(slot, _)| {
                     heatmap.add_update(block_num, *slot);
                 });
-            }
-        }
-
-        let block_nums = heatmap.get_block_numbers();
-        for bn in block_nums {
-            let slot_map = heatmap
-                .get_slot_map(bn)
-                .expect("invalid key; this should never happen");
-            println!("BLOCK: {}", bn);
-            for (slot, count) in slot_map {
-                println!("  SLOT: {} COUNT: {}", slot, count);
             }
         }
 

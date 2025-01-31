@@ -29,7 +29,6 @@ impl TimeToInclusionChart {
             let tti = tx.end_timestamp - tx.start_timestamp;
             chart.add_inclusion_time(tti as u64);
         }
-        println!("Inclusion times: {:?}", chart.inclusion_times);
 
         chart
     }

@@ -42,7 +42,6 @@ impl GasPerBlockChart {
     }
 
     fn set_gas_used(&mut self, block_num: u64, gas_used: u128) {
-        println!("(block {block_num}) gas used: {gas_used}");
         self.gas_used_per_block.insert(block_num, gas_used);
     }
 
@@ -62,7 +61,6 @@ impl GasPerBlockChart {
             .max()
             .copied()
             .unwrap_or_default();
-        println!("max gas used: {:?}", max_gas_used);
 
         let mut chart = ChartBuilder::on(&root)
             .caption("Gas Used Per Block", ("sans-serif", 50).into_font())
