@@ -258,8 +258,8 @@ impl HeatMap {
                 .transform(FontTransform::Rotate90),
         ))?;
 
-        root.present().expect("failed to write plot to file.");
-        println!("saved heatmap at {}", filepath.as_ref());
+        root.present()?;
+        println!("saved chart to {}", filepath.as_ref());
 
         Ok(())
     }

@@ -103,7 +103,8 @@ impl GasPerBlockChart {
             |c: (u64, u128)| Circle::new(c, 3, Into::<ShapeStyle>::into(BLUEGREY_500).filled());
         chart.draw_series(chart_data.map(|(x, y)| mk_dot((x, y))))?;
 
-        println!("saved gas per block chart to {}", filepath.as_ref());
+        root.present()?;
+        println!("saved chart to {}", filepath.as_ref());
 
         Ok(())
     }

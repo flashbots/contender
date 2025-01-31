@@ -14,7 +14,7 @@ use alloy::{
     },
     transports::http::reqwest::Url,
 };
-use chart::{GasPerBlockChart, HeatMap};
+use chart::{GasPerBlockChart, HeatMap, TimeToInclusionChart};
 use contender_core::{
     db::{DbOps, RunTx},
     generator::types::EthProvider,
@@ -63,8 +63,9 @@ fn report_dir() -> Result<String, Box<dyn std::error::Error>> {
 
 enum ReportChartId {
     Heatmap,
-    GasPerBlock, // TimeToInclusion
-                 // TxGasUsed
+    GasPerBlock,
+    TimeToInclusion,
+    TxGasUsed,
 }
 
 impl ToString for ReportChartId {
@@ -72,6 +73,8 @@ impl ToString for ReportChartId {
         match self {
             ReportChartId::Heatmap => "heatmap".to_string(),
             ReportChartId::GasPerBlock => "gas_per_block".to_string(),
+            ReportChartId::TimeToInclusion => "time_to_inclusion".to_string(),
+            ReportChartId::TxGasUsed => "tx_gas_used".to_string(),
         }
     }
 }
@@ -142,6 +145,8 @@ pub async fn report(
     let gas_per_block = GasPerBlockChart::build(&cache_data.blocks);
     gas_per_block.draw(ReportChartId::GasPerBlock.filename(start_run_id, end_run_id)?)?;
     // make timeToInclusion chart
+    let time_to_inclusion = TimeToInclusionChart::build(&all_txs);
+    time_to_inclusion.draw(ReportChartId::TimeToInclusion.filename(start_run_id, end_run_id)?)?;
     // make txGasUsed chart
 
     Ok(())
