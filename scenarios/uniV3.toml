@@ -222,7 +222,7 @@ from_pool = "spammers"
 signature = "function swap((address, address, uint24, address, uint256, uint256, uint256, uint160))"
 args = ["({testToken},{weth},3000,{_sender},10000000000000,1000000000000000,1,0)"]
 
-# # Swap WETH for Token2
+# Swap WETH for Token2
 [[spam]]
 
 [spam.tx]
@@ -232,7 +232,7 @@ from_pool = "spammers"
 signature = "function swap((address, address, uint24, address, uint256, uint256, uint256, uint160))"
 args = ["({weth},{testToken2},3000,{_sender},10000000000000,1000000000000000,1,0)"]
 
-# # Swap Token2 for WETH
+# Swap Token2 for WETH
 [[spam]]
 
 [spam.tx]
