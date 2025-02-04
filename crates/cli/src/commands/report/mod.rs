@@ -71,14 +71,15 @@ enum ReportChartId {
     TxGasUsed,
 }
 
-impl ToString for ReportChartId {
-    fn to_string(&self) -> String {
-        match self {
-            ReportChartId::Heatmap => "heatmap".to_string(),
-            ReportChartId::GasPerBlock => "gas_per_block".to_string(),
-            ReportChartId::TimeToInclusion => "time_to_inclusion".to_string(),
-            ReportChartId::TxGasUsed => "tx_gas_used".to_string(),
-        }
+impl std::fmt::Display for ReportChartId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            ReportChartId::Heatmap => "heatmap",
+            ReportChartId::GasPerBlock => "gas_per_block",
+            ReportChartId::TimeToInclusion => "time_to_inclusion",
+            ReportChartId::TxGasUsed => "tx_gas_used",
+        };
+        write!(f, "{}", s)
     }
 }
 
@@ -91,7 +92,7 @@ impl ReportChartId {
         Ok(format!(
             "{}/{}_run-{}-{}.png",
             report_dir()?,
-            self.to_string(),
+            self,
             start_run_id,
             end_run_id
         ))

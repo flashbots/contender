@@ -58,7 +58,6 @@ impl HeatMapChart {
         if let Some(slot_map) = self.updates_per_slot_per_block.get_mut(&block_num) {
             let value = slot_map.get(&slot).map(|v| v + 1).unwrap_or(1);
             slot_map.insert(slot, value);
-            return;
         } else {
             let mut slot_map = BTreeMap::new();
             slot_map.insert(slot, 1);
@@ -101,7 +100,7 @@ impl HeatMapChart {
         let mut slot_counter = 0;
         for slot in all_keys {
             if !slot_indices.contains_key(slot) {
-                slot_indices.insert(slot.clone(), slot_counter);
+                slot_indices.insert(*slot, slot_counter);
                 slot_counter += 1;
             }
         }
@@ -179,11 +178,7 @@ impl HeatMapChart {
                     .get(*i - 1)
                     .map(|n| n.to_owned())
                     .unwrap_or_default();
-                format!(
-                    "{}...{}",
-                    slot_name[..8].to_string(),
-                    slot_name[60..].to_string()
-                )
+                format!("{}...{}", &slot_name[..8], &slot_name[60..])
             })
             .x_label_offset(24)
             .y_label_offset(24)
