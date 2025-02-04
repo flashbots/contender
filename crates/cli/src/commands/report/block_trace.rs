@@ -12,6 +12,7 @@ use alloy::{
     },
 };
 
+use contender_core::error::ContenderError;
 use contender_core::{db::RunTx, generator::types::EthProvider};
 use serde::{Deserialize, Serialize};
 
@@ -77,7 +78,13 @@ pub async fn get_block_trace_data(
                         timeout: None,
                     },
                 )
-                .await?;
+                .await
+                .map_err(|e| {
+                    ContenderError::with_err(
+                        e,
+                        "debug_traceTransaction failed. Make sure geth-style tracing is enabled on your node.",
+                    )
+                })?;
 
             // receipt might fail if we target a non-ETH chain
             // so if it does fail, we just ignore it
