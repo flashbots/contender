@@ -117,7 +117,7 @@ mod tests {
 
         // Test resetting the database
         reset_db(&db_path).await.expect("Failed to reset database");
-        assert!(fs::metadata(&db_path).is_err()); // Should be dropped
+        assert!(fs::metadata(&db_path).is_ok()); // DB file should exist again
     }
 
     #[tokio::test]
