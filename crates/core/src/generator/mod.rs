@@ -19,7 +19,6 @@ pub use named_txs::NamedTxRequestBuilder;
 pub use seeder::rand_seed::RandSeed;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
 use types::{CreateDefinitionStrict, FunctionCallDefinitionStrict, SpamRequest};
-use util::remove_inner_parentheses;
 
 pub use types::{CallbackResult, NamedTxRequest, PlanType};
 
@@ -428,9 +427,8 @@ fn get_fuzzed_args(
     fuzz_map: &HashMap<String, Vec<U256>>,
     fuzz_idx: usize,
 ) -> Vec<String> {
-    // let mut args = Vec::new();
-    let sig = remove_inner_parentheses(&tx.signature);
-    let func = alloy::json_abi::Function::parse(&sig).expect("failed to parse function name");
+    let func = alloy::json_abi::Function::parse(&tx.signature)
+        .expect("[get_fuzzed_args] failed to parse function signature");
     let tx_args = tx.args.as_deref().unwrap_or_default();
     tx_args
         .iter()
