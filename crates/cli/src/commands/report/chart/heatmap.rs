@@ -1,7 +1,8 @@
-use crate::commands::report::TxTraceReceipt;
 use alloy::primitives::FixedBytes;
 use plotters::prelude::*;
 use std::collections::BTreeMap;
+
+use crate::commands::report::block_trace::TxTraceReceipt;
 
 pub struct HeatMapChart {
     updates_per_slot_per_block: BTreeMap<u64, BTreeMap<FixedBytes<32>, u64>>,
@@ -25,18 +26,31 @@ impl HeatMapChart {
         let mut heatmap = HeatMapChart::new();
 
         for t in trace_data {
+            println!("trace data: {:#?}", t.trace);
             let block_num = t
                 .receipt
                 .block_number
                 .expect("block number not found in receipt");
-            let trace_frame = t
-                .trace
-                .to_owned()
-                .try_into_pre_state_frame()
-                .expect("failed to decode PreStateFrame");
+
+            let trace_frame = t.trace.to_owned().try_into_default_frame();
+            if let Err(e) = trace_frame {
+                println!("failed to decode frame (default mode): {:?}", e);
+                continue;
+            }
+            let trace_frame = trace_frame.expect("failed to decode frame (default mode)");
+
+            if trace_frame.failed {
+                continue;
+            }
+            let trace_frame = t.trace.to_owned().try_into_pre_state_frame();
+            if let Err(e) = trace_frame {
+                println!("failed to decode frame (preState mode): {:?}", e);
+                continue;
+            }
+            let trace_frame = trace_frame.expect("failed to decode frame (preState mode)");
             let account_map = &trace_frame
                 .as_default()
-                .expect("failed to decode default PreStateMode")
+                .expect("failed to decode PreStateMode")
                 .0;
 
             // "for each account in this transaction trace"

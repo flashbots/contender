@@ -6,7 +6,7 @@ use plotters::{
     style::{full_palette::BLUE, Color, RGBColor},
 };
 
-use crate::commands::report::{util::abbreviate_num, TxTraceReceipt};
+use crate::commands::report::{block_trace::TxTraceReceipt, util::abbreviate_num};
 
 pub struct TxGasUsedChart {
     gas_used: Vec<u128>,
