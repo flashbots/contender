@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 /// Configuration to run a test scenario; used to generate PlanConfigs.
 /// Defines TOML schema for scenario files.
-#[derive(Clone, Deserialize, Debug, Serialize)]
+#[derive(Clone, Deserialize, Debug, Serialize, Default)]
 pub struct TestConfig {
     /// Template variables
     pub env: Option<HashMap<String, String>>,

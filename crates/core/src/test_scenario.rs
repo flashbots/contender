@@ -252,6 +252,7 @@ where
                 .to_owned();
             let db = self.db.clone();
             let rpc_url = self.rpc_url.clone();
+
             let handle = tokio::task::spawn(async move {
                 let wallet = ProviderBuilder::new()
                     .with_simple_nonce_management()
@@ -259,14 +260,18 @@ where
                     .on_http(rpc_url.to_owned());
 
                 let chain_id = wallet.get_chain_id().await.expect("failed to get chain id");
-                let gas_price = wallet
-                    .get_gas_price()
-                    .await
-                    .expect("failed to get gas price");
-                let gas_limit = wallet
-                    .estimate_gas(&tx_req.tx)
-                    .await
-                    .expect("failed to estimate gas");
+                let tx_label = tx_req
+                    .name
+                    .as_deref()
+                    .or(tx_req.kind.as_deref())
+                    .unwrap_or("")
+                    .to_string();
+                let gas_price = wallet.get_gas_price().await.unwrap_or_else(|_| {
+                    panic!("failed to get gas price for setup step '{}'", tx_label)
+                });
+                let gas_limit = wallet.estimate_gas(&tx_req.tx).await.unwrap_or_else(|_| {
+                    panic!("failed to estimate gas for setup step '{}'", tx_label)
+                });
                 let tx = tx_req
                     .tx
                     .with_gas_price(gas_price)
@@ -275,10 +280,14 @@ where
                 let res = wallet
                     .send_transaction(tx)
                     .await
-                    .expect("failed to send tx");
+                    .unwrap_or_else(|_| panic!("failed to send setup tx '{}'", tx_label));
 
                 // get receipt using provider (not wallet) to allow any receipt type (support non-eth chains)
-                let receipt = res.get_receipt().await.expect("failed to get receipt");
+                let receipt = res
+                    .get_receipt()
+                    .await
+                    .unwrap_or_else(|_| panic!("failed to get receipt for tx '{}'", tx_label));
+
                 if let Some(name) = tx_req.name {
                     db.insert_named_txs(
                         NamedTx::new(name, receipt.transaction_hash, receipt.contract_address)
@@ -836,7 +845,7 @@ pub mod tests {
         anvil: &AnvilInstance,
     ) -> TestScenario<MockDb, RandSeed, MockConfig> {
         let seed = RandSeed::seed_from_bytes(&[0x01; 32]);
-        let signers = &get_test_signers();
+        let signers = get_test_signers();
         let provider = ProviderBuilder::new()
             .network::<Ethereum>()
             .on_http(anvil.endpoint_url());
@@ -903,7 +912,7 @@ pub mod tests {
             anvil.endpoint_url(),
             None,
             seed.to_owned(),
-            signers,
+            signers.as_slice(),
             agents,
         )
         .await

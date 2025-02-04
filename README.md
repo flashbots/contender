@@ -98,6 +98,28 @@ Pass a private key with `-p` to fund agent accounts from your account:
 contender spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRV_KEY
 ```
 
+---
+
+Generate a chain performance report for the most recent run.
+
+```bash
+contender report
+```
+
+> The compiled report will open in your web browser.
+
+Generate a report that spans the last 3 runs (the most recent run + 2 preceding it):
+
+```bash
+contender report -p 2
+```
+
+Generate a report spanning run 200 - 203 (inclusively):
+
+```bash
+contender report -i 203 -p 3
+```
+
 ### Scenarios
 
 A "scenario" in contender defines contracts to be deployed and transaction calls that should run before and during a spam session.
