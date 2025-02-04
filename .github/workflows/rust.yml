@@ -21,7 +21,7 @@ jobs:
       with:
         cache-on-failure: true
     - name: Install libsqlite3
-      run: sudo apt-get install -y libsqlite3-dev libfontconfig1-dev libfontconfig
+      run: sudo apt-get install -y libsqlite3-dev fontconfig libfontconfig1-dev libfontconfig
     - name: Build
       run: cargo build --verbose --workspace
 
