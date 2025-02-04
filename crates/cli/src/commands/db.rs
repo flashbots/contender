@@ -33,7 +33,7 @@ pub async fn reset_db(db_path: &str) -> Result<()> {
 /// Export the database to a file
 pub async fn export_db(src_path: &str, target_path: PathBuf) -> Result<()> {
     // Ensure source database exists
-    if !fs::metadata(&src_path).is_ok() {
+    if fs::metadata(src_path).is_err() {
         return Err(ContenderError::DbError(
             "Source database file does not exist",
             None,
@@ -41,7 +41,7 @@ pub async fn export_db(src_path: &str, target_path: PathBuf) -> Result<()> {
     }
 
     // Copy the database file to the target location
-    fs::copy(&src_path, &target_path)
+    fs::copy(src_path, &target_path)
         .map_err(|e| ContenderError::DbError("Failed to export database", Some(e.to_string())))?;
     println!("Database exported to '{}'", target_path.display());
     Ok(())
@@ -58,9 +58,9 @@ pub async fn import_db(src_path: PathBuf, target_path: &str) -> Result<()> {
     }
 
     // If target exists, create a backup
-    if fs::metadata(&target_path).is_ok() {
+    if fs::metadata(target_path).is_ok() {
         let backup_path = format!("{}.backup", target_path);
-        fs::copy(&target_path, &backup_path)
+        fs::copy(target_path, &backup_path)
             .map_err(|e| ContenderError::DbError("Failed to create backup", Some(e.to_string())))?;
         println!(
             "Created backup of existing database at '{}.backup'",
@@ -69,7 +69,7 @@ pub async fn import_db(src_path: PathBuf, target_path: &str) -> Result<()> {
     }
 
     // Copy the source database to the target location
-    fs::copy(&src_path, &target_path)
+    fs::copy(&src_path, target_path)
         .map_err(|e| ContenderError::DbError("Failed to import database", Some(e.to_string())))?;
     println!("Database imported from '{}'", src_path.display());
     Ok(())
@@ -87,7 +87,7 @@ mod tests {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let db_path = temp_dir
             .path()
-            .join(&format!("test_{}.db", name))
+            .join(format!("test_{}.db", name))
             .to_str()
             .unwrap()
             .to_string();
