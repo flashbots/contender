@@ -1,4 +1,5 @@
 mod contender_subcommand;
+mod db;
 mod report;
 mod run;
 mod setup;
@@ -6,7 +7,8 @@ mod spam;
 
 use clap::Parser;
 
-pub use contender_subcommand::ContenderSubcommand;
+pub use contender_subcommand::{ContenderSubcommand, DbCommand};
+pub use db::*;
 pub use report::report;
 pub use run::run;
 pub use setup::setup;
