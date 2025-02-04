@@ -17,18 +17,16 @@ use alloy::{
 /// assert_eq!(calldata.encode_hex(), "60fe47b10000000000000000000000000000000000000000000000000000000012345678");
 /// ```
 pub fn encode_calldata(args: &[impl AsRef<str>], sig: &str) -> Result<Vec<u8>> {
-    let func = json_abi::Function::parse(sig).map_err(|e| {
-        ContenderError::SpamError("failed to parse function name", Some(e.to_string()))
-    })?;
+    let func = json_abi::Function::parse(sig)
+        .map_err(|e| ContenderError::with_err(e, "failed to parse function signature"))?;
     let values: Vec<DynSolValue> = args
         .iter()
         .enumerate()
         .map(|(idx, arg)| {
             let mut argtype = String::new();
             func.inputs[idx].full_selector_type_raw(&mut argtype);
-            let r#type = DynSolType::parse(&argtype).map_err(|e| {
-                ContenderError::SpamError("failed to parse function type", Some(e.to_string()))
-            })?;
+            let r#type = DynSolType::parse(&argtype)
+                .map_err(|e| ContenderError::with_err(e, "failed to parse function type"))?;
             r#type.coerce_str(arg.as_ref()).map_err(|e| {
                 ContenderError::SpamError(
                     "failed to coerce arg to DynSolValue",
@@ -37,9 +35,9 @@ pub fn encode_calldata(args: &[impl AsRef<str>], sig: &str) -> Result<Vec<u8>> {
             })
         })
         .collect::<Result<_>>()?;
-    let input = func.abi_encode_input(&values).map_err(|e| {
-        ContenderError::SpamError("failed to encode function arguments", Some(e.to_string()))
-    })?;
+    let input = func
+        .abi_encode_input(&values)
+        .map_err(|e| ContenderError::with_err(e, "failed to encode function arguments"))?;
     Ok(input)
 }
 

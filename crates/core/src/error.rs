@@ -8,7 +8,7 @@ pub enum ContenderError {
 
 impl ContenderError {
     pub fn with_err(err: impl Error, msg: &'static str) -> Self {
-        ContenderError::DbError(msg, Some(err.to_string()))
+        ContenderError::DbError(msg, Some(format!("{:?}", err)))
     }
 }
 
