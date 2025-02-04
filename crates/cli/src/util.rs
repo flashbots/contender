@@ -325,6 +325,12 @@ pub fn data_dir() -> Result<String, Box<dyn std::error::Error>> {
     Ok(dir)
 }
 
+/// Returns path to default contender DB file.
+pub fn db_file() -> Result<String, Box<dyn std::error::Error>> {
+    let data_path = data_dir()?;
+    Ok(format!("{}/contender.db", data_path))
+}
+
 #[cfg(test)]
 mod test {
     use std::str::FromStr;

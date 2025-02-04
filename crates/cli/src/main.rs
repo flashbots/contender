@@ -9,16 +9,12 @@ use commands::{ContenderCli, ContenderSubcommand, DbCommand, SpamCommandArgs};
 use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::SqliteDb;
 use rand::Rng;
-use util::data_dir;
+use util::{data_dir, db_file};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
-    let path = &format!(
-        "{}/{}",
-        data_dir().expect("failed to get data directory"),
-        "contender.db"
-    );
+    let path = db_file().expect("failed to get DB file path");
     println!("opening DB at {}", path);
-    SqliteDb::from_file(path).expect("failed to open contender DB file")
+    SqliteDb::from_file(&path).expect("failed to open contender DB file")
 });
 
 #[tokio::main]
@@ -27,6 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = DB.create_tables(); // ignore error; tables already exist
     let db = DB.clone();
     let data_path = data_dir()?;
+    let db_path = db_file()?;
 
     let seed_path = format!("{}/seed", &data_path);
     if !std::path::Path::new(&seed_path).exists() {
@@ -44,10 +41,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match args.command {
         ContenderSubcommand::Db { command } => match command {
-            DbCommand::Drop => commands::drop_db().await?,
-            DbCommand::Reset => commands::reset_db(&db).await?,
-            DbCommand::Export { out_path } => commands::export_db(out_path).await?,
-            DbCommand::Import { src_path } => commands::import_db(src_path).await?,
+            DbCommand::Drop => commands::drop_db(&db_path).await?,
+            DbCommand::Reset => commands::reset_db(&db_path).await?,
+            DbCommand::Export { out_path } => commands::export_db(&db_path, out_path).await?,
+            DbCommand::Import { src_path } => commands::import_db(src_path, &db_path).await?,
         },
 
         ContenderSubcommand::Setup {
