@@ -26,7 +26,6 @@ impl HeatMapChart {
         let mut heatmap = HeatMapChart::new();
 
         for t in trace_data {
-            println!("trace data: {:#?}", t.trace);
             let block_num = t
                 .receipt
                 .block_number
@@ -63,6 +62,10 @@ impl HeatMapChart {
                     heatmap.add_update(block_num, *slot);
                 });
             }
+        }
+
+        if heatmap.get_num_slots() == 0 {
+            return Err("No trace data was collected. Ensure your target node supports geth-style preState traces.".into());
         }
 
         Ok(heatmap)
