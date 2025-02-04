@@ -476,4 +476,33 @@ pub mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_placeholders_count() {
+        use crate::{types::TestConfig, Templater};
+        let test_config = TestConfig::default();
+
+        let count = test_config.num_placeholders("{lol}{baa}{hahaa}");
+
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn test_placeholders_find() {
+        use crate::{types::TestConfig, Templater};
+
+        let test_config = TestConfig::default();
+
+        let mut placeholder_map = HashMap::new();
+        test_config
+            .find_placeholder_values(
+                "{lol}{baa}{hahaa}",
+                &mut placeholder_map,
+                &MockDb,
+                "http://localhost:8545",
+            )
+            .unwrap();
+
+        assert_eq!(placeholder_map.len(), 3);
+    }
 }
