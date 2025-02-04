@@ -9,16 +9,15 @@ use commands::{ContenderCli, ContenderSubcommand, SpamCommandArgs};
 use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::SqliteDb;
 use rand::Rng;
+use util::data_dir;
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     let path = &format!(
-        "{}{}",
-        std::env::var("HOME").unwrap(),
-        "/.contender/contender.db"
+        "{}/{}",
+        data_dir().expect("failed to get data directory"),
+        "contender.db"
     );
     println!("opening DB at {}", path);
-    std::fs::create_dir_all(std::env::var("HOME").unwrap() + "/.contender")
-        .expect("failed to create ~/.contender directory");
     SqliteDb::from_file(path).expect("failed to open contender DB file")
 });
 
@@ -27,14 +26,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = ContenderCli::parse_args();
     let _ = DB.create_tables(); // ignore error; tables already exist
     let db = DB.clone();
+    let data_path = data_dir()?;
 
-    let home = std::env::var("HOME").expect("$HOME not found in environment");
-    let contender_path = format!("{}/.contender", home);
-    if !std::path::Path::new(&contender_path).exists() {
-        std::fs::create_dir_all(&contender_path).expect("failed to create contender directory");
-    }
-
-    let seed_path = format!("{}/seed", &contender_path);
+    let seed_path = format!("{}/seed", &data_path);
     if !std::path::Path::new(&seed_path).exists() {
         println!("generating seed file at {}", &seed_path);
         let mut rng = rand::thread_rng();
@@ -79,14 +73,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             private_keys,
             disable_reports,
             min_balance,
-            report_file,
+            gen_report,
         } => {
             let seed = seed.unwrap_or(stored_seed);
             let run_id = commands::spam(
                 &db,
                 SpamCommandArgs {
                     testfile,
-                    rpc_url,
+                    rpc_url: rpc_url.to_owned(),
                     builder_url,
                     txs_per_block,
                     txs_per_second,
@@ -98,16 +92,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
             )
             .await?;
-            if report_file.is_some() {
-                commands::report(
-                    &db,
-                    Some(run_id),
-                    report_file.map(|rf| format!("{}.csv", rf)),
-                )?;
+            if gen_report {
+                commands::report(Some(run_id), 0, &db, &rpc_url).await?;
             }
         }
 
-        ContenderSubcommand::Report { id, out_file } => commands::report(&db, id, out_file)?,
+        ContenderSubcommand::Report {
+            rpc_url,
+            last_run_id,
+            preceding_runs,
+        } => {
+            commands::report(last_run_id, preceding_runs, &db, &rpc_url).await?;
+        }
 
         ContenderSubcommand::Run {
             scenario,

@@ -85,11 +85,11 @@ May be specified multiple times."
         /// If not provided, the report can be generated with the `report` subcommand.
         /// If provided, the report is saved to the given path.
         #[arg(
-            short,
+            short = 'r',
             long,
             long_help = "Filename of the saved report. May be a fully-qualified path. If not provided, the report can be generated with the `report` subcommand. '.csv' extension is added automatically."
         )]
-        report_file: Option<String>,
+        gen_report: bool,
     },
 
     #[command(
@@ -127,25 +127,29 @@ May be specified multiple times."
 
     #[command(
         name = "report",
-        long_about = "Export performance reports for data analysis."
+        long_about = "Export chain performance report for a spam run."
     )]
     Report {
-        /// The run ID to export reports for. If not provided, the latest run is used.
-        #[arg(
-            short,
-            long,
-            long_help = "The run ID to export reports for. If not provided, the latest run is used."
-        )]
-        id: Option<u64>,
+        /// The HTTP JSON-RPC URL to use for setup.
+        rpc_url: String,
 
-        /// The path to save the report to.
-        /// If not provided, the report is saved to the current directory.
+        /// The run ID to include in the report.
+        #[arg(
+            short = 'i',
+            long,
+            long_help = "The first run to include in the report. If not provided, the latest run is used."
+        )]
+        last_run_id: Option<u64>,
+
+        /// The number of runs preceding `last_run_id` to include in the report.
+        /// If not provided, only the run with ID `last_run_id` is included.
         #[arg(
             short,
             long,
-            long_help = "Filename of the saved report. May be a fully-qualified path. If not provided, the report is saved to the current directory."
+            long_help = "The number of runs preceding `last_run_id` to include in the report. If not provided, only the run with ID `end_run_id` is included.",
+            default_value = "0"
         )]
-        out_file: Option<String>,
+        preceding_runs: u64,
     },
 
     #[command(name = "run", long_about = "Run a builtin scenario.")]

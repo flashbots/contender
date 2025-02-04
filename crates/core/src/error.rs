@@ -4,11 +4,12 @@ pub enum ContenderError {
     DbError(&'static str, Option<String>),
     SpamError(&'static str, Option<String>),
     SetupError(&'static str, Option<String>),
+    GenericError(&'static str, String),
 }
 
 impl ContenderError {
     pub fn with_err(err: impl Error, msg: &'static str) -> Self {
-        ContenderError::DbError(msg, Some(format!("{:?}", err)))
+        ContenderError::GenericError(msg, format!("{:?}", err))
     }
 }
 
@@ -17,6 +18,9 @@ impl std::fmt::Display for ContenderError {
         match self {
             ContenderError::SpamError(msg, _) => write!(f, "SpamError: {}", msg),
             ContenderError::DbError(msg, _) => write!(f, "DatabaseError: {}", msg),
+            ContenderError::GenericError(msg, e) => {
+                write!(f, "{} {}", msg, e.to_owned())
+            }
             ContenderError::SetupError(msg, _) => write!(f, "SetupError: {}", msg),
         }
     }
@@ -34,6 +38,9 @@ impl std::fmt::Debug for ContenderError {
             }
             ContenderError::SetupError(msg, e) => {
                 write!(f, "SetupError: {} {}", msg, err(e.to_owned()))
+            }
+            ContenderError::GenericError(msg, e) => {
+                write!(f, "{} {}", msg, e.to_owned())
             }
         }
     }

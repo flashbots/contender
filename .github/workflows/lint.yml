@@ -22,6 +22,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
+      - name: Install deps
+        run: sudo apt-get install -y fontconfig libfontconfig1-dev libfontconfig
       - run: cargo clippy --workspace --lib --examples --tests --benches --all-features --locked
         env:
           RUSTFLAGS: -D warnings
@@ -48,5 +50,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
+      - name: Install deps
+        run: sudo apt-get install -y fontconfig libfontconfig1-dev libfontconfig
       - uses: taiki-e/install-action@cargo-udeps
       - run: cargo udeps --workspace --lib --examples --tests --benches --all-features --locked

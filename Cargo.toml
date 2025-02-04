@@ -32,6 +32,9 @@ rand = "0.8.5"
 ## cli
 clap = { version = "4.5.16" }
 csv = "1.3.0"
+handlebars = "6.3.0"
+plotters = "0.3.7"
+webbrowser = "1.0.3"
 
 ## core
 futures = "0.3.30"
