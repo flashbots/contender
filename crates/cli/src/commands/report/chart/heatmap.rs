@@ -31,16 +31,6 @@ impl HeatMapChart {
                 .block_number
                 .expect("block number not found in receipt");
 
-            let trace_frame = t.trace.to_owned().try_into_default_frame();
-            if let Err(e) = trace_frame {
-                println!("failed to decode frame (default mode): {:?}", e);
-                continue;
-            }
-            let trace_frame = trace_frame.expect("failed to decode frame (default mode)");
-
-            if trace_frame.failed {
-                continue;
-            }
             let trace_frame = t.trace.to_owned().try_into_pre_state_frame();
             if let Err(e) = trace_frame {
                 println!("failed to decode frame (preState mode): {:?}", e);
