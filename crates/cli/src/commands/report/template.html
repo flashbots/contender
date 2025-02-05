@@ -19,6 +19,20 @@
             border-radius: 5px;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
+        .metadata-area {
+            margin: 20px;
+            padding: 20px;
+            background-color: #fff;
+            border: 1px solid #ddd;
+            display: flex;
+            justify-content: space-between;
+        }
+        .title-area {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            width: auto;
+        }
         h1 {
             text-align: center;
             color: #333;
@@ -32,11 +46,39 @@
             display: block;
             margin: 0 auto;
         }
+        tr {
+            border-bottom: 1px solid #ddd;
+            padding: 5px 0;
+        }
+        td {
+            padding: 5px 10px;
+        }
     </style>
 </head>
 <body>
     <h1>Contender Report</h1>
-    {{#each charts}}
+    <div class="metadata-area">
+        <div class="title-area">
+            <h2>{{data.scenario_name}}</h2>
+        </div>
+        <div>
+            <table>
+                <tr>
+                    <td>Date</td>
+                    <td>{{data.date}}</td>
+                </tr>
+                <tr>
+                    <td>Target Chain</td>
+                    <td>{{data.rpc_url}}</td>
+                </tr>
+                <tr>
+                    <td>Block Range</td>
+                    <td>{{data.start_block}} - {{data.end_block}}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    {{#each data.charts}}
     <div class="chart-area">
         <h2>
             {{this.0}}

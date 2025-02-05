@@ -1230,6 +1230,7 @@ name = "contender_cli"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "chrono",
  "clap",
  "contender_core",
  "contender_sqlite",

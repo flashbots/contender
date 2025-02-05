@@ -12,7 +12,7 @@ use chart::ReportChartId;
 use chart::{GasPerBlockChart, HeatMapChart, TimeToInclusionChart, TxGasUsedChart};
 use contender_core::db::{DbOps, RunTx};
 use csv::WriterBuilder;
-use gen_html::build_html_report;
+use gen_html::{build_html_report, ReportMetadata};
 use std::str::FromStr;
 
 /// Returns the fully-qualified path to the report directory.
@@ -82,7 +82,14 @@ pub async fn report(
     tx_gas_used.draw(ReportChartId::TxGasUsed.filename(start_run_id, end_run_id)?)?;
 
     // compile report
-    let report_path = build_html_report(start_run_id, end_run_id)?;
+    let report_path = build_html_report(ReportMetadata {
+        scenario_name: "<TESTNAME>".to_string(), // TODO: get this from the database // TODO: add scenario_name to `runs` table
+        start_run_id,
+        end_run_id,
+        start_block: cache_data.blocks.first().unwrap().header.number,
+        end_block: cache_data.blocks.last().unwrap().header.number,
+        rpc_url: rpc_url.to_string(),
+    })?;
 
     // Open the report in the default web browser
     webbrowser::open(&report_path)?;
