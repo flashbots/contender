@@ -158,6 +158,7 @@ pub mod tests {
             fuzz: None,
             value: None,
             kind: None,
+            tx_type: None,
         };
 
         TestConfig {
@@ -190,6 +191,7 @@ pub mod tests {
                 max: None,
             }]
             .into(),
+            tx_type: None,
         };
         TestConfig {
             env: None,
@@ -243,6 +245,7 @@ pub mod tests {
                     .into(),
                     kind: None,
                     fuzz: None,
+                    tx_type: None,
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -261,6 +264,7 @@ pub mod tests {
                     .into(),
                     kind: None,
                     fuzz: None,
+                    tx_type: None,
                 },
             ]
             .into(),

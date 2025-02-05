@@ -19,3 +19,4 @@ tokio = { workspace = true, features = ["signal"]}
 alloy-serde = { workspace = true }
 serde_json = { workspace = true }
 contender_bundle_provider = { workspace = true }
+clap = { workspace = true, features = ["derive"] }

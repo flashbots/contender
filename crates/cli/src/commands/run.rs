@@ -11,7 +11,7 @@ use contender_core::{
     agent_controller::AgentStore,
     db::DbOps,
     error::ContenderError,
-    generator::RandSeed,
+    generator::{types::TxType, RandSeed},
     spammer::{LogCallback, Spammer, TimedSpammer},
     test_scenario::TestScenario,
 };
@@ -22,6 +22,7 @@ use crate::{
     util::{check_private_keys, get_signers_with_defaults, prompt_cli},
 };
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     scenario: BuiltinScenario,
@@ -30,6 +31,7 @@ pub async fn run(
     interval: usize,
     duration: usize,
     txs_per_duration: usize,
+    tx_type: TxType,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let user_signers = get_signers_with_defaults(private_key.map(|s| vec![s]));
     let admin_signer = &user_signers[0];
@@ -56,6 +58,7 @@ pub async fn run(
             txs_per_duration as u64,
             admin_signer.address(),
             fill_percent,
+            tx_type,
         ),
     };
     let testconfig: TestConfig = scenario_config.into();

@@ -1,4 +1,5 @@
 use clap::Subcommand;
+use contender_core::generator::types::TxType;
 
 use crate::default_scenarios::BuiltinScenario;
 
@@ -186,6 +187,10 @@ May be specified multiple times."
             default_value = "100"
         )]
         txs_per_duration: usize,
+
+        /// The type of transaction to spam with.
+        #[arg(long, value_enum, default_value_t = TxType::Eip1559)]
+        tx_type: TxType,
         // TODO: DRY duplicate args
     },
 }

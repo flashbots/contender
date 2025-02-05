@@ -12,7 +12,7 @@ use crate::Result;
 use alloy::consensus::Transaction;
 use alloy::eips::eip2718::Encodable2718;
 use alloy::hex::ToHexExt;
-use alloy::network::{AnyNetwork, EthereumWallet, TransactionBuilder};
+use alloy::network::{AnyNetwork, EthereumWallet, TransactionBuilder, TransactionBuilder4844};
 use alloy::primitives::{keccak256, Address, FixedBytes};
 use alloy::providers::{PendingTransactionConfig, Provider, ProviderBuilder};
 use alloy::rpc::types::TransactionRequest;
@@ -351,13 +351,17 @@ where
                 None,
             ))?
             .to_owned();
+
         let full_tx = tx_req
             .to_owned()
             .with_nonce(nonce)
             .with_max_fee_per_gas(gas_price + (gas_price / 5))
             .with_max_priority_fee_per_gas(gas_price)
             .with_chain_id(self.chain_id)
-            .with_gas_limit(gas_limit);
+            .with_gas_limit(gas_limit)
+            .with_max_fee_per_blob_gas(gas_price);
+
+        // TODO: max fee per blob gas?
 
         Ok((full_tx, signer))
     }
@@ -703,6 +707,7 @@ pub mod tests {
                     .into(),
                     fuzz: None,
                     kind: None,
+                    tx_type: None,
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -719,6 +724,7 @@ pub mod tests {
                     .into(),
                     fuzz: None,
                     kind: None,
+                    tx_type: None,
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -729,6 +735,7 @@ pub mod tests {
                     args: vec![].into(),
                     fuzz: None,
                     kind: None,
+                    tx_type: None,
                 },
             ])
         }
@@ -757,6 +764,7 @@ pub mod tests {
                     }]
                     .into(),
                     kind: None,
+                    tx_type: None,
                 })
             };
             Ok(vec![
@@ -785,6 +793,7 @@ pub mod tests {
                     }]
                     .into(),
                     kind: None,
+                    tx_type: None,
                 }),
                 SpamRequest::Tx(FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -808,6 +817,7 @@ pub mod tests {
                     }]
                     .into(),
                     kind: None,
+                    tx_type: None,
                 }),
             ])
         }

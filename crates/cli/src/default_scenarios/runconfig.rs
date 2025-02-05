@@ -1,5 +1,7 @@
 use alloy::primitives::Address;
-use contender_core::generator::types::{CreateDefinition, FunctionCallDefinition, SpamRequest};
+use contender_core::generator::types::{
+    CreateDefinition, FunctionCallDefinition, SpamRequest, TxType,
+};
 use contender_testfile::TestConfig;
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +18,7 @@ pub enum BuiltinScenarioConfig {
         num_txs: u64,
         sender: Address,
         fill_percent: u16,
+        tx_type: TxType,
     },
 }
 
@@ -25,12 +28,14 @@ impl BuiltinScenarioConfig {
         num_txs: u64,
         sender: Address,
         fill_percent: u16,
+        tx_type: TxType,
     ) -> Self {
         Self::FillBlock {
             max_gas_per_block,
             num_txs,
             sender,
             fill_percent,
+            tx_type,
         }
     }
 }
@@ -43,6 +48,7 @@ impl From<BuiltinScenarioConfig> for TestConfig {
                 num_txs,
                 sender,
                 fill_percent,
+                tx_type,
             } => {
                 let gas_per_tx =
                     ((max_gas_per_block / num_txs as u128) / 100) * fill_percent as u128;
@@ -61,6 +67,7 @@ impl From<BuiltinScenarioConfig> for TestConfig {
                             value: None,
                             fuzz: None,
                             kind: Some("fill-block".to_owned()),
+                            tx_type: Some(tx_type),
                         })
                     })
                     .collect::<Vec<_>>();

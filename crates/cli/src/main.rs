@@ -116,6 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             interval,
             duration,
             txs_per_duration,
+            tx_type,
         } => {
             commands::run(
                 &db,
@@ -125,6 +126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 interval,
                 duration,
                 txs_per_duration,
+                tx_type,
             )
             .await?
         }

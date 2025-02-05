@@ -37,6 +37,8 @@ pub struct FunctionCallDefinition {
     pub fuzz: Option<Vec<FuzzParam>>,
     /// Optional type of the spam transaction for categorization.
     pub kind: Option<String>,
+    /// The type of transaction.
+    pub tx_type: Option<TxType>,
 }
 
 pub struct FunctionCallDefinitionStrict {
@@ -47,6 +49,8 @@ pub struct FunctionCallDefinitionStrict {
     pub value: Option<String>,
     pub fuzz: Vec<FuzzParam>,
     pub kind: Option<String>,
+    /// The type of transaction.
+    pub tx_type: TxType,
 }
 
 /// User-facing definition of a function call to be executed.
@@ -110,4 +114,13 @@ pub enum PlanType<F: Fn(NamedTxRequest) -> CallbackResult> {
     Create(F),
     Setup(F),
     Spam(usize, F),
+}
+
+/// The type of a tx.
+#[derive(Copy, Clone, Debug, PartialEq, clap::ValueEnum, Serialize, Deserialize)]
+pub enum TxType {
+    /// EIP-1559 transaction.
+    Eip1559,
+    /// EIP-4844 transaction. A blob transaction.
+    Eip4844,
 }

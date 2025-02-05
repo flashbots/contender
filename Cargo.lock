@@ -1176,6 +1176,7 @@ dependencies = [
  "alloy",
  "alloy-serde 0.5.4",
  "async-trait",
+ "clap",
  "contender_bundle_provider",
  "futures",
  "rand",

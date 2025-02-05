@@ -18,7 +18,7 @@ use named_txs::ExecutionRequest;
 pub use named_txs::NamedTxRequestBuilder;
 pub use seeder::rand_seed::RandSeed;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
-use types::{CreateDefinitionStrict, FunctionCallDefinitionStrict, SpamRequest};
+use types::{CreateDefinitionStrict, FunctionCallDefinitionStrict, SpamRequest, TxType};
 
 pub use types::{CallbackResult, NamedTxRequest, PlanType};
 
@@ -220,6 +220,8 @@ where
             funcdef.to.to_owned()
         };
 
+        let tx_type = funcdef.tx_type.unwrap_or(TxType::Eip1559);
+
         Ok(FunctionCallDefinitionStrict {
             to: to_address,
             from: from_address,
@@ -228,6 +230,7 @@ where
             value: funcdef.value.to_owned(),
             fuzz: funcdef.fuzz.to_owned().unwrap_or_default(),
             kind: funcdef.kind.to_owned(),
+            tx_type,
         })
     }
 

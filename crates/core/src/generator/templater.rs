@@ -5,13 +5,15 @@ use crate::{
     Result,
 };
 use alloy::{
+    consensus::{SidecarBuilder, SimpleCoder},
+    eips::eip4844::USABLE_BYTES_PER_BLOB,
     hex::FromHex,
     primitives::{Address, Bytes, TxKind, U256},
     rpc::types::TransactionRequest,
 };
 use std::collections::HashMap;
 
-use super::types::{CreateDefinitionStrict, FunctionCallDefinitionStrict};
+use super::types::{CreateDefinitionStrict, FunctionCallDefinitionStrict, TxType};
 
 pub trait Templater<K>
 where
@@ -127,11 +129,26 @@ where
             .map(|s| self.replace_placeholders(s, placeholder_map))
             .and_then(|s| s.parse::<U256>().ok());
 
+        let (blob_versioned_hashes, sidecar) = if TxType::Eip4844 == funcdef.tx_type {
+            let input = vec![4u8; USABLE_BYTES_PER_BLOB];
+
+            let sidecar_builder: SidecarBuilder<SimpleCoder> =
+                std::iter::once(input.clone()).collect();
+            let sidecar = sidecar_builder.build().unwrap_or_default();
+            let versioned_blob_hashes: Vec<_> = sidecar.versioned_hashes().collect();
+
+            (Some(versioned_blob_hashes), Some(sidecar))
+        } else {
+            (None, None)
+        };
+
         Ok(TransactionRequest {
             to: Some(TxKind::Call(to)),
             input: alloy::rpc::types::TransactionInput::both(input.into()),
             from: Some(funcdef.from),
             value,
+            blob_versioned_hashes,
+            sidecar,
             ..Default::default()
         })
     }
