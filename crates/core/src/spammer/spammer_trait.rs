@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
 use std::{pin::Pin, sync::Arc};
 
 use alloy::providers::Provider;
@@ -40,14 +40,13 @@ where
         run_id: Option<u64>,
         sent_tx_callback: Arc<F>,
     ) -> impl std::future::Future<Output = Result<()>> {
-        let quit = Arc::new(Mutex::new(false));
+        let quit = Arc::new(AtomicBool::default());
 
         let quit_clone = quit.clone();
         tokio::task::spawn(async move {
             loop {
                 let _ = tokio::signal::ctrl_c().await;
-                let mut quit = quit_clone.lock().unwrap();
-                *quit = true;
+                quit_clone.store(true, std::sync::atomic::Ordering::Relaxed);
             }
         });
 
@@ -69,10 +68,9 @@ where
             let mut cursor = self.on_spam(scenario).await?.take(num_periods);
 
             while let Some(trigger) = cursor.next().await {
-                if *quit.lock().expect("lock failure") {
+                if quit.load(std::sync::atomic::Ordering::Relaxed) {
                     println!("CTRL-C received, stopping spam and collecting results...");
-                    let mut quit = quit.lock().expect("lock failure");
-                    *quit = false;
+                    quit.store(false, std::sync::atomic::Ordering::Relaxed);
                     break;
                 }
 
@@ -101,10 +99,12 @@ where
                     if cache_size == 0 {
                         break;
                     }
-                    if *quit.lock().expect("lock failure") {
+
+                    if quit.load(std::sync::atomic::Ordering::Relaxed) {
                         println!("CTRL-C received, stopping result collection...");
                         break;
                     }
+
                     block_counter += 1;
                 }
                 println!("done. run_id={}", run_id);
