@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use alloy::primitives::Address;
 use contender_core::generator::types::{CreateDefinition, FunctionCallDefinition, SpamRequest};
 use contender_testfile::TestConfig;
@@ -8,6 +10,19 @@ use super::bytecode;
 #[derive(Serialize, Deserialize, Debug, Clone, clap::ValueEnum)]
 pub enum BuiltinScenario {
     FillBlock,
+}
+
+impl Display for BuiltinScenarioConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BuiltinScenarioConfig::FillBlock {
+                max_gas_per_block: _,
+                num_txs: _,
+                sender: _,
+                fill_percent: _,
+            } => write!(f, "fill-block"),
+        }
+    }
 }
 
 pub enum BuiltinScenarioConfig {

@@ -29,6 +29,7 @@ pub async fn report(
     rpc_url: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let num_runs = db.num_runs()?;
+
     if num_runs == 0 {
         println!("No runs found in the database. Exiting.");
         return Ok(());
@@ -55,6 +56,31 @@ pub async fn report(
         all_txs.extend_from_slice(&txs);
         save_csv_report(id, &txs)?;
     }
+
+    // get run data
+    let mut run_data = vec![];
+    for id in start_run_id..=end_run_id {
+        let run = db.get_run(id)?;
+        if let Some(run) = run {
+            run_data.push(run);
+        }
+    }
+    // collect all unique scenario_name values from run_data
+    let scenario_names: Vec<String> = run_data
+        .iter()
+        .map(|run| run.scenario_name.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .iter()
+        .map(|v| {
+            // return only the filename without the path and extension
+            let re = regex::Regex::new(r".*/(.*)\.toml$").unwrap();
+            re.replace(v, "$1").to_string()
+        })
+        .collect();
+    let scenario_title = scenario_names
+        .into_iter()
+        .reduce(|acc, v| format!("{}, {}", acc, v))
+        .unwrap_or_default();
 
     // get trace data for reports
     let url = Url::from_str(rpc_url).expect("Invalid URL");
@@ -83,7 +109,7 @@ pub async fn report(
 
     // compile report
     let report_path = build_html_report(ReportMetadata {
-        scenario_name: "<TESTNAME>".to_string(), // TODO: get this from the database // TODO: add scenario_name to `runs` table
+        scenario_name: scenario_title,
         start_run_id,
         end_run_id,
         start_block: cache_data.blocks.first().unwrap().header.number,

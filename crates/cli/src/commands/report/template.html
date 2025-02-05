@@ -33,6 +33,11 @@
             align-items: center;
             width: auto;
         }
+        .label {
+            font-weight:lighter;
+            font-style: italic;
+            color: #333;
+        }
         h1 {
             text-align: center;
             color: #333;
@@ -59,20 +64,23 @@
     <h1>Contender Report</h1>
     <div class="metadata-area">
         <div class="title-area">
-            <h2>{{data.scenario_name}}</h2>
+            <div>
+                <span class="label">Scenario(s)</span>
+                <h2>{{data.scenario_name}}</h2>
+            </div>
         </div>
         <div>
             <table>
                 <tr>
-                    <td>Date</td>
+                    <td class="label">Date</td>
                     <td>{{data.date}}</td>
                 </tr>
                 <tr>
-                    <td>Target Chain</td>
+                    <td class="label">Target Chain</td>
                     <td>{{data.rpc_url}}</td>
                 </tr>
                 <tr>
-                    <td>Block Range</td>
+                    <td class="label">Block Range</td>
                     <td>{{data.start_block}} - {{data.end_block}}</td>
                 </tr>
             </table>

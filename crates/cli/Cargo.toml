@@ -24,6 +24,7 @@ serde_json = { workspace = true }
 plotters = { workspace = true }
 webbrowser = { workspace = true }
 chrono = "0.4.39"
+regex = "1.11.1"
 
 [dev-dependencies]
 tempfile = "3.15.0"
