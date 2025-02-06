@@ -2,7 +2,7 @@ use alloy::{
     hex::{FromHex, ToHexExt},
     primitives::{Address, TxHash},
 };
-use contender_core::db::{DbOps, NamedTx, RunTx};
+use contender_core::db::{DbOps, NamedTx, RunTx, SpamRun};
 use contender_core::{error::ContenderError, Result};
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
@@ -126,56 +126,92 @@ impl From<RunTxRow> for RunTx {
     }
 }
 
+struct SpamRunRow {
+    pub id: u64,
+    pub timestamp: String,
+    pub tx_count: usize,
+    pub scenario_name: String,
+}
+
+impl From<SpamRunRow> for SpamRun {
+    fn from(row: SpamRunRow) -> Self {
+        Self {
+            id: row.id,
+            timestamp: row.timestamp.parse::<usize>().expect("invalid timestamp"),
+            tx_count: row.tx_count,
+            scenario_name: row.scenario_name,
+        }
+    }
+}
+
 impl DbOps for SqliteDb {
     fn create_tables(&self) -> Result<()> {
-        self.execute(
-            "CREATE TABLE runs (
-                id INTEGER PRIMARY KEY,
-                timestamp TEXT NOT NULL,
-                tx_count INTEGER NOT NULL
-            )",
-            params![],
-        )?;
-        self.execute(
-            "CREATE TABLE rpc_urls (
-                id INTEGER PRIMARY KEY,
-                url TEXT NOT NULL UNIQUE
-            )",
-            params![],
-        )?;
-        self.execute(
-            "CREATE TABLE named_txs (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                tx_hash TEXT NOT NULL,
-                contract_address TEXT,
-                rpc_url_id INTEGER NOT NULL,
-                FOREIGN KEY (rpc_url_id) REFERENCES rpc_urls(id)
-            )",
-            params![],
-        )?;
-        self.execute(
-            "CREATE TABLE run_txs (
-                id INTEGER PRIMARY KEY,
-                run_id INTEGER NOT NULL,
-                tx_hash TEXT NOT NULL,
-                start_timestamp INTEGER NOT NULL,
-                end_timestamp INTEGER NOT NULL,
-                block_number INTEGER NOT NULL,
-                gas_used TEXT NOT NULL,
-                kind TEXT,
-                FOREIGN KEY(run_id) REFERENCES runs(runid)
-            )",
-            params![],
-        )?;
+        let ignore_already_exists = |e: ContenderError| {
+            let err_str = format!("{:?}", e);
+            if err_str.contains("already exists") || err_str.contains("duplicate column name") {
+                Ok(())
+            } else {
+                Err(e)
+            }
+        };
+
+        let queries = [
+            self.execute(
+                "CREATE TABLE runs (
+                    id INTEGER PRIMARY KEY,
+                    timestamp TEXT NOT NULL,
+                    tx_count INTEGER NOT NULL
+                )",
+                params![],
+            ),
+            self.execute(
+                "CREATE TABLE rpc_urls (
+                    id INTEGER PRIMARY KEY,
+                    url TEXT NOT NULL UNIQUE
+                )",
+                params![],
+            ),
+            self.execute(
+                "CREATE TABLE named_txs (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    tx_hash TEXT NOT NULL,
+                    contract_address TEXT,
+                    rpc_url_id INTEGER NOT NULL,
+                    FOREIGN KEY (rpc_url_id) REFERENCES rpc_urls(id)
+                )",
+                params![],
+            ),
+            self.execute(
+                "CREATE TABLE run_txs (
+                    id INTEGER PRIMARY KEY,
+                    run_id INTEGER NOT NULL,
+                    tx_hash TEXT NOT NULL,
+                    start_timestamp INTEGER NOT NULL,
+                    end_timestamp INTEGER NOT NULL,
+                    block_number INTEGER NOT NULL,
+                    gas_used TEXT NOT NULL,
+                    kind TEXT,
+                    FOREIGN KEY(run_id) REFERENCES runs(runid)
+                )",
+                params![],
+            ),
+            self.execute(
+                "ALTER TABLE runs ADD COLUMN scenario_name TEXT NOT NULL DEFAULT '';",
+                params![],
+            ),
+        ];
+        for query in queries {
+            query.or_else(ignore_already_exists)?;
+        }
         Ok(())
     }
 
     /// Inserts a new run into the database and returns the ID of the new row.
-    fn insert_run(&self, timestamp: u64, tx_count: usize) -> Result<u64> {
+    fn insert_run(&self, timestamp: u64, tx_count: usize, scenario_name: &str) -> Result<u64> {
         self.execute(
-            "INSERT INTO runs (timestamp, tx_count) VALUES (?, ?)",
-            params![timestamp, tx_count],
+            "INSERT INTO runs (timestamp, tx_count, scenario_name) VALUES (?, ?, ?)",
+            params![timestamp, tx_count, scenario_name],
         )?;
         // get ID from newly inserted row
         let id: u64 = self.query_row("SELECT last_insert_rowid()", params![], |row| row.get(0))?;
@@ -203,6 +239,29 @@ impl DbOps for SqliteDb {
             .collect::<Result<Vec<RunTx>>>()
             .map_err(|e| ContenderError::with_err(e, "failed to collect rows"))?;
         Ok(res)
+    }
+
+    fn get_run(&self, run_id: u64) -> Result<Option<SpamRun>> {
+        let pool = self.get_pool()?;
+        let mut stmt = pool
+            .prepare("SELECT id, timestamp, tx_count, scenario_name FROM runs WHERE id = ?1")
+            .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
+
+        let row = stmt
+            .query_map(params![run_id], |row| {
+                Ok(SpamRunRow {
+                    id: row.get(0)?,
+                    timestamp: row.get(1)?,
+                    tx_count: row.get(2)?,
+                    scenario_name: row.get(3)?,
+                })
+            })
+            .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
+        let res = row
+            .last()
+            .transpose()
+            .map_err(|e| ContenderError::with_err(e, "failed to query row"))?;
+        Ok(res.map(|r| r.into()))
     }
 
     fn insert_named_txs(&self, named_txs: Vec<NamedTx>, rpc_url: &str) -> Result<()> {
@@ -339,7 +398,7 @@ mod tests {
     fn inserts_runs() {
         let db = SqliteDb::new_memory();
         db.create_tables().unwrap();
-        let do_it = |num| db.insert_run(100000, num).unwrap();
+        let do_it = |num| db.insert_run(100000, num, "test").unwrap();
 
         println!("id: {}", do_it(100));
         println!("id: {}", do_it(101));
@@ -385,7 +444,7 @@ mod tests {
     fn inserts_and_gets_run_txs() {
         let db = SqliteDb::new_memory();
         db.create_tables().unwrap();
-        let run_id = db.insert_run(100000, 100).unwrap();
+        let run_id = db.insert_run(100000, 100, "test").unwrap();
         let run_txs = vec![
             RunTx {
                 tx_hash: TxHash::from_slice(&[0u8; 32]),

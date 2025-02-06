@@ -125,7 +125,8 @@ impl HeatMapChart {
         matrix
     }
 
-    fn get_slot_names(&self) -> Vec<String> {
+    /// returns all slots in the heatmap as a list of hex strings
+    fn get_hex_slots(&self) -> Vec<String> {
         let mut slots = self
             .updates_per_slot_per_block
             .values()
@@ -149,7 +150,7 @@ impl HeatMapChart {
         let legend_area = legend_area.margin(40, 40, 10, 10);
 
         let block_nums = self.get_block_numbers();
-        let slot_names = self.get_slot_names();
+        let slot_names = self.get_hex_slots();
 
         let x_size = matrix.len();
         let y_size = matrix[0].len();
@@ -167,7 +168,7 @@ impl HeatMapChart {
         chart
             .configure_mesh()
             .x_desc("Block")
-            .x_labels(x_size)
+            .x_labels(32)
             .x_label_formatter(&|i| {
                 if *i == block_nums.len() {
                     return String::default();
@@ -176,22 +177,22 @@ impl HeatMapChart {
                 format!("            {}", block_num)
             })
             .y_desc("Storage Slot")
-            .y_labels(y_size)
             .y_label_formatter(&|i| {
                 if *i == 0 {
                     return String::default();
                 }
-                let slot_name = slot_names
+                let slot = slot_names
                     .get(*i - 1)
                     .map(|n| n.to_owned())
                     .unwrap_or_default();
-                format!("{}...{}", &slot_name[..8], &slot_name[60..])
+                // truncate slot for display
+                format!("{}...{}", &slot[..8], &slot[60..])
             })
+            .y_labels(64)
+            .y_label_style(("monospace", 10))
             .x_label_offset(24)
-            .y_label_offset(24)
             .disable_x_mesh()
             .disable_y_mesh()
-            .label_style(("monospace", 15))
             .x_label_style(
                 ("sans-serif", 15)
                     .into_text_style(&chart_area)
@@ -220,7 +221,8 @@ impl HeatMapChart {
             let brightness = (i * 255 / max_incidence) as u8;
             let (r, g, b) = rgb_gradient(brightness);
             let y_start = legend_height - (i * (legend_height / max_incidence));
-            let y_end = y_start - (legend_height / max_incidence);
+            let chunk_size = legend_height / max_incidence;
+            let y_end = y_start.max(chunk_size) - chunk_size;
 
             legend_area.draw(&Rectangle::new(
                 [(50, y_start as i32), (80, y_end as i32)], // Small vertical bar

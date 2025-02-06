@@ -12,7 +12,7 @@ use chart::ReportChartId;
 use chart::{GasPerBlockChart, HeatMapChart, TimeToInclusionChart, TxGasUsedChart};
 use contender_core::db::{DbOps, RunTx};
 use csv::WriterBuilder;
-use gen_html::build_html_report;
+use gen_html::{build_html_report, ReportMetadata};
 use std::str::FromStr;
 
 /// Returns the fully-qualified path to the report directory.
@@ -29,6 +29,7 @@ pub async fn report(
     rpc_url: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let num_runs = db.num_runs()?;
+
     if num_runs == 0 {
         println!("No runs found in the database. Exiting.");
         return Ok(());
@@ -56,6 +57,31 @@ pub async fn report(
         save_csv_report(id, &txs)?;
     }
 
+    // get run data
+    let mut run_data = vec![];
+    for id in start_run_id..=end_run_id {
+        let run = db.get_run(id)?;
+        if let Some(run) = run {
+            run_data.push(run);
+        }
+    }
+    // collect all unique scenario_name values from run_data
+    let scenario_names: Vec<String> = run_data
+        .iter()
+        .map(|run| run.scenario_name.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .iter()
+        .map(|v| {
+            // return only the filename without the path and extension
+            let re = regex::Regex::new(r".*/(.*)\.toml$").unwrap();
+            re.replace(v, "$1").to_string()
+        })
+        .collect();
+    let scenario_title = scenario_names
+        .into_iter()
+        .reduce(|acc, v| format!("{}, {}", acc, v))
+        .unwrap_or_default();
+
     // get trace data for reports
     let url = Url::from_str(rpc_url).expect("Invalid URL");
     let rpc_client = ProviderBuilder::new().on_http(url);
@@ -82,7 +108,14 @@ pub async fn report(
     tx_gas_used.draw(ReportChartId::TxGasUsed.filename(start_run_id, end_run_id)?)?;
 
     // compile report
-    let report_path = build_html_report(start_run_id, end_run_id)?;
+    let report_path = build_html_report(ReportMetadata {
+        scenario_name: scenario_title,
+        start_run_id,
+        end_run_id,
+        start_block: cache_data.blocks.first().unwrap().header.number,
+        end_block: cache_data.blocks.last().unwrap().header.number,
+        rpc_url: rpc_url.to_string(),
+    })?;
 
     // Open the report in the default web browser
     webbrowser::open(&report_path)?;
