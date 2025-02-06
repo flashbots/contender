@@ -60,7 +60,7 @@ pub async fn spam(
         .as_ref()
         .expect("No spam function calls found in testfile");
 
-    if spam.len() == 0 {
+    if spam.is_empty() {
         return Err(ContenderError::SpamError("No spam calls found in testfile", None).into());
     }
 

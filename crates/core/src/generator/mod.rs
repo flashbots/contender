@@ -12,7 +12,6 @@ use crate::{
 use alloy::{
     hex::ToHexExt,
     primitives::{Address, U256},
-    rpc::types::serde_helpers::num,
 };
 use async_trait::async_trait;
 use named_txs::ExecutionRequest;
