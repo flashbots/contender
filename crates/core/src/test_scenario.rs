@@ -352,16 +352,17 @@ where
             ))?
             .to_owned();
 
-        let full_tx = tx_req
+        let mut full_tx = tx_req
             .to_owned()
             .with_nonce(nonce)
             .with_max_fee_per_gas(gas_price + (gas_price / 5))
             .with_max_priority_fee_per_gas(gas_price)
             .with_chain_id(self.chain_id)
-            .with_gas_limit(gas_limit)
-            .with_max_fee_per_blob_gas(gas_price);
+            .with_gas_limit(gas_limit);
 
-        // TODO: max fee per blob gas?
+        if full_tx.blob_sidecar().is_some() {
+            full_tx.set_max_fee_per_blob_gas(gas_price);
+        }
 
         Ok((full_tx, signer))
     }

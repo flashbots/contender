@@ -6,7 +6,7 @@ use crate::{
 };
 use alloy::{
     consensus::{SidecarBuilder, SimpleCoder},
-    eips::eip4844::USABLE_BYTES_PER_BLOB,
+    eips::eip4844::{FIELD_ELEMENTS_PER_BLOB, MAX_BLOBS_PER_BLOCK, USABLE_BYTES_PER_BLOB},
     hex::FromHex,
     primitives::{Address, Bytes, TxKind, U256},
     rpc::types::TransactionRequest,
@@ -129,17 +129,16 @@ where
             .map(|s| self.replace_placeholders(s, placeholder_map))
             .and_then(|s| s.parse::<U256>().ok());
 
-        let (blob_versioned_hashes, sidecar) = if TxType::Eip4844 == funcdef.tx_type {
-            let input = vec![4u8; USABLE_BYTES_PER_BLOB];
-
+        let sidecar = if TxType::Eip4844 == funcdef.tx_type {
+            // Simple coder scheme sets the most significant byte for every field element to 0, so those bytes cannot be used.
+            let number_of_bytes =
+                MAX_BLOBS_PER_BLOCK * (USABLE_BYTES_PER_BLOB - FIELD_ELEMENTS_PER_BLOB as usize);
             let sidecar_builder: SidecarBuilder<SimpleCoder> =
-                std::iter::once(input.clone()).collect();
-            let sidecar = sidecar_builder.build().unwrap_or_default();
-            let versioned_blob_hashes: Vec<_> = sidecar.versioned_hashes().collect();
+                std::iter::once(vec![1u8; number_of_bytes]).collect();
 
-            (Some(versioned_blob_hashes), Some(sidecar))
+            Some(sidecar_builder.build().unwrap_or_default())
         } else {
-            (None, None)
+            None
         };
 
         Ok(TransactionRequest {
@@ -147,7 +146,6 @@ where
             input: alloy::rpc::types::TransactionInput::both(input.into()),
             from: Some(funcdef.from),
             value,
-            blob_versioned_hashes,
             sidecar,
             ..Default::default()
         })

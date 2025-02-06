@@ -116,7 +116,7 @@ pub enum PlanType<F: Fn(NamedTxRequest) -> CallbackResult> {
     Spam(usize, F),
 }
 
-/// The type of a tx.
+/// The type of a transaction.
 #[derive(Copy, Clone, Debug, PartialEq, clap::ValueEnum, Serialize, Deserialize)]
 pub enum TxType {
     /// EIP-1559 transaction.
