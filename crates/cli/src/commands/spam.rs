@@ -98,7 +98,7 @@ pub async fn spam(
     ]
     .concat();
 
-    if signers_per_period < agents.all_agents().collect::<Vec<_>>().len() {
+    if signers_per_period < all_agents.len() {
         return Err(ContenderError::SpamError(
             "Not enough signers to cover all spam pools. Set --tps or --tpb to a higher value.",
             format!(
