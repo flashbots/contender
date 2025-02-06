@@ -361,6 +361,12 @@ where
                     .next()
                     .map(|(_, store)| store.signers.len())
                     .unwrap_or(1);
+                if num_accts == 0 {
+                    return Err(ContenderError::SpamError(
+                        "no accounts found in agent store",
+                        None,
+                    ));
+                }
 
                 // txs will be grouped by step [from=1, from=2, from=3, from=1, from=2, from=3, ...]
                 for step in spam_steps.iter() {
