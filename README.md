@@ -76,7 +76,7 @@ Deploy custom scenario:
 contender setup ./scenarios/stress.toml $RPC_URL
 ```
 
-Pass a private key to use your own account (default anvil accounts are used otherwise):
+Pass a private key to fund the setup txs from your own account (default anvil account[0] is used otherwise):
 
 ```bash
 contender setup ./scenarios/stress.toml $RPC_URL -p $PRIVATE_KEY
@@ -103,7 +103,7 @@ contender spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRV_KEY
 Generate a chain performance report for the most recent run.
 
 ```bash
-contender report
+contender report $RPC_URL
 ```
 
 > The compiled report will open in your web browser.
@@ -111,13 +111,39 @@ contender report
 Generate a report that spans the last 3 runs (the most recent run + 2 preceding it):
 
 ```bash
-contender report -p 2
+contender report $RPC_URL -p 2
 ```
 
 Generate a report spanning run 200 - 203 (inclusively):
 
 ```bash
-contender report -i 203 -p 3
+contender report $RPC_URL -i 203 -p 3
+```
+
+---
+
+Backup the SQLite DB used by contender:
+
+```bash
+contender db export ./backup.db
+```
+
+Import a backup DB file for contender to use:
+
+```bash
+contender db import ./backup.db
+```
+
+Reset your DB in-place:
+
+```bash
+contender db reset
+```
+
+Delete your DB:
+
+```bash
+contender db drop
 ```
 
 ### Scenarios
@@ -129,7 +155,8 @@ We provide some scenarios in the repo under the [`scenarios/`](./scenarios/) dir
 ```sh
 git clone https://github.com/flashbots/contender
 cd contender
-cargo run -- setup ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRIVATE_KEY
+cargo run -- setup ./scenarios/stress.toml $RPC_URL -p $PRIVATE_KEY
+cargo run -- spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRIVATE_KEY
 ```
 
 ### Library Usage
