@@ -102,6 +102,15 @@ pub async fn spam(
         panic!("Must set either --txs-per-block (--tpb) or --txs-per-second (--tps)");
     }
 
+    fund_accounts(
+        &all_signer_addrs,
+        &user_signers[0],
+        &rpc_client,
+        &eth_client,
+        min_balance,
+    )
+    .await?;
+
     let mut run_id = 0;
 
     let mut scenario = TestScenario::new(
@@ -130,15 +139,6 @@ pub async fn spam(
         )
         .into());
     }
-
-    fund_accounts(
-        &all_signer_addrs,
-        &user_signers[0],
-        &rpc_client,
-        &eth_client,
-        min_balance,
-    )
-    .await?;
 
     // trigger blockwise spammer
     if let Some(txs_per_block) = args.txs_per_block {
