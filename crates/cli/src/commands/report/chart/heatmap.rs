@@ -221,7 +221,8 @@ impl HeatMapChart {
             let brightness = (i * 255 / max_incidence) as u8;
             let (r, g, b) = rgb_gradient(brightness);
             let y_start = legend_height - (i * (legend_height / max_incidence));
-            let y_end = y_start - (legend_height / max_incidence);
+            let chunk_size = legend_height / max_incidence;
+            let y_end = y_start.max(chunk_size) - chunk_size;
 
             legend_area.draw(&Rectangle::new(
                 [(50, y_start as i32), (80, y_end as i32)], // Small vertical bar
