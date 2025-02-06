@@ -10,6 +10,3 @@ repository.workspace = true
 
 [dependencies]
 alloy = { workspace = true, features = ["node-bindings", "rpc-types-mev"] }
-jsonrpsee = { workspace = true, features = ["http-client", "client-core"] }
-serde = { workspace = true, features = ["derive"] }
-alloy-serde = { workspace = true }
