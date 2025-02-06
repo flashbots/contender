@@ -140,6 +140,7 @@ pub async fn spam(
     )
     .await?;
 
+    // trigger blockwise spammer
     if let Some(txs_per_block) = args.txs_per_block {
         println!("Blockwise spamming with {} txs per block", txs_per_block);
         let spammer = BlockwiseSpammer {};
@@ -150,7 +151,8 @@ pub async fn spam(
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("Time went backwards")
                     .as_millis();
-                run_id = db.insert_run(timestamp as u64, txs_per_block * duration)?;
+                run_id =
+                    db.insert_run(timestamp as u64, txs_per_block * duration, &args.testfile)?;
                 spammer
                     .spam_rpc(
                         &mut scenario,
@@ -170,19 +172,18 @@ pub async fn spam(
         return Ok(run_id);
     }
 
+    // trigger timed spammer
     let tps = args.txs_per_second.unwrap_or(10);
     println!("Timed spamming with {} txs per second", tps);
-
     let interval = std::time::Duration::from_secs(1);
     let spammer = TimedSpammer::new(interval);
-
     match spam_callback_default(!args.disable_reports, Arc::new(rpc_client).into()).await {
         SpamCallbackType::Log(cback) => {
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_millis();
-            run_id = db.insert_run(timestamp as u64, tps * duration)?;
+            run_id = db.insert_run(timestamp as u64, tps * duration, &args.testfile)?;
             spammer
                 .spam_rpc(&mut scenario, tps, duration, Some(run_id), cback.into())
                 .await?;
