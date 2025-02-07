@@ -18,7 +18,8 @@ use alloy::providers::{PendingTransactionConfig, Provider, ProviderBuilder};
 use alloy::rpc::types::TransactionRequest;
 use alloy::signers::local::PrivateKeySigner;
 use alloy::transports::http::reqwest::Url;
-use contender_bundle_provider::{BundleClient, EthSendBundle};
+use contender_bundle_provider::bundle_provider::new_basic_bundle;
+use contender_bundle_provider::BundleClient;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -506,7 +507,7 @@ where
                                 .await
                                 .expect("failed to get block number"),
                         };
-                        let rpc_bundle = EthSendBundle::new_basic(
+                        let rpc_bundle = new_basic_bundle(
                             bundle_txs.into_iter().map(|b| b.into()).collect(),
                             block_num,
                         );
@@ -516,7 +517,7 @@ where
                                 let mut rpc_bundle = rpc_bundle.clone();
                                 rpc_bundle.block_number = block_num + i as u64;
 
-                                let res = rpc_bundle.send_to_builder(&bundle_client).await;
+                                let res = bundle_client.send_bundle(rpc_bundle).await;
                                 if let Err(e) = res {
                                     eprintln!("failed to send bundle: {:?}", e);
                                 }
