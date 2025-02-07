@@ -10,8 +10,12 @@ impl DbOps for MockDb {
         Ok(())
     }
 
-    fn insert_run(&self, _timestamp: u64, _tx_count: usize) -> Result<u64> {
+    fn insert_run(&self, _timestamp: u64, _tx_count: usize, _scenario_name: &str) -> Result<u64> {
         Ok(0)
+    }
+
+    fn get_run(&self, _run_id: u64) -> Result<Option<super::SpamRun>> {
+        Ok(None)
     }
 
     fn num_runs(&self) -> Result<u64> {

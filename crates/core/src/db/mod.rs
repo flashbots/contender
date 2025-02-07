@@ -42,13 +42,22 @@ impl From<NamedTx> for Vec<NamedTx> {
     }
 }
 
+pub struct SpamRun {
+    pub id: u64,
+    pub timestamp: usize,
+    pub tx_count: usize,
+    pub scenario_name: String,
+}
+
 pub trait DbOps {
     fn create_tables(&self) -> Result<()>;
 
     /// Insert a new run into the database. Returns run_id.
-    fn insert_run(&self, timestamp: u64, tx_count: usize) -> Result<u64>;
+    fn insert_run(&self, timestamp: u64, tx_count: usize, scenario_name: &str) -> Result<u64>;
 
     fn num_runs(&self) -> Result<u64>;
+
+    fn get_run(&self, run_id: u64) -> Result<Option<SpamRun>>;
 
     fn insert_named_txs(&self, named_txs: Vec<NamedTx>, rpc_url: &str) -> Result<()>;
 

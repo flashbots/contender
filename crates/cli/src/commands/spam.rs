@@ -60,6 +60,10 @@ pub async fn spam(
         .as_ref()
         .expect("No spam function calls found in testfile");
 
+    if spam.is_empty() {
+        return Err(ContenderError::SpamError("No spam calls found in testfile", None).into());
+    }
+
     // distill all from_pool arguments from the spam requests
     let from_pool_declarations = get_spam_pools(&testconfig);
 
@@ -74,24 +78,38 @@ pub async fn spam(
         }
 
         let agent = SignerStore::new_random(
-            signers_per_period / from_pool_declarations.len(),
+            signers_per_period / from_pool_declarations.len().max(1),
             &rand_seed,
             from_pool,
         );
         agents.add_agent(from_pool, agent);
     }
 
+    let all_agents = agents.all_agents().collect::<Vec<_>>();
     let all_signer_addrs = [
         user_signers
             .iter()
             .map(|signer| signer.address())
             .collect::<Vec<_>>(),
-        agents
-            .all_agents()
+        all_agents
+            .iter()
             .flat_map(|(_, agent)| agent.signers.iter().map(|signer| signer.address()))
             .collect::<Vec<_>>(),
     ]
     .concat();
+
+    if signers_per_period < all_agents.len() {
+        return Err(ContenderError::SpamError(
+            "Not enough signers to cover all spam pools. Set --tps or --tpb to a higher value.",
+            format!(
+                "signers_per_period: {}, agents: {}",
+                signers_per_period,
+                all_agents.len()
+            )
+            .into(),
+        )
+        .into());
+    }
 
     check_private_keys(&testconfig, &user_signers);
 
@@ -101,6 +119,15 @@ pub async fn spam(
     if args.txs_per_block.is_none() && args.txs_per_second.is_none() {
         panic!("Must set either --txs-per-block (--tpb) or --txs-per-second (--tps)");
     }
+
+    fund_accounts(
+        &all_signer_addrs,
+        &user_signers[0],
+        &rpc_client,
+        &eth_client,
+        min_balance,
+    )
+    .await?;
 
     let mut run_id = 0;
 
@@ -131,15 +158,7 @@ pub async fn spam(
         .into());
     }
 
-    fund_accounts(
-        &all_signer_addrs,
-        &user_signers[0],
-        &rpc_client,
-        &eth_client,
-        min_balance,
-    )
-    .await?;
-
+    // trigger blockwise spammer
     if let Some(txs_per_block) = args.txs_per_block {
         println!("Blockwise spamming with {} txs per block", txs_per_block);
         let spammer = BlockwiseSpammer {};
@@ -150,7 +169,8 @@ pub async fn spam(
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("Time went backwards")
                     .as_millis();
-                run_id = db.insert_run(timestamp as u64, txs_per_block * duration)?;
+                run_id =
+                    db.insert_run(timestamp as u64, txs_per_block * duration, &args.testfile)?;
                 spammer
                     .spam_rpc(
                         &mut scenario,
@@ -170,19 +190,18 @@ pub async fn spam(
         return Ok(run_id);
     }
 
+    // trigger timed spammer
     let tps = args.txs_per_second.unwrap_or(10);
     println!("Timed spamming with {} txs per second", tps);
-
     let interval = std::time::Duration::from_secs(1);
     let spammer = TimedSpammer::new(interval);
-
     match spam_callback_default(!args.disable_reports, Arc::new(rpc_client).into()).await {
         SpamCallbackType::Log(cback) => {
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_millis();
-            run_id = db.insert_run(timestamp as u64, tps * duration)?;
+            run_id = db.insert_run(timestamp as u64, tps * duration, &args.testfile)?;
             spammer
                 .spam_rpc(&mut scenario, tps, duration, Some(run_id), cback.into())
                 .await?;

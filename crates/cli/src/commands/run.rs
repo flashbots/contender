@@ -58,6 +58,7 @@ pub async fn run(
             fill_percent,
         ),
     };
+    let scenario_name = scenario_config.to_string();
     let testconfig: TestConfig = scenario_config.into();
     check_private_keys(&testconfig, &user_signers);
 
@@ -99,7 +100,11 @@ pub async fn run(
         .duration_since(std::time::UNIX_EPOCH)
         .expect("Time went backwards")
         .as_millis();
-    let run_id = db.insert_run(timestamp as u64, duration * txs_per_duration)?;
+    let run_id = db.insert_run(
+        timestamp as u64,
+        duration * txs_per_duration,
+        &format!("{} ({})", contract_name, scenario_name),
+    )?;
     let callback = LogCallback::new(Arc::new(
         ProviderBuilder::new()
             .network::<AnyNetwork>()
