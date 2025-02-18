@@ -47,9 +47,12 @@ impl GasPerBlockChart {
         self.gas_used_per_block.insert(block_num, gas_used);
     }
 
+    /// Draws the chart and saves the image to `filepath`.
+    ///
+    /// TODO: DRY duplicate code in other chart modules. This could be a trait-defined generic method.
     pub fn draw(&self, filepath: impl AsRef<str>) -> Result<(), Box<dyn std::error::Error>> {
         let root = BitMapBackend::new(filepath.as_ref(), (1024, 768)).into_drawing_area();
-        root.fill(&RGBColor(240, 240, 240))?;
+        root.fill(&RGBColor(255, 255, 255))?;
 
         let start_block = self
             .gas_used_per_block

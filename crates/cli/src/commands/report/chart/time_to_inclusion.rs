@@ -36,7 +36,7 @@ impl TimeToInclusionChart {
 
     pub fn draw(&self, filepath: impl AsRef<str>) -> Result<(), Box<dyn std::error::Error>> {
         let root = BitMapBackend::new(filepath.as_ref(), (1024, 768)).into_drawing_area();
-        root.fill(&RGBColor(240, 240, 240))?;
+        root.fill(&RGBColor(255, 255, 255))?;
 
         let min_tti = self
             .inclusion_times
