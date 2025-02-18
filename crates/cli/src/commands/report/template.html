@@ -4,96 +4,140 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Contender Report</title>
+    <!--
+
+    (¯`·¯`·.¸¸.·´¯`·.¸¸.·´¯`··´¯)
+    ( \                       / )
+     ( ) Design by @deadpine ( ) 
+      (/                     \)  
+       (.·´¯`·.¸¸.·´¯`·.¸¸.·´)
+
+    -->
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #ffffff;
-        }
-        .chart-area {
-            margin: 20px;
-            padding: 20px;
-            background-color: #fff;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-        .metadata-area {
-            margin: 20px;
-            padding: 20px;
-            background-color: #fff;
-            border: 1px solid #ddd;
-            display: flex;
-            justify-content: space-between;
-        }
-        .title-area {
-            display: flex;
-            flex-direction: row;
-            align-items: center;
-            width: auto;
-        }
-        .label {
-            font-weight:lighter;
-            font-style: italic;
-            color: #333;
-        }
-        h1 {
-            text-align: center;
-            color: #333;
-        }
-        h2 {
-            color: #555;
-        }
-        img {
-            max-width: 100%;
-            height: auto;
-            display: block;
-            margin: 0 auto;
-        }
-        tr {
-            border-bottom: 1px solid #ddd;
-            padding: 5px 0;
-        }
-        td {
-            padding: 5px 10px;
-        }
+
+@font-face {
+  font-family: 'CMU-Serif';
+  src: url('./fonts/cmunbx.ttf') format('truetype');
+  style: bold;
+  weight: bold; 
+  stretch: 100;
+}
+@font-face {
+  font-family: 'CMU-Serif';
+  src: url('./fonts/cmunci.ttf') format('truetype');
+  style: italic;
+  weight: 400; 
+  stretch: 100;
+}
+@font-face {
+  font-family: 'CMU-Serif';
+  src: url('./fonts/cmunrm.ttf') format('truetype');
+  style: normal;
+  weight: 400; 
+  stretch: 100;
+}
+
+
+* {
+  box-sizing: border-box;
+}
+
+body,
+html {
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  font-family: 'CMU-Serif', serif;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: #0D0D0D;
+}
+
+header {
+  padding: 4rem 1rem 2rem;
+  text-align: center;
+}
+
+header p {
+  font-style: italic;
+  padding: .25rem 0;
+  margin: 0;
+}
+
+section {
+  max-width: 39rem;
+  padding: 2rem 1rem;
+}
+
+h1 {
+  color: #0D0D0D;
+  text-align: center;
+  font-size: 2.5rem;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+h2 {
+  font-size: 1.1rem;
+  text-align: center;
+  text-transform: uppercase;
+  padding: 1rem 0 .5rem;
+}
+
+a {
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+.source {
+  display: block;
+  width: 100%;
+  padding: .5rem;
+  text-align: center;
+  font-style: italic;
+}
+
+img {
+  max-width: 100%;
+}
+
+footer p {
+  text-align: center;
+  font-size: .9rem;
+  padding: 1rem;
+}
     </style>
 </head>
 <body>
-    <h1>Contender Report</h1>
-    <div class="metadata-area">
-        <div class="title-area">
-            <div>
-                <span class="label">Scenario(s)</span>
-                <h2>{{data.scenario_name}}</h2>
-            </div>
-        </div>
-        <div>
-            <table>
-                <tr>
-                    <td class="label">Date</td>
-                    <td>{{data.date}}</td>
-                </tr>
-                <tr>
-                    <td class="label">Target Chain</td>
-                    <td>{{data.rpc_url}}</td>
-                </tr>
-                <tr>
-                    <td class="label">Block Range</td>
-                    <td>{{data.start_block}} - {{data.end_block}}</td>
-                </tr>
-            </table>
-        </div>
-    </div>
+    <header>
+        <h1>Flashbots <br/> Chain Performance Report</h1>
+        <p>{{data.date}}</p>
+        <p>Scenario: {{data.scenario_name}}</p>
+        <p>Target Chain: {{data.rpc_url}}</p>
+        <p>Block Range: {{data.start_block}} - {{data.end_block}}</p>
+    </header>
+
     {{#each data.charts}}
-    <div class="chart-area">
+    <section>
         <h2>
             {{this.0}}
         </h2>
         <img src="{{this.1}}" alt="{{this.0}}">
         <div style="page-break-after: always;"></div>
-    </div>
+    </section>
     {{/each}}
+
+    <footer>
+        <p>Flashbots 2025 ©</p>
+    </footer>
+
 </body>
 </html>

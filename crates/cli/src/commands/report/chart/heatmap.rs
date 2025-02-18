@@ -144,7 +144,7 @@ impl HeatMapChart {
 
         // plotters
         let root = BitMapBackend::new(filepath.as_ref(), (1024, 768)).into_drawing_area();
-        root.fill(&RGBColor(240, 240, 240))?;
+        root.fill(&RGBColor(255, 255, 255))?;
 
         let (chart_area, legend_area) = root.split_horizontally(900);
         let legend_area = legend_area.margin(40, 40, 10, 10);
