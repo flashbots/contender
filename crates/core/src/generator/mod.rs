@@ -18,7 +18,7 @@ use named_txs::ExecutionRequest;
 pub use named_txs::NamedTxRequestBuilder;
 pub use seeder::rand_seed::RandSeed;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
-use types::{CreateDefinitionStrict, FunctionCallDefinitionStrict, SpamRequest};
+use types::{CreateDefinitionStrict, FunctionCallDefinitionStrict, SpamRequest, TxType};
 
 pub use types::{CallbackResult, NamedTxRequest, PlanType};
 
@@ -162,10 +162,13 @@ where
             .to_owned()
             .replace("{_sender}", &from_address.encode_hex()); // inject address WITHOUT 0x prefix
 
+        let tx_type = create_def.tx_type.unwrap_or(TxType::Eip1559);
+
         Ok(CreateDefinitionStrict {
             name: create_def.name.to_owned(),
             bytecode,
             from: from_address,
+            tx_type: tx_type,
         })
     }
 
@@ -229,6 +232,7 @@ where
             fuzz: funcdef.fuzz.to_owned().unwrap_or_default(),
             kind: funcdef.kind.to_owned(),
             gas_limit: funcdef.gas_limit.to_owned(),
+            tx_type: funcdef.tx_type.unwrap_or(TxType::Eip1559),
         })
     }
 

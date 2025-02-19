@@ -56,6 +56,7 @@ mod tests {
         providers::{DynProvider, ProviderBuilder},
     };
 
+    use crate::generator::types::TxType;
     use crate::{
         agent_controller::{AgentStore, SignerStore},
         db::MockDb,
@@ -78,6 +79,7 @@ mod tests {
         let mut agents = AgentStore::new();
         let txs_per_period = 10;
         let periods = 3;
+        let tx_type = TxType::Legacy;
         agents.add_agent(
             "pool1",
             SignerStore::new_random(txs_per_period / periods, &seed, "eeeeeeee"),
@@ -101,6 +103,7 @@ mod tests {
                     U256::from(ETH_TO_WEI),
                     &provider,
                     Some(nonce),
+                    tx_type,
                 )
                 .await
                 .unwrap();
@@ -118,6 +121,7 @@ mod tests {
             seed,
             &user_signers,
             agents,
+            tx_type,
         )
         .await
         .unwrap();

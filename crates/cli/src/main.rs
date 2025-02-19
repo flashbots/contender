@@ -53,6 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             private_keys,
             min_balance,
             seed,
+            tx_type,
         } => {
             let seed = seed.unwrap_or(stored_seed);
             commands::setup(
@@ -62,6 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 private_keys,
                 min_balance,
                 RandSeed::seed_from_str(&seed),
+                tx_type.into(),
             )
             .await?
         }
@@ -78,6 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             disable_reports,
             min_balance,
             gen_report,
+            tx_type,
         } => {
             let seed = seed.unwrap_or(stored_seed);
             let run_id = commands::spam(
@@ -93,6 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     private_keys,
                     disable_reports,
                     min_balance,
+                    tx_type: tx_type.into(),
                 },
             )
             .await?;
@@ -117,6 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             duration,
             txs_per_duration,
             skip_deploy_prompt,
+            tx_type,
         } => {
             commands::run(
                 &db,
@@ -128,6 +133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     duration,
                     txs_per_duration,
                     skip_deploy_prompt,
+                    tx_type: tx_type.into(),
                 },
             )
             .await?
