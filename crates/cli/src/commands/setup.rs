@@ -8,7 +8,7 @@ use alloy::{
 use contender_core::{
     agent_controller::{AgentStore, SignerStore},
     error::ContenderError,
-    generator::RandSeed,
+    generator::{types::TxType, RandSeed},
     test_scenario::TestScenario,
 };
 use contender_testfile::TestConfig;
@@ -26,6 +26,7 @@ pub async fn setup(
     private_keys: Option<Vec<String>>,
     min_balance: String,
     seed: RandSeed,
+    tx_type: TxType,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
     let rpc_client = DynProvider::new(
@@ -34,7 +35,8 @@ pub async fn setup(
             .on_http(url.to_owned()),
     );
     let eth_client = DynProvider::new(ProviderBuilder::new().on_http(url.to_owned()));
-    let testconfig: TestConfig = TestConfig::from_file(testfile.as_ref())?;
+    let mut testconfig: TestConfig = TestConfig::from_file(testfile.as_ref())?;
+    testconfig.set_req_tx_type(tx_type)?;
     let min_balance = parse_ether(&min_balance)?;
 
     let user_signers = private_keys
@@ -108,6 +110,7 @@ pub async fn setup(
         &rpc_client,
         &eth_client,
         min_balance,
+        tx_type,
     )
     .await?;
 
@@ -119,6 +122,7 @@ pub async fn setup(
         seed,
         &user_signers_with_defaults,
         agents,
+        tx_type,
     )
     .await?;
 

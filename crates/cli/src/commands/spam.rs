@@ -13,7 +13,11 @@ use contender_core::{
     agent_controller::{AgentStore, SignerStore},
     db::DbOps,
     error::ContenderError,
-    generator::{seeder::Seeder, types::AnyProvider, Generator, PlanType, RandSeed},
+    generator::{
+        seeder::Seeder,
+        types::{AnyProvider, TxType},
+        Generator, PlanType, RandSeed,
+    },
     spammer::{BlockwiseSpammer, ExecutionPayload, Spammer, TimedSpammer},
     test_scenario::TestScenario,
 };
@@ -36,6 +40,7 @@ pub struct SpamCommandArgs {
     pub private_keys: Option<Vec<String>>,
     pub disable_reports: bool,
     pub min_balance: String,
+    pub tx_type: TxType,
 }
 
 /// Runs spammer and returns run ID.
@@ -43,7 +48,8 @@ pub async fn spam(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     args: SpamCommandArgs,
 ) -> Result<u64, Box<dyn std::error::Error>> {
-    let testconfig = TestConfig::from_file(&args.testfile)?;
+    let mut testconfig = TestConfig::from_file(&args.testfile)?;
+    testconfig.set_req_tx_type(args.tx_type)?;
     let rand_seed = RandSeed::seed_from_str(&args.seed);
     let url = Url::parse(&args.rpc_url).expect("Invalid RPC URL");
     let rpc_client = DynProvider::new(
@@ -128,6 +134,7 @@ pub async fn spam(
         &rpc_client,
         &eth_client,
         min_balance,
+        args.tx_type,
     )
     .await?;
 
@@ -142,6 +149,7 @@ pub async fn spam(
         rand_seed,
         &user_signers,
         agents,
+        args.tx_type,
     )
     .await?;
 
