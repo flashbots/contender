@@ -7,7 +7,7 @@ use alloy::{
 };
 use contender_core::{
     db::RunTx,
-    generator::types::{AnyProvider, EthProvider, FunctionCallDefinition, SpamRequest},
+    generator::types::{AnyProvider, EthProvider, FunctionCallDefinition, SpamRequest, TxType},
     spammer::{LogCallback, NilCallback},
 };
 use contender_testfile::TestConfig;
@@ -158,6 +158,7 @@ pub async fn fund_accounts(
     rpc_client: &AnyProvider,
     eth_client: &EthProvider,
     min_balance: U256,
+    tx_type: TxType,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let insufficient_balances =
         find_insufficient_balances(recipient_addresses, min_balance, rpc_client).await?;
@@ -210,6 +211,7 @@ pub async fn fund_accounts(
                 fund_amount,
                 eth_client,
                 Some(admin_nonce + idx as u64),
+                tx_type,
             )
             .await?,
         );
@@ -229,6 +231,7 @@ pub async fn fund_account(
     amount: U256,
     rpc_client: &EthProvider,
     nonce: Option<u64>,
+    tx_type: TxType,
 ) -> Result<PendingTransactionConfig, Box<dyn std::error::Error>> {
     println!(
         "funding account {} with user account {}",
@@ -239,16 +242,30 @@ pub async fn fund_account(
     let gas_price = rpc_client.get_gas_price().await?;
     let nonce = nonce.unwrap_or(rpc_client.get_transaction_count(sender.address()).await?);
     let chain_id = rpc_client.get_chain_id().await?;
-    let tx_req = TransactionRequest {
+    let mut tx_req = TransactionRequest {
         from: Some(sender.address()),
         to: Some(alloy::primitives::TxKind::Call(recipient)),
         value: Some(amount),
         gas: Some(21000),
-        gas_price: Some(gas_price + 4_200_000_000),
         nonce: Some(nonce),
         chain_id: Some(chain_id),
         ..Default::default()
     };
+
+    match tx_type {
+        TxType::Legacy => {
+            tx_req = tx_req.transaction_type(tx_type as u8);
+            tx_req.gas_price = Some(gas_price + 4_200_000_000);
+        }
+        TxType::Eip1559 => {
+            tx_req = tx_req
+                .transaction_type(tx_type as u8)
+                .max_priority_fee_per_gas(gas_price)
+                .max_fee_per_gas(gas_price + (gas_price / 5));
+        }
+        _ => (),
+    }
+
     let eth_wallet = EthereumWallet::from(sender.to_owned());
     let tx = tx_req.build(&eth_wallet).await?;
     let res = rpc_client.send_tx_envelope(tx).await?;
@@ -344,6 +361,8 @@ mod test {
         signers::local::PrivateKeySigner,
     };
 
+    use contender_core::generator::types::TxType;
+
     use super::fund_accounts;
 
     pub fn spawn_anvil() -> AnvilInstance {
@@ -372,6 +391,8 @@ mod test {
         .map(|s| s.parse().unwrap())
         .collect();
 
+        let tx_type = TxType::Eip1559;
+
         // send eth to the new signer
         fund_accounts(
             &recipient_addresses,
@@ -379,6 +400,7 @@ mod test {
             &rpc_client,
             &eth_client,
             min_balance,
+            tx_type,
         )
         .await
         .unwrap();
@@ -397,6 +419,7 @@ mod test {
             &rpc_client,
             &eth_client,
             min_balance,
+            tx_type,
         )
         .await;
         println!("res: {:?}", res);

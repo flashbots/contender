@@ -131,7 +131,8 @@ where
             to: Some(TxKind::Call(to)),
             input: alloy::rpc::types::TransactionInput::both(input.into()),
             from: Some(funcdef.from),
-            value,
+            value: value,
+            transaction_type: Some(funcdef.tx_type as u8),
             ..Default::default()
         })
     }
@@ -148,6 +149,7 @@ where
             input: alloy::rpc::types::TransactionInput::both(
                 Bytes::from_hex(&full_bytecode).expect("invalid bytecode hex"),
             ),
+            transaction_type: Some(createdef.tx_type as u8),
             ..Default::default()
         };
         Ok(tx)
