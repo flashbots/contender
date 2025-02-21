@@ -23,7 +23,7 @@ impl BundleClient {
     pub async fn send_bundle(&self, bundle: EthSendBundle) -> Result<(), String> {
         // Result contents optional because some endpoints don't return this response
         self.client
-            .raw_request::<EthSendBundle, Option<EthBundleHash>>("eth_sendBundle".into(), bundle)
+            .raw_request::<_, Option<EthBundleHash>>("eth_sendBundle".into(), [bundle])
             .await
             .map_err(|e| format!("Failed to send bundle: {:?}", e))?;
 
