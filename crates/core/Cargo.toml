@@ -18,3 +18,4 @@ async-trait = { workspace = true }
 tokio = { workspace = true, features = ["signal"]}
 serde_json = { workspace = true }
 contender_bundle_provider = { workspace = true }
+clap = { workspace = true, features = ["derive"] }

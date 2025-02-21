@@ -37,6 +37,8 @@ pub struct FunctionCallDefinition {
     pub fuzz: Option<Vec<FuzzParam>>,
     /// Optional type of the spam transaction for categorization.
     pub kind: Option<String>,
+    /// tx type
+    pub tx_type: Option<TxType>,
 }
 
 pub struct FunctionCallDefinitionStrict {
@@ -47,6 +49,7 @@ pub struct FunctionCallDefinitionStrict {
     pub value: Option<String>,
     pub fuzz: Vec<FuzzParam>,
     pub kind: Option<String>,
+    pub tx_type: TxType,
 }
 
 /// User-facing definition of a function call to be executed.
@@ -76,12 +79,16 @@ pub struct CreateDefinition {
     pub from: Option<String>,
     /// Get a `from` address from the pool of signers specified here.
     pub from_pool: Option<String>,
+    /// tx type
+    pub tx_type: Option<TxType>,
 }
 
 pub struct CreateDefinitionStrict {
     pub bytecode: String,
     pub name: String,
     pub from: Address,
+    /// tx type
+    pub tx_type: TxType,
 }
 
 #[derive(Clone, Deserialize, Debug, Serialize)]
@@ -110,4 +117,19 @@ pub enum PlanType<F: Fn(NamedTxRequest) -> CallbackResult> {
     Create(F),
     Setup(F),
     Spam(usize, F),
+}
+
+#[derive(Copy, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[repr(u8)]
+pub enum TxType {
+    /// Legacy transaction (type `0x0`)
+    Legacy,
+    /// Transaction with an [`AccessList`] ([EIP-2930](https://eips.ethereum.org/EIPS/eip-2930)), type `0x1`
+    Eip2930,
+    /// A transaction with a priority fee ([EIP-1559](https://eips.ethereum.org/EIPS/eip-1559)), type `0x2`
+    Eip1559,
+    /// Shard Blob Transactions ([EIP-4844](https://eips.ethereum.org/EIPS/eip-4844)), type `0x3`
+    Eip4844,
+    /// EOA Set Code Transactions ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)), type `0x4`
+    Eip7702,
 }
