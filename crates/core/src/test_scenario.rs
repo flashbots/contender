@@ -12,9 +12,9 @@ use crate::Result;
 use alloy::consensus::Transaction;
 use alloy::eips::eip2718::Encodable2718;
 use alloy::hex::ToHexExt;
-use alloy::network::{AnyNetwork, EthereumWallet, TransactionBuilder};
+use alloy::network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, TransactionBuilder};
 use alloy::primitives::{keccak256, Address, FixedBytes};
-use alloy::providers::{PendingTransactionConfig, Provider, ProviderBuilder};
+use alloy::providers::{DynProvider, PendingTransactionConfig, Provider, ProviderBuilder};
 use alloy::rpc::types::TransactionRequest;
 use alloy::signers::local::PrivateKeySigner;
 use alloy::transports::http::reqwest::Url;
@@ -45,7 +45,7 @@ where
     pub agent_store: AgentStore,
     pub nonces: HashMap<Address, u64>,
     pub chain_id: u64,
-    pub gas_limits: HashMap<FixedBytes<32>, u128>,
+    pub gas_limits: HashMap<FixedBytes<32>, u64>,
     pub msg_handle: Arc<TxActorHandle>,
 }
 
@@ -64,11 +64,11 @@ where
         signers: &[PrivateKeySigner],
         agent_store: AgentStore,
     ) -> Result<Self> {
-        let rpc_client = Arc::new(
+        let rpc_client = Arc::new(DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
                 .on_http(rpc_url.to_owned()),
-        );
+        ));
 
         let mut wallet_map = HashMap::new();
         let wallets = signers.iter().map(|s| {
@@ -112,7 +112,7 @@ where
             db: db.clone(),
             rpc_url: rpc_url.to_owned(),
             rpc_client: rpc_client.clone(),
-            eth_client: Arc::new(ProviderBuilder::new().on_http(rpc_url)),
+            eth_client: Arc::new(DynProvider::new(ProviderBuilder::new().on_http(rpc_url))),
             bundle_client,
             builder_rpc_url,
             rand_seed,
@@ -164,8 +164,6 @@ where
                 .unwrap_or_else(|| panic!("couldn't find wallet for 'from' address {}", from))
                 .to_owned();
             let wallet = ProviderBuilder::new()
-                // simple_nonce_management is unperformant but it's OK bc we're just deploying
-                .with_simple_nonce_management()
                 .wallet(wallet_conf)
                 .on_http(self.rpc_url.to_owned());
 
@@ -256,7 +254,6 @@ where
 
             let handle = tokio::task::spawn(async move {
                 let wallet = ProviderBuilder::new()
-                    .with_simple_nonce_management()
                     .wallet(wallet)
                     .on_http(rpc_url.to_owned());
 
@@ -420,7 +417,7 @@ where
                         "sending tx {} from={} to={:?} input={} value={} gas_limit={}",
                         tx_envelope.tx_hash(),
                         tx_req.from.map(|s| s.encode_hex()).unwrap_or_default(),
-                        tx_envelope.to().to(),
+                        tx_envelope.to(),
                         tx_req
                             .input
                             .input
@@ -471,7 +468,7 @@ where
                 let handles = match payload.to_owned() {
                     ExecutionPayload::SignedTx(signed_tx, req) => {
                         let res = rpc_client
-                            .send_tx_envelope(signed_tx.to_owned())
+                            .send_tx_envelope(AnyTxEnvelope::Ethereum(signed_tx.to_owned()))
                             .await
                             .expect("failed to send tx envelope");
                         let maybe_handle = callback_handler.on_tx_sent(
@@ -634,7 +631,7 @@ pub mod tests {
     use alloy::network::{Ethereum, EthereumWallet, TransactionBuilder};
     use alloy::node_bindings::AnvilInstance;
     use alloy::primitives::{Address, U256};
-    use alloy::providers::{Provider, ProviderBuilder};
+    use alloy::providers::{DynProvider, Provider, ProviderBuilder};
     use alloy::rpc::types::TransactionRequest;
     use std::collections::HashMap;
 
@@ -847,9 +844,11 @@ pub mod tests {
     ) -> TestScenario<MockDb, RandSeed, MockConfig> {
         let seed = RandSeed::seed_from_bytes(&[0x01; 32]);
         let signers = get_test_signers();
-        let provider = ProviderBuilder::new()
-            .network::<Ethereum>()
-            .on_http(anvil.endpoint_url());
+        let provider = DynProvider::new(
+            ProviderBuilder::new()
+                .network::<Ethereum>()
+                .on_http(anvil.endpoint_url()),
+        );
         let mut agents = AgentStore::new();
         let pool1 = SignerStore::new_random(10, &seed, "0x0defa117");
         let pool2 = SignerStore::new_random(10, &seed, "0xf00d1337");

@@ -1,6 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
-use alloy::{network::ReceiptResponse, primitives::TxHash, providers::Provider};
+use alloy::{
+    network::ReceiptResponse, primitives::TxHash, providers::Provider,
+    rpc::types::BlockTransactionsKind,
+};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
@@ -98,7 +101,7 @@ where
                 loop {
                     maybe_block = self
                         .rpc
-                        .get_block_by_number(target_block_num.into(), false)
+                        .get_block_by_number(target_block_num.into(), BlockTransactionsKind::Hashes)
                         .await;
                     if let Ok(maybe_block) = &maybe_block {
                         if maybe_block.is_some() {

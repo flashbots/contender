@@ -27,7 +27,7 @@ impl Display for BuiltinScenarioConfig {
 
 pub enum BuiltinScenarioConfig {
     FillBlock {
-        max_gas_per_block: u128,
+        max_gas_per_block: u64,
         num_txs: u64,
         sender: Address,
         fill_percent: u16,
@@ -36,7 +36,7 @@ pub enum BuiltinScenarioConfig {
 
 impl BuiltinScenarioConfig {
     pub fn fill_block(
-        max_gas_per_block: u128,
+        max_gas_per_block: u64,
         num_txs: u64,
         sender: Address,
         fill_percent: u16,
@@ -59,8 +59,7 @@ impl From<BuiltinScenarioConfig> for TestConfig {
                 sender,
                 fill_percent,
             } => {
-                let gas_per_tx =
-                    ((max_gas_per_block / num_txs as u128) / 100) * fill_percent as u128;
+                let gas_per_tx = ((max_gas_per_block / num_txs) / 100) * fill_percent as u64;
                 println!(
                     "Filling blocks to {}% with {} gas per tx",
                     fill_percent, gas_per_tx

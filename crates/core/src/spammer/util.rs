@@ -5,8 +5,7 @@ pub mod test {
     use alloy::{
         network::{EthereumWallet, TransactionBuilder},
         primitives::{Address, U256},
-        providers::PendingTransactionConfig,
-        providers::Provider,
+        providers::{PendingTransactionConfig, Provider},
         rpc::types::TransactionRequest,
         signers::local::PrivateKeySigner,
     };
