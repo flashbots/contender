@@ -3,13 +3,13 @@ use alloy::{
     primitives::Bytes,
     providers::{Provider, ProviderBuilder, RootProvider},
     rpc::types::mev::{EthBundleHash, EthSendBundle},
-    transports::http::{reqwest::IntoUrl, Client, Http},
+    transports::http::reqwest::IntoUrl,
 };
 
 /// A helper wrapper around a RPC client that can be used to call `eth_sendBundle`.
 #[derive(Debug)]
 pub struct BundleClient {
-    client: RootProvider<Http<Client>, AnyNetwork>,
+    client: RootProvider<AnyNetwork>,
 }
 
 impl BundleClient {

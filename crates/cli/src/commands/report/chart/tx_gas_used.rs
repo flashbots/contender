@@ -9,7 +9,7 @@ use plotters::{
 use crate::commands::report::{block_trace::TxTraceReceipt, util::abbreviate_num};
 
 pub struct TxGasUsedChart {
-    gas_used: Vec<u128>,
+    gas_used: Vec<u64>,
 }
 
 impl Default for TxGasUsedChart {
@@ -36,7 +36,7 @@ impl TxGasUsedChart {
         Ok(chart)
     }
 
-    fn add_gas_used(&mut self, gas_used: u128) {
+    fn add_gas_used(&mut self, gas_used: u64) {
         self.gas_used.push(gas_used);
     }
 
@@ -66,7 +66,7 @@ impl TxGasUsedChart {
             .disable_x_mesh()
             .label_style(("sans-serif", 15))
             .x_desc("Gas Used")
-            .x_label_formatter(&|x| abbreviate_num(*x as u64))
+            .x_label_formatter(&|x| abbreviate_num(*x))
             .y_desc("# Transactions")
             .draw()?;
 

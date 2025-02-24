@@ -6,7 +6,7 @@ use alloy::{
         utils::{format_ether, parse_ether},
         U256,
     },
-    providers::{Provider, ProviderBuilder},
+    providers::{DynProvider, Provider, ProviderBuilder},
     transports::http::reqwest::Url,
 };
 use contender_core::{
@@ -46,10 +46,12 @@ pub async fn spam(
     let testconfig = TestConfig::from_file(&args.testfile)?;
     let rand_seed = RandSeed::seed_from_str(&args.seed);
     let url = Url::parse(&args.rpc_url).expect("Invalid RPC URL");
-    let rpc_client = ProviderBuilder::new()
-        .network::<AnyNetwork>()
-        .on_http(url.to_owned());
-    let eth_client = ProviderBuilder::new().on_http(url.to_owned());
+    let rpc_client = DynProvider::new(
+        ProviderBuilder::new()
+            .network::<AnyNetwork>()
+            .on_http(url.to_owned()),
+    );
+    let eth_client = DynProvider::new(ProviderBuilder::new().on_http(url.to_owned()));
 
     let duration = args.duration.unwrap_or_default();
     let min_balance = parse_ether(&args.min_balance)?;
@@ -281,7 +283,7 @@ async fn get_max_spam_cost<D: DbOps + Send + Sync + 'static, S: Seeder + Send + 
                 gas_price += priority_fee;
             }
             println!("gas_price={:?}", gas_price);
-            U256::from(gas_price * tx.gas.unwrap_or(0)) + tx.value.unwrap_or(U256::ZERO)
+            U256::from(gas_price * tx.gas.unwrap_or(0) as u128) + tx.value.unwrap_or(U256::ZERO)
         })
         .max()
         .ok_or(ContenderError::SpamError(

@@ -340,7 +340,7 @@ mod test {
         network::AnyNetwork,
         node_bindings::{Anvil, AnvilInstance},
         primitives::{Address, U256},
-        providers::{Provider, ProviderBuilder},
+        providers::{DynProvider, Provider, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
 
@@ -353,10 +353,12 @@ mod test {
     #[tokio::test]
     async fn fund_accounts_disallows_insufficient_balance() {
         let anvil = spawn_anvil();
-        let rpc_client = ProviderBuilder::new()
-            .network::<AnyNetwork>()
-            .on_http(anvil.endpoint_url());
-        let eth_client = ProviderBuilder::new().on_http(anvil.endpoint_url());
+        let rpc_client = DynProvider::new(
+            ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .on_http(anvil.endpoint_url()),
+        );
+        let eth_client = DynProvider::new(ProviderBuilder::new().on_http(anvil.endpoint_url()));
         let min_balance = U256::from(ETH_TO_WEI);
         let default_signer = PrivateKeySigner::from_str(super::DEFAULT_PRV_KEYS[0]).unwrap();
         // address: 0x7E57f00F16dE6A0D6B720E9C0af5C869a1f71c66

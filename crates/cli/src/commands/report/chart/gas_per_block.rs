@@ -17,7 +17,7 @@ use crate::commands::report::util::abbreviate_num;
 
 pub struct GasPerBlockChart {
     /// Maps `block_num` to `gas_used`
-    gas_used_per_block: BTreeMap<u64, u128>,
+    gas_used_per_block: BTreeMap<u64, u64>,
 }
 
 impl Default for GasPerBlockChart {
@@ -43,7 +43,7 @@ impl GasPerBlockChart {
         chart
     }
 
-    fn set_gas_used(&mut self, block_num: u64, gas_used: u128) {
+    fn set_gas_used(&mut self, block_num: u64, gas_used: u64) {
         self.gas_used_per_block.insert(block_num, gas_used);
     }
 
@@ -91,7 +91,7 @@ impl GasPerBlockChart {
             .y_desc("Gas Used")
             .y_labels(25)
             .y_max_light_lines(1)
-            .y_label_formatter(&|gas| abbreviate_num(*gas as u64))
+            .y_label_formatter(&|gas| abbreviate_num(*gas))
             .draw()?;
 
         // draw line chart
@@ -103,7 +103,7 @@ impl GasPerBlockChart {
 
         // draw dots on line chart
         let mk_dot =
-            |c: (u64, u128)| Circle::new(c, 3, Into::<ShapeStyle>::into(BLUEGREY_500).filled());
+            |c: (u64, u64)| Circle::new(c, 3, Into::<ShapeStyle>::into(BLUEGREY_500).filled());
         chart.draw_series(chart_data.map(|(x, y)| mk_dot((x, y))))?;
 
         root.present()?;

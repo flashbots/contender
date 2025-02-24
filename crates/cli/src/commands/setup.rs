@@ -1,7 +1,7 @@
 use alloy::{
     network::AnyNetwork,
     primitives::utils::{format_ether, parse_ether},
-    providers::ProviderBuilder,
+    providers::{DynProvider, ProviderBuilder},
     signers::local::PrivateKeySigner,
     transports::http::reqwest::Url,
 };
@@ -28,10 +28,12 @@ pub async fn setup(
     seed: RandSeed,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
-    let rpc_client = ProviderBuilder::new()
-        .network::<AnyNetwork>()
-        .on_http(url.to_owned());
-    let eth_client = ProviderBuilder::new().on_http(url.to_owned());
+    let rpc_client = DynProvider::new(
+        ProviderBuilder::new()
+            .network::<AnyNetwork>()
+            .on_http(url.to_owned()),
+    );
+    let eth_client = DynProvider::new(ProviderBuilder::new().on_http(url.to_owned()));
     let testconfig: TestConfig = TestConfig::from_file(testfile.as_ref())?;
     let min_balance = parse_ether(&min_balance)?;
 

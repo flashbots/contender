@@ -15,7 +15,7 @@ pub struct RunTx {
     #[serde(rename = "end_time")]
     pub end_timestamp: usize,
     pub block_number: u64,
-    pub gas_used: u128,
+    pub gas_used: u64,
     pub kind: Option<String>,
 }
 

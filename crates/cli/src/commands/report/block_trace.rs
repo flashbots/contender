@@ -1,6 +1,6 @@
 use crate::commands::report::cache::CacheFile;
 use alloy::providers::ext::DebugApi;
-use alloy::rpc::types::Block;
+use alloy::rpc::types::{Block, BlockTransactionsKind};
 use alloy::{
     providers::Provider,
     rpc::types::{
@@ -53,7 +53,7 @@ pub async fn get_block_trace_data(
     let mut all_blocks = vec![];
     for block_num in min_block..=max_block {
         let block = rpc_client
-            .get_block_by_number(block_num.into(), true)
+            .get_block_by_number(block_num.into(), BlockTransactionsKind::Full)
             .await?;
         if let Some(block) = block {
             println!("read block {}", block.header.number);

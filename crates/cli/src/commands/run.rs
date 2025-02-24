@@ -3,7 +3,7 @@ use std::{env, str::FromStr, sync::Arc};
 use alloy::{
     eips::BlockId,
     network::AnyNetwork,
-    providers::{Provider, ProviderBuilder},
+    providers::{DynProvider, Provider, ProviderBuilder},
     rpc::types::BlockTransactionsKind,
     transports::http::reqwest::Url,
 };
@@ -105,11 +105,11 @@ pub async fn run(
         duration * txs_per_duration,
         &format!("{} ({})", contract_name, scenario_name),
     )?;
-    let callback = LogCallback::new(Arc::new(
+    let callback = LogCallback::new(Arc::new(DynProvider::new(
         ProviderBuilder::new()
             .network::<AnyNetwork>()
             .on_http(rpc_url),
-    ));
+    )));
 
     println!("starting spammer...");
     spammer

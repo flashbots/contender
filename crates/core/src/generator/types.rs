@@ -1,9 +1,8 @@
 use super::named_txs::ExecutionRequest;
 use alloy::{
-    network::AnyNetwork,
+    network::{AnyNetwork, Ethereum},
     primitives::{Address, U256},
-    providers::RootProvider,
-    transports::http::{Client, Http},
+    providers::DynProvider,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -13,8 +12,8 @@ use tokio::task::JoinHandle;
 pub use crate::generator::named_txs::NamedTxRequest;
 
 // -- convenience
-pub type EthProvider = RootProvider<Http<Client>>;
-pub type AnyProvider = RootProvider<Http<Client>, AnyNetwork>;
+pub type EthProvider = DynProvider<Ethereum>;
+pub type AnyProvider = DynProvider<AnyNetwork>;
 
 // -- core types for test scenarios
 
