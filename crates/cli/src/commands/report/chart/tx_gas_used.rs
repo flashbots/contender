@@ -66,7 +66,7 @@ impl TxGasUsedChart {
             .disable_x_mesh()
             .label_style(("sans-serif", 15))
             .x_desc("Gas Used")
-            .x_label_formatter(&|x| abbreviate_num(*x as u64))
+            .x_label_formatter(&|x| abbreviate_num(*x))
             .y_desc("# Transactions")
             .draw()?;
 

@@ -91,7 +91,7 @@ impl GasPerBlockChart {
             .y_desc("Gas Used")
             .y_labels(25)
             .y_max_light_lines(1)
-            .y_label_formatter(&|gas| abbreviate_num(*gas as u64))
+            .y_label_formatter(&|gas| abbreviate_num(*gas))
             .draw()?;
 
         // draw line chart
