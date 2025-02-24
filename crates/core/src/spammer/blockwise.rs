@@ -50,7 +50,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use alloy::{consensus::constants::ETH_TO_WEI, primitives::U256, providers::ProviderBuilder};
+    use alloy::{
+        consensus::constants::ETH_TO_WEI,
+        primitives::U256,
+        providers::{DynProvider, ProviderBuilder},
+    };
 
     use crate::{
         agent_controller::{AgentStore, SignerStore},
@@ -67,7 +71,8 @@ mod tests {
     #[tokio::test]
     async fn watches_blocks_and_spams_them() {
         let anvil = spawn_anvil();
-        let provider = ProviderBuilder::new().on_http(anvil.endpoint_url().to_owned());
+        let provider =
+            DynProvider::new(ProviderBuilder::new().on_http(anvil.endpoint_url().to_owned()));
         println!("anvil url: {}", anvil.endpoint_url());
         let seed = crate::generator::RandSeed::seed_from_str("444444444444");
         let mut agents = AgentStore::new();
