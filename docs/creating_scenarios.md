@@ -189,6 +189,21 @@ args = ["1350000"]
 
 > 💡 You may want to define different `from_pool` definitions for different kinds of transactions to logically group your agents, which will make your orderflow easier to reason about.
 
+### optional gas limit & sending reverting txs
+
+You have the option to set `gas_limit` to skip gas estimation. This also enables reverting transactions to be sent.
+
+```toml
+[[spam]]
+
+[spam.tx]
+to = "{SpamMe2}"
+from_pool = "bluepool"
+signature = "consumeGas(uint256 gasAmount)"
+args = ["1350000"]
+gas_limit = 1350000
+```
+
 ### sending bundles
 
 The `[spam.tx]` directive sends a mempool transaction using `eth_sendRawTransaction`, but Contender also supports bundles.
