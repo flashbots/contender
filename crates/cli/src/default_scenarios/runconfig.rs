@@ -75,6 +75,7 @@ impl From<BuiltinScenarioConfig> for TestConfig {
                             value: None,
                             fuzz: None,
                             kind: Some("fill-block".to_owned()),
+                            gas_limit: None,
                         })
                     })
                     .collect::<Vec<_>>();

@@ -326,11 +326,14 @@ where
         let key = keccak256(tx_req.input.input.to_owned().unwrap_or_default());
 
         if let std::collections::hash_map::Entry::Vacant(_) = self.gas_limits.entry(key) {
-            let gas_limit = self
-                .eth_client
-                .estimate_gas(tx_req)
-                .await
-                .map_err(|e| ContenderError::with_err(e, "failed to estimate gas for tx"))?;
+            let gas_limit = if let Some(gas) = tx_req.gas {
+                gas
+            } else {
+                self.eth_client
+                    .estimate_gas(tx_req)
+                    .await
+                    .map_err(|e| ContenderError::with_err(e, "failed to estimate gas for tx"))?
+            };
             self.gas_limits.insert(key, gas_limit);
         }
         let gas_limit = self
@@ -701,6 +704,7 @@ pub mod tests {
                     .into(),
                     fuzz: None,
                     kind: None,
+                    gas_limit: None,
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -717,6 +721,7 @@ pub mod tests {
                     .into(),
                     fuzz: None,
                     kind: None,
+                    gas_limit: None,
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -727,6 +732,7 @@ pub mod tests {
                     args: vec![].into(),
                     fuzz: None,
                     kind: None,
+                    gas_limit: None,
                 },
             ])
         }
@@ -755,6 +761,7 @@ pub mod tests {
                     }]
                     .into(),
                     kind: None,
+                    gas_limit: None,
                 })
             };
             Ok(vec![
@@ -783,6 +790,7 @@ pub mod tests {
                     }]
                     .into(),
                     kind: None,
+                    gas_limit: None,
                 }),
                 SpamRequest::Tx(FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -806,6 +814,7 @@ pub mod tests {
                     }]
                     .into(),
                     kind: None,
+                    gas_limit: None,
                 }),
             ])
         }

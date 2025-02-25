@@ -36,6 +36,8 @@ pub struct FunctionCallDefinition {
     pub fuzz: Option<Vec<FuzzParam>>,
     /// Optional type of the spam transaction for categorization.
     pub kind: Option<String>,
+    /// Optional gas limit, which will skip gas estimation. This allows reverting txs to be sent.
+    pub gas_limit: Option<u64>,
 }
 
 pub struct FunctionCallDefinitionStrict {
@@ -46,6 +48,7 @@ pub struct FunctionCallDefinitionStrict {
     pub value: Option<String>,
     pub fuzz: Vec<FuzzParam>,
     pub kind: Option<String>,
+    pub gas_limit: Option<u64>,
 }
 
 /// User-facing definition of a function call to be executed.

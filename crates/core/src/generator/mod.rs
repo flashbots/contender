@@ -228,6 +228,7 @@ where
             value: funcdef.value.to_owned(),
             fuzz: funcdef.fuzz.to_owned().unwrap_or_default(),
             kind: funcdef.kind.to_owned(),
+            gas_limit: funcdef.gas_limit.to_owned(),
         })
     }
 

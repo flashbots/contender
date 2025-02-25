@@ -132,6 +132,7 @@ where
             input: alloy::rpc::types::TransactionInput::both(input.into()),
             from: Some(funcdef.from),
             value,
+            gas: funcdef.gas_limit,
             ..Default::default()
         })
     }
