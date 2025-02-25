@@ -5,7 +5,7 @@ mod util;
 use std::sync::LazyLock;
 
 use alloy::hex;
-use commands::{ContenderCli, ContenderSubcommand, DbCommand, SpamCommandArgs};
+use commands::{ContenderCli, ContenderSubcommand, DbCommand, RunCommandArgs, SpamCommandArgs};
 use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::SqliteDb;
 use rand::Rng;
@@ -116,15 +116,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             interval,
             duration,
             txs_per_duration,
+            skip_deploy_prompt,
         } => {
             commands::run(
                 &db,
-                scenario,
-                rpc_url,
-                private_key,
-                interval,
-                duration,
-                txs_per_duration,
+                RunCommandArgs {
+                    scenario,
+                    rpc_url,
+                    private_key,
+                    interval,
+                    duration,
+                    txs_per_duration,
+                    skip_deploy_prompt,
+                },
             )
             .await?
         }

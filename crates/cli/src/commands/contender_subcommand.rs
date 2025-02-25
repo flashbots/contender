@@ -197,6 +197,13 @@ May be specified multiple times."
             default_value = "100"
         )]
         txs_per_duration: usize,
+
+        #[arg(
+            long,
+            long_help = "Skip the deploy prompt. Contracts will only be deployed if not found in DB.",
+            visible_aliases = &["sdp"]
+        )]
+        skip_deploy_prompt: bool,
         // TODO: DRY duplicate args
     },
 }

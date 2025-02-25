@@ -22,21 +22,26 @@ use crate::{
     util::{check_private_keys, get_signers_with_defaults, prompt_cli},
 };
 
+pub struct RunCommandArgs {
+    pub scenario: BuiltinScenario,
+    pub rpc_url: String,
+    pub private_key: Option<String>,
+    pub interval: usize,
+    pub duration: usize,
+    pub txs_per_duration: usize,
+    pub skip_deploy_prompt: bool,
+}
+
 pub async fn run(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
-    scenario: BuiltinScenario,
-    rpc_url: String,
-    private_key: Option<String>,
-    interval: usize,
-    duration: usize,
-    txs_per_duration: usize,
+    args: RunCommandArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let user_signers = get_signers_with_defaults(private_key.map(|s| vec![s]));
+    let user_signers = get_signers_with_defaults(args.private_key.map(|s| vec![s]));
     let admin_signer = &user_signers[0];
     let rand_seed = RandSeed::default();
     let provider = ProviderBuilder::new()
         .network::<AnyNetwork>()
-        .on_http(Url::parse(&rpc_url).expect("Invalid RPC URL"));
+        .on_http(Url::parse(&args.rpc_url).expect("Invalid RPC URL"));
     let block_gas_limit = provider
         .get_block(BlockId::latest(), BlockTransactionsKind::Hashes)
         .await?
@@ -50,10 +55,10 @@ pub async fn run(
         .map(|s| u16::from_str(&s).expect("invalid u16: fill_percent"))
         .unwrap_or(100u16);
 
-    let scenario_config = match scenario {
+    let scenario_config = match args.scenario {
         BuiltinScenario::FillBlock => BuiltinScenarioConfig::fill_block(
             block_gas_limit,
-            txs_per_duration as u64,
+            args.txs_per_duration as u64,
             admin_signer.address(),
             fill_percent,
         ),
@@ -62,7 +67,7 @@ pub async fn run(
     let testconfig: TestConfig = scenario_config.into();
     check_private_keys(&testconfig, &user_signers);
 
-    let rpc_url = Url::parse(&rpc_url).expect("Invalid RPC URL");
+    let rpc_url = Url::parse(&args.rpc_url).expect("Invalid RPC URL");
     let mut scenario = TestScenario::new(
         testconfig,
         db.clone().into(),
@@ -76,12 +81,17 @@ pub async fn run(
 
     let contract_name = "SpamMe";
     let contract_result = db.get_named_tx(contract_name, rpc_url.as_str())?;
+
     let do_deploy_contracts = if contract_result.is_some() {
-        let input = prompt_cli(format!(
-            "{} deployment already detected. Re-deploy? [y/N]",
-            contract_name
-        ));
-        input.to_lowercase() == "y"
+        if args.skip_deploy_prompt {
+            false
+        } else {
+            let input = prompt_cli(format!(
+                "{} deployment already detected. Re-deploy? [y/N]",
+                contract_name
+            ));
+            input.to_lowercase() == "y"
+        }
     } else {
         true
     };
@@ -94,7 +104,7 @@ pub async fn run(
     println!("running setup...");
     scenario.run_setup().await?;
 
-    let wait_duration = std::time::Duration::from_secs(interval as u64);
+    let wait_duration = std::time::Duration::from_secs(args.interval as u64);
     let spammer = TimedSpammer::new(wait_duration);
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -102,7 +112,7 @@ pub async fn run(
         .as_millis();
     let run_id = db.insert_run(
         timestamp as u64,
-        duration * txs_per_duration,
+        args.duration * args.txs_per_duration,
         &format!("{} ({})", contract_name, scenario_name),
     )?;
     let callback = LogCallback::new(Arc::new(DynProvider::new(
@@ -115,8 +125,8 @@ pub async fn run(
     spammer
         .spam_rpc(
             &mut scenario,
-            txs_per_duration,
-            duration,
+            args.txs_per_duration,
+            args.duration,
             Some(run_id),
             callback.into(),
         )
