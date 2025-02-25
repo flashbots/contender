@@ -816,6 +816,30 @@ pub mod tests {
                     kind: None,
                     gas_limit: None,
                 }),
+                SpamRequest::Tx(FunctionCallDefinition {
+                    to: "0x00000000000000000000000000000000f007ba11".to_owned(),
+                    from: None,
+                    from_pool: Some("pool2".to_owned()),
+                    value: None,
+                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    args: vec![
+                        "1".to_owned(),
+                        "2".to_owned(),
+                        // {_sender} will be replaced with the `from` address
+                        "{_sender}".to_owned(),
+                        "0xd00d".to_owned(),
+                    ]
+                    .into(),
+                    fuzz: vec![FuzzParam {
+                        param: Some("x".to_string()),
+                        value: None,
+                        min: None,
+                        max: None,
+                    }]
+                    .into(),
+                    kind: None,
+                    gas_limit: Some(100_000),
+                }),
             ])
         }
     }
@@ -958,7 +982,40 @@ pub mod tests {
             }))
             .await
             .unwrap();
-        assert!(spam_txs.len() >= 20);
+
+        // should round down; there are 6 spam steps
+        assert!(spam_txs.len() == 18);
+    }
+
+    #[tokio::test]
+    async fn gas_limit_override_works() {
+        let anvil = spawn_anvil();
+        let scenario = get_test_scenario(&anvil).await;
+        let spam_txs = scenario
+            .load_txs(PlanType::Spam(20, |tx| {
+                println!("spam tx callback triggered! {:?}\n", tx);
+                Ok(None)
+            }))
+            .await
+            .unwrap();
+        let tx = spam_txs
+            .iter()
+            .find(|tx| match tx {
+                ExecutionRequest::Tx(tx) => {
+                    *tx.tx.to.unwrap().to().unwrap()
+                        == "0x00000000000000000000000000000000f007ba11"
+                            .parse::<Address>()
+                            .unwrap()
+                }
+                _ => false,
+            })
+            .unwrap();
+        match tx {
+            ExecutionRequest::Tx(tx) => {
+                assert_eq!(tx.tx.gas, Some(100_000));
+            }
+            _ => panic!("expected tx"),
+        }
     }
 
     #[tokio::test]
