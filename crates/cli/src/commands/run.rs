@@ -30,6 +30,7 @@ pub async fn run(
     interval: usize,
     duration: usize,
     txs_per_duration: usize,
+    skip_deploy_prompt: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let user_signers = get_signers_with_defaults(private_key.map(|s| vec![s]));
     let admin_signer = &user_signers[0];
@@ -76,12 +77,17 @@ pub async fn run(
 
     let contract_name = "SpamMe";
     let contract_result = db.get_named_tx(contract_name, rpc_url.as_str())?;
+
     let do_deploy_contracts = if contract_result.is_some() {
-        let input = prompt_cli(format!(
-            "{} deployment already detected. Re-deploy? [y/N]",
-            contract_name
-        ));
-        input.to_lowercase() == "y"
+        if skip_deploy_prompt {
+            false
+        } else {
+            let input = prompt_cli(format!(
+                "{} deployment already detected. Re-deploy? [y/N]",
+                contract_name
+            ));
+            input.to_lowercase() == "y"
+        }
     } else {
         true
     };
