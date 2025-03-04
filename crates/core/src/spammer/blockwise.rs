@@ -61,7 +61,7 @@ mod tests {
         db::MockDb,
         generator::util::test::spawn_anvil,
         spammer::util::test::{fund_account, get_test_signers, MockCallback},
-        test_scenario::tests::MockConfig,
+        test_scenario::{tests::MockConfig, TestScenarioParams},
     };
     use std::collections::HashSet;
     use std::sync::Arc;
@@ -115,12 +115,14 @@ mod tests {
         let mut scenario = TestScenario::new(
             MockConfig,
             MockDb.into(),
-            anvil.endpoint_url(),
-            None,
             seed,
-            &user_signers,
-            agents,
-            tx_type,
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers: user_signers,
+                agent_store: agents,
+                tx_type,
+            },
         )
         .await
         .unwrap();

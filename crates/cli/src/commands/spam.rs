@@ -16,7 +16,7 @@ use contender_core::{
     error::ContenderError,
     generator::{seeder::Seeder, types::AnyProvider, Generator, PlanType, RandSeed},
     spammer::{BlockwiseSpammer, ExecutionPayload, Spammer, TimedSpammer},
-    test_scenario::TestScenario,
+    test_scenario::{TestScenario, TestScenarioParams},
 };
 use contender_testfile::TestConfig;
 
@@ -139,13 +139,16 @@ pub async fn spam(
     let mut scenario = TestScenario::new(
         testconfig,
         db.clone().into(),
-        url,
-        args.builder_url
-            .map(|url| Url::parse(&url).expect("Invalid builder URL")),
         rand_seed,
-        &user_signers,
-        agents,
-        args.tx_type,
+        TestScenarioParams {
+            rpc_url: url,
+            builder_rpc_url: args
+                .builder_url
+                .map(|url| Url::parse(&url).expect("Invalid builder URL")),
+            signers: user_signers,
+            agent_store: agents,
+            tx_type: args.tx_type,
+        },
     )
     .await?;
 

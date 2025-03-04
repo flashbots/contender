@@ -52,6 +52,14 @@ where
     pub tx_type: TxType,
 }
 
+pub struct TestScenarioParams {
+    pub rpc_url: Url,
+    pub builder_rpc_url: Option<Url>,
+    pub signers: Vec<PrivateKeySigner>,
+    pub agent_store: AgentStore,
+    pub tx_type: TxType,
+}
+
 impl<D, S, P> TestScenario<D, S, P>
 where
     D: DbOps + Send + Sync + 'static,
@@ -61,28 +69,24 @@ where
     pub async fn new(
         config: P,
         db: Arc<D>,
-        rpc_url: Url,
-        builder_rpc_url: Option<Url>,
         rand_seed: S,
-        signers: &[PrivateKeySigner],
-        agent_store: AgentStore,
-        tx_type: TxType,
+        params: TestScenarioParams,
     ) -> Result<Self> {
         let rpc_client = Arc::new(DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
-                .on_http(rpc_url.to_owned()),
+                .on_http(params.rpc_url.to_owned()),
         ));
 
         let mut wallet_map = HashMap::new();
-        let wallets = signers.iter().map(|s| {
+        let wallets = params.signers.iter().map(|s| {
             let w = EthereumWallet::new(s.clone());
             (s.address(), w)
         });
         for (addr, wallet) in wallets {
             wallet_map.insert(addr, wallet);
         }
-        for (name, signers) in agent_store.all_agents() {
+        for (name, signers) in params.agent_store.all_agents() {
             println!("adding '{}' signers to wallet map", name);
             for signer in signers.signers.iter() {
                 wallet_map.insert(signer.address(), EthereumWallet::new(signer.clone()));
@@ -105,7 +109,8 @@ where
         }
         let gas_limits = HashMap::new();
 
-        let bundle_client = builder_rpc_url
+        let bundle_client = params
+            .builder_rpc_url
             .as_ref()
             .map(|url| Arc::new(BundleClient::new(url.clone())));
 
@@ -114,19 +119,21 @@ where
         Ok(Self {
             config,
             db: db.clone(),
-            rpc_url: rpc_url.to_owned(),
+            rpc_url: params.rpc_url.to_owned(),
             rpc_client: rpc_client.clone(),
-            eth_client: Arc::new(DynProvider::new(ProviderBuilder::new().on_http(rpc_url))),
+            eth_client: Arc::new(DynProvider::new(
+                ProviderBuilder::new().on_http(params.rpc_url),
+            )),
             bundle_client,
-            builder_rpc_url,
+            builder_rpc_url: params.builder_rpc_url,
             rand_seed,
             wallet_map,
-            agent_store,
+            agent_store: params.agent_store,
             chain_id,
             nonces,
             gas_limits,
             msg_handle,
-            tx_type,
+            tx_type: params.tx_type,
         })
     }
 
@@ -279,7 +286,7 @@ where
                     &mut tx,
                     tx_type,
                     gas_price,
-                    (1 * GWEI_TO_WEI as u128).min(gas_price - 1),
+                    (GWEI_TO_WEI as u128).min(gas_price - 1),
                     gas_limit,
                     chain_id,
                 );
@@ -368,7 +375,7 @@ where
             &mut full_tx,
             self.tx_type,
             gas_price,
-            (1 * GWEI_TO_WEI as u128).min(gas_price - 1),
+            (GWEI_TO_WEI as u128).min(gas_price - 1),
             gas_limit,
             self.chain_id,
         );
@@ -647,6 +654,8 @@ pub mod tests {
     use alloy::providers::{DynProvider, Provider, ProviderBuilder};
     use alloy::rpc::types::TransactionRequest;
     use std::collections::HashMap;
+
+    use super::TestScenarioParams;
 
     pub struct MockConfig;
 
@@ -955,12 +964,14 @@ pub mod tests {
         TestScenario::new(
             MockConfig,
             MockDb.into(),
-            anvil.endpoint_url(),
-            None,
             seed.to_owned(),
-            signers.as_slice(),
-            agents,
-            tx_type,
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers,
+                agent_store: agents,
+                tx_type,
+            },
         )
         .await
         .unwrap()

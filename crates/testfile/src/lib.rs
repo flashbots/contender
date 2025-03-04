@@ -119,7 +119,7 @@ pub mod tests {
             },
             Generator, RandSeed,
         },
-        test_scenario::TestScenario,
+        test_scenario::{TestScenario, TestScenarioParams},
     };
     use std::{collections::HashMap, fs, str::FromStr};
 
@@ -383,12 +383,14 @@ pub mod tests {
         let test_gen = TestScenario::new(
             test_file,
             MockDb.into(),
-            anvil.endpoint_url(),
-            None,
             seed,
-            &get_test_signers(),
-            Default::default(),
-            tx_type,
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers: get_test_signers(),
+                agent_store: Default::default(),
+                tx_type,
+            },
         )
         .await
         .unwrap();
@@ -425,24 +427,28 @@ pub mod tests {
         let scenario1 = TestScenario::new(
             test_file.clone(),
             MockDb.into(),
-            anvil.endpoint_url(),
-            None,
             seed.to_owned(),
-            &signers,
-            Default::default(),
-            tx_type,
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers: signers.to_owned(),
+                agent_store: Default::default(),
+                tx_type,
+            },
         )
         .await
         .unwrap();
         let scenario2 = TestScenario::new(
             test_file,
             MockDb.into(),
-            anvil.endpoint_url(),
-            None,
             seed,
-            &signers,
-            Default::default(),
-            tx_type,
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers,
+                agent_store: Default::default(),
+                tx_type,
+            },
         )
         .await
         .unwrap();

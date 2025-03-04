@@ -14,7 +14,7 @@ use contender_core::{
     error::ContenderError,
     generator::RandSeed,
     spammer::{LogCallback, Spammer, TimedSpammer},
-    test_scenario::TestScenario,
+    test_scenario::{TestScenario, TestScenarioParams},
 };
 use contender_testfile::TestConfig;
 
@@ -73,12 +73,14 @@ pub async fn run(
     let mut scenario = TestScenario::new(
         testconfig,
         db.clone().into(),
-        rpc_url.to_owned(),
-        None,
         rand_seed,
-        &user_signers,
-        AgentStore::default(),
-        args.tx_type,
+        TestScenarioParams {
+            rpc_url: rpc_url.to_owned(),
+            builder_rpc_url: None,
+            signers: user_signers,
+            agent_store: AgentStore::default(),
+            tx_type: args.tx_type,
+        },
     )
     .await?;
 

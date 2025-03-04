@@ -10,7 +10,7 @@ use contender_core::{
     agent_controller::{AgentStore, SignerStore},
     error::ContenderError,
     generator::RandSeed,
-    test_scenario::TestScenario,
+    test_scenario::{TestScenario, TestScenarioParams},
 };
 use contender_testfile::TestConfig;
 use std::str::FromStr;
@@ -117,12 +117,14 @@ pub async fn setup(
     let mut scenario = TestScenario::new(
         testconfig.to_owned(),
         db.clone().into(),
-        url,
-        None,
         seed,
-        &user_signers_with_defaults,
-        agents,
-        tx_type,
+        TestScenarioParams {
+            rpc_url: url,
+            builder_rpc_url: None,
+            signers: user_signers_with_defaults,
+            agent_store: agents,
+            tx_type,
+        },
     )
     .await?;
 
