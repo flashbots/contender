@@ -34,13 +34,13 @@ pub struct NamedTxRequestBuilder {
 
 #[derive(Clone, Debug)]
 pub enum ExecutionRequest {
-    Tx(NamedTxRequest),
+    Tx(Box<NamedTxRequest>),
     Bundle(Vec<NamedTxRequest>),
 }
 
 impl From<NamedTxRequest> for ExecutionRequest {
     fn from(tx: NamedTxRequest) -> Self {
-        Self::Tx(tx)
+        Self::Tx(Box::new(tx))
     }
 }
 
