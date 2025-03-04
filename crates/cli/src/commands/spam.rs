@@ -252,7 +252,10 @@ async fn get_max_spam_cost<D: DbOps + Send + Sync + 'static, S: Seeder + Send + 
         .iter()
         .map(|ex_payload| match ex_payload {
             ExecutionPayload::SignedTx(_envelope, tx_req) => vec![tx_req.to_owned()],
-            ExecutionPayload::SignedTxBundle(_envelopes, tx_reqs) => tx_reqs.to_vec(),
+            ExecutionPayload::SignedTxBundle(_envelopes, tx_reqs) => tx_reqs
+                .iter()
+                .map(|tx| Box::new(tx.to_owned()))
+                .collect::<Vec<_>>(),
         })
         .collect::<Vec<_>>()
         .concat();

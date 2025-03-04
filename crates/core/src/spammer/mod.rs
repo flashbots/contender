@@ -14,7 +14,7 @@ pub use tx_callback::{LogCallback, NilCallback, OnTxSent};
 
 #[derive(Clone, Debug)]
 pub enum ExecutionPayload {
-    SignedTx(TxEnvelope, NamedTxRequest),
+    SignedTx(Box<TxEnvelope>, Box<NamedTxRequest>),
     SignedTxBundle(Vec<TxEnvelope>, Vec<NamedTxRequest>),
 }
 

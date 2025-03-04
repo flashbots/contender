@@ -387,9 +387,8 @@ where
                     let mut bundle_txs = vec![];
 
                     for req in reqs {
-                        let tx_req = req.tx.to_owned();
                         let (tx_req, signer) = self
-                            .prepare_tx_request(&tx_req, gas_price)
+                            .prepare_tx_request(&req.tx, gas_price)
                             .await
                             .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
 
@@ -404,10 +403,8 @@ where
                     ExecutionPayload::SignedTxBundle(bundle_txs, reqs.to_owned())
                 }
                 ExecutionRequest::Tx(req) => {
-                    let tx_req = req.tx.to_owned();
-
                     let (tx_req, signer) = self
-                        .prepare_tx_request(&tx_req, gas_price)
+                        .prepare_tx_request(&req.tx, gas_price)
                         .await
                         .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
 
@@ -437,7 +434,7 @@ where
                             .unwrap_or_else(|| "N/A".to_owned())
                     );
 
-                    ExecutionPayload::SignedTx(tx_envelope, req.to_owned())
+                    ExecutionPayload::SignedTx(Box::new(tx_envelope), req.to_owned())
                 }
             };
             payloads.push(payload);
@@ -471,7 +468,7 @@ where
                 let handles = match payload.to_owned() {
                     ExecutionPayload::SignedTx(signed_tx, req) => {
                         let res = rpc_client
-                            .send_tx_envelope(AnyTxEnvelope::Ethereum(signed_tx.to_owned()))
+                            .send_tx_envelope(AnyTxEnvelope::Ethereum(*signed_tx))
                             .await
                             .expect("failed to send tx envelope");
                         let maybe_handle = callback_handler.on_tx_sent(
