@@ -155,7 +155,12 @@ where
                 }
             };
             if !flush_finished {
-                println!("Result collection terminated. Run results may not have been saved to the database.");
+                let runid = if let Some(run_id) = run_id {
+                    format!(" run_id={run_id}")
+                } else {
+                    "".to_string()
+                };
+                println!("Result collection terminated. Some results may not have been saved to the database.{runid}");
             }
 
             Ok(())
