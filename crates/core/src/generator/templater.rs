@@ -133,6 +133,7 @@ where
             from: Some(funcdef.from),
             value,
             gas: funcdef.gas_limit,
+            transaction_type: Some(funcdef.tx_type as u8),
             ..Default::default()
         })
     }
@@ -149,6 +150,7 @@ where
             input: alloy::rpc::types::TransactionInput::both(
                 Bytes::from_hex(&full_bytecode).expect("invalid bytecode hex"),
             ),
+            transaction_type: Some(createdef.tx_type as u8),
             ..Default::default()
         };
         Ok(tx)

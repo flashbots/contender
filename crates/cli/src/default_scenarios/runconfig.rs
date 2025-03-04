@@ -1,7 +1,9 @@
 use std::fmt::Display;
 
 use alloy::primitives::Address;
-use contender_core::generator::types::{CreateDefinition, FunctionCallDefinition, SpamRequest};
+use contender_core::generator::types::{
+    CreateDefinition, FunctionCallDefinition, SpamRequest, TxType,
+};
 use contender_testfile::TestConfig;
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +22,7 @@ impl Display for BuiltinScenarioConfig {
                 num_txs: _,
                 sender: _,
                 fill_percent: _,
+                tx_type: _,
             } => write!(f, "fill-block"),
         }
     }
@@ -31,6 +34,7 @@ pub enum BuiltinScenarioConfig {
         num_txs: u64,
         sender: Address,
         fill_percent: u16,
+        tx_type: TxType,
     },
 }
 
@@ -40,12 +44,14 @@ impl BuiltinScenarioConfig {
         num_txs: u64,
         sender: Address,
         fill_percent: u16,
+        tx_type: TxType,
     ) -> Self {
         Self::FillBlock {
             max_gas_per_block,
             num_txs,
             sender,
             fill_percent,
+            tx_type,
         }
     }
 }
@@ -58,6 +64,7 @@ impl From<BuiltinScenarioConfig> for TestConfig {
                 num_txs,
                 sender,
                 fill_percent,
+                tx_type,
             } => {
                 let gas_per_tx = ((max_gas_per_block / num_txs) / 100) * fill_percent as u64;
                 println!(
@@ -76,6 +83,7 @@ impl From<BuiltinScenarioConfig> for TestConfig {
                             fuzz: None,
                             kind: Some("fill-block".to_owned()),
                             gas_limit: None,
+                            tx_type: Some(tx_type),
                         })
                     })
                     .collect::<Vec<_>>();
@@ -87,6 +95,7 @@ impl From<BuiltinScenarioConfig> for TestConfig {
                         bytecode: bytecode::SPAM_ME.to_owned(),
                         from: Some(sender.to_string()),
                         from_pool: None,
+                        tx_type: Some(tx_type),
                     }]),
                     setup: None,
                     spam: Some(spam_txs),

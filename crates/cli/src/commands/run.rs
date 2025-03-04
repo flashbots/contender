@@ -11,7 +11,7 @@ use contender_core::{
     agent_controller::AgentStore,
     db::DbOps,
     error::ContenderError,
-    generator::RandSeed,
+    generator::{types::TxType, RandSeed},
     spammer::{LogCallback, Spammer, TimedSpammer},
     test_scenario::TestScenario,
 };
@@ -30,6 +30,7 @@ pub struct RunCommandArgs {
     pub duration: usize,
     pub txs_per_duration: usize,
     pub skip_deploy_prompt: bool,
+    pub tx_type: TxType,
 }
 
 pub async fn run(
@@ -61,6 +62,7 @@ pub async fn run(
             args.txs_per_duration as u64,
             admin_signer.address(),
             fill_percent,
+            args.tx_type,
         ),
     };
     let scenario_name = scenario_config.to_string();
@@ -76,6 +78,7 @@ pub async fn run(
         rand_seed,
         &user_signers,
         AgentStore::default(),
+        args.tx_type,
     )
     .await?;
 

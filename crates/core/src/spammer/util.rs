@@ -12,7 +12,10 @@ pub mod test {
     use tokio::task::JoinHandle;
 
     use crate::{
-        generator::{types::EthProvider, NamedTxRequest},
+        generator::{
+            types::{EthProvider, TxType},
+            NamedTxRequest,
+        },
         spammer::{tx_actor::TxActorHandle, OnTxSent},
     };
 
@@ -47,6 +50,7 @@ pub mod test {
         amount: U256,
         rpc_client: &EthProvider,
         nonce: Option<u64>,
+        tx_type: TxType,
     ) -> Result<PendingTransactionConfig, Box<dyn std::error::Error>> {
         println!(
             "funding account {} with user account {}",
@@ -57,16 +61,36 @@ pub mod test {
         let gas_price = rpc_client.get_gas_price().await?;
         let nonce = nonce.unwrap_or(rpc_client.get_transaction_count(sender.address()).await?);
         let chain_id = rpc_client.get_chain_id().await?;
-        let tx_req = TransactionRequest {
+        let mut tx_req = TransactionRequest {
             from: Some(sender.address()),
             to: Some(alloy::primitives::TxKind::Call(recipient)),
             value: Some(amount),
             gas: Some(21000),
-            gas_price: Some(gas_price + 4_200_000_000),
             nonce: Some(nonce),
             chain_id: Some(chain_id),
             ..Default::default()
         };
+
+        match tx_type {
+            TxType::Legacy => {
+                tx_req = tx_req.transaction_type(tx_type as u8);
+                tx_req.gas_price = Some(gas_price + 4_200_000_000);
+            }
+            TxType::Eip1559 | _ => {
+                if !matches!(tx_type, TxType::Eip1559) {
+                    println!(
+                        "set to EIP_1559 as the provided tx_type {:?} is not supported",
+                        tx_type
+                    );
+                }
+
+                tx_req = tx_req
+                    .transaction_type(tx_type as u8)
+                    .max_priority_fee_per_gas(gas_price)
+                    .max_fee_per_gas(gas_price + (gas_price / 5));
+            }
+        }
+
         let eth_wallet = EthereumWallet::from(sender.to_owned());
         let tx = tx_req.build(&eth_wallet).await?;
         let res = rpc_client.send_tx_envelope(tx).await?;

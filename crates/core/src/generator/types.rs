@@ -38,6 +38,8 @@ pub struct FunctionCallDefinition {
     pub kind: Option<String>,
     /// Optional gas limit, which will skip gas estimation. This allows reverting txs to be sent.
     pub gas_limit: Option<u64>,
+    /// tx type
+    pub tx_type: Option<TxType>,
 }
 
 pub struct FunctionCallDefinitionStrict {
@@ -49,6 +51,7 @@ pub struct FunctionCallDefinitionStrict {
     pub fuzz: Vec<FuzzParam>,
     pub kind: Option<String>,
     pub gas_limit: Option<u64>,
+    pub tx_type: TxType,
 }
 
 /// User-facing definition of a function call to be executed.
@@ -78,12 +81,16 @@ pub struct CreateDefinition {
     pub from: Option<String>,
     /// Get a `from` address from the pool of signers specified here.
     pub from_pool: Option<String>,
+    /// tx type
+    pub tx_type: Option<TxType>,
 }
 
 pub struct CreateDefinitionStrict {
     pub bytecode: String,
     pub name: String,
     pub from: Address,
+    /// tx type
+    pub tx_type: TxType,
 }
 
 #[derive(Clone, Deserialize, Debug, Serialize)]
@@ -112,4 +119,32 @@ pub enum PlanType<F: Fn(NamedTxRequest) -> CallbackResult> {
     Create(F),
     Setup(F),
     Spam(usize, F),
+}
+
+#[derive(Copy, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum TxType {
+    /// Legacy transaction (type `0x0`)
+    Legacy,
+    /// Transaction with an [`AccessList`] ([EIP-2930](https://eips.ethereum.org/EIPS/eip-2930)), type `0x1`
+    Eip2930,
+    /// A transaction with a priority fee ([EIP-1559](https://eips.ethereum.org/EIPS/eip-1559)), type `0x2`
+    Eip1559,
+    /// Shard Blob Transactions ([EIP-4844](https://eips.ethereum.org/EIPS/eip-4844)), type `0x3`
+    Eip4844,
+    /// EOA Set Code Transactions ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)), type `0x4`
+    Eip7702,
+}
+
+impl From<u8> for TxType {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => TxType::Legacy,
+            1 => TxType::Eip2930,
+            2 => TxType::Eip1559,
+            3 => TxType::Eip4844,
+            4 => TxType::Eip7702,
+            _ => TxType::Eip1559, // default to Eip1559
+        }
+    }
 }
