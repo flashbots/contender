@@ -103,7 +103,7 @@ May be specified multiple times."
         #[arg(
             short = 't',
             long,
-            long_help = "Set tx type such as Legacy/Eip1559",
+            long_help = "Transaction type for spam transactions.",
             value_enum,
             default_value_t = TxTypeCli::Eip1559,
         )]
@@ -146,7 +146,7 @@ May be specified multiple times."
         #[arg(
             short = 't',
             long,
-            long_help = "Set tx type such as Legacy/Eip1559",
+            long_help = "Transaction type for setup transactions.",
             value_enum,
             default_value_t = TxTypeCli::Eip1559,
         )]
@@ -230,7 +230,7 @@ May be specified multiple times."
         #[arg(
             short = 't',
             long,
-            long_help = "Set tx type such as Legacy/Eip1559",
+            long_help = "Transaction type for all transactions.",
             value_enum,
             default_value_t = TxTypeCli::Eip1559,
         )]
