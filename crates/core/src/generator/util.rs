@@ -1,7 +1,9 @@
 use crate::{error::ContenderError, Result};
 use alloy::{
+    consensus::TxType,
     dyn_abi::{DynSolType, DynSolValue, JsonAbiExt},
     json_abi,
+    rpc::types::TransactionRequest,
 };
 
 /// Encode the calldata for a function signature given an array of string arguments.
@@ -39,6 +41,40 @@ pub fn encode_calldata(args: &[impl AsRef<str>], sig: &str) -> Result<Vec<u8>> {
         .abi_encode_input(&values)
         .map_err(|e| ContenderError::with_err(e, "failed to encode function arguments"))?;
     Ok(input)
+}
+
+/// Sets eip-specific fields on a `&mut TransactionRequest`.
+/// `chain_id` is ignored for Legacy transactions.
+pub fn complete_tx_request(
+    tx_req: &mut TransactionRequest,
+    tx_type: TxType,
+    gas_price: u128,
+    priority_fee: u128,
+    gas_limit: u64,
+    chain_id: u64,
+) {
+    match tx_type {
+        TxType::Legacy => {
+            tx_req.gas_price = Some(gas_price + 4_200_000_000);
+        }
+        TxType::Eip1559 => {
+            tx_req.max_priority_fee_per_gas = Some(priority_fee);
+            tx_req.max_fee_per_gas = Some(gas_price + (gas_price / 5));
+            tx_req.chain_id = Some(chain_id);
+        }
+        _ => {
+            println!("Unsupported tx type: {:?}, defaulting to legacy", tx_type);
+            complete_tx_request(
+                tx_req,
+                TxType::Legacy,
+                gas_price,
+                priority_fee,
+                gas_limit,
+                chain_id,
+            );
+        }
+    };
+    tx_req.gas = Some(gas_limit);
 }
 
 #[cfg(test)]

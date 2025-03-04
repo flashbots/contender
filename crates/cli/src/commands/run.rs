@@ -1,6 +1,7 @@
 use std::{env, str::FromStr, sync::Arc};
 
 use alloy::{
+    consensus::TxType,
     eips::BlockId,
     network::AnyNetwork,
     providers::{DynProvider, Provider, ProviderBuilder},
@@ -11,7 +12,7 @@ use contender_core::{
     agent_controller::AgentStore,
     db::DbOps,
     error::ContenderError,
-    generator::{types::TxType, RandSeed},
+    generator::RandSeed,
     spammer::{LogCallback, Spammer, TimedSpammer},
     test_scenario::TestScenario,
 };
@@ -62,7 +63,6 @@ pub async fn run(
             args.txs_per_duration as u64,
             admin_signer.address(),
             fill_percent,
-            args.tx_type,
         ),
     };
     let scenario_name = scenario_config.to_string();

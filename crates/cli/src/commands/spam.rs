@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use alloy::{
+    consensus::TxType,
     network::AnyNetwork,
     primitives::{
         utils::{format_ether, parse_ether},
@@ -13,11 +14,7 @@ use contender_core::{
     agent_controller::{AgentStore, SignerStore},
     db::DbOps,
     error::ContenderError,
-    generator::{
-        seeder::Seeder,
-        types::{AnyProvider, TxType},
-        Generator, PlanType, RandSeed,
-    },
+    generator::{seeder::Seeder, types::AnyProvider, Generator, PlanType, RandSeed},
     spammer::{BlockwiseSpammer, ExecutionPayload, Spammer, TimedSpammer},
     test_scenario::TestScenario,
 };
@@ -48,8 +45,7 @@ pub async fn spam(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     args: SpamCommandArgs,
 ) -> Result<u64, Box<dyn std::error::Error>> {
-    let mut testconfig = TestConfig::from_file(&args.testfile)?;
-    testconfig.set_req_tx_type(args.tx_type)?;
+    let testconfig = TestConfig::from_file(&args.testfile)?;
     let rand_seed = RandSeed::seed_from_str(&args.seed);
     let url = Url::parse(&args.rpc_url).expect("Invalid RPC URL");
     let rpc_client = DynProvider::new(

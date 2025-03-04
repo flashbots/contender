@@ -56,7 +56,6 @@ mod tests {
         providers::{DynProvider, ProviderBuilder},
     };
 
-    use crate::generator::types::TxType;
     use crate::{
         agent_controller::{AgentStore, SignerStore},
         db::MockDb,
@@ -79,7 +78,7 @@ mod tests {
         let mut agents = AgentStore::new();
         let txs_per_period = 10;
         let periods = 3;
-        let tx_type = TxType::Legacy;
+        let tx_type = alloy::consensus::TxType::Legacy;
         agents.add_agent(
             "pool1",
             SignerStore::new_random(txs_per_period / periods, &seed, "eeeeeeee"),

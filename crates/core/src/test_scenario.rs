@@ -4,16 +4,14 @@ use crate::error::ContenderError;
 use crate::generator::named_txs::ExecutionRequest;
 use crate::generator::templater::Templater;
 use crate::generator::types::{AnyProvider, EthProvider};
+use crate::generator::util::complete_tx_request;
 use crate::generator::NamedTxRequest;
-use crate::generator::{
-    seeder::Seeder,
-    types::{PlanType, TxType},
-    Generator, PlanConfig,
-};
+use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use crate::spammer::tx_actor::TxActorHandle;
 use crate::spammer::{ExecutionPayload, OnTxSent, SpamTrigger};
 use crate::Result;
-use alloy::consensus::Transaction;
+use alloy::consensus::constants::GWEI_TO_WEI;
+use alloy::consensus::{Transaction, TxType};
 use alloy::eips::eip2718::Encodable2718;
 use alloy::hex::ToHexExt;
 use alloy::network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, TransactionBuilder};
@@ -145,33 +143,6 @@ where
         Ok(())
     }
 
-    pub fn complete_tx_request(
-        tx_req: &mut TransactionRequest,
-        tx_type: TxType,
-        gas_price: u128,
-        gas_limit: u64,
-    ) -> Result<()> {
-        tx_req.transaction_type = Some(tx_type as u8);
-        match tx_type {
-            TxType::Legacy => {
-                tx_req.gas = Some(gas_limit);
-                tx_req.gas_price = Some(gas_price);
-            }
-            TxType::Eip1559 | _ => {
-                if !matches!(tx_type, TxType::Eip1559) {
-                    println!("tx type {:?} not supported, set it to Eip1559", tx_type);
-                    tx_req.transaction_type = Some(TxType::Eip1559 as u8);
-                }
-
-                tx_req.gas = Some(gas_limit + (gas_limit / 6));
-                tx_req.max_priority_fee_per_gas = Some(gas_price);
-                tx_req.max_fee_per_gas = Some(gas_price + (gas_price / 5));
-            }
-        }
-
-        Ok(())
-    }
-
     pub async fn deploy_contracts(&mut self) -> Result<()> {
         let pub_provider = &self.rpc_client;
         let gas_price = pub_provider
@@ -215,16 +186,8 @@ where
                     .expect("failed to estimate gas");
 
                 // inject missing fields into tx_req.tx
-                let mut tx = tx_req
-                    .tx
-                    .with_chain_id(chain_id);
-
-                let res = TestScenario::<D, S, P>::complete_tx_request(&mut tx, tx_type, gas_price, gas_limit);
-                if let Err(err) = res {
-                    let err = err.to_string();
-                    eprintln!("failed to complete tx request: {:?}", err);
-                    return;
-                }
+                let mut tx = tx_req.tx;
+                complete_tx_request(&mut tx, tx_type, gas_price, (GWEI_TO_WEI as u128).min(gas_price - 1), gas_limit, chain_id);
 
                 let res = wallet.send_transaction(tx).await;
                 if let Err(err) = res {
@@ -311,16 +274,17 @@ where
                 let gas_limit = wallet.estimate_gas(&tx_req.tx).await.unwrap_or_else(|_| {
                     panic!("failed to estimate gas for setup step '{}'", tx_label)
                 });
-                let mut tx = tx_req.tx.with_chain_id(chain_id);
-                let res = TestScenario::<D, S, P>::complete_tx_request(
-                    &mut tx, tx_type, gas_price, gas_limit,
+                let mut tx = tx_req.tx;
+                complete_tx_request(
+                    &mut tx,
+                    tx_type,
+                    gas_price,
+                    1 * GWEI_TO_WEI as u128,
+                    gas_limit,
+                    chain_id,
                 );
-                if let Err(err) = res {
-                    let err = err.to_string();
-                    eprintln!("failed to complete tx request: {:?}", err);
-                    return;
-                }
 
+                // wallet will assign nonce before sending
                 let res = wallet
                     .send_transaction(tx)
                     .await
@@ -398,16 +362,16 @@ where
                 None,
             ))?
             .to_owned();
-        let tx_type = tx_req
-            .transaction_type
-            .map(TxType::from)
-            .unwrap_or(TxType::Eip1559);
 
-        let mut full_tx = tx_req
-            .to_owned()
-            .with_nonce(nonce)
-            .with_chain_id(self.chain_id);
-        TestScenario::<D, S, P>::complete_tx_request(&mut full_tx, tx_type, gas_price, gas_limit)?;
+        let mut full_tx = tx_req.to_owned().with_nonce(nonce);
+        complete_tx_request(
+            &mut full_tx,
+            self.tx_type,
+            gas_price,
+            (1 * GWEI_TO_WEI as u128).min(gas_price - 1),
+            gas_limit,
+            self.chain_id,
+        );
 
         Ok((full_tx, signer))
     }
@@ -668,7 +632,7 @@ pub mod tests {
     use crate::generator::named_txs::ExecutionRequest;
     use crate::generator::templater::Templater;
     use crate::generator::types::{
-        CreateDefinition, FunctionCallDefinition, FuzzParam, SpamRequest, TxType,
+        CreateDefinition, FunctionCallDefinition, FuzzParam, SpamRequest,
     };
     use crate::generator::{types::PlanType, util::test::spawn_anvil, RandSeed};
     use crate::generator::{Generator, PlanConfig};
@@ -705,35 +669,30 @@ pub mod tests {
                     name: "test_counter".to_string(),
                     from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
                     from_pool: None,
-                    tx_type: None,
                 },
                 CreateDefinition {
                     bytecode: COUNTER_BYTECODE.to_string(),
                     name: "test_counter2".to_string(),
                     from: None,
                     from_pool: Some("admin1".to_owned()),
-                    tx_type: None,
                 },
                 CreateDefinition {
                     bytecode: COUNTER_BYTECODE.to_string(),
                     name: "test_counter3".to_string(),
                     from: None,
                     from_pool: Some("admin2".to_owned()),
-                    tx_type: None,
                 },
                 CreateDefinition {
                     bytecode: UNI_V2_FACTORY_BYTECODE.to_string(),
                     name: "univ2_factory".to_string(),
                     from: None,
                     from_pool: Some("admin1".to_owned()),
-                    tx_type: None,
                 },
                 CreateDefinition {
                     bytecode: UNI_V2_FACTORY_BYTECODE.to_string(),
                     name: "univ2_factory".to_string(),
                     from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
                     from_pool: None,
-                    tx_type: None,
                 },
             ])
         }
@@ -756,7 +715,6 @@ pub mod tests {
                     fuzz: None,
                     kind: None,
                     gas_limit: None,
-                    tx_type: None,
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -774,7 +732,6 @@ pub mod tests {
                     fuzz: None,
                     kind: None,
                     gas_limit: None,
-                    tx_type: None,
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -786,7 +743,6 @@ pub mod tests {
                     fuzz: None,
                     kind: None,
                     gas_limit: None,
-                    tx_type: None,
                 },
             ])
         }
@@ -816,7 +772,6 @@ pub mod tests {
                     .into(),
                     kind: None,
                     gas_limit: None,
-                    tx_type: None,
                 })
             };
             Ok(vec![
@@ -846,7 +801,6 @@ pub mod tests {
                     .into(),
                     kind: None,
                     gas_limit: None,
-                    tx_type: None,
                 }),
                 SpamRequest::Tx(FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -871,7 +825,6 @@ pub mod tests {
                     .into(),
                     kind: None,
                     gas_limit: None,
-                    tx_type: None,
                 }),
                 SpamRequest::Tx(FunctionCallDefinition {
                     to: "0x00000000000000000000000000000000f007ba11".to_owned(),
@@ -896,7 +849,6 @@ pub mod tests {
                     .into(),
                     kind: None,
                     gas_limit: Some(100_000),
-                    tx_type: None,
                 }),
             ])
         }
@@ -954,7 +906,7 @@ pub mod tests {
         agents.add_agent("admin1", admin1_signers);
         agents.add_agent("admin2", admin2_signers);
 
-        let tx_type = TxType::Eip1559;
+        let tx_type = alloy::consensus::TxType::Eip1559;
 
         // fund accounts
         let mut nonce = provider

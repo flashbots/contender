@@ -1,4 +1,5 @@
 use alloy::{
+    consensus::TxType,
     network::AnyNetwork,
     primitives::utils::{format_ether, parse_ether},
     providers::{DynProvider, ProviderBuilder},
@@ -8,7 +9,7 @@ use alloy::{
 use contender_core::{
     agent_controller::{AgentStore, SignerStore},
     error::ContenderError,
-    generator::{types::TxType, RandSeed},
+    generator::RandSeed,
     test_scenario::TestScenario,
 };
 use contender_testfile::TestConfig;
@@ -35,8 +36,7 @@ pub async fn setup(
             .on_http(url.to_owned()),
     );
     let eth_client = DynProvider::new(ProviderBuilder::new().on_http(url.to_owned()));
-    let mut testconfig: TestConfig = TestConfig::from_file(testfile.as_ref())?;
-    testconfig.set_req_tx_type(tx_type)?;
+    let testconfig: TestConfig = TestConfig::from_file(testfile.as_ref())?;
     let min_balance = parse_ether(&min_balance)?;
 
     let user_signers = private_keys

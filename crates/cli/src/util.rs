@@ -1,4 +1,5 @@
 use alloy::{
+    consensus::{constants::GWEI_TO_WEI, TxType},
     network::{EthereumWallet, TransactionBuilder},
     primitives::{utils::format_ether, Address, U256},
     providers::{PendingTransactionConfig, Provider},
@@ -7,7 +8,10 @@ use alloy::{
 };
 use contender_core::{
     db::RunTx,
-    generator::types::{AnyProvider, EthProvider, FunctionCallDefinition, SpamRequest, TxType},
+    generator::{
+        types::{AnyProvider, EthProvider, FunctionCallDefinition, SpamRequest},
+        util::complete_tx_request,
+    },
     spammer::{LogCallback, NilCallback},
 };
 use contender_testfile::TestConfig;
@@ -24,24 +28,24 @@ pub enum SpamCallbackType {
 pub enum TxTypeCli {
     /// Legacy transaction (type `0x0`)
     Legacy,
-    /// Transaction with an [`AccessList`] ([EIP-2930](https://eips.ethereum.org/EIPS/eip-2930)), type `0x1`
-    Eip2930,
+    // /// Transaction with an [`AccessList`] ([EIP-2930](https://eips.ethereum.org/EIPS/eip-2930)), type `0x1`
+    // Eip2930,
     /// A transaction with a priority fee ([EIP-1559](https://eips.ethereum.org/EIPS/eip-1559)), type `0x2`
     Eip1559,
-    /// Shard Blob Transactions ([EIP-4844](https://eips.ethereum.org/EIPS/eip-4844)), type `0x3`
-    Eip4844,
-    /// EOA Set Code Transactions ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)), type `0x4`
-    Eip7702,
+    // /// Shard Blob Transactions ([EIP-4844](https://eips.ethereum.org/EIPS/eip-4844)), type `0x3`
+    // Eip4844,
+    // /// EOA Set Code Transactions ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)), type `0x4`
+    // Eip7702,
 }
 
 impl From<TxTypeCli> for TxType {
     fn from(value: TxTypeCli) -> Self {
         match value {
             TxTypeCli::Legacy => TxType::Legacy,
-            TxTypeCli::Eip2930 => TxType::Eip2930,
+            // TxTypeCli::Eip2930 => TxType::Eip2930,
             TxTypeCli::Eip1559 => TxType::Eip1559,
-            TxTypeCli::Eip4844 => TxType::Eip4844,
-            TxTypeCli::Eip7702 => TxType::Eip7702,
+            // TxTypeCli::Eip4844 => TxType::Eip4844,
+            // TxTypeCli::Eip7702 => TxType::Eip7702,
         }
     }
 }
@@ -251,32 +255,6 @@ pub async fn fund_accounts(
     Ok(())
 }
 
-pub fn complete_tx_request(
-    tx_req: &mut TransactionRequest,
-    tx_type: TxType,
-    gas_price: u128,
-    gas_limit: u64,
-) -> Result<(), Box<dyn std::error::Error>> {
-    tx_req.transaction_type = Some(tx_type as u8);
-    tx_req.gas = Some(gas_limit);
-    match tx_type {
-        TxType::Legacy => {
-            tx_req.gas_price = Some(gas_price + 4_200_000_000);
-        }
-        TxType::Eip1559 | _ => {
-            if !matches!(tx_type, TxType::Eip1559) {
-                println!("tx type {:?} not supported, set it to Eip1559", tx_type);
-                tx_req.transaction_type = Some(TxType::Eip1559 as u8);
-            }
-
-            tx_req.max_priority_fee_per_gas = Some(gas_price);
-            tx_req.max_fee_per_gas = Some(gas_price + (gas_price / 5));
-        }
-    }
-
-    Ok(())
-}
-
 pub async fn fund_account(
     sender: &PrivateKeySigner,
     recipient: Address,
@@ -302,7 +280,14 @@ pub async fn fund_account(
         chain_id: Some(chain_id),
         ..Default::default()
     };
-    complete_tx_request(&mut tx_req, tx_type, gas_price, 21000)?;
+    complete_tx_request(
+        &mut tx_req,
+        tx_type,
+        gas_price,
+        GWEI_TO_WEI as u128,
+        21000,
+        chain_id,
+    );
 
     let eth_wallet = EthereumWallet::from(sender.to_owned());
     let tx = tx_req.build(&eth_wallet).await?;
@@ -399,8 +384,6 @@ mod test {
         signers::local::PrivateKeySigner,
     };
 
-    use contender_core::generator::types::TxType;
-
     use super::fund_accounts;
 
     pub fn spawn_anvil() -> AnvilInstance {
@@ -431,7 +414,7 @@ mod test {
         .map(|s| s.parse().unwrap())
         .collect();
 
-        let tx_type = TxType::Eip1559;
+        let tx_type = alloy::consensus::TxType::Eip1559;
 
         // send eth to the new signer
         fund_accounts(
