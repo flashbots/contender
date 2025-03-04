@@ -279,7 +279,7 @@ where
                     &mut tx,
                     tx_type,
                     gas_price,
-                    1 * GWEI_TO_WEI as u128,
+                    (1 * GWEI_TO_WEI as u128).min(gas_price - 1),
                     gas_limit,
                     chain_id,
                 );
