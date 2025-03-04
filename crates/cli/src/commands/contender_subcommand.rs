@@ -2,6 +2,7 @@ use clap::Subcommand;
 use std::path::PathBuf;
 
 use crate::default_scenarios::BuiltinScenario;
+use crate::util::TxTypeCli;
 
 #[derive(Debug, Subcommand)]
 pub enum ContenderSubcommand {
@@ -97,6 +98,16 @@ May be specified multiple times."
             long_help = "Filename of the saved report. May be a fully-qualified path. If not provided, the report can be generated with the `report` subcommand. '.csv' extension is added automatically."
         )]
         gen_report: bool,
+
+        /// Transaction type
+        #[arg(
+            short = 't',
+            long,
+            long_help = "Transaction type for spam transactions.",
+            value_enum,
+            default_value_t = TxTypeCli::Eip1559,
+        )]
+        tx_type: TxTypeCli,
     },
 
     #[command(
@@ -130,6 +141,16 @@ May be specified multiple times."
         /// The seed used to generate pool accounts.
         #[arg(short, long, long_help = "The seed used to generate pool accounts.")]
         seed: Option<String>,
+
+        /// Transaction type
+        #[arg(
+            short = 't',
+            long,
+            long_help = "Transaction type for setup transactions.",
+            value_enum,
+            default_value_t = TxTypeCli::Eip1559,
+        )]
+        tx_type: TxTypeCli,
     },
 
     #[command(
@@ -204,6 +225,16 @@ May be specified multiple times."
             visible_aliases = &["sdp"]
         )]
         skip_deploy_prompt: bool,
+
+        /// Transaction type
+        #[arg(
+            short = 't',
+            long,
+            long_help = "Transaction type for all transactions.",
+            value_enum,
+            default_value_t = TxTypeCli::Eip1559,
+        )]
+        tx_type: TxTypeCli,
         // TODO: DRY duplicate args
     },
 }

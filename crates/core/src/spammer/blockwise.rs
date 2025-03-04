@@ -61,7 +61,7 @@ mod tests {
         db::MockDb,
         generator::util::test::spawn_anvil,
         spammer::util::test::{fund_account, get_test_signers, MockCallback},
-        test_scenario::tests::MockConfig,
+        test_scenario::{tests::MockConfig, TestScenarioParams},
     };
     use std::collections::HashSet;
     use std::sync::Arc;
@@ -78,6 +78,7 @@ mod tests {
         let mut agents = AgentStore::new();
         let txs_per_period = 10;
         let periods = 3;
+        let tx_type = alloy::consensus::TxType::Legacy;
         agents.add_agent(
             "pool1",
             SignerStore::new_random(txs_per_period / periods, &seed, "eeeeeeee"),
@@ -101,6 +102,7 @@ mod tests {
                     U256::from(ETH_TO_WEI),
                     &provider,
                     Some(nonce),
+                    tx_type,
                 )
                 .await
                 .unwrap();
@@ -113,11 +115,14 @@ mod tests {
         let mut scenario = TestScenario::new(
             MockConfig,
             MockDb.into(),
-            anvil.endpoint_url(),
-            None,
             seed,
-            &user_signers,
-            agents,
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers: user_signers,
+                agent_store: agents,
+                tx_type,
+            },
         )
         .await
         .unwrap();

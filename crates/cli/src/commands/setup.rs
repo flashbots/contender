@@ -1,4 +1,5 @@
 use alloy::{
+    consensus::TxType,
     network::AnyNetwork,
     primitives::utils::{format_ether, parse_ether},
     providers::{DynProvider, ProviderBuilder},
@@ -9,7 +10,7 @@ use contender_core::{
     agent_controller::{AgentStore, SignerStore},
     error::ContenderError,
     generator::RandSeed,
-    test_scenario::TestScenario,
+    test_scenario::{TestScenario, TestScenarioParams},
 };
 use contender_testfile::TestConfig;
 use std::str::FromStr;
@@ -26,6 +27,7 @@ pub async fn setup(
     private_keys: Option<Vec<String>>,
     min_balance: String,
     seed: RandSeed,
+    tx_type: TxType,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
     let rpc_client = DynProvider::new(
@@ -108,17 +110,21 @@ pub async fn setup(
         &rpc_client,
         &eth_client,
         min_balance,
+        tx_type,
     )
     .await?;
 
     let mut scenario = TestScenario::new(
         testconfig.to_owned(),
         db.clone().into(),
-        url,
-        None,
         seed,
-        &user_signers_with_defaults,
-        agents,
+        TestScenarioParams {
+            rpc_url: url,
+            builder_rpc_url: None,
+            signers: user_signers_with_defaults,
+            agent_store: agents,
+            tx_type,
+        },
     )
     .await?;
 

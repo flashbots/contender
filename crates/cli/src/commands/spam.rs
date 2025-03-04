@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use alloy::{
+    consensus::TxType,
     network::AnyNetwork,
     primitives::{
         utils::{format_ether, parse_ether},
@@ -15,7 +16,7 @@ use contender_core::{
     error::ContenderError,
     generator::{seeder::Seeder, types::AnyProvider, Generator, PlanType, RandSeed},
     spammer::{BlockwiseSpammer, ExecutionPayload, Spammer, TimedSpammer},
-    test_scenario::TestScenario,
+    test_scenario::{TestScenario, TestScenarioParams},
 };
 use contender_testfile::TestConfig;
 
@@ -36,6 +37,7 @@ pub struct SpamCommandArgs {
     pub private_keys: Option<Vec<String>>,
     pub disable_reports: bool,
     pub min_balance: String,
+    pub tx_type: TxType,
 }
 
 /// Runs spammer and returns run ID.
@@ -128,6 +130,7 @@ pub async fn spam(
         &rpc_client,
         &eth_client,
         min_balance,
+        args.tx_type,
     )
     .await?;
 
@@ -136,12 +139,16 @@ pub async fn spam(
     let mut scenario = TestScenario::new(
         testconfig,
         db.clone().into(),
-        url,
-        args.builder_url
-            .map(|url| Url::parse(&url).expect("Invalid builder URL")),
         rand_seed,
-        &user_signers,
-        agents,
+        TestScenarioParams {
+            rpc_url: url,
+            builder_rpc_url: args
+                .builder_url
+                .map(|url| Url::parse(&url).expect("Invalid builder URL")),
+            signers: user_signers,
+            agent_store: agents,
+            tx_type: args.tx_type,
+        },
     )
     .await?;
 

@@ -4,12 +4,14 @@ use crate::error::ContenderError;
 use crate::generator::named_txs::ExecutionRequest;
 use crate::generator::templater::Templater;
 use crate::generator::types::{AnyProvider, EthProvider};
+use crate::generator::util::complete_tx_request;
 use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use crate::spammer::tx_actor::TxActorHandle;
 use crate::spammer::{ExecutionPayload, OnTxSent, SpamTrigger};
 use crate::Result;
-use alloy::consensus::Transaction;
+use alloy::consensus::constants::GWEI_TO_WEI;
+use alloy::consensus::{Transaction, TxType};
 use alloy::eips::eip2718::Encodable2718;
 use alloy::hex::ToHexExt;
 use alloy::network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, TransactionBuilder};
@@ -47,6 +49,15 @@ where
     pub chain_id: u64,
     pub gas_limits: HashMap<FixedBytes<32>, u64>,
     pub msg_handle: Arc<TxActorHandle>,
+    pub tx_type: TxType,
+}
+
+pub struct TestScenarioParams {
+    pub rpc_url: Url,
+    pub builder_rpc_url: Option<Url>,
+    pub signers: Vec<PrivateKeySigner>,
+    pub agent_store: AgentStore,
+    pub tx_type: TxType,
 }
 
 impl<D, S, P> TestScenario<D, S, P>
@@ -58,27 +69,24 @@ where
     pub async fn new(
         config: P,
         db: Arc<D>,
-        rpc_url: Url,
-        builder_rpc_url: Option<Url>,
         rand_seed: S,
-        signers: &[PrivateKeySigner],
-        agent_store: AgentStore,
+        params: TestScenarioParams,
     ) -> Result<Self> {
         let rpc_client = Arc::new(DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
-                .on_http(rpc_url.to_owned()),
+                .on_http(params.rpc_url.to_owned()),
         ));
 
         let mut wallet_map = HashMap::new();
-        let wallets = signers.iter().map(|s| {
+        let wallets = params.signers.iter().map(|s| {
             let w = EthereumWallet::new(s.clone());
             (s.address(), w)
         });
         for (addr, wallet) in wallets {
             wallet_map.insert(addr, wallet);
         }
-        for (name, signers) in agent_store.all_agents() {
+        for (name, signers) in params.agent_store.all_agents() {
             println!("adding '{}' signers to wallet map", name);
             for signer in signers.signers.iter() {
                 wallet_map.insert(signer.address(), EthereumWallet::new(signer.clone()));
@@ -101,7 +109,8 @@ where
         }
         let gas_limits = HashMap::new();
 
-        let bundle_client = builder_rpc_url
+        let bundle_client = params
+            .builder_rpc_url
             .as_ref()
             .map(|url| Arc::new(BundleClient::new(url.clone())));
 
@@ -110,18 +119,21 @@ where
         Ok(Self {
             config,
             db: db.clone(),
-            rpc_url: rpc_url.to_owned(),
+            rpc_url: params.rpc_url.to_owned(),
             rpc_client: rpc_client.clone(),
-            eth_client: Arc::new(DynProvider::new(ProviderBuilder::new().on_http(rpc_url))),
+            eth_client: Arc::new(DynProvider::new(
+                ProviderBuilder::new().on_http(params.rpc_url),
+            )),
             bundle_client,
-            builder_rpc_url,
+            builder_rpc_url: params.builder_rpc_url,
             rand_seed,
             wallet_map,
-            agent_store,
+            agent_store: params.agent_store,
             chain_id,
             nonces,
             gas_limits,
             msg_handle,
+            tx_type: params.tx_type,
         })
     }
 
@@ -172,6 +184,7 @@ where
                 tx_req.name.as_ref().unwrap_or(&"".to_string())
             );
             let rpc_url = self.rpc_url.to_owned();
+            let tx_type = self.tx_type;
             let handle = tokio::task::spawn(async move {
                 // estimate gas limit
                 let gas_limit = wallet
@@ -180,11 +193,8 @@ where
                     .expect("failed to estimate gas");
 
                 // inject missing fields into tx_req.tx
-                let tx = tx_req
-                    .tx
-                    .with_gas_price(gas_price)
-                    .with_chain_id(chain_id)
-                    .with_gas_limit(gas_limit);
+                let mut tx = tx_req.tx;
+                complete_tx_request(&mut tx, tx_type, gas_price, (GWEI_TO_WEI as u128).min(gas_price - 1), gas_limit, chain_id);
 
                 let res = wallet.send_transaction(tx).await;
                 if let Err(err) = res {
@@ -251,6 +261,7 @@ where
                 .to_owned();
             let db = self.db.clone();
             let rpc_url = self.rpc_url.clone();
+            let tx_type = self.tx_type;
 
             let handle = tokio::task::spawn(async move {
                 let wallet = ProviderBuilder::new()
@@ -270,11 +281,17 @@ where
                 let gas_limit = wallet.estimate_gas(&tx_req.tx).await.unwrap_or_else(|_| {
                     panic!("failed to estimate gas for setup step '{}'", tx_label)
                 });
-                let tx = tx_req
-                    .tx
-                    .with_gas_price(gas_price)
-                    .with_chain_id(chain_id)
-                    .with_gas_limit(gas_limit);
+                let mut tx = tx_req.tx;
+                complete_tx_request(
+                    &mut tx,
+                    tx_type,
+                    gas_price,
+                    (GWEI_TO_WEI as u128).min(gas_price - 1),
+                    gas_limit,
+                    chain_id,
+                );
+
+                // wallet will assign nonce before sending
                 let res = wallet
                     .send_transaction(tx)
                     .await
@@ -352,13 +369,16 @@ where
                 None,
             ))?
             .to_owned();
-        let full_tx = tx_req
-            .to_owned()
-            .with_nonce(nonce)
-            .with_max_fee_per_gas(gas_price + (gas_price / 5))
-            .with_max_priority_fee_per_gas(gas_price)
-            .with_chain_id(self.chain_id)
-            .with_gas_limit(gas_limit);
+
+        let mut full_tx = tx_req.to_owned().with_nonce(nonce);
+        complete_tx_request(
+            &mut full_tx,
+            self.tx_type,
+            gas_price,
+            (GWEI_TO_WEI as u128).min(gas_price - 1),
+            gas_limit,
+            self.chain_id,
+        );
 
         Ok((full_tx, signer))
     }
@@ -635,6 +655,8 @@ pub mod tests {
     use alloy::rpc::types::TransactionRequest;
     use std::collections::HashMap;
 
+    use super::TestScenarioParams;
+
     pub struct MockConfig;
 
     pub const COUNTER_BYTECODE: &str =
@@ -893,6 +915,8 @@ pub mod tests {
         agents.add_agent("admin1", admin1_signers);
         agents.add_agent("admin2", admin2_signers);
 
+        let tx_type = alloy::consensus::TxType::Eip1559;
+
         // fund accounts
         let mut nonce = provider
             .get_transaction_count(admin.address())
@@ -906,6 +930,7 @@ pub mod tests {
                     U256::from(ETH_TO_WEI),
                     &provider,
                     Some(nonce),
+                    tx_type,
                 )
                 .await
                 .unwrap();
@@ -939,11 +964,14 @@ pub mod tests {
         TestScenario::new(
             MockConfig,
             MockDb.into(),
-            anvil.endpoint_url(),
-            None,
             seed.to_owned(),
-            signers.as_slice(),
-            agents,
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers,
+                agent_store: agents,
+                tx_type,
+            },
         )
         .await
         .unwrap()

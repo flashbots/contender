@@ -1,6 +1,7 @@
 use std::{env, str::FromStr, sync::Arc};
 
 use alloy::{
+    consensus::TxType,
     eips::BlockId,
     network::AnyNetwork,
     providers::{DynProvider, Provider, ProviderBuilder},
@@ -13,7 +14,7 @@ use contender_core::{
     error::ContenderError,
     generator::RandSeed,
     spammer::{LogCallback, Spammer, TimedSpammer},
-    test_scenario::TestScenario,
+    test_scenario::{TestScenario, TestScenarioParams},
 };
 use contender_testfile::TestConfig;
 
@@ -30,6 +31,7 @@ pub struct RunCommandArgs {
     pub duration: usize,
     pub txs_per_duration: usize,
     pub skip_deploy_prompt: bool,
+    pub tx_type: TxType,
 }
 
 pub async fn run(
@@ -71,11 +73,14 @@ pub async fn run(
     let mut scenario = TestScenario::new(
         testconfig,
         db.clone().into(),
-        rpc_url.to_owned(),
-        None,
         rand_seed,
-        &user_signers,
-        AgentStore::default(),
+        TestScenarioParams {
+            rpc_url: rpc_url.to_owned(),
+            builder_rpc_url: None,
+            signers: user_signers,
+            agent_store: AgentStore::default(),
+            tx_type: args.tx_type,
+        },
     )
     .await?;
 

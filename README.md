@@ -178,7 +178,7 @@ use contender_core::{
     db::DbOps,
     generator::RandSeed,
     spammer::{BlockwiseSpammer, TimedSpammer, NilCallback, LogCallback},
-    test_scenario::TestScenario,
+    test_scenario::{TestScenario, TestScenarioParams},
 };
 use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
@@ -195,22 +195,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         4, // number of random signers to create
         rand_seed
     )
-    let scenario = TestScenario::new(
+    let mut scenario = TestScenario::new(
         cfg,
-        db.to_owned().into(),
-        "http://localhost:8545".parse::<_>()?,
-        None,
+        db.clone().into(),
         rand_seed,
-        &[
-            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-            "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
-            "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
-        ]
-        .iter()
-        .map(|s| s.parse::<_>().unwrap())
-        .collect::<Vec<_>>(),
-        agents
-    );
+        TestScenarioParams {
+            rpc_url: "http://localhost:8545".parse::<_>()?,
+            builder_rpc_url: None,
+            signers: [
+                "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+                "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+                "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
+            ]
+            .iter()
+            .map(|s| s.parse::<_>().unwrap())
+            .collect::<Vec<_>>(),
+            agent_store: agents,
+            tx_type: alloy::consensus::TxType::Legacy,
+        },
+    )
+    .await?;
 
     if db.get_named_tx("MyContract").is_err() {
         scenario.deploy_contracts().await?;
