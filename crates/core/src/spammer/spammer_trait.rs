@@ -1,10 +1,10 @@
-use std::sync::atomic::AtomicBool;
 use std::{pin::Pin, sync::Arc};
 
 use alloy::providers::Provider;
 use futures::Stream;
 use futures::StreamExt;
 
+use crate::generator::named_txs::ExecutionRequest;
 use crate::{
     db::DbOps,
     error::ContenderError,
@@ -15,6 +15,87 @@ use crate::{
 
 use super::SpamTrigger;
 use super::{tx_actor::TxActorHandle, OnTxSent};
+
+async fn flush_tx_cache<
+    D: DbOps + Send + Sync + 'static,
+    S: Seeder + Send + Sync,
+    P: PlanConfig<String> + Templater<String> + Send + Sync,
+>(
+    block_start: u64,
+    run_id: Option<u64>,
+    scenario: &TestScenario<D, S, P>,
+) -> Result<()> {
+    let mut block_counter = 0;
+    if let Some(run_id) = run_id {
+        loop {
+            let cache_size = scenario
+                .msg_handle
+                .flush_cache(run_id, block_start + block_counter as u64)
+                .await
+                .map_err(|e| {
+                    ContenderError::SpamError("failed to flush cache", e.to_string().into())
+                })?;
+            if cache_size == 0 {
+                break;
+            }
+
+            block_counter += 1;
+        }
+        println!("done. run_id={}", run_id);
+    }
+    Ok(())
+}
+
+async fn execute_spammer<
+    F: OnTxSent + Send + Sync + 'static,
+    D: DbOps + Send + Sync + 'static,
+    S: Seeder + Send + Sync,
+    P: PlanConfig<String> + Templater<String> + Send + Sync,
+>(
+    cursor: &mut futures::stream::Take<Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>>,
+    scenario: &mut TestScenario<D, S, P>,
+    tx_req_chunks: &[Vec<ExecutionRequest>],
+    sent_tx_callback: Arc<F>,
+) -> Result<()> {
+    let mut tick = 0;
+    while let Some(trigger) = cursor.next().await {
+        let trigger = trigger.to_owned();
+        let payloads = scenario.prepare_spam(&tx_req_chunks[tick]).await?;
+        let spam_tasks = scenario
+            .execute_spam(trigger, &payloads, sent_tx_callback.clone())
+            .await?;
+        for task in spam_tasks {
+            let res = task.await;
+            if let Err(e) = res {
+                eprintln!("spam task failed: {:?}", e);
+            }
+        }
+        tick += 1;
+    }
+
+    Ok(())
+}
+
+async fn get_tx_chunks<
+    D: DbOps + Send + Sync + 'static,
+    S: Seeder + Send + Sync,
+    P: PlanConfig<String> + Templater<String> + Send + Sync,
+>(
+    scenario: &TestScenario<D, S, P>,
+    txs_per_period: usize,
+    num_periods: usize,
+) -> Result<Vec<Vec<ExecutionRequest>>> {
+    let tx_requests = scenario
+        .load_txs(crate::generator::PlanType::Spam(
+            txs_per_period * num_periods,
+            |_named_req| Ok(None), // we can look at the named request here if needed
+        ))
+        .await?;
+    Ok(tx_requests
+        .chunks(txs_per_period)
+        .map(|chunk| chunk.to_vec())
+        .collect::<Vec<Vec<ExecutionRequest>>>())
+}
 
 pub trait Spammer<F, D, S, P>
 where
@@ -40,74 +121,41 @@ where
         run_id: Option<u64>,
         sent_tx_callback: Arc<F>,
     ) -> impl std::future::Future<Output = Result<()>> {
-        let quit = Arc::new(AtomicBool::default());
-
-        let quit_clone = quit.clone();
-        tokio::task::spawn(async move {
-            loop {
-                let _ = tokio::signal::ctrl_c().await;
-                quit_clone.store(true, std::sync::atomic::Ordering::Relaxed);
-            }
-        });
-
         async move {
-            let tx_requests = scenario
-                .load_txs(crate::generator::PlanType::Spam(
-                    txs_per_period * num_periods,
-                    |_named_req| Ok(None), // we can look at the named request here if needed
-                ))
-                .await?;
-            let tx_req_chunks = tx_requests.chunks(txs_per_period).collect::<Vec<&[_]>>();
-            let block_num = scenario
+            let tx_req_chunks = get_tx_chunks(scenario, txs_per_period, num_periods).await?;
+            let start_block = scenario
                 .rpc_client
                 .get_block_number()
                 .await
                 .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
-
-            let mut tick = 0;
             let mut cursor = self.on_spam(scenario).await?.take(num_periods);
 
-            while let Some(trigger) = cursor.next().await {
-                if quit.load(std::sync::atomic::Ordering::Relaxed) {
-                    println!("CTRL-C received, stopping spam and collecting results...");
-                    quit.store(false, std::sync::atomic::Ordering::Relaxed);
-                    break;
+            // run spammer within tokio::select! to allow for graceful shutdown
+            let spam_finished: bool = tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    println!("\nCTRL-C received, stopping spamming...");
+                    false
+                },
+                _ = execute_spammer(&mut cursor, scenario, &tx_req_chunks, sent_tx_callback) => {
+                    true
                 }
-
-                let trigger = trigger.to_owned();
-                let payloads = scenario.prepare_spam(tx_req_chunks[tick]).await?;
-                let spam_tasks = scenario
-                    .execute_spam(trigger, &payloads, sent_tx_callback.clone())
-                    .await?;
-                for task in spam_tasks {
-                    let res = task.await;
-                    if let Err(e) = res {
-                        eprintln!("spam task failed: {:?}", e);
-                    }
-                }
-                tick += 1;
+            };
+            if !spam_finished {
+                println!("Spammer terminated. Press CTRL-C again to stop result collection...");
             }
 
-            let mut block_counter = 0;
-            if let Some(run_id) = run_id {
-                loop {
-                    let cache_size = scenario
-                        .msg_handle
-                        .flush_cache(run_id, block_num + block_counter as u64)
-                        .await
-                        .expect("failed to flush cache");
-                    if cache_size == 0 {
-                        break;
-                    }
-
-                    if quit.load(std::sync::atomic::Ordering::Relaxed) {
-                        println!("CTRL-C received, stopping result collection...");
-                        break;
-                    }
-
-                    block_counter += 1;
+            let flush_finished: bool = tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    println!("\nCTRL-C received, stopping result collection...");
+                    let _ = scenario.msg_handle.stop().await;
+                    false
+                },
+                _ = flush_tx_cache(start_block, run_id, scenario) => {
+                    true
                 }
-                println!("done. run_id={}", run_id);
+            };
+            if !flush_finished {
+                println!("Result collection terminated. Run results may not have been saved to the database.");
             }
 
             Ok(())
