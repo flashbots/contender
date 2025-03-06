@@ -50,7 +50,7 @@ from_pool = "spammers"
 signature = "callPrecompile(string memory method, uint256 iterations)"
 args = [
     "ecAdd",
-    "5"
+    "50"
 ]
 
 [[spam]]
