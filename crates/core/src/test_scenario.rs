@@ -153,7 +153,13 @@ where
     }
 
     pub async fn estimate_setup_cost(&self) -> Result<U256> {
-        println!("running simulation to estimate setup cost...");
+        println!(
+            "
+================================================================================
+================= running simulation to estimate setup cost ====================
+================================================================================
+"
+        );
         let anvil = Anvil::new().spawn();
         let admin_signer = LocalSigner::from_str(
             "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
@@ -212,15 +218,26 @@ where
         scenario.run_setup().await?;
 
         let mut total_cost = U256::ZERO;
-        for (addr, balance) in &balances {
+        for (addr, start_balance) in &balances {
             let new_balance = scenario
                 .rpc_client
                 .get_balance(*addr)
                 .await
                 .map_err(|e| ContenderError::with_err(e, "failed to get balance"))?;
-            let cost = balance - new_balance;
+            if new_balance >= *start_balance {
+                continue;
+            }
+            let cost = start_balance - new_balance;
             total_cost += cost;
         }
+
+        println!(
+            "
+================================================================================
+============================= simulation complete ==============================
+================================================================================
+"
+        );
 
         Ok(total_cost)
     }
