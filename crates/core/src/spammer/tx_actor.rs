@@ -138,7 +138,7 @@ where
                     println!("tx failed: {:?}", pending_tx.tx_hash);
                 } else {
                     println!(
-                        "tx landed. hash={}\tgas_used={}\tblock_num={}",
+                        "tx landed. hash: {}, gas_used: {}, block_num: {}",
                         pending_tx.tx_hash,
                         receipt.gas_used,
                         receipt
