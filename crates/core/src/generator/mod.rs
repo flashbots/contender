@@ -317,6 +317,7 @@ where
                 let num_txs = num_txs + (num_txs % num_steps);
                 let mut placeholder_map = HashMap::<K, String>::new();
                 let mut canonical_fuzz_map = HashMap::<String, Vec<U256>>::new();
+                placeholder_map.extend(conf.get_env()?);
 
                 // finds fuzzed values for a function call definition and populates `canonical_fuzz_map` with fuzzy values.
                 let mut find_fuzz = |req: &FunctionCallDefinition| {
