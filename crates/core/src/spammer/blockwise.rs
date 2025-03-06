@@ -25,8 +25,8 @@ impl<F, D, S, P> Spammer<F, D, S, P> for BlockwiseSpammer
 where
     F: OnTxSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
-    S: Seeder + Send + Sync,
-    P: PlanConfig<String> + Templater<String> + Send + Sync,
+    S: Seeder + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
     async fn on_spam(
         &self,

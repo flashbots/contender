@@ -71,6 +71,17 @@ impl AgentStore {
     pub fn remove_agent(&mut self, name: impl AsRef<str>) {
         self.agents.remove(name.as_ref());
     }
+
+    pub fn get_all_signers(&self) -> Vec<&PrivateKeySigner> {
+        self.agents
+            .values()
+            .flat_map(|s| s.signers.iter())
+            .collect()
+    }
+
+    pub fn get_all_signer_addresses(&self) -> Vec<Address> {
+        self.get_all_signers().iter().map(|s| s.address()).collect()
+    }
 }
 
 impl<Idx> SignerRegistry<Idx> for SignerStore

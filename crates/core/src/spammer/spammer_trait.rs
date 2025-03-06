@@ -49,8 +49,8 @@ async fn flush_tx_cache<
 async fn execute_spammer<
     F: OnTxSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
-    S: Seeder + Send + Sync,
-    P: PlanConfig<String> + Templater<String> + Send + Sync,
+    S: Seeder + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 >(
     cursor: &mut futures::stream::Take<Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>>,
     scenario: &mut TestScenario<D, S, P>,
@@ -101,8 +101,8 @@ pub trait Spammer<F, D, S, P>
 where
     F: OnTxSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
-    S: Seeder + Send + Sync,
-    P: PlanConfig<String> + Templater<String> + Send + Sync,
+    S: Seeder + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
     fn get_msg_handler(&self, db: Arc<D>, rpc_client: Arc<AnyProvider>) -> TxActorHandle {
         TxActorHandle::new(12, db.clone(), rpc_client.clone())

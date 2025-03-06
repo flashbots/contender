@@ -10,19 +10,21 @@ use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use crate::spammer::tx_actor::TxActorHandle;
 use crate::spammer::{ExecutionPayload, OnTxSent, SpamTrigger};
 use crate::Result;
-use alloy::consensus::constants::GWEI_TO_WEI;
+use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
 use alloy::consensus::{Transaction, TxType};
 use alloy::eips::eip2718::Encodable2718;
 use alloy::hex::ToHexExt;
 use alloy::network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, TransactionBuilder};
-use alloy::primitives::{keccak256, Address, FixedBytes};
+use alloy::node_bindings::Anvil;
+use alloy::primitives::{keccak256, Address, FixedBytes, U256};
 use alloy::providers::{DynProvider, PendingTransactionConfig, Provider, ProviderBuilder};
 use alloy::rpc::types::TransactionRequest;
-use alloy::signers::local::PrivateKeySigner;
+use alloy::signers::local::{LocalSigner, PrivateKeySigner};
 use alloy::transports::http::reqwest::Url;
 use contender_bundle_provider::bundle_provider::new_basic_bundle;
 use contender_bundle_provider::BundleClient;
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 
 /// A test scenario can be used to run a test with a specific configuration, database, and RPC provider.
@@ -63,8 +65,8 @@ pub struct TestScenarioParams {
 impl<D, S, P> TestScenario<D, S, P>
 where
     D: DbOps + Send + Sync + 'static,
-    S: Seeder + Send + Sync,
-    P: PlanConfig<String> + Templater<String> + Send + Sync,
+    S: Seeder + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
     pub async fn new(
         config: P,
@@ -148,6 +150,79 @@ where
             self.nonces.insert(*addr, nonce);
         }
         Ok(())
+    }
+
+    pub async fn estimate_setup_cost(&self) -> Result<U256> {
+        println!("running simulation to estimate setup cost...");
+        let anvil = Anvil::new().spawn();
+        let admin_signer = LocalSigner::from_str(
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        )
+        .expect("invalid signer");
+        let admin_wallet = EthereumWallet::new(admin_signer.clone());
+        let mut scenario = Self::new(
+            self.config.to_owned(),
+            self.db.clone(),
+            self.rand_seed.to_owned(),
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers: vec![admin_signer.to_owned()],
+                agent_store: self.agent_store.clone(),
+                tx_type: TxType::Legacy,
+            },
+        )
+        .await?;
+
+        let addresses = scenario
+            .agent_store
+            .get_all_signer_addresses()
+            .into_iter()
+            .collect::<Vec<Address>>();
+
+        let mut balances: HashMap<Address, U256> = HashMap::new();
+        for addr in addresses {
+            let tx_req = TransactionRequest::default()
+                .with_from(admin_signer.address())
+                .with_to(addr)
+                .with_value(U256::from(1000 * ETH_TO_WEI));
+            let (tx_req, _) = scenario
+                .prepare_tx_request(&tx_req, (10 * GWEI_TO_WEI) as u128)
+                .await?;
+            let signed_tx = tx_req
+                .build(&admin_wallet)
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to build funding tx"))?;
+            let _pending = scenario
+                .rpc_client
+                .send_tx_envelope(AnyTxEnvelope::Ethereum(signed_tx))
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to send funding tx"))?;
+
+            // get starting balance
+            let balance = scenario
+                .rpc_client
+                .get_balance(addr)
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to get balance"))?;
+            balances.insert(addr, balance);
+        }
+
+        scenario.deploy_contracts().await?;
+        scenario.run_setup().await?;
+
+        let mut total_cost = U256::ZERO;
+        for (addr, balance) in &balances {
+            let new_balance = scenario
+                .rpc_client
+                .get_balance(*addr)
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to get balance"))?;
+            let cost = balance - new_balance;
+            total_cost += cost;
+        }
+
+        Ok(total_cost)
     }
 
     pub async fn deploy_contracts(&mut self) -> Result<()> {
@@ -657,6 +732,7 @@ pub mod tests {
 
     use super::TestScenarioParams;
 
+    #[derive(Clone)]
     pub struct MockConfig;
 
     pub const COUNTER_BYTECODE: &str =
