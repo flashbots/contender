@@ -70,7 +70,7 @@ from_pool = "spammers"
 signature = "callPrecompile(string memory method, uint256 iterations)"
 args = [
     "ecPairing",
-    "50"
+    "10"
 ]
 
 [[spam]]
@@ -80,5 +80,5 @@ from_pool = "spammers"
 signature = "callPrecompile(string memory method, uint256 iterations)"
 args = [
     "blake2f",
-    "5"
+    "50"
 ]
