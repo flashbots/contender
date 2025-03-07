@@ -1259,7 +1259,9 @@ pub mod tests {
         let anvil = spawn_anvil();
         let scenario = get_test_scenario(&anvil).await;
         let cost = scenario.estimate_setup_cost().await?;
-        let expected_cost_min = U256::from(GWEI_TO_WEI * 21000 * 5); // assuming gas price is 1 gwei, and 5 simple txs
+        let total_txs = scenario.config.get_setup_steps().unwrap().len()
+            + scenario.config.get_create_steps().unwrap().len();
+        let expected_cost_min = U256::from(GWEI_TO_WEI * 21000 * total_txs as u64); // assuming gas price is 1 gwei and txs are cheap
         assert!(cost > expected_cost_min);
         Ok(())
     }
