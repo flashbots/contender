@@ -231,7 +231,7 @@ pub async fn spam(
 /// and `prepare_spam` which will mutate the scenario (namely the overly-optimistic internal nonce counter).
 /// We're not going to run the transactions we generate here; we just want to see the cost of
 /// our spam txs, so we can estimate how much the user should provide for `min_balance`.
-async fn get_max_spam_cost<D: DbOps + Send + Sync + 'static, S: Seeder + Send + Sync>(
+async fn get_max_spam_cost<D: DbOps + Send + Sync + 'static, S: Seeder + Send + Sync + Clone>(
     scenario: TestScenario<D, S, TestConfig>,
     rpc_client: &AnyProvider,
 ) -> Result<U256, Box<dyn std::error::Error>> {

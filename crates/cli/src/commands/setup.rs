@@ -128,6 +128,20 @@ pub async fn setup(
     )
     .await?;
 
+    let total_cost = scenario.estimate_setup_cost().await?;
+    if min_balance < total_cost {
+        return Err(ContenderError::SetupError(
+            "Insufficient balance in admin account.",
+            Some(format!(
+                "Admin account balance: {} ETH, required: {} ETH.\nSet --min-balance to {} or higher.",
+                format_ether(min_balance),
+                format_ether(total_cost),
+                format_ether(total_cost),
+            )),
+        )
+        .into());
+    }
+
     scenario.deploy_contracts().await?;
     println!("Finished deploying contracts. Running setup txs...");
     scenario.run_setup().await?;

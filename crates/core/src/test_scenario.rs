@@ -10,19 +10,21 @@ use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use crate::spammer::tx_actor::TxActorHandle;
 use crate::spammer::{ExecutionPayload, OnTxSent, SpamTrigger};
 use crate::Result;
-use alloy::consensus::constants::GWEI_TO_WEI;
+use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
 use alloy::consensus::{Transaction, TxType};
 use alloy::eips::eip2718::Encodable2718;
 use alloy::hex::ToHexExt;
 use alloy::network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, TransactionBuilder};
-use alloy::primitives::{keccak256, Address, FixedBytes};
+use alloy::node_bindings::Anvil;
+use alloy::primitives::{keccak256, Address, FixedBytes, U256};
 use alloy::providers::{DynProvider, PendingTransactionConfig, Provider, ProviderBuilder};
 use alloy::rpc::types::TransactionRequest;
-use alloy::signers::local::PrivateKeySigner;
+use alloy::signers::local::{LocalSigner, PrivateKeySigner};
 use alloy::transports::http::reqwest::Url;
 use contender_bundle_provider::bundle_provider::new_basic_bundle;
 use contender_bundle_provider::BundleClient;
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 
 /// A test scenario can be used to run a test with a specific configuration, database, and RPC provider.
@@ -63,8 +65,8 @@ pub struct TestScenarioParams {
 impl<D, S, P> TestScenario<D, S, P>
 where
     D: DbOps + Send + Sync + 'static,
-    S: Seeder + Send + Sync,
-    P: PlanConfig<String> + Templater<String> + Send + Sync,
+    S: Seeder + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
     pub async fn new(
         config: P,
@@ -147,6 +149,119 @@ where
                 .map_err(|e| ContenderError::with_err(e, "failed to retrieve nonce from RPC"))?;
             self.nonces.insert(*addr, nonce);
         }
+        Ok(())
+    }
+
+    pub async fn estimate_setup_cost(&self) -> Result<U256> {
+        println!(
+            "
+================================================================================
+================= running simulation to estimate setup cost ====================
+================================================================================
+"
+        );
+        // start anvil with dev accounts holding 1M eth
+        let anvil = Anvil::new().args(["--balance", "1000000"]).spawn();
+        let admin_signer = LocalSigner::from_str(
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        )
+        .expect("invalid signer");
+        let admin_wallet = EthereumWallet::new(admin_signer.clone());
+        let mut scenario = Self::new(
+            self.config.to_owned(),
+            self.db.clone(),
+            self.rand_seed.to_owned(),
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers: vec![admin_signer.to_owned()],
+                agent_store: self.agent_store.clone(),
+                tx_type: TxType::Legacy,
+            },
+        )
+        .await?;
+
+        let addresses = scenario
+            .agent_store
+            .all_signer_addresses()
+            .into_iter()
+            .collect::<Vec<Address>>();
+
+        let fund_amount = if addresses.len() >= 999 {
+            U256::from(999999 * ETH_TO_WEI / addresses.len() as u128)
+        } else {
+            U256::from(1000 * ETH_TO_WEI)
+        };
+        let start_balances: HashMap<Address, U256> =
+            HashMap::from_iter(addresses.iter().map(|addr| (*addr, fund_amount)));
+
+        scenario.fund_agents(&admin_wallet, fund_amount).await?;
+        scenario.deploy_contracts().await?;
+        scenario.run_setup().await?;
+
+        let mut total_cost = U256::ZERO;
+        for (addr, start_balance) in &start_balances {
+            let new_balance = scenario
+                .rpc_client
+                .get_balance(*addr)
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to get balance"))?;
+            if new_balance >= *start_balance {
+                continue;
+            }
+            let cost = start_balance - new_balance;
+            total_cost += cost;
+        }
+
+        println!(
+            "
+================================================================================
+============================= simulation complete ==============================
+================================================================================
+"
+        );
+
+        Ok(total_cost)
+    }
+
+    /// Funds all agents in the agent store with the given amount.
+    /// Does not check if the agents are already funded.
+    pub async fn fund_agents(&mut self, funder: &EthereumWallet, amount: U256) -> Result<()> {
+        let addresses = self
+            .agent_store
+            .all_signer_addresses()
+            .into_iter()
+            .collect::<Vec<Address>>();
+        let gas_price = self
+            .rpc_client
+            .get_gas_price()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
+
+        for addr in addresses {
+            let tx_req = TransactionRequest::default()
+                .with_from(funder.default_signer().address())
+                .with_to(addr)
+                .with_value(amount);
+            let (tx_req, _) = self
+                .prepare_tx_request(&tx_req, gas_price + GWEI_TO_WEI as u128)
+                .await?;
+            let signed_tx = tx_req
+                .build(funder)
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to build funding tx"))?;
+            let pending = self
+                .rpc_client
+                .send_tx_envelope(AnyTxEnvelope::Ethereum(signed_tx))
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to send funding tx"))?;
+            println!(
+                "funded account {}, tx: {}",
+                addr.encode_hex(),
+                pending.tx_hash()
+            );
+        }
+
         Ok(())
     }
 
@@ -643,20 +758,18 @@ pub mod tests {
     };
     use crate::generator::{types::PlanType, util::test::spawn_anvil, RandSeed};
     use crate::generator::{Generator, PlanConfig};
-    use crate::spammer::util::test::{fund_account, get_test_signers};
+    use crate::spammer::util::test::get_test_signers;
     use crate::test_scenario::TestScenario;
     use crate::Result;
-    use alloy::consensus::constants::ETH_TO_WEI;
+    use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
     use alloy::hex::ToHexExt;
-    use alloy::network::{Ethereum, EthereumWallet, TransactionBuilder};
     use alloy::node_bindings::AnvilInstance;
     use alloy::primitives::{Address, U256};
-    use alloy::providers::{DynProvider, Provider, ProviderBuilder};
-    use alloy::rpc::types::TransactionRequest;
     use std::collections::HashMap;
 
     use super::TestScenarioParams;
 
+    #[derive(Clone)]
     pub struct MockConfig;
 
     pub const COUNTER_BYTECODE: &str =
@@ -895,73 +1008,23 @@ pub mod tests {
         anvil: &AnvilInstance,
     ) -> TestScenario<MockDb, RandSeed, MockConfig> {
         let seed = RandSeed::seed_from_bytes(&[0x01; 32]);
+        let tx_type = alloy::consensus::TxType::Eip1559;
         let signers = get_test_signers();
-        let provider = DynProvider::new(
-            ProviderBuilder::new()
-                .network::<Ethereum>()
-                .on_http(anvil.endpoint_url()),
-        );
         let mut agents = AgentStore::new();
         let pool1 = SignerStore::new_random(10, &seed, "0x0defa117");
         let pool2 = SignerStore::new_random(10, &seed, "0xf00d1337");
         let admin1_signers = SignerStore::new_random(1, &seed, "admin1");
         let admin2_signers = SignerStore::new_random(1, &seed, "admin2");
         let mut pool_signers = pool1.signers.to_vec();
+        pool_signers.extend_from_slice(&pool2.signers);
         pool_signers.extend_from_slice(&admin1_signers.signers);
         pool_signers.extend_from_slice(&admin2_signers.signers);
-        let admin = &signers[0];
         agents.add_agent("pool1", pool1);
         agents.add_agent("pool2", pool2);
         agents.add_agent("admin1", admin1_signers);
         agents.add_agent("admin2", admin2_signers);
 
-        let tx_type = alloy::consensus::TxType::Eip1559;
-
-        // fund accounts
-        let mut nonce = provider
-            .get_transaction_count(admin.address())
-            .await
-            .unwrap();
-        for (_pool_name, agent) in agents.all_agents() {
-            for signer in &agent.signers {
-                let res = fund_account(
-                    &signers[0],
-                    signer.address(),
-                    U256::from(ETH_TO_WEI),
-                    &provider,
-                    Some(nonce),
-                    tx_type,
-                )
-                .await
-                .unwrap();
-                println!("funded signer: {:?}", res);
-                provider.watch_pending_transaction(res).await.unwrap();
-                nonce += 1;
-            }
-        }
-
-        let chain_id = anvil.chain_id();
-        for signer in &pool_signers {
-            let tx = TransactionRequest::default()
-                .with_from(signers[0].address())
-                .with_to(signer.address())
-                .with_value(U256::from(100_000_000_000_000_000u128))
-                .with_nonce(nonce)
-                .with_max_fee_per_gas(10_000_000_000_u128)
-                .with_max_priority_fee_per_gas(1_000_000_000_u128)
-                .with_gas_limit(21000)
-                .with_chain_id(chain_id);
-            nonce += 1;
-            let signed_tx = tx
-                .build::<EthereumWallet>(&admin.to_owned().into())
-                .await
-                .unwrap();
-
-            let res = provider.send_tx_envelope(signed_tx).await.unwrap();
-            res.get_receipt().await.unwrap();
-        }
-
-        TestScenario::new(
+        let mut scenario = TestScenario::new(
             MockConfig,
             MockDb.into(),
             seed.to_owned(),
@@ -974,11 +1037,18 @@ pub mod tests {
             },
         )
         .await
-        .unwrap()
+        .unwrap();
+
+        scenario
+            .fund_agents(&anvil.wallet().unwrap(), U256::from(10 * ETH_TO_WEI))
+            .await
+            .unwrap();
+
+        scenario
     }
 
     #[tokio::test]
-    async fn it_creates_scenarios() {
+    async fn it_creates_scenarios() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let anvil = spawn_anvil();
         let scenario = get_test_scenario(&anvil).await;
 
@@ -987,8 +1057,7 @@ pub mod tests {
                 println!("create tx callback triggered! {:?}\n", tx);
                 Ok(None)
             }))
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(create_txs.len(), 5);
 
         let setup_txs = scenario
@@ -996,8 +1065,7 @@ pub mod tests {
                 println!("setup tx callback triggered! {:?}\n", tx);
                 Ok(None)
             }))
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(setup_txs.len(), 3);
 
         let spam_txs = scenario
@@ -1005,11 +1073,11 @@ pub mod tests {
                 println!("spam tx callback triggered! {:?}\n", tx);
                 Ok(None)
             }))
-            .await
-            .unwrap();
+            .await?;
 
         // should round down; there are 6 spam steps
         assert!(spam_txs.len() == 18);
+        Ok(())
     }
 
     #[tokio::test]
@@ -1183,5 +1251,18 @@ pub mod tests {
         let res = scenario.run_setup().await;
         println!("{:?}", res);
         assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn setup_cost_estimates_are_correct(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let anvil = spawn_anvil();
+        let scenario = get_test_scenario(&anvil).await;
+        let cost = scenario.estimate_setup_cost().await?;
+        let total_txs = scenario.config.get_setup_steps().unwrap().len()
+            + scenario.config.get_create_steps().unwrap().len();
+        let expected_cost_min = U256::from(GWEI_TO_WEI * 21000 * total_txs as u64); // assuming gas price is 1 gwei and txs are cheap
+        assert!(cost > expected_cost_min);
+        Ok(())
     }
 }
