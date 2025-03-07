@@ -1,6 +1,7 @@
 # Contender
 
-![Build & Test Status](https://github.com/flashbots/contender/actions/workflows/rust.yml/badge.svg)
+![Test Status](https://github.com/flashbots/contender/actions/workflows/test.yml/badge.svg)
+![Lint Status](https://github.com/flashbots/contender/actions/workflows/lint.yml/badge.svg)
 
 Contender is a high-performance Ethereum network spammer and testing tool designed for benchmarking and stress-testing Ethereum clients and networks.
 
