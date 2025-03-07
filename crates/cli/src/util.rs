@@ -182,6 +182,7 @@ async fn is_balance_sufficient(
     Ok((balance >= min_balance, balance))
 }
 
+/// Funds given accounts if/when their balance is below the minimum balance.
 pub async fn fund_accounts(
     recipient_addresses: &[Address],
     fund_with: &PrivateKeySigner,
