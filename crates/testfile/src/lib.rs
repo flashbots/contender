@@ -48,10 +48,7 @@ impl PlanConfig<String> for TestConfig {
     }
 
     fn get_env(&self) -> Result<HashMap<String, String>, ContenderError> {
-        self.env.to_owned().ok_or(ContenderError::SetupError(
-            "no environment variables found",
-            None,
-        ))
+        Ok(self.env.to_owned().unwrap_or_default())
     }
 }
 
