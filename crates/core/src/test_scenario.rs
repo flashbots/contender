@@ -393,9 +393,13 @@ where
                 let gas_price = wallet.get_gas_price().await.unwrap_or_else(|_| {
                     panic!("failed to get gas price for setup step '{}'", tx_label)
                 });
-                let gas_limit = wallet.estimate_gas(&tx_req.tx).await.unwrap_or_else(|_| {
-                    panic!("failed to estimate gas for setup step '{}'", tx_label)
-                });
+                let gas_limit = if let Some(gas) = tx_req.tx.gas {
+                    gas
+                } else {
+                    wallet.estimate_gas(&tx_req.tx).await.unwrap_or_else(|_| {
+                        panic!("failed to estimate gas for setup step '{}'", tx_label)
+                    })
+                };
                 let mut tx = tx_req.tx;
                 complete_tx_request(
                     &mut tx,
