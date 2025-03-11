@@ -1,5 +1,6 @@
 use alloy::{
     consensus::{constants::GWEI_TO_WEI, TxType},
+    hex::ToHexExt,
     network::{EthereumWallet, TransactionBuilder},
     primitives::{utils::format_ether, Address, U256},
     providers::{PendingTransactionConfig, Provider},
@@ -264,12 +265,6 @@ pub async fn fund_account(
     nonce: Option<u64>,
     tx_type: TxType,
 ) -> Result<PendingTransactionConfig, Box<dyn std::error::Error>> {
-    println!(
-        "funding account {} with user account {}",
-        recipient,
-        sender.address()
-    );
-
     let gas_price = rpc_client.get_gas_price().await?;
     let nonce = nonce.unwrap_or(rpc_client.get_transaction_count(sender.address()).await?);
     let chain_id = rpc_client.get_chain_id().await?;
@@ -285,6 +280,13 @@ pub async fn fund_account(
 
     let eth_wallet = EthereumWallet::from(sender.to_owned());
     let tx = tx_req.build(&eth_wallet).await?;
+
+    println!(
+        "funding account {} with user account {}. tx: {}",
+        recipient,
+        sender.address(),
+        tx.tx_hash().encode_hex()
+    );
     let res = rpc_client.send_tx_envelope(tx).await?;
 
     Ok(res.into_inner())
