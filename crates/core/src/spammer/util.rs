@@ -3,7 +3,7 @@ pub mod test {
     use std::{collections::HashMap, str::FromStr, sync::Arc};
 
     use alloy::{
-        consensus::{constants::GWEI_TO_WEI, TxType},
+        consensus::TxType,
         network::{EthereumWallet, TransactionBuilder},
         primitives::{Address, U256},
         providers::{PendingTransactionConfig, Provider},

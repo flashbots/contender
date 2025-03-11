@@ -1,5 +1,5 @@
 use alloy::{
-    consensus::{constants::GWEI_TO_WEI, TxType},
+    consensus::TxType,
     hex::ToHexExt,
     network::{EthereumWallet, TransactionBuilder},
     primitives::{utils::format_ether, Address, U256},
