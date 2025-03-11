@@ -67,7 +67,7 @@ pub mod test {
             ..Default::default()
         };
 
-        complete_tx_request(&mut tx_req, tx_type, gas_price, 0 as u128, 21000, chain_id);
+        complete_tx_request(&mut tx_req, tx_type, gas_price, 1 as u128, 21000, chain_id);
 
         let eth_wallet = EthereumWallet::from(sender.to_owned());
         let tx = tx_req.build(&eth_wallet).await?;
