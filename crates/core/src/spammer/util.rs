@@ -3,7 +3,7 @@ pub mod test {
     use std::{collections::HashMap, str::FromStr, sync::Arc};
 
     use alloy::{
-        consensus::{constants::GWEI_TO_WEI, TxType},
+        consensus::TxType,
         network::{EthereumWallet, TransactionBuilder},
         primitives::{Address, U256},
         providers::{PendingTransactionConfig, Provider},
@@ -67,14 +67,7 @@ pub mod test {
             ..Default::default()
         };
 
-        complete_tx_request(
-            &mut tx_req,
-            tx_type,
-            gas_price,
-            GWEI_TO_WEI as u128,
-            21000,
-            chain_id,
-        );
+        complete_tx_request(&mut tx_req, tx_type, gas_price, 1_u128, 21000, chain_id);
 
         let eth_wallet = EthereumWallet::from(sender.to_owned());
         let tx = tx_req.build(&eth_wallet).await?;
