@@ -5,6 +5,7 @@ mod gen_html;
 mod util;
 
 use crate::util::{data_dir, write_run_txs};
+use alloy::network::AnyNetwork;
 use alloy::providers::DynProvider;
 use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
 use block_trace::get_block_trace_data;
@@ -85,7 +86,7 @@ pub async fn report(
 
     // get trace data for reports
     let url = Url::from_str(rpc_url).expect("Invalid URL");
-    let rpc_client = DynProvider::new(ProviderBuilder::new().on_http(url));
+    let rpc_client = DynProvider::new(ProviderBuilder::new().network::<AnyNetwork>().on_http(url));
     let (trace_data, blocks) = get_block_trace_data(&all_txs, &rpc_client).await?;
 
     // cache data to file
