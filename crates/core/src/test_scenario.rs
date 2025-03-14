@@ -74,21 +74,29 @@ where
         rand_seed: S,
         params: TestScenarioParams,
     ) -> Result<Self> {
+        let TestScenarioParams {
+            rpc_url,
+            builder_rpc_url,
+            signers,
+            agent_store,
+            tx_type,
+        } = params;
+
         let rpc_client = Arc::new(DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
-                .on_http(params.rpc_url.to_owned()),
+                .on_http(rpc_url.to_owned()),
         ));
 
         let mut wallet_map = HashMap::new();
-        let wallets = params.signers.iter().map(|s| {
+        let wallets = signers.iter().map(|s| {
             let w = EthereumWallet::new(s.clone());
             (s.address(), w)
         });
         for (addr, wallet) in wallets {
             wallet_map.insert(addr, wallet);
         }
-        for (name, signers) in params.agent_store.all_agents() {
+        for (name, signers) in agent_store.all_agents() {
             println!("adding '{}' signers to wallet map", name);
             for signer in signers.signers.iter() {
                 wallet_map.insert(signer.address(), EthereumWallet::new(signer.clone()));
@@ -111,8 +119,7 @@ where
         }
         let gas_limits = HashMap::new();
 
-        let bundle_client = params
-            .builder_rpc_url
+        let bundle_client = builder_rpc_url
             .as_ref()
             .map(|url| Arc::new(BundleClient::new(url.clone())));
 
@@ -121,21 +128,19 @@ where
         Ok(Self {
             config,
             db: db.clone(),
-            rpc_url: params.rpc_url.to_owned(),
+            rpc_url: rpc_url.to_owned(),
             rpc_client: rpc_client.clone(),
-            eth_client: Arc::new(DynProvider::new(
-                ProviderBuilder::new().on_http(params.rpc_url),
-            )),
+            eth_client: Arc::new(DynProvider::new(ProviderBuilder::new().on_http(rpc_url))),
             bundle_client,
-            builder_rpc_url: params.builder_rpc_url,
+            builder_rpc_url,
             rand_seed,
             wallet_map,
-            agent_store: params.agent_store,
+            agent_store,
             chain_id,
             nonces,
             gas_limits,
             msg_handle,
-            tx_type: params.tx_type,
+            tx_type,
         })
     }
 
@@ -553,7 +558,7 @@ where
                     })?;
 
                     println!(
-                        "sending tx {} from={} to={:?} input={} value={} gas_limit={}",
+                        "prepared tx {} from={} to={:?} input={} value={} gas_limit={}",
                         tx_envelope.tx_hash(),
                         tx_req.from.map(|s| s.encode_hex()).unwrap_or_default(),
                         tx_envelope.to(),

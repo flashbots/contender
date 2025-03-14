@@ -42,6 +42,20 @@ impl AgentStore {
         }
     }
 
+    pub fn init(
+        &mut self,
+        agent_names: &[impl AsRef<str>],
+        signers_per_agent: usize,
+        seed: &RandSeed,
+    ) {
+        for agent in agent_names {
+            if self.has_agent(agent) {
+                continue;
+            }
+            self.add_random_agent(agent, signers_per_agent, seed);
+        }
+    }
+
     pub fn add_agent(&mut self, name: impl AsRef<str>, signers: SignerStore) {
         self.agents.insert(name.as_ref().to_owned(), signers);
     }

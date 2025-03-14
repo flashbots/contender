@@ -64,56 +64,6 @@ pub const DEFAULT_PRV_KEYS: [&str; 10] = [
     "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6",
 ];
 
-pub fn get_create_pools(testconfig: &TestConfig) -> Vec<String> {
-    testconfig
-        .create
-        .to_owned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|s| s.from_pool)
-        .collect()
-}
-
-pub fn get_setup_pools(testconfig: &TestConfig) -> Vec<String> {
-    testconfig
-        .setup
-        .to_owned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|s| s.from_pool)
-        .collect()
-}
-
-pub fn get_spam_pools(testconfig: &TestConfig) -> Vec<String> {
-    let mut from_pools = vec![];
-    let spam = testconfig
-        .spam
-        .as_ref()
-        .expect("No spam function calls found in testfile");
-
-    for s in spam {
-        match s {
-            SpamRequest::Tx(fn_call) => {
-                if let Some(from_pool) = &fn_call.from_pool {
-                    from_pools.push(from_pool.to_owned());
-                }
-            }
-            SpamRequest::Bundle(bundle) => {
-                for tx in &bundle.txs {
-                    if let Some(from_pool) = &tx.from_pool {
-                        from_pools.push(from_pool.to_owned());
-                    }
-                }
-            }
-        }
-    }
-
-    // filter out non-unique pools
-    from_pools.sort();
-    from_pools.dedup();
-    from_pools
-}
-
 pub fn get_signers_with_defaults(private_keys: Option<Vec<String>>) -> Vec<PrivateKeySigner> {
     if private_keys.is_none() {
         println!("No private keys provided. Using default private keys.");
