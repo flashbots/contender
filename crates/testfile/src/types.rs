@@ -20,25 +20,35 @@ pub struct TestConfig {
 }
 
 impl TestConfig {
+    /// Returns unique from_pool declarations from the `create` section of the testfile.
     pub fn get_create_pools(&self) -> Vec<String> {
-        self.create
+        let mut from_pools: Vec<_> = self
+            .create
             .to_owned()
             .unwrap_or_default()
             .into_iter()
             .filter_map(|s| s.from_pool)
-            .collect()
+            .collect();
+        from_pools.sort();
+        from_pools.dedup();
+        from_pools
     }
 
+    /// Returns unique from_pool declarations from the `setup` section of the testfile.
     pub fn get_setup_pools(&self) -> Vec<String> {
-        self.setup
+        let mut from_pools: Vec<_> = self
+            .setup
             .to_owned()
             .unwrap_or_default()
             .into_iter()
             .filter_map(|s| s.from_pool)
-            .collect()
+            .collect();
+        from_pools.sort();
+        from_pools.dedup();
+        from_pools
     }
 
-    /// Gets every instance of a `from_pool` declaration in the spam requests.
+    /// Returns unique from_pool declarations from the `spam` section of the testfile.
     pub fn get_spam_pools(&self) -> Vec<String> {
         let mut from_pools = vec![];
         let spam = self
