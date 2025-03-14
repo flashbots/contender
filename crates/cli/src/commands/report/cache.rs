@@ -1,4 +1,4 @@
-use alloy::rpc::types::Block;
+use alloy::network::AnyRpcBlock;
 use serde::{Deserialize, Serialize};
 
 use crate::util::data_dir;
@@ -10,11 +10,11 @@ static CACHE_FILENAME: &str = "debug_trace.json";
 #[derive(Serialize, Deserialize)]
 pub struct CacheFile {
     pub traces: Vec<TxTraceReceipt>,
-    pub blocks: Vec<Block>,
+    pub blocks: Vec<AnyRpcBlock>,
 }
 
 impl CacheFile {
-    pub fn new(traces: Vec<TxTraceReceipt>, blocks: Vec<Block>) -> Self {
+    pub fn new(traces: Vec<TxTraceReceipt>, blocks: Vec<AnyRpcBlock>) -> Self {
         Self { traces, blocks }
     }
 

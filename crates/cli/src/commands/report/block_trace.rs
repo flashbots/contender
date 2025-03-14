@@ -1,37 +1,35 @@
 use crate::commands::report::cache::CacheFile;
+use alloy::network::{AnyRpcBlock, AnyTransactionReceipt};
 use alloy::providers::ext::DebugApi;
-use alloy::rpc::types::{Block, BlockTransactionsKind};
+use alloy::rpc::types::BlockTransactionsKind;
 use alloy::{
     providers::Provider,
-    rpc::types::{
-        trace::geth::{
-            GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
-            GethDebugTracingOptions, GethDefaultTracingOptions, GethTrace,
-        },
-        TransactionReceipt,
+    rpc::types::trace::geth::{
+        GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
+        GethDebugTracingOptions, GethDefaultTracingOptions, GethTrace,
     },
 };
-
+use contender_core::db::RunTx;
 use contender_core::error::ContenderError;
-use contender_core::{db::RunTx, generator::types::EthProvider};
+use contender_core::generator::types::AnyProvider;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TxTraceReceipt {
     pub trace: GethTrace,
-    pub receipt: TransactionReceipt,
+    pub receipt: AnyTransactionReceipt,
 }
 
 impl TxTraceReceipt {
-    pub fn new(trace: GethTrace, receipt: TransactionReceipt) -> Self {
+    pub fn new(trace: GethTrace, receipt: AnyTransactionReceipt) -> Self {
         Self { trace, receipt }
     }
 }
 
 pub async fn get_block_trace_data(
     txs: &[RunTx],
-    rpc_client: &EthProvider,
-) -> Result<(Vec<TxTraceReceipt>, Vec<Block>), Box<dyn std::error::Error>> {
+    rpc_client: &AnyProvider,
+) -> Result<(Vec<TxTraceReceipt>, Vec<AnyRpcBlock>), Box<dyn std::error::Error>> {
     if std::env::var("DEBUG_USEFILE").is_ok() {
         println!("DEBUG_USEFILE detected: using cached data");
         // load trace data from file

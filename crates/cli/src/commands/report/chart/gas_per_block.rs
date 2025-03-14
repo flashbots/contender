@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use alloy::rpc::types::Block;
+use alloy::network::AnyRpcBlock;
 use plotters::{
     backend::BitMapBackend,
     chart::ChartBuilder,
@@ -33,7 +33,7 @@ impl GasPerBlockChart {
         }
     }
 
-    pub fn build(blocks: &[Block]) -> Self {
+    pub fn build(blocks: &[AnyRpcBlock]) -> Self {
         let mut chart = GasPerBlockChart::new();
 
         for block in blocks {
