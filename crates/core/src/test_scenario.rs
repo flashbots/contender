@@ -132,15 +132,15 @@ where
             rpc_client: rpc_client.clone(),
             eth_client: Arc::new(DynProvider::new(ProviderBuilder::new().on_http(rpc_url))),
             bundle_client,
-            builder_rpc_url: builder_rpc_url,
+            builder_rpc_url,
             rand_seed,
             wallet_map,
-            agent_store: agent_store,
+            agent_store,
             chain_id,
             nonces,
             gas_limits,
             msg_handle,
-            tx_type: tx_type,
+            tx_type,
         })
     }
 
