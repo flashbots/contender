@@ -49,23 +49,37 @@ pub async fn get_block_trace_data(
     let min_block = min_block - block_padding;
     let max_block = max_block + block_padding;
 
-    // get block data
-    let mut all_blocks = vec![];
-    for block_num in min_block..=max_block {
-        let block = rpc_client
-            .get_block_by_number(block_num.into(), BlockTransactionsKind::Full)
-            .await?;
-        if let Some(block) = block {
-            println!("read block {}", block.header.number);
-            all_blocks.push(block);
-        }
-    }
-
     let rpc_client = Arc::new(rpc_client.clone());
+
+    // get block data
+    let mut all_blocks: Vec<AnyRpcBlock> = vec![];
+    let (sender, mut receiver) = tokio::sync::mpsc::channel::<AnyRpcBlock>(9001);
+
+    let mut handles = vec![];
+    for block_num in min_block..=max_block {
+        let rpc_client = rpc_client.clone();
+        let sender = sender.clone();
+        let handle = tokio::task::spawn(async move {
+            println!("getting block {}...", block_num);
+            let block = rpc_client
+                .get_block_by_number(block_num.into(), BlockTransactionsKind::Full)
+                .await
+                .expect("failed to get block");
+            if let Some(block) = block {
+                println!("read block {}", block.header.number);
+                sender.send(block).await.expect("failed to cache block");
+            }
+        });
+        handles.push(handle);
+    }
+    futures::future::join_all(handles).await;
+    receiver.close();
+    while let Some(res) = receiver.recv().await {
+        all_blocks.push(res);
+    }
 
     // get tx traces for all txs in all_blocks
     let mut all_traces = vec![];
-
     let (sender, mut receiver) = tokio::sync::mpsc::channel::<TxTraceReceipt>(9001);
 
     for block in &all_blocks {
