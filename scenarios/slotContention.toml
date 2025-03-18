@@ -12,14 +12,6 @@ signature = "fundMe()"
 args = []
 value = "1000000000000000000"
 
-# [[spam]]
-# [spam.tx]
-# to = "{slotContention}"
-# from_pool = "spammer"
-# signature = "function fundMe() public"
-# args = []
-# value = "10000000000000"
-
 # more likely to fail over time
 [[spam]]
 [spam.tx]
