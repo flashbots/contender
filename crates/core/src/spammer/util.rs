@@ -4,7 +4,7 @@ pub mod test {
 
     use alloy::{
         consensus::TxType,
-        network::{EthereumWallet, TransactionBuilder},
+        network::{AnyTxEnvelope, EthereumWallet, TransactionBuilder},
         primitives::{Address, U256},
         providers::{PendingTransactionConfig, Provider},
         rpc::types::TransactionRequest,
@@ -13,7 +13,7 @@ pub mod test {
     use tokio::task::JoinHandle;
 
     use crate::{
-        generator::{types::EthProvider, util::complete_tx_request, NamedTxRequest},
+        generator::{types::AnyProvider, util::complete_tx_request, NamedTxRequest},
         spammer::{tx_actor::TxActorHandle, OnTxSent},
     };
 
@@ -46,7 +46,7 @@ pub mod test {
         sender: &PrivateKeySigner,
         recipient: Address,
         amount: U256,
-        rpc_client: &EthProvider,
+        rpc_client: &AnyProvider,
         nonce: Option<u64>,
         tx_type: TxType,
     ) -> Result<PendingTransactionConfig, Box<dyn std::error::Error>> {
@@ -71,7 +71,9 @@ pub mod test {
 
         let eth_wallet = EthereumWallet::from(sender.to_owned());
         let tx = tx_req.build(&eth_wallet).await?;
-        let res = rpc_client.send_tx_envelope(tx).await?;
+        let res = rpc_client
+            .send_tx_envelope(AnyTxEnvelope::Ethereum(tx))
+            .await?;
 
         Ok(res.into_inner())
     }
