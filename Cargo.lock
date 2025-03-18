@@ -1354,6 +1354,7 @@ dependencies = [
  "contender_sqlite",
  "contender_testfile",
  "csv",
+ "futures",
  "handlebars",
  "plotters",
  "rand 0.8.5",
