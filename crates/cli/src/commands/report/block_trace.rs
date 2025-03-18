@@ -137,10 +137,7 @@ pub async fn get_block_trace_data(
     receiver.close();
 
     while let Some(res) = receiver.recv().await {
-        println!(
-            "received trace for {}",
-            res.receipt.transaction_hash.to_string()
-        );
+        println!("received trace for {}", res.receipt.transaction_hash);
         all_traces.push(res);
     }
 
