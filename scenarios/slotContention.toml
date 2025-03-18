@@ -19,7 +19,7 @@ to = "{slotContention}"
 from_pool = "spammer"
 signature = "function writeToSlot(uint256 slot, uint256 lower, uint256 upper, uint256 newValue, uint256 payment) public"
 args = ["0", "0", "1000", "420", "10000000000000"]
-# gas_limit = 150000
+gas_limit = 151000
 fuzz = [
     { param = "slot", min = "0", max = "0x20" },
     # { param = "lower", min = "0", max = "500" },
@@ -35,7 +35,7 @@ to = "{slotContention}"
 from_pool = "spammer"
 signature = "function writeToSlot(uint256 slot, uint256 lower, uint256 upper, uint256 newValue, uint256 payment) public"
 args = ["0", "0", "1000", "420", "10000000000000"]
-# gas_limit = 150000
+gas_limit = 151000
 fuzz = [
     { param = "slot", min = "0", max = "0xffffffffffffffffffffffffffffffff" },
     # { param = "lower", min = "0", max = "500" },
