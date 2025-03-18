@@ -64,6 +64,7 @@ async fn execute_spammer<
         let spam_tasks = scenario
             .execute_spam(trigger, &payloads, sent_tx_callback.clone())
             .await?;
+        println!("[{}] executing {} spam tasks", tick, spam_tasks.len());
         for task in spam_tasks {
             let res = task.await;
             if let Err(e) = res {

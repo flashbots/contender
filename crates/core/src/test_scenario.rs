@@ -517,6 +517,7 @@ where
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
         let mut payloads = vec![];
+        println!("preparing {} payloads", tx_requests.len());
         for tx in tx_requests {
             let payload = match tx {
                 ExecutionRequest::Bundle(reqs) => {
@@ -583,6 +584,7 @@ where
             };
             payloads.push(payload);
         }
+        println!("prepared {} payloads", payloads.len());
         Ok(payloads)
     }
 
@@ -595,6 +597,8 @@ where
         let payloads = payloads.to_owned();
 
         let mut tasks: Vec<tokio::task::JoinHandle<()>> = vec![];
+
+        println!("executing {} spam payloads", payloads.len());
 
         for payload in payloads {
             let rpc_client = self.rpc_client.clone();

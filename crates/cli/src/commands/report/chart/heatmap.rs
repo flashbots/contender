@@ -55,7 +55,7 @@ impl HeatMapChart {
         }
 
         if heatmap.get_num_slots() == 0 {
-            return Err("No trace data was collected. Ensure your target node supports geth-style preState traces.".into());
+            return Err("No trace data was collected. If transactions from the specified run landed, your target node may not support geth-style preState traces".into());
         }
 
         Ok(heatmap)
