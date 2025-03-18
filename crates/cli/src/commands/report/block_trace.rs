@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::commands::report::cache::CacheFile;
 use alloy::network::{AnyRpcBlock, AnyTransactionReceipt};
 use alloy::providers::ext::DebugApi;
@@ -59,45 +61,73 @@ pub async fn get_block_trace_data(
         }
     }
 
+    let rpc_client = Arc::new(rpc_client.clone());
+
     // get tx traces for all txs in all_blocks
     let mut all_traces = vec![];
-    for block in &all_blocks {
-        for tx_hash in block.transactions.hashes() {
-            println!("tracing tx {:?}", tx_hash);
-            let trace = rpc_client
-                .debug_trace_transaction(
-                    tx_hash,
-                    GethDebugTracingOptions {
-                        config: GethDefaultTracingOptions::default(),
-                        tracer: Some(GethDebugTracerType::BuiltInTracer(
-                            GethDebugBuiltInTracerType::PreStateTracer,
-                        )),
-                        tracer_config: GethDebugTracerConfig::default(),
-                        timeout: None,
-                    },
-                )
-                .await
-                .map_err(|e| {
-                    ContenderError::with_err(
-                        e,
-                        "debug_traceTransaction failed. Make sure geth-style tracing is enabled on your node.",
-                    )
-                })?;
 
-            // receipt might fail if we target a non-ETH chain
-            // so if it does fail, we just ignore it
-            let receipt = rpc_client.get_transaction_receipt(tx_hash).await;
-            if let Ok(receipt) = receipt {
-                if let Some(receipt) = receipt {
-                    println!("got receipt for tx {:?}", tx_hash);
-                    all_traces.push(TxTraceReceipt::new(trace, receipt));
+    let (sender, mut receiver) = tokio::sync::mpsc::channel::<TxTraceReceipt>(9001);
+
+    for block in &all_blocks {
+        let mut tx_tasks = vec![];
+        for tx_hash in block.transactions.hashes() {
+            let rpc_client = rpc_client.clone();
+            let sender = sender.clone();
+            let task = tokio::task::spawn(async move {
+                println!("tracing tx {:?}", tx_hash);
+                let trace = rpc_client
+                    .debug_trace_transaction(
+                        tx_hash,
+                        GethDebugTracingOptions {
+                            config: GethDefaultTracingOptions::default(),
+                            tracer: Some(GethDebugTracerType::BuiltInTracer(
+                                GethDebugBuiltInTracerType::PreStateTracer,
+                            )),
+                            tracer_config: GethDebugTracerConfig::default(),
+                            timeout: None,
+                        },
+                    )
+                    .await
+                    .map_err(|e| {
+                        ContenderError::with_err(
+                            e,
+                            "debug_traceTransaction failed. Make sure geth-style tracing is enabled on your node.",
+                        )
+                    }).unwrap();
+
+                // receipt might fail if we target a non-ETH chain
+                // so if it does fail, we just ignore it
+                let receipt = rpc_client.get_transaction_receipt(tx_hash).await;
+                if let Ok(receipt) = receipt {
+                    if let Some(receipt) = receipt {
+                        println!("got receipt for tx {:?}", tx_hash);
+                        // all_traces.push(TxTraceReceipt::new(trace, receipt));
+                        sender
+                            .send(TxTraceReceipt::new(trace, receipt))
+                            .await
+                            .unwrap();
+                    } else {
+                        println!("no receipt for tx {:?}", tx_hash);
+                    }
                 } else {
-                    println!("no receipt for tx {:?}", tx_hash);
+                    println!("ignored receipt for tx {:?} (failed to decode)", tx_hash);
                 }
-            } else {
-                println!("ignored receipt for tx {:?} (failed to decode)", tx_hash);
-            }
+            });
+            tx_tasks.push(task);
         }
+        println!("waiting for traces from block {}...", block.header.number);
+        futures::future::join_all(tx_tasks).await;
+        println!("finished tracing block {}", block.header.number);
+    }
+
+    receiver.close();
+
+    while let Some(res) = receiver.recv().await {
+        println!(
+            "received trace for {}",
+            res.receipt.transaction_hash.to_string()
+        );
+        all_traces.push(res);
     }
 
     Ok((all_traces, all_blocks))
