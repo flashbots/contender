@@ -120,11 +120,7 @@ pub async fn run(
         args.duration * args.txs_per_duration,
         &format!("{} ({})", contract_name, scenario_name),
     )?;
-    let callback = LogCallback::new(Arc::new(DynProvider::new(
-        ProviderBuilder::new()
-            .network::<AnyNetwork>()
-            .on_http(rpc_url),
-    )));
+    let callback = LogCallback::new(Arc::new(DynProvider::new(provider.clone())));
 
     println!("starting spammer...");
     spammer

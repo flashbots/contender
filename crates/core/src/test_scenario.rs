@@ -7,6 +7,7 @@ use crate::generator::types::{AnyProvider, EthProvider};
 use crate::generator::util::complete_tx_request;
 use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
+use crate::provider::LoggingLayer;
 use crate::spammer::tx_actor::TxActorHandle;
 use crate::spammer::{ExecutionPayload, OnTxSent, SpamTrigger};
 use crate::Result;
@@ -18,6 +19,7 @@ use alloy::network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, TransactionBuild
 use alloy::node_bindings::Anvil;
 use alloy::primitives::{keccak256, Address, FixedBytes, U256};
 use alloy::providers::{DynProvider, PendingTransactionConfig, Provider, ProviderBuilder};
+use alloy::rpc::client::ClientBuilder;
 use alloy::rpc::types::TransactionRequest;
 use alloy::signers::local::{LocalSigner, PrivateKeySigner};
 use alloy::transports::http::reqwest::Url;
@@ -82,10 +84,14 @@ where
             tx_type,
         } = params;
 
+        // use custom logging layer to log sendRawTransaction request IDs
+        let client = ClientBuilder::default()
+            .layer(LoggingLayer)
+            .http(rpc_url.to_owned());
         let rpc_client = Arc::new(DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
-                .on_http(rpc_url.to_owned()),
+                .on_client(client),
         ));
 
         let mut wallet_map = HashMap::new();
@@ -607,47 +613,48 @@ where
         let mut payloads = vec![];
         println!("preparing {} payloads", tx_requests.len());
         for tx in tx_requests {
-            let payload = match tx {
-                ExecutionRequest::Bundle(reqs) => {
-                    if self.bundle_client.is_none() {
-                        return Err(ContenderError::SpamError(
-                            "Bundle client not found. Specify a builder url to send bundles.",
-                            None,
-                        ));
+            let payload =
+                match tx {
+                    ExecutionRequest::Bundle(reqs) => {
+                        if self.bundle_client.is_none() {
+                            return Err(ContenderError::SpamError(
+                                "Bundle client not found. Specify a builder url to send bundles.",
+                                None,
+                            ));
+                        }
+
+                        // prepare each tx in the bundle (increment nonce, set gas price, etc)
+                        let mut bundle_txs = vec![];
+
+                        for req in reqs {
+                            let (tx_req, signer) = self
+                                .prepare_tx_request(&req.tx, gas_price)
+                                .await
+                                .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
+
+                            println!("bundle tx from {:?}", tx_req.from);
+                            // sign tx
+                            let tx_envelope = tx_req.build(&signer).await.map_err(|e| {
+                                ContenderError::with_err(e, "bad request: failed to build tx")
+                            })?;
+
+                            bundle_txs.push(tx_envelope);
+                        }
+                        ExecutionPayload::SignedTxBundle(bundle_txs, reqs.to_owned())
                     }
-
-                    // prepare each tx in the bundle (increment nonce, set gas price, etc)
-                    let mut bundle_txs = vec![];
-
-                    for req in reqs {
+                    ExecutionRequest::Tx(req) => {
                         let (tx_req, signer) = self
                             .prepare_tx_request(&req.tx, gas_price)
                             .await
                             .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
 
-                        println!("bundle tx from {:?}", tx_req.from);
                         // sign tx
-                        let tx_envelope = tx_req.build(&signer).await.map_err(|e| {
+                        let tx_envelope = tx_req.to_owned().build(&signer).await.map_err(|e| {
                             ContenderError::with_err(e, "bad request: failed to build tx")
                         })?;
 
-                        bundle_txs.push(tx_envelope);
-                    }
-                    ExecutionPayload::SignedTxBundle(bundle_txs, reqs.to_owned())
-                }
-                ExecutionRequest::Tx(req) => {
-                    let (tx_req, signer) = self
-                        .prepare_tx_request(&req.tx, gas_price)
-                        .await
-                        .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
-
-                    // sign tx
-                    let tx_envelope = tx_req.to_owned().build(&signer).await.map_err(|e| {
-                        ContenderError::with_err(e, "bad request: failed to build tx")
-                    })?;
-
-                    println!(
-                        "prepared tx {} from={} to={:?} input={} value={} gas_limit={}",
+                        println!(
+                        "prepared tx {} from={} to={:?} input={} value={} gas_limit={} nonce={}",
                         tx_envelope.tx_hash(),
                         tx_req.from.map(|s| s.encode_hex()).unwrap_or_default(),
                         tx_envelope.to(),
@@ -660,16 +667,17 @@ where
                         tx_req
                             .value
                             .map(|s| s.to_string())
-                            .unwrap_or_else(|| "0".to_owned()),
+                            .unwrap_or("0".to_owned()),
                         tx_req
                             .gas
                             .map(|g| g.to_string())
-                            .unwrap_or_else(|| "N/A".to_owned())
+                            .unwrap_or("N/A".to_owned()),
+                        tx_req.nonce.map(|n| n.to_string()).unwrap_or("N/A".to_owned())
                     );
 
-                    ExecutionPayload::SignedTx(Box::new(tx_envelope), req.to_owned())
-                }
-            };
+                        ExecutionPayload::SignedTx(Box::new(tx_envelope), req.to_owned())
+                    }
+                };
             payloads.push(payload);
         }
         println!("prepared {} payloads", payloads.len());
