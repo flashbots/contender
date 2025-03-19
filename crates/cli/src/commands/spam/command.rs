@@ -204,7 +204,13 @@ pub async fn spam(
             run_id = db.insert_run(timestamp as u64, tps * duration, &args.testfile)?;
 
             spammer
-                .spam_rpc(&mut scenario, tps, 1, Some(run_id), cback.clone().into())
+                .spam_rpc(
+                    &mut scenario,
+                    tps,
+                    duration,
+                    Some(run_id),
+                    cback.clone().into(),
+                )
                 .await?;
         }
         SpamCallbackType::Nil(cback) => {
