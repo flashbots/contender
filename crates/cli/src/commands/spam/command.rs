@@ -192,8 +192,8 @@ pub async fn spam(
                 .expect("Time went backwards")
                 .as_millis();
             run_id = db.insert_run(timestamp as u64, tps * duration, &args.testfile)?;
-            for i in 0..duration {
-                println!("spam batch {i} initiated.");
+            // call in a loop with 1-second duration to collect DB results as we go
+            for _ in 0..duration {
                 spammer
                     .spam_rpc(&mut scenario, tps, 1, Some(run_id), cback.clone().into())
                     .await?;
