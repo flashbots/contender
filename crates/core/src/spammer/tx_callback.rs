@@ -21,8 +21,10 @@ where
     ) -> Option<JoinHandle<()>>;
 }
 
+#[derive(Clone)]
 pub struct NilCallback;
 
+#[derive(Clone)]
 pub struct LogCallback {
     pub rpc_provider: Arc<AnyProvider>,
 }

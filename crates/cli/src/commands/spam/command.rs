@@ -192,9 +192,12 @@ pub async fn spam(
                 .expect("Time went backwards")
                 .as_millis();
             run_id = db.insert_run(timestamp as u64, tps * duration, &args.testfile)?;
-            spammer
-                .spam_rpc(&mut scenario, tps, duration, Some(run_id), cback.into())
-                .await?;
+            for i in 0..duration {
+                println!("spam batch {i} initiated.");
+                spammer
+                    .spam_rpc(&mut scenario, tps, 1, Some(run_id), cback.clone().into())
+                    .await?;
+            }
         }
         SpamCallbackType::Nil(cback) => {
             spammer
