@@ -311,6 +311,13 @@ pub fn data_dir() -> Result<String, Box<dyn std::error::Error>> {
     Ok(dir)
 }
 
+/// Returns the fully-qualified path to the report directory.
+pub fn report_dir() -> Result<String, Box<dyn std::error::Error>> {
+    let path = format!("{}/reports", data_dir()?);
+    std::fs::create_dir_all(&path)?;
+    Ok(path)
+}
+
 /// Returns path to default contender DB file.
 pub fn db_file() -> Result<String, Box<dyn std::error::Error>> {
     let data_path = data_dir()?;

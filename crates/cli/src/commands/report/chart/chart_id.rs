@@ -1,4 +1,4 @@
-use crate::commands::report::report_dir;
+use crate::util::report_dir;
 
 pub enum ReportChartId {
     Heatmap,
