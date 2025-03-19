@@ -77,7 +77,7 @@ async fn execute_spammer<
     Ok(())
 }
 
-async fn get_tx_chunks<
+async fn get_spam_tx_chunks<
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync,
     P: PlanConfig<String> + Templater<String> + Send + Sync,
@@ -123,7 +123,7 @@ where
         sent_tx_callback: Arc<F>,
     ) -> impl std::future::Future<Output = Result<()>> {
         async move {
-            let tx_req_chunks = get_tx_chunks(scenario, txs_per_period, num_periods).await?;
+            let tx_req_chunks = get_spam_tx_chunks(scenario, txs_per_period, num_periods).await?;
             let start_block = scenario
                 .rpc_client
                 .get_block_number()
