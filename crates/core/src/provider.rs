@@ -12,6 +12,7 @@ use alloy::{
 use eyre::Result;
 use tower::{Layer, Service};
 
+/// A layer to be used with `ClientBuilder::layer` that logs request id with tx hash when calling eth_sendRawTransaction.
 pub struct LoggingLayer;
 
 // Implement tower::Layer for LoggingLayer.
@@ -23,13 +24,11 @@ impl<S> Layer<S> for LoggingLayer {
     }
 }
 
-// A logging service that wraps an inner service.
 #[derive(Debug, Clone)]
 pub struct LoggingService<S> {
     inner: S,
 }
 
-// Implement tower::Service for LoggingService.
 impl<S> Service<RequestPacket> for LoggingService<S>
 where
     // Constraints on the service.
