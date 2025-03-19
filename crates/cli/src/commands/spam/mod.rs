@@ -1,3 +1,3 @@
 mod command;
 
-pub use command::{spam, SpamCommandArgs};
+pub use command::{spam, EngineArgs, SpamCommandArgs};

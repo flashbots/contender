@@ -26,6 +26,12 @@ use crate::util::{
 };
 
 #[derive(Debug)]
+pub struct EngineArgs {
+    pub auth_rpc_url: String,
+    pub jwt_secret: String,
+}
+
+#[derive(Debug)]
 pub struct SpamCommandArgs {
     pub testfile: String,
     pub rpc_url: String,
@@ -38,6 +44,10 @@ pub struct SpamCommandArgs {
     pub disable_reports: bool,
     pub min_balance: String,
     pub tx_type: TxType,
+    /// Provide to enable engine calls (required to use `call_forkchoice`)
+    pub engine_args: Option<EngineArgs>,
+    /// Call `engine_forkchoiceUpdated` after each block
+    pub call_forkchoice: bool,
 }
 
 /// Runs spammer and returns run ID.
@@ -192,12 +202,10 @@ pub async fn spam(
                 .expect("Time went backwards")
                 .as_millis();
             run_id = db.insert_run(timestamp as u64, tps * duration, &args.testfile)?;
-            // call in a loop with 1-second duration to collect DB results as we go
-            for _ in 0..duration {
-                spammer
-                    .spam_rpc(&mut scenario, tps, 1, Some(run_id), cback.clone().into())
-                    .await?;
-            }
+
+            spammer
+                .spam_rpc(&mut scenario, tps, 1, Some(run_id), cback.clone().into())
+                .await?;
         }
         SpamCallbackType::Nil(cback) => {
             spammer
