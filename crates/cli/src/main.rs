@@ -94,7 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let engine_args = if auth_rpc_url.is_some() && jwt_secret.is_some() {
                 Some(EngineArgs {
                     auth_rpc_url: auth_rpc_url.unwrap(),
-                    jwt_secret: jwt_secret.unwrap(),
+                    jwt_secret: jwt_secret.unwrap().into(),
                 })
             } else {
                 None

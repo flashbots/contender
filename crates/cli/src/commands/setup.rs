@@ -110,6 +110,7 @@ pub async fn setup(
         &eth_client,
         min_balance,
         tx_type,
+        None, // TODO: add support for this  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     )
     .await?;
 

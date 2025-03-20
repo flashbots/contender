@@ -9,6 +9,7 @@ use alloy::{
 };
 use contender_core::{
     db::RunTx,
+    eth_engine::valid_payload::call_fcu_default,
     generator::{
         types::{AnyProvider, EthProvider, FunctionCallDefinition, SpamRequest},
         util::complete_tx_request,
@@ -141,6 +142,7 @@ pub async fn fund_accounts(
     eth_client: &EthProvider,
     min_balance: U256,
     tx_type: TxType,
+    engine_provider_fcu: Option<AnyProvider>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let insufficient_balances =
         find_insufficient_balances(recipient_addresses, min_balance, rpc_client).await?;
@@ -200,6 +202,11 @@ pub async fn fund_accounts(
     }
 
     for tx in pending_fund_txs {
+        if let Some(engine_provider) = &engine_provider_fcu {
+            if let Err(e) = call_fcu_default(Arc::new(engine_provider)).await {
+                eprintln!("Failed to send FCU: {:?}", e);
+            }
+        }
         let pending = rpc_client.watch_pending_transaction(tx).await?;
         println!("funding tx confirmed ({})", pending.await?);
     }
@@ -380,6 +387,7 @@ mod test {
             &eth_client,
             min_balance,
             tx_type,
+            None,
         )
         .await
         .unwrap();
@@ -399,6 +407,7 @@ mod test {
             &eth_client,
             min_balance,
             tx_type,
+            None,
         )
         .await;
         println!("res: {:?}", res);

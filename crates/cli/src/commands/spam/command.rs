@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use alloy::{
@@ -7,13 +8,15 @@ use alloy::{
         utils::{format_ether, parse_ether},
         U256,
     },
-    providers::{DynProvider, ProviderBuilder},
+    providers::{DynProvider, ProviderBuilder, RootProvider},
+    rpc::{client::ClientBuilder, types::engine::JwtSecret},
     transports::http::reqwest::Url,
 };
 use contender_core::{
     agent_controller::AgentStore,
     db::DbOps,
     error::ContenderError,
+    eth_engine::auth_transport::AuthenticatedTransportConnect,
     generator::RandSeed,
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
@@ -28,7 +31,7 @@ use crate::util::{
 #[derive(Debug)]
 pub struct EngineArgs {
     pub auth_rpc_url: String,
-    pub jwt_secret: String,
+    pub jwt_secret: PathBuf,
 }
 
 #[derive(Debug)]
@@ -65,12 +68,30 @@ pub async fn spam(
     );
     let eth_client = DynProvider::new(ProviderBuilder::new().on_http(url.to_owned()));
     let auth_client = if let Some(engine_args) = args.engine_args {
+        // parse url from engine args
         let auth_url = Url::parse(&engine_args.auth_rpc_url).expect("Invalid auth RPC URL");
+
+        // fetch jwt from file
+        //
+        // the jwt is hex encoded so we will decode it after
+        if !engine_args.jwt_secret.is_file() {
+            return Err(ContenderError::SpamError(
+                "JWT secret file not found:",
+                Some(engine_args.jwt_secret.to_string_lossy().into()),
+            )
+            .into());
+        }
+        let jwt = std::fs::read_to_string(engine_args.jwt_secret)?;
+        let jwt = JwtSecret::from_hex(jwt)?;
+
+        let auth_transport = AuthenticatedTransportConnect::new(auth_url, jwt);
+        let client = ClientBuilder::default()
+            .connect_with(auth_transport)
+            .await?;
+        let auth_provider = RootProvider::<AnyNetwork>::new(client);
         Some(DynProvider::new(
             // TODO: replace this with custom auth provider
-            ProviderBuilder::new()
-                .network::<AnyNetwork>()
-                .on_http(auth_url),
+            auth_provider,
         ))
     } else {
         None
@@ -134,6 +155,7 @@ pub async fn spam(
         &eth_client,
         min_balance,
         args.tx_type,
+        auth_client.clone(),
     )
     .await?;
 

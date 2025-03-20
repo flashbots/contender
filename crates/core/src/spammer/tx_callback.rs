@@ -1,9 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
 use alloy::providers::PendingTransactionConfig;
+use alloy_rpc_types_engine::ForkchoiceState;
 use tokio::task::JoinHandle;
 
-use crate::generator::{types::AnyProvider, NamedTxRequest};
+use crate::{
+    eth_engine::valid_payload::call_forkchoice_updated,
+    generator::{types::AnyProvider, NamedTxRequest},
+};
 
 use super::tx_actor::TxActorHandle;
 
@@ -92,10 +96,21 @@ impl OnBatchSent for LogCallback {
     fn on_batch_sent(&self) -> Option<JoinHandle<()>> {
         if let Some(provider) = &self.auth_provider {
             let send_fcu = self.send_fcu;
+            let provider = provider.clone();
             let handle = tokio::task::spawn(async move {
                 println!("batch complete");
                 if send_fcu {
                     println!("TODO: SENDING FCU");
+                    let res = call_forkchoice_updated(
+                        provider,
+                        reth_node_api::EngineApiMessageVersion::V3,
+                        ForkchoiceState::default(),
+                        None,
+                    )
+                    .await;
+                    if let Err(e) = res {
+                        println!("Failed to send fcu: {:?}", e);
+                    }
                 }
             });
             return Some(handle);
