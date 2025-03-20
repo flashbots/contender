@@ -203,35 +203,42 @@ pub async fn fund_accounts(
 
     tokio::time::sleep(Duration::from_secs(DEFAULT_BLOCK_TIME)).await;
 
-    let (done_sender, mut done_receiver) = tokio::sync::mpsc::channel::<bool>(1);
+    let (done_sender, mut done_receiver) = tokio::sync::mpsc::channel::<(u64, bool)>(2);
     let rpc_client = Arc::new(rpc_client.clone());
 
     let fcu_handle = engine_provider.map(|engine_provider| {
+        let done = Arc::new(done_sender.clone());
         tokio::task::spawn(async move {
             if call_fcu {
                 loop {
-                    if let Some(done) = done_receiver.recv().await {
-                        if done {
-                            println!("exiting FCU looper");
-                            break;
-                        }
+                    let (wait_duration, stop) = done_receiver.recv().await.unwrap_or_default();
+
+                    if stop {
+                        println!("exiting FCU looper");
+                        break;
                     }
 
                     println!("building new block...");
                     advance_chain(&engine_provider, DEFAULT_BLOCK_TIME)
                         .await
                         .expect("failed to advance chain");
+
+                    tokio::time::sleep(Duration::from_millis(wait_duration)).await;
+                    done.send((wait_duration, false))
+                        .await
+                        .expect("done msg send failed");
                 }
             }
         })
     });
+    done_sender.send((200, false)).await?;
 
     for tx in pending_fund_txs {
-        done_sender.send(false).await?;
         let pending = rpc_client.watch_pending_transaction(tx).await?;
         println!("funding tx confirmed ({})", pending.await?);
     }
-    done_sender.send(true).await?;
+
+    done_sender.send((0, true)).await?;
     if let Some(fcu) = fcu_handle {
         fcu.await?;
     }

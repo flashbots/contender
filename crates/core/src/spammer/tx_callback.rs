@@ -94,16 +94,17 @@ impl OnTxSent for LogCallback {
 impl OnBatchSent for LogCallback {
     fn on_batch_sent(&self) -> Option<JoinHandle<()>> {
         if let Some(provider) = &self.auth_provider {
-            let send_fcu = self.send_fcu;
+            if !self.send_fcu {
+                return Some(tokio::task::spawn(async move {
+                    // maybe do something metrics-related here
+                }));
+            }
             let provider = provider.clone();
-            let handle = tokio::task::spawn(async move {
-                if send_fcu {
-                    advance_chain(&provider, DEFAULT_BLOCK_TIME)
-                        .await
-                        .expect("failed to advance chain");
-                }
-            });
-            return Some(handle);
+            return Some(tokio::task::spawn(async move {
+                advance_chain(&provider, DEFAULT_BLOCK_TIME)
+                    .await
+                    .expect("failed to advance chain");
+            }));
         }
         None
     }

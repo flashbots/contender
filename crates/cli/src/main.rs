@@ -162,7 +162,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             txs_per_duration,
             skip_deploy_prompt,
             tx_type,
+            auth_rpc_url,
+            jwt_secret,
+            call_forkchoice,
         } => {
+            if call_forkchoice && (auth_rpc_url.is_none() || jwt_secret.is_none()) {
+                return Err("auth-rpc-url and jwt-secret required for forkchoice".into());
+            }
+            let engine_args = if auth_rpc_url.is_some() && jwt_secret.is_some() {
+                Some(EngineArgs {
+                    auth_rpc_url: auth_rpc_url.expect("auth_rpc_url"),
+                    jwt_secret: jwt_secret.expect("jwt_secret").into(),
+                })
+            } else {
+                None
+            };
             commands::run(
                 &db,
                 RunCommandArgs {
@@ -174,6 +188,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     txs_per_duration,
                     skip_deploy_prompt,
                     tx_type: tx_type.into(),
+                    engine_args,
+                    call_fcu: call_forkchoice,
                 },
             )
             .await?
