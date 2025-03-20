@@ -2,7 +2,7 @@
 //! response. This is useful for benchmarking, as it allows us to wait for a payload to be valid
 //! before sending additional calls.
 
-use alloy::primitives::B256;
+use alloy::primitives::{BlockHash, B256};
 use alloy::providers::{ext::EngineApi, Network};
 use alloy::transports::TransportResult;
 use alloy_rpc_types_engine::{
@@ -236,7 +236,7 @@ where
 ///
 /// # Panics
 /// If the given payload is a V3 payload, but a parent beacon block root is provided as `None`.
-pub(crate) async fn call_new_payload<N, P: EngineApiValidWaitExt<N>>(
+pub async fn call_new_payload<N, P: EngineApiValidWaitExt<N>>(
     provider: P,
     payload: ExecutionPayload,
     parent_beacon_block_root: Option<B256>,
@@ -302,12 +302,29 @@ pub(crate) async fn call_forkchoice_updated<N, P: EngineApiValidWaitExt<N>>(
 
 pub async fn call_fcu_default<N, P: EngineApiValidWaitExt<N>>(
     provider: P,
+    current_head: BlockHash,
+    new_head: BlockHash,
+    timestamp: Option<u64>,
 ) -> TransportResult<ForkchoiceUpdated> {
     call_forkchoice_updated(
         provider,
         EngineApiMessageVersion::V3,
-        ForkchoiceState::default(),
-        None,
+        ForkchoiceState {
+            head_block_hash: new_head,
+            safe_block_hash: current_head,
+            finalized_block_hash: current_head,
+        },
+        if let Some(timestamp) = timestamp {
+            Some(PayloadAttributes {
+                timestamp,
+                prev_randao: B256::ZERO,
+                suggested_fee_recipient: Default::default(),
+                withdrawals: Some(vec![]),
+                parent_beacon_block_root: Some(B256::ZERO),
+            })
+        } else {
+            None
+        },
     )
     .await
 }

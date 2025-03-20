@@ -8,15 +8,14 @@ use alloy::{
         utils::{format_ether, parse_ether},
         U256,
     },
-    providers::{DynProvider, ProviderBuilder, RootProvider},
-    rpc::{client::ClientBuilder, types::engine::JwtSecret},
+    providers::{DynProvider, ProviderBuilder},
     transports::http::reqwest::Url,
 };
 use contender_core::{
     agent_controller::AgentStore,
     db::DbOps,
     error::ContenderError,
-    eth_engine::auth_transport::AuthenticatedTransportConnect,
+    eth_engine::get_auth_provider,
     generator::RandSeed,
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
@@ -66,33 +65,8 @@ pub async fn spam(
             .network::<AnyNetwork>()
             .on_http(url.to_owned()),
     );
-    let eth_client = DynProvider::new(ProviderBuilder::new().on_http(url.to_owned()));
     let auth_client = if let Some(engine_args) = args.engine_args {
-        // parse url from engine args
-        let auth_url = Url::parse(&engine_args.auth_rpc_url).expect("Invalid auth RPC URL");
-
-        // fetch jwt from file
-        //
-        // the jwt is hex encoded so we will decode it after
-        if !engine_args.jwt_secret.is_file() {
-            return Err(ContenderError::SpamError(
-                "JWT secret file not found:",
-                Some(engine_args.jwt_secret.to_string_lossy().into()),
-            )
-            .into());
-        }
-        let jwt = std::fs::read_to_string(engine_args.jwt_secret)?;
-        let jwt = JwtSecret::from_hex(jwt)?;
-
-        let auth_transport = AuthenticatedTransportConnect::new(auth_url, jwt);
-        let client = ClientBuilder::default()
-            .connect_with(auth_transport)
-            .await?;
-        let auth_provider = RootProvider::<AnyNetwork>::new(client);
-        Some(DynProvider::new(
-            // TODO: replace this with custom auth provider
-            auth_provider,
-        ))
+        Some(get_auth_provider(&engine_args.auth_rpc_url, engine_args.jwt_secret).await?)
     } else {
         None
     };
@@ -152,7 +126,6 @@ pub async fn spam(
         &all_signer_addrs,
         &user_signers[0],
         &rpc_client,
-        &eth_client,
         min_balance,
         args.tx_type,
         auth_client.clone(),

@@ -24,5 +24,6 @@ contender_bundle_provider = { workspace = true }
 thiserror = { workspace = true }
 tower = { workspace = true }
 eyre = { workspace = true }
+op-alloy-consensus = { workspace = true, features = ["alloy-compat"] }
 
 reth-node-api = { git = "https://github.com/paradigmxyz/reth" }
