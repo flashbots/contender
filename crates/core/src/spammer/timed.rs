@@ -23,10 +23,9 @@ impl TimedSpammer {
     }
 }
 
-impl<FnTx, FnBatch, D, S, P> Spammer<FnTx, FnBatch, D, S, P> for TimedSpammer
+impl<F, D, S, P> Spammer<F, D, S, P> for TimedSpammer
 where
-    FnTx: OnTxSent + Send + Sync + 'static,
-    FnBatch: OnBatchSent + Send + Sync + 'static,
+    F: OnTxSent + OnBatchSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,

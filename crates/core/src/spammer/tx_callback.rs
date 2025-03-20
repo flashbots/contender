@@ -30,21 +30,21 @@ pub struct NilCallback;
 
 pub struct LogCallback {
     pub rpc_provider: Arc<AnyProvider>,
-}
-
-pub struct FcuCallback {
-    pub rpc_provider: Arc<AnyProvider>,
+    pub auth_provider: Option<Arc<AnyProvider>>,
+    pub send_fcu: bool,
 }
 
 impl LogCallback {
-    pub fn new(rpc_provider: Arc<AnyProvider>) -> Self {
-        Self { rpc_provider }
-    }
-}
-
-impl FcuCallback {
-    pub fn new(rpc_provider: Arc<AnyProvider>) -> Self {
-        Self { rpc_provider }
+    pub fn new(
+        rpc_provider: Arc<AnyProvider>,
+        auth_provider: Option<Arc<AnyProvider>>,
+        send_fcu: bool,
+    ) -> Self {
+        Self {
+            rpc_provider,
+            auth_provider,
+            send_fcu,
+        }
     }
 }
 
@@ -88,12 +88,19 @@ impl OnTxSent for LogCallback {
     }
 }
 
-impl OnBatchSent for FcuCallback {
+impl OnBatchSent for LogCallback {
     fn on_batch_sent(&self) -> Option<JoinHandle<()>> {
-        let handle = tokio::task::spawn(async move {
-            println!("TODO: BATCH SENT!!!");
-        });
-        Some(handle)
+        if let Some(provider) = &self.auth_provider {
+            let send_fcu = self.send_fcu;
+            let handle = tokio::task::spawn(async move {
+                println!("batch complete");
+                if send_fcu {
+                    println!("TODO: SENDING FCU");
+                }
+            });
+            return Some(handle);
+        }
+        None
     }
 }
 

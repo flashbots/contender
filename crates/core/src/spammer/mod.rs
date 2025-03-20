@@ -10,7 +10,7 @@ use alloy::{consensus::TxEnvelope, primitives::FixedBytes};
 pub use blockwise::BlockwiseSpammer;
 pub use spammer_trait::Spammer;
 pub use timed::TimedSpammer;
-pub use tx_callback::{FcuCallback, LogCallback, NilCallback, OnTxSent};
+pub use tx_callback::{LogCallback, NilCallback, OnTxSent};
 
 #[derive(Clone, Debug)]
 pub enum ExecutionPayload {

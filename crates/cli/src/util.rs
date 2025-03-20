@@ -13,7 +13,7 @@ use contender_core::{
         types::{AnyProvider, EthProvider, FunctionCallDefinition, SpamRequest},
         util::complete_tx_request,
     },
-    spammer::{FcuCallback, LogCallback, NilCallback},
+    spammer::{LogCallback, NilCallback},
 };
 use contender_testfile::TestConfig;
 use csv::Writer;
@@ -21,7 +21,7 @@ use std::{io::Write, str::FromStr, sync::Arc};
 use termcolor::{ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 pub enum SpamCallbackType {
-    Log(LogCallback, Option<FcuCallback>),
+    Log(LogCallback),
     Nil(NilCallback),
 }
 
@@ -262,22 +262,14 @@ pub async fn find_insufficient_balances(
 
 pub async fn spam_callback_default(
     log_txs: bool,
-    fcu: bool,
+    send_fcu: bool,
     rpc_client: Option<Arc<AnyProvider>>,
     auth_client: Option<Arc<AnyProvider>>,
 ) -> SpamCallbackType {
     if let Some(rpc_client) = rpc_client {
         if log_txs {
-            let log_callback = LogCallback::new(rpc_client.clone());
-            if fcu {
-                if let Some(auth_client) = auth_client {
-                    return SpamCallbackType::Log(
-                        log_callback,
-                        Some(FcuCallback::new(auth_client)),
-                    );
-                }
-            }
-            return SpamCallbackType::Log(log_callback, None);
+            let log_callback = LogCallback::new(rpc_client.clone(), auth_client.clone(), send_fcu);
+            return SpamCallbackType::Log(log_callback);
         }
     }
     SpamCallbackType::Nil(NilCallback)

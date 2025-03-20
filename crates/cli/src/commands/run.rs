@@ -13,7 +13,7 @@ use contender_core::{
     db::DbOps,
     error::ContenderError,
     generator::RandSeed,
-    spammer::{LogCallback, NilCallback, Spammer, TimedSpammer},
+    spammer::{LogCallback, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
 };
 use contender_testfile::TestConfig;
@@ -121,9 +121,7 @@ pub async fn run(
         &format!("{} ({})", contract_name, scenario_name),
     )?;
     let provider = Arc::new(DynProvider::new(provider));
-    let tx_callback = LogCallback::new(provider.clone());
-    // TODO: support FcuCallback in run command
-    let batch_callback = NilCallback;
+    let tx_callback = LogCallback::new(provider.clone(), None, false); // TODO: support FcuCallback in run command
 
     println!("starting spammer...");
     spammer
@@ -133,7 +131,6 @@ pub async fn run(
             args.duration,
             Some(run_id),
             tx_callback.into(),
-            Some(Arc::new(batch_callback)),
         )
         .await?;
 

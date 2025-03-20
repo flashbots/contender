@@ -182,7 +182,7 @@ pub async fn spam(
         )
         .await
         {
-            SpamCallbackType::Log(tx_callback, fcu_callback) => {
+            SpamCallbackType::Log(tx_callback) => {
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("Time went backwards")
@@ -196,7 +196,6 @@ pub async fn spam(
                         duration,
                         Some(run_id),
                         tx_callback.into(),
-                        fcu_callback.map(|f| Arc::new(f)).into(),
                     )
                     .await?;
             }
@@ -208,7 +207,6 @@ pub async fn spam(
                         duration,
                         None,
                         tx_callback.to_owned().into(),
-                        Arc::new(tx_callback).into(),
                     )
                     .await?;
             }
@@ -229,7 +227,7 @@ pub async fn spam(
     )
     .await
     {
-        SpamCallbackType::Log(tx_callback, fcu_callback) => {
+        SpamCallbackType::Log(tx_callback) => {
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
@@ -243,20 +241,12 @@ pub async fn spam(
                     duration,
                     Some(run_id),
                     tx_callback.into(),
-                    fcu_callback.map(|f| Arc::new(f)).into(),
                 )
                 .await?;
         }
         SpamCallbackType::Nil(cback) => {
             spammer
-                .spam_rpc(
-                    &mut scenario,
-                    tps,
-                    duration,
-                    None,
-                    cback.to_owned().into(),
-                    Arc::new(cback).into(),
-                )
+                .spam_rpc(&mut scenario, tps, duration, None, cback.to_owned().into())
                 .await?;
         }
     };

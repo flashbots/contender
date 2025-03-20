@@ -21,10 +21,9 @@ impl BlockwiseSpammer {
     }
 }
 
-impl<FnTx, FnBatch, D, S, P> Spammer<FnTx, FnBatch, D, S, P> for BlockwiseSpammer
+impl<F, D, S, P> Spammer<F, D, S, P> for BlockwiseSpammer
 where
-    FnTx: OnTxSent + Send + Sync + 'static,
-    FnBatch: OnBatchSent + Send + Sync + 'static,
+    F: OnTxSent + OnBatchSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
@@ -144,7 +143,6 @@ mod tests {
                 periods,
                 None,
                 callback.clone(),
-                Some(callback.clone()),
             )
             .await;
         assert!(result.is_ok());
