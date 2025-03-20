@@ -27,31 +27,6 @@ use crate::util::{
     SpamCallbackType,
 };
 
-#[derive(Debug)]
-pub struct EngineArgs {
-    pub auth_rpc_url: String,
-    pub jwt_secret: PathBuf,
-}
-
-#[derive(Debug)]
-pub struct SpamCommandArgs {
-    pub testfile: String,
-    pub rpc_url: String,
-    pub builder_url: Option<String>,
-    pub txs_per_block: Option<usize>,
-    pub txs_per_second: Option<usize>,
-    pub duration: Option<usize>,
-    pub seed: String,
-    pub private_keys: Option<Vec<String>>,
-    pub disable_reports: bool,
-    pub min_balance: String,
-    pub tx_type: TxType,
-    /// Provide to enable engine calls (required to use `call_forkchoice`)
-    pub engine_args: Option<EngineArgs>,
-    /// Call `engine_forkchoiceUpdated` after each block
-    pub call_forkchoice: bool,
-}
-
 /// Runs spammer and returns run ID.
 pub async fn spam(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
@@ -128,7 +103,7 @@ pub async fn spam(
         &rpc_client,
         min_balance,
         args.tx_type,
-        auth_client.clone(),
+        (auth_client.clone(), args.call_forkchoice),
     )
     .await?;
 
@@ -247,4 +222,29 @@ pub async fn spam(
     };
 
     Ok(run_id)
+}
+
+#[derive(Debug)]
+pub struct EngineArgs {
+    pub auth_rpc_url: String,
+    pub jwt_secret: PathBuf,
+}
+
+#[derive(Debug)]
+pub struct SpamCommandArgs {
+    pub testfile: String,
+    pub rpc_url: String,
+    pub builder_url: Option<String>,
+    pub txs_per_block: Option<usize>,
+    pub txs_per_second: Option<usize>,
+    pub duration: Option<usize>,
+    pub seed: String,
+    pub private_keys: Option<Vec<String>>,
+    pub disable_reports: bool,
+    pub min_balance: String,
+    pub tx_type: TxType,
+    /// Provide to enable engine calls (required to use `call_forkchoice`)
+    pub engine_args: Option<EngineArgs>,
+    /// Call `engine_forkchoiceUpdated` after each block
+    pub call_forkchoice: bool,
 }

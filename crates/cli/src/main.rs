@@ -8,6 +8,7 @@ use alloy::hex;
 use commands::{
     db::{drop_db, export_db, import_db, reset_db},
     run::RunCommandArgs,
+    setup::SetupCommandArgs,
     spam::{EngineArgs, SpamCommandArgs},
     ContenderCli, ContenderSubcommand, DbCommand,
 };
@@ -59,16 +60,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             min_balance,
             seed,
             tx_type,
+            auth_rpc_url,
+            jwt_secret,
+            call_forkchoice,
         } => {
             let seed = seed.unwrap_or(stored_seed);
+            if call_forkchoice && (auth_rpc_url.is_none() || jwt_secret.is_none()) {
+                return Err("auth-rpc-url and jwt-secret required for forkchoice".into());
+            }
+            let engine_args = if auth_rpc_url.is_some() && jwt_secret.is_some() {
+                Some(EngineArgs {
+                    auth_rpc_url: auth_rpc_url.expect("auth_rpc_url"),
+                    jwt_secret: jwt_secret.expect("jwt_secret").into(),
+                })
+            } else {
+                None
+            };
             commands::setup(
                 &db,
-                testfile,
-                rpc_url,
-                private_keys,
-                min_balance,
-                RandSeed::seed_from_str(&seed),
-                tx_type.into(),
+                SetupCommandArgs {
+                    testfile,
+                    rpc_url,
+                    private_keys,
+                    min_balance,
+                    seed: RandSeed::seed_from_str(&seed),
+                    tx_type: tx_type.into(),
+                    engine_args,
+                    call_fcu: call_forkchoice,
+                },
             )
             .await?
         }
@@ -93,8 +112,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let seed = seed.unwrap_or(stored_seed);
             let engine_args = if auth_rpc_url.is_some() && jwt_secret.is_some() {
                 Some(EngineArgs {
-                    auth_rpc_url: auth_rpc_url.unwrap(),
-                    jwt_secret: jwt_secret.unwrap().into(),
+                    auth_rpc_url: auth_rpc_url.expect("auth_rpc_url"),
+                    jwt_secret: jwt_secret.expect("jwt_secret").into(),
                 })
             } else {
                 None

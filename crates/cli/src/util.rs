@@ -141,8 +141,9 @@ pub async fn fund_accounts(
     rpc_client: &AnyProvider,
     min_balance: U256,
     tx_type: TxType,
-    engine_provider_fcu: Option<AnyProvider>,
+    engine_params: (Option<AnyProvider>, bool),
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let (engine_provider, call_fcu) = engine_params;
     let insufficient_balances =
         find_insufficient_balances(recipient_addresses, min_balance, rpc_client).await?;
 
@@ -205,20 +206,22 @@ pub async fn fund_accounts(
     let (done_sender, mut done_receiver) = tokio::sync::mpsc::channel::<bool>(1);
     let rpc_client = Arc::new(rpc_client.clone());
 
-    let fcu_handle = engine_provider_fcu.map(|engine_provider| {
+    let fcu_handle = engine_provider.map(|engine_provider| {
         tokio::task::spawn(async move {
-            loop {
-                if let Some(done) = done_receiver.recv().await {
-                    if done {
-                        println!("exiting FCU looper");
-                        break;
+            if call_fcu {
+                loop {
+                    if let Some(done) = done_receiver.recv().await {
+                        if done {
+                            println!("exiting FCU looper");
+                            break;
+                        }
                     }
-                }
 
-                println!("building new block...");
-                advance_chain(&engine_provider, DEFAULT_BLOCK_TIME)
-                    .await
-                    .expect("failed to advance chain");
+                    println!("building new block...");
+                    advance_chain(&engine_provider, DEFAULT_BLOCK_TIME)
+                        .await
+                        .expect("failed to advance chain");
+                }
             }
         })
     });
@@ -409,7 +412,7 @@ mod test {
             &rpc_client,
             min_balance,
             tx_type,
-            None,
+            (None, false),
         )
         .await
         .unwrap();
@@ -428,7 +431,7 @@ mod test {
             &rpc_client,
             min_balance,
             tx_type,
-            None,
+            (None, false),
         )
         .await;
         println!("res: {:?}", res);
