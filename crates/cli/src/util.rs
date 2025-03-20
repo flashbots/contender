@@ -2,7 +2,7 @@ use alloy::{
     consensus::TxType,
     hex::ToHexExt,
     network::{EthereumWallet, TransactionBuilder},
-    primitives::{utils::format_ether, Address, FixedBytes, TxHash, U256},
+    primitives::{utils::format_ether, Address, U256},
     providers::{PendingTransactionConfig, Provider},
     rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
@@ -17,7 +17,6 @@ use contender_core::{
 };
 use contender_testfile::TestConfig;
 use csv::Writer;
-use serde::ser::StdError;
 use std::{io::Write, str::FromStr, sync::Arc};
 use termcolor::{ColorChoice, ColorSpec, StandardStream, WriteColor};
 
