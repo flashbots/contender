@@ -64,6 +64,17 @@ pub async fn spam(
             .on_http(url.to_owned()),
     );
     let eth_client = DynProvider::new(ProviderBuilder::new().on_http(url.to_owned()));
+    let auth_client = if let Some(engine_args) = args.engine_args {
+        let auth_url = Url::parse(&engine_args.auth_rpc_url).expect("Invalid auth RPC URL");
+        Some(DynProvider::new(
+            // TODO: replace this with custom auth provider
+            ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .on_http(auth_url),
+        ))
+    } else {
+        None
+    };
 
     let duration = args.duration.unwrap_or_default();
     let min_balance = parse_ether(&args.min_balance)?;
@@ -163,8 +174,15 @@ pub async fn spam(
         println!("Blockwise spamming with {} txs per block", txs_per_block);
         let spammer = BlockwiseSpammer {};
 
-        match spam_callback_default(!args.disable_reports, Arc::new(rpc_client).into()).await {
-            SpamCallbackType::Log(cback) => {
+        match spam_callback_default(
+            !args.disable_reports,
+            args.call_forkchoice,
+            Some(Arc::new(rpc_client)),
+            auth_client.map(|c| Arc::new(c)).into(),
+        )
+        .await
+        {
+            SpamCallbackType::Log(tx_callback, fcu_callback) => {
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("Time went backwards")
@@ -177,13 +195,21 @@ pub async fn spam(
                         txs_per_block,
                         duration,
                         Some(run_id),
-                        cback.into(),
+                        tx_callback.into(),
+                        fcu_callback.map(|f| Arc::new(f)).into(),
                     )
                     .await?;
             }
-            SpamCallbackType::Nil(cback) => {
+            SpamCallbackType::Nil(tx_callback) => {
                 spammer
-                    .spam_rpc(&mut scenario, txs_per_block, duration, None, cback.into())
+                    .spam_rpc(
+                        &mut scenario,
+                        txs_per_block,
+                        duration,
+                        None,
+                        tx_callback.to_owned().into(),
+                        Arc::new(tx_callback).into(),
+                    )
                     .await?;
             }
         };
@@ -195,8 +221,15 @@ pub async fn spam(
     println!("Timed spamming with {} txs per second", tps);
     let interval = std::time::Duration::from_secs(1);
     let spammer = TimedSpammer::new(interval);
-    match spam_callback_default(!args.disable_reports, Arc::new(rpc_client).into()).await {
-        SpamCallbackType::Log(cback) => {
+    match spam_callback_default(
+        !args.disable_reports,
+        args.call_forkchoice,
+        Arc::new(rpc_client).into(),
+        auth_client.map(|c| Arc::new(c)).into(),
+    )
+    .await
+    {
+        SpamCallbackType::Log(tx_callback, fcu_callback) => {
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
@@ -209,13 +242,21 @@ pub async fn spam(
                     tps,
                     duration,
                     Some(run_id),
-                    cback.clone().into(),
+                    tx_callback.into(),
+                    fcu_callback.map(|f| Arc::new(f)).into(),
                 )
                 .await?;
         }
         SpamCallbackType::Nil(cback) => {
             spammer
-                .spam_rpc(&mut scenario, tps, duration, None, cback.into())
+                .spam_rpc(
+                    &mut scenario,
+                    tps,
+                    duration,
+                    None,
+                    cback.to_owned().into(),
+                    Arc::new(cback).into(),
+                )
                 .await?;
         }
     };

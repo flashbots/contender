@@ -10,7 +10,7 @@ use crate::{
     test_scenario::TestScenario,
 };
 
-use super::{OnTxSent, SpamTrigger, Spammer};
+use super::{tx_callback::OnBatchSent, OnTxSent, SpamTrigger, Spammer};
 
 #[derive(Default)]
 pub struct BlockwiseSpammer;
@@ -21,9 +21,10 @@ impl BlockwiseSpammer {
     }
 }
 
-impl<F, D, S, P> Spammer<F, D, S, P> for BlockwiseSpammer
+impl<FnTx, FnBatch, D, S, P> Spammer<FnTx, FnBatch, D, S, P> for BlockwiseSpammer
 where
-    F: OnTxSent + Send + Sync + 'static,
+    FnTx: OnTxSent + Send + Sync + 'static,
+    FnBatch: OnBatchSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
@@ -134,6 +135,7 @@ mod tests {
         let spammer = BlockwiseSpammer {};
 
         let start_block = provider.get_block_number().await.unwrap();
+        let callback = Arc::new(callback_handler);
 
         let result = spammer
             .spam_rpc(
@@ -141,7 +143,8 @@ mod tests {
                 txs_per_period,
                 periods,
                 None,
-                Arc::new(callback_handler),
+                callback.clone(),
+                Some(callback.clone()),
             )
             .await;
         assert!(result.is_ok());

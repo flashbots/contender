@@ -21,15 +21,28 @@ where
     ) -> Option<JoinHandle<()>>;
 }
 
+pub trait OnBatchSent {
+    fn on_batch_sent(&self) -> Option<JoinHandle<()>>;
+}
+
 #[derive(Clone)]
 pub struct NilCallback;
 
-#[derive(Clone)]
 pub struct LogCallback {
     pub rpc_provider: Arc<AnyProvider>,
 }
 
+pub struct FcuCallback {
+    pub rpc_provider: Arc<AnyProvider>,
+}
+
 impl LogCallback {
+    pub fn new(rpc_provider: Arc<AnyProvider>) -> Self {
+        Self { rpc_provider }
+    }
+}
+
+impl FcuCallback {
     pub fn new(rpc_provider: Arc<AnyProvider>) -> Self {
         Self { rpc_provider }
     }
@@ -72,5 +85,21 @@ impl OnTxSent for LogCallback {
             }
         });
         Some(handle)
+    }
+}
+
+impl OnBatchSent for FcuCallback {
+    fn on_batch_sent(&self) -> Option<JoinHandle<()>> {
+        let handle = tokio::task::spawn(async move {
+            println!("TODO: BATCH SENT!!!");
+        });
+        Some(handle)
+    }
+}
+
+impl OnBatchSent for NilCallback {
+    fn on_batch_sent(&self) -> Option<JoinHandle<()>> {
+        // do nothing
+        None
     }
 }

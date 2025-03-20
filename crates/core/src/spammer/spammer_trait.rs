@@ -13,6 +13,7 @@ use crate::{
     Result,
 };
 
+use super::tx_callback::OnBatchSent;
 use super::SpamTrigger;
 use super::{tx_actor::TxActorHandle, OnTxSent};
 
@@ -47,7 +48,8 @@ async fn flush_tx_cache<
 }
 
 async fn execute_spammer<
-    F: OnTxSent + Send + Sync + 'static,
+    FnTx: OnTxSent + Send + Sync + 'static,
+    FnBatch: OnBatchSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
@@ -55,7 +57,8 @@ async fn execute_spammer<
     cursor: &mut futures::stream::Take<Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>>,
     scenario: &mut TestScenario<D, S, P>,
     tx_req_chunks: &[Vec<ExecutionRequest>],
-    sent_tx_callback: Arc<F>,
+    sent_tx_callback: Arc<FnTx>, // called by each tx after it's sent
+    sent_batch_callback: Option<Arc<FnBatch>>, // called after each batch of txs is sent
 ) -> Result<()> {
     let mut tick = 0;
     while let Some(trigger) = cursor.next().await {
@@ -69,6 +72,13 @@ async fn execute_spammer<
             let res = task.await;
             if let Err(e) = res {
                 eprintln!("spam task failed: {:?}", e);
+            }
+        }
+        if let Some(sent_batch_callback) = sent_batch_callback.as_ref() {
+            if let Some(handle) = sent_batch_callback.on_batch_sent() {
+                if let Err(e) = handle.await {
+                    eprintln!("batch sent callback failed: {:?}", e);
+                }
             }
         }
         tick += 1;
@@ -98,9 +108,10 @@ async fn get_spam_tx_chunks<
         .collect::<Vec<Vec<ExecutionRequest>>>())
 }
 
-pub trait Spammer<F, D, S, P>
+pub trait Spammer<FnTx, FnBatch, D, S, P>
 where
-    F: OnTxSent + Send + Sync + 'static,
+    FnTx: OnTxSent + Send + Sync + 'static,
+    FnBatch: OnBatchSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
@@ -120,7 +131,8 @@ where
         txs_per_period: usize,
         num_periods: usize,
         run_id: Option<u64>,
-        sent_tx_callback: Arc<F>,
+        sent_tx_callback: Arc<FnTx>,
+        sent_batch_callback: Option<Arc<FnBatch>>,
     ) -> impl std::future::Future<Output = Result<()>> {
         async move {
             let tx_req_chunks = get_spam_tx_chunks(scenario, txs_per_period, num_periods).await?;
@@ -137,7 +149,7 @@ where
                     println!("\nCTRL-C received, stopping spamming...");
                     false
                 },
-                _ = execute_spammer(&mut cursor, scenario, &tx_req_chunks, sent_tx_callback) => {
+                _ = execute_spammer(&mut cursor, scenario, &tx_req_chunks, sent_tx_callback, sent_batch_callback) => {
                     true
                 }
             };
