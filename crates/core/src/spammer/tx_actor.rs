@@ -17,7 +17,7 @@ enum TxActorMessage {
         on_receipt: oneshot::Sender<()>,
     },
     FlushCache {
-        run_id: u64,
+        run_id: Option<u64>,
         on_flush: oneshot::Sender<usize>, // returns the number of txs remaining in cache
         target_block_num: u64,
     },
@@ -74,7 +74,7 @@ where
         cache: &mut Vec<PendingRunTx>,
         db: &Arc<D>,
         rpc: &Arc<AnyProvider>,
-        run_id: u64,
+        run_id: Option<u64>,
         on_flush: oneshot::Sender<usize>, // returns the number of txs remaining in cache
         target_block_num: u64,
     ) -> Result<Vec<PendingRunTx>, Box<dyn std::error::Error>> {
@@ -153,8 +153,9 @@ where
                 }
             })
             .collect::<Vec<_>>();
-
-        db.insert_run_txs(run_id, run_txs)?;
+        if let Some(run_id) = run_id {
+            db.insert_run_txs(run_id, run_txs)?;
+        }
         on_flush
             .send(new_txs.len())
             .map_err(|_| ContenderError::SpamError("failed to join TxActor on_flush", None))?;
@@ -273,7 +274,7 @@ impl TxActorHandle {
 
     pub async fn flush_cache(
         &self,
-        run_id: u64,
+        run_id: Option<u64>,
         target_block_num: u64,
     ) -> Result<usize, Box<dyn std::error::Error>> {
         let (sender, receiver) = oneshot::channel();

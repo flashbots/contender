@@ -27,22 +27,14 @@ async fn flush_tx_cache<
     scenario: &TestScenario<D, S, P>,
 ) -> Result<()> {
     let mut block_counter = 0;
-    if let Some(run_id) = run_id {
-        loop {
-            let cache_size = scenario
-                .msg_handle
-                .flush_cache(run_id, block_start + block_counter as u64)
-                .await
-                .map_err(|e| {
-                    ContenderError::SpamError("failed to flush cache", e.to_string().into())
-                })?;
-            if cache_size == 0 {
-                break;
-            }
-
-            block_counter += 1;
-        }
-        println!("done. run_id={}", run_id);
+    while scenario
+        .msg_handle
+        .flush_cache(run_id, block_start + block_counter as u64)
+        .await
+        .map_err(|e| ContenderError::SpamError("failed to flush cache", Some(e.to_string())))?
+        > 0
+    {
+        block_counter += 1;
     }
     Ok(())
 }
@@ -153,7 +145,9 @@ where
                     let _ = scenario.msg_handle.stop().await;
                     false
                 },
-                _ = flush_tx_cache(start_block, run_id, scenario) => {
+                _ = {
+                        flush_tx_cache(start_block, run_id, scenario)
+                } => {
                     true
                 }
             };

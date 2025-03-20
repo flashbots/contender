@@ -127,19 +127,19 @@ pub async fn run(
             let done = Arc::new(done_sender.clone());
             Some(tokio::task::spawn(async move {
                 loop {
+                    // sleep before checking if we should stop
+                    let (wait_duration, stop) = done_receiver.recv().await.unwrap_or_default();
+                    tokio::time::sleep(Duration::from_millis(wait_duration)).await;
+                    if stop {
+                        break;
+                    }
+
                     println!("advancing chain...");
                     advance_chain(&auth_provider, args.interval as u64)
                         .await
                         .expect("failed to advance chain");
 
-                    // check done signal after advancing chain so we don't accidentally send an extra continue signal
-                    let (wait_duration, stop) = done_receiver.recv().await.unwrap_or_default();
-
-                    if stop {
-                        break;
-                    }
-
-                    tokio::time::sleep(Duration::from_millis(wait_duration)).await;
+                    // self-continue
                     done.send((wait_duration, false))
                         .await
                         .expect("done msg send failed");
@@ -151,6 +151,8 @@ pub async fn run(
     } else {
         None
     };
+
+    // send initial continue signal
     done_sender.send((500, false)).await?;
 
     if do_deploy_contracts {
@@ -195,6 +197,8 @@ pub async fn run(
     if let Some(handle) = handle {
         handle.await?;
     }
+
+    println!("done. run_id={}", run_id);
 
     Ok(())
 }

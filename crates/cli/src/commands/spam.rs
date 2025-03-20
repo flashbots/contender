@@ -221,6 +221,7 @@ pub async fn spam(
         }
     };
 
+    println!("done. run_id={}", run_id);
     Ok(run_id)
 }
 
