@@ -2,7 +2,7 @@ use alloy::{
     consensus::TxType,
     hex::ToHexExt,
     network::{EthereumWallet, TransactionBuilder},
-    primitives::{utils::format_ether, Address, U256},
+    primitives::{utils::format_ether, Address, FixedBytes, TxHash, U256},
     providers::{PendingTransactionConfig, Provider},
     rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
@@ -17,6 +17,7 @@ use contender_core::{
 };
 use contender_testfile::TestConfig;
 use csv::Writer;
+use serde::ser::StdError;
 use std::{io::Write, str::FromStr, sync::Arc};
 use termcolor::{ColorChoice, ColorSpec, StandardStream, WriteColor};
 
@@ -145,7 +146,7 @@ pub async fn fund_accounts(
     let insufficient_balances =
         find_insufficient_balances(recipient_addresses, min_balance, rpc_client).await?;
 
-    let mut pending_fund_txs = vec![];
+    // let mut pending_fund_txs = vec![];
     let admin_nonce = rpc_client
         .get_transaction_count(fund_with.address())
         .await?;
@@ -169,7 +170,11 @@ pub async fn fund_accounts(
         .into());
     }
 
-    for (idx, (address, _)) in insufficient_balances.iter().enumerate() {
+    let mut fund_handles: Vec<tokio::task::JoinHandle<()>> = vec![];
+    let (sender, mut receiver) =
+        tokio::sync::mpsc::channel::<Option<PendingTransactionConfig>>(9000);
+    let sendr = Arc::new(sender.clone());
+    for (idx, (address, _)) in insufficient_balances.into_iter().enumerate() {
         let (balance_sufficient, balance) =
             is_balance_sufficient(&fund_with.address(), min_balance, rpc_client).await?;
         if !balance_sufficient {
@@ -186,22 +191,43 @@ pub async fn fund_accounts(
         }
 
         let fund_amount = min_balance;
-        pending_fund_txs.push(
-            fund_account(
-                fund_with,
-                *address,
+        let fund_with = fund_with.to_owned();
+        let eth_client = Arc::new(eth_client.clone());
+        let sender = sendr.clone();
+
+        fund_handles.push(tokio::task::spawn(async move {
+            let eth_client = eth_client.as_ref();
+            let res = fund_account(
+                &fund_with.to_owned(),
+                address,
                 fund_amount,
                 eth_client,
                 Some(admin_nonce + idx as u64),
                 tx_type,
             )
-            .await?,
-        );
+            .await;
+            sender
+                .send(res.ok())
+                .await
+                .expect("failed to handle pending tx");
+        }));
     }
+    println!("sending funding txs...");
+    for handle in fund_handles {
+        handle.await?;
+    }
+    sender
+        .send(None)
+        .await
+        .expect("failed to send None to receiver");
 
-    for tx in pending_fund_txs {
-        let pending = rpc_client.watch_pending_transaction(tx).await?;
-        println!("funding tx confirmed ({})", pending.await?);
+    while let Some(tx) = receiver.recv().await {
+        if let Some(tx) = tx {
+            let pending = rpc_client.watch_pending_transaction(tx).await?;
+            println!("funding tx confirmed ({})", pending.await?);
+        } else {
+            break;
+        }
     }
 
     Ok(())
