@@ -146,7 +146,6 @@ pub async fn fund_accounts(
     let insufficient_balances =
         find_insufficient_balances(recipient_addresses, min_balance, rpc_client).await?;
 
-    // let mut pending_fund_txs = vec![];
     let admin_nonce = rpc_client
         .get_transaction_count(fund_with.address())
         .await?;
