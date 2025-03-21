@@ -81,6 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             min_balance,
             gen_report,
             tx_type,
+            gas_price_percent_add,
         } => {
             let seed = seed.unwrap_or(stored_seed);
             let run_id = commands::spam(
@@ -97,6 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     disable_reports,
                     min_balance,
                     tx_type: tx_type.into(),
+                    gas_price_percent_add,
                 },
             )
             .await?;

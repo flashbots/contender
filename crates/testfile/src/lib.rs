@@ -390,6 +390,7 @@ pub mod tests {
                 signers: get_test_signers(),
                 agent_store: Default::default(),
                 tx_type,
+                gas_price_percent_add: None,
             },
         )
         .await
@@ -434,6 +435,7 @@ pub mod tests {
                 signers: signers.to_owned(),
                 agent_store: Default::default(),
                 tx_type,
+                gas_price_percent_add: None,
             },
         )
         .await
@@ -448,6 +450,7 @@ pub mod tests {
                 signers,
                 agent_store: Default::default(),
                 tx_type,
+                gas_price_percent_add: None,
             },
         )
         .await

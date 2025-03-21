@@ -81,7 +81,14 @@ where
         on_flush: oneshot::Sender<usize>, // returns the number of txs remaining in cache
         target_block_num: u64,
     ) -> Result<Vec<PendingRunTx>, Box<dyn std::error::Error>> {
-        println!("unconfirmed txs: {}", cache.len());
+        if cache.len() > 42 {
+            println!("unconfirmed txs: ({})", cache.len());
+        } else {
+            println!(
+                "unconfirmed txs: {:?}",
+                cache.iter().map(|tx| tx.tx_hash).collect::<Vec<_>>()
+            );
+        }
         let mut maybe_block;
         loop {
             maybe_block = rpc
