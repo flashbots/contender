@@ -5,7 +5,13 @@ mod util;
 use std::sync::LazyLock;
 
 use alloy::hex;
-use commands::{ContenderCli, ContenderSubcommand, DbCommand, RunCommandArgs, SpamCommandArgs};
+use commands::{
+    db::{drop_db, export_db, import_db, reset_db},
+    run::RunCommandArgs,
+    setup::SetupCommandArgs,
+    spam::{EngineArgs, SpamCommandArgs},
+    ContenderCli, ContenderSubcommand, DbCommand,
+};
 use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::SqliteDb;
 use rand::Rng;
@@ -41,10 +47,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match args.command {
         ContenderSubcommand::Db { command } => match command {
-            DbCommand::Drop => commands::drop_db(&db_path).await?,
-            DbCommand::Reset => commands::reset_db(&db_path).await?,
-            DbCommand::Export { out_path } => commands::export_db(&db_path, out_path).await?,
-            DbCommand::Import { src_path } => commands::import_db(src_path, &db_path).await?,
+            DbCommand::Drop => drop_db(&db_path).await?,
+            DbCommand::Reset => reset_db(&db_path).await?,
+            DbCommand::Export { out_path } => export_db(&db_path, out_path).await?,
+            DbCommand::Import { src_path } => import_db(src_path, &db_path).await?,
         },
 
         ContenderSubcommand::Setup {
@@ -54,16 +60,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             min_balance,
             seed,
             tx_type,
+            auth_rpc_url,
+            jwt_secret,
+            call_forkchoice,
         } => {
             let seed = seed.unwrap_or(stored_seed);
+            if call_forkchoice && (auth_rpc_url.is_none() || jwt_secret.is_none()) {
+                return Err("auth-rpc-url and jwt-secret required for forkchoice".into());
+            }
+            let engine_args = if auth_rpc_url.is_some() && jwt_secret.is_some() {
+                Some(EngineArgs {
+                    auth_rpc_url: auth_rpc_url.expect("auth_rpc_url"),
+                    jwt_secret: jwt_secret.expect("jwt_secret").into(),
+                })
+            } else {
+                None
+            };
             commands::setup(
                 &db,
-                testfile,
-                rpc_url,
-                private_keys,
-                min_balance,
-                RandSeed::seed_from_str(&seed),
-                tx_type.into(),
+                SetupCommandArgs {
+                    testfile,
+                    rpc_url,
+                    private_keys,
+                    min_balance,
+                    seed: RandSeed::seed_from_str(&seed),
+                    tx_type: tx_type.into(),
+                    engine_args,
+                    call_fcu: call_forkchoice,
+                },
             )
             .await?
         }
@@ -81,9 +105,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             min_balance,
             gen_report,
             tx_type,
+            auth_rpc_url,
+            jwt_secret,
+            call_forkchoice,
             gas_price_percent_add,
         } => {
             let seed = seed.unwrap_or(stored_seed);
+            let engine_args = if auth_rpc_url.is_some() && jwt_secret.is_some() {
+                Some(EngineArgs {
+                    auth_rpc_url: auth_rpc_url.expect("auth_rpc_url"),
+                    jwt_secret: jwt_secret.expect("jwt_secret").into(),
+                })
+            } else {
+                None
+            };
+            if call_forkchoice && engine_args.is_none() {
+                return Err("engine args required for forkchoice".into());
+            }
             let run_id = commands::spam(
                 &db,
                 SpamCommandArgs {
@@ -98,6 +136,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     disable_reports,
                     min_balance,
                     tx_type: tx_type.into(),
+                    engine_args,
+                    call_forkchoice,
                     gas_price_percent_add,
                 },
             )
@@ -124,7 +164,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             txs_per_duration,
             skip_deploy_prompt,
             tx_type,
+            auth_rpc_url,
+            jwt_secret,
+            call_forkchoice,
         } => {
+            if call_forkchoice && (auth_rpc_url.is_none() || jwt_secret.is_none()) {
+                return Err("auth-rpc-url and jwt-secret required for forkchoice".into());
+            }
+            let engine_args = if auth_rpc_url.is_some() && jwt_secret.is_some() {
+                Some(EngineArgs {
+                    auth_rpc_url: auth_rpc_url.expect("auth_rpc_url"),
+                    jwt_secret: jwt_secret.expect("jwt_secret").into(),
+                })
+            } else {
+                None
+            };
             commands::run(
                 &db,
                 RunCommandArgs {
@@ -136,6 +190,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     txs_per_duration,
                     skip_deploy_prompt,
                     tx_type: tx_type.into(),
+                    engine_args,
+                    call_fcu: call_forkchoice,
                 },
             )
             .await?

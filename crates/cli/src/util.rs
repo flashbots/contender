@@ -1,7 +1,7 @@
 use alloy::{
     consensus::TxType,
     hex::ToHexExt,
-    network::{EthereumWallet, TransactionBuilder},
+    network::{AnyTxEnvelope, EthereumWallet, TransactionBuilder},
     primitives::{utils::format_ether, Address, U256},
     providers::{PendingTransactionConfig, Provider},
     rpc::types::TransactionRequest,
@@ -9,15 +9,16 @@ use alloy::{
 };
 use contender_core::{
     db::RunTx,
+    eth_engine::{advance_chain, DEFAULT_BLOCK_TIME},
     generator::{
-        types::{AnyProvider, EthProvider, FunctionCallDefinition, SpamRequest},
+        types::{AnyProvider, FunctionCallDefinition, SpamRequest},
         util::complete_tx_request,
     },
     spammer::{LogCallback, NilCallback},
 };
 use contender_testfile::TestConfig;
 use csv::Writer;
-use std::{io::Write, str::FromStr, sync::Arc};
+use std::{io::Write, str::FromStr, sync::Arc, time::Duration};
 use termcolor::{ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 pub enum SpamCallbackType {
@@ -138,10 +139,11 @@ pub async fn fund_accounts(
     recipient_addresses: &[Address],
     fund_with: &PrivateKeySigner,
     rpc_client: &AnyProvider,
-    eth_client: &EthProvider,
     min_balance: U256,
     tx_type: TxType,
+    engine_params: (Option<AnyProvider>, bool),
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let (engine_provider, call_fcu) = engine_params;
     let insufficient_balances =
         find_insufficient_balances(recipient_addresses, min_balance, rpc_client).await?;
 
@@ -169,8 +171,9 @@ pub async fn fund_accounts(
     }
 
     let mut fund_handles: Vec<tokio::task::JoinHandle<()>> = vec![];
-    let (sender, mut receiver) = tokio::sync::mpsc::channel::<PendingTransactionConfig>(9000);
-    let sendr = Arc::new(sender.clone());
+    let (sender_pending_tx, mut receiver_pending_tx) =
+        tokio::sync::mpsc::channel::<PendingTransactionConfig>(9000);
+
     for (idx, (address, _)) in insufficient_balances.into_iter().enumerate() {
         let (balance_sufficient, balance) =
             is_balance_sufficient(&fund_with.address(), min_balance, rpc_client).await?;
@@ -189,16 +192,15 @@ pub async fn fund_accounts(
 
         let fund_amount = min_balance;
         let fund_with = fund_with.to_owned();
-        let eth_client = Arc::new(eth_client.clone());
-        let sender = sendr.clone();
+        let rpc_client = Arc::new(rpc_client.clone());
+        let sender = sender_pending_tx.clone();
 
         fund_handles.push(tokio::task::spawn(async move {
-            let eth_client = eth_client.as_ref();
             let res = fund_account(
                 &fund_with.to_owned(),
                 address,
                 fund_amount,
-                eth_client,
+                &rpc_client,
                 Some(admin_nonce + idx as u64),
                 tx_type,
             )
@@ -215,9 +217,18 @@ pub async fn fund_accounts(
     for handle in fund_handles {
         handle.await?;
     }
-    receiver.close();
+    receiver_pending_tx.close();
 
-    while let Some(tx) = receiver.recv().await {
+    tokio::time::sleep(Duration::from_secs(DEFAULT_BLOCK_TIME)).await;
+
+    while let Some(tx) = receiver_pending_tx.recv().await {
+        if call_fcu {
+            if let Some(engine_provider) = &engine_provider {
+                advance_chain(engine_provider, DEFAULT_BLOCK_TIME).await?;
+            } else {
+                return Err("No engine provider found".into());
+            }
+        }
         let pending = rpc_client.watch_pending_transaction(tx).await?;
         println!("funding tx confirmed ({})", pending.await?);
     }
@@ -229,7 +240,7 @@ pub async fn fund_account(
     sender: &PrivateKeySigner,
     recipient: Address,
     amount: U256,
-    rpc_client: &EthProvider,
+    rpc_client: &AnyProvider,
     nonce: Option<u64>,
     tx_type: TxType,
 ) -> Result<PendingTransactionConfig, Box<dyn std::error::Error>> {
@@ -255,7 +266,9 @@ pub async fn fund_account(
         sender.address(),
         tx.tx_hash().encode_hex()
     );
-    let res = rpc_client.send_tx_envelope(tx).await?;
+    let res = rpc_client
+        .send_tx_envelope(AnyTxEnvelope::Ethereum(tx))
+        .await?;
 
     Ok(res.into_inner())
 }
@@ -280,11 +293,14 @@ pub async fn find_insufficient_balances(
 
 pub async fn spam_callback_default(
     log_txs: bool,
+    send_fcu: bool,
     rpc_client: Option<Arc<AnyProvider>>,
+    auth_client: Option<Arc<AnyProvider>>,
 ) -> SpamCallbackType {
     if let Some(rpc_client) = rpc_client {
         if log_txs {
-            return SpamCallbackType::Log(LogCallback::new(rpc_client.clone()));
+            let log_callback = LogCallback::new(rpc_client.clone(), auth_client.clone(), send_fcu);
+            return SpamCallbackType::Log(log_callback);
         }
     }
     SpamCallbackType::Nil(NilCallback)
@@ -329,6 +345,13 @@ pub fn data_dir() -> Result<String, Box<dyn std::error::Error>> {
     Ok(dir)
 }
 
+/// Returns the fully-qualified path to the report directory.
+pub fn report_dir() -> Result<String, Box<dyn std::error::Error>> {
+    let path = format!("{}/reports", data_dir()?);
+    std::fs::create_dir_all(&path)?;
+    Ok(path)
+}
+
 /// Returns path to default contender DB file.
 pub fn db_file() -> Result<String, Box<dyn std::error::Error>> {
     let data_path = data_dir()?;
@@ -362,7 +385,6 @@ mod test {
                 .network::<AnyNetwork>()
                 .on_http(anvil.endpoint_url()),
         );
-        let eth_client = DynProvider::new(ProviderBuilder::new().on_http(anvil.endpoint_url()));
         let min_balance = U256::from(ETH_TO_WEI);
         let default_signer = PrivateKeySigner::from_str(super::DEFAULT_PRV_KEYS[0]).unwrap();
         // address: 0x7E57f00F16dE6A0D6B720E9C0af5C869a1f71c66
@@ -385,9 +407,9 @@ mod test {
             &recipient_addresses,
             &default_signer,
             &rpc_client,
-            &eth_client,
             min_balance,
             tx_type,
+            (None, false),
         )
         .await
         .unwrap();
@@ -404,9 +426,9 @@ mod test {
                 .unwrap()],
             &new_signer,
             &rpc_client,
-            &eth_client,
             min_balance,
             tx_type,
+            (None, false),
         )
         .await;
         println!("res: {:?}", res);

@@ -13,6 +13,7 @@ use crate::{
     Result,
 };
 
+use super::tx_callback::OnBatchSent;
 use super::SpamTrigger;
 use super::{tx_actor::TxActorHandle, OnTxSent};
 
@@ -26,28 +27,20 @@ async fn flush_tx_cache<
     scenario: &TestScenario<D, S, P>,
 ) -> Result<()> {
     let mut block_counter = 0;
-    if let Some(run_id) = run_id {
-        loop {
-            let cache_size = scenario
-                .msg_handle
-                .flush_cache(run_id, block_start + block_counter as u64)
-                .await
-                .map_err(|e| {
-                    ContenderError::SpamError("failed to flush cache", e.to_string().into())
-                })?;
-            if cache_size == 0 {
-                break;
-            }
-
-            block_counter += 1;
-        }
-        println!("done. run_id={}", run_id);
+    while scenario
+        .msg_handle
+        .flush_cache(run_id, block_start + block_counter as u64)
+        .await
+        .map_err(|e| ContenderError::SpamError("failed to flush cache", Some(e.to_string())))?
+        > 0
+    {
+        block_counter += 1;
     }
     Ok(())
 }
 
 async fn execute_spammer<
-    F: OnTxSent + Send + Sync + 'static,
+    F: OnTxSent + OnBatchSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
@@ -55,14 +48,14 @@ async fn execute_spammer<
     cursor: &mut futures::stream::Take<Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>>,
     scenario: &mut TestScenario<D, S, P>,
     tx_req_chunks: &[Vec<ExecutionRequest>],
-    sent_tx_callback: Arc<F>,
+    callback: Arc<F>, // contains callbacks called by each tx after it's sent, and after each batch is sent
 ) -> Result<()> {
     let mut tick = 0;
     while let Some(trigger) = cursor.next().await {
         let trigger = trigger.to_owned();
         let payloads = scenario.prepare_spam(&tx_req_chunks[tick]).await?;
         let spam_tasks = scenario
-            .execute_spam(trigger, &payloads, sent_tx_callback.clone())
+            .execute_spam(trigger, &payloads, callback.clone())
             .await?;
         println!("[{}] executing {} spam tasks", tick, spam_tasks.len());
         for task in spam_tasks {
@@ -71,13 +64,14 @@ async fn execute_spammer<
                 eprintln!("spam task failed: {:?}", e);
             }
         }
+        callback.on_batch_sent();
         tick += 1;
     }
 
     Ok(())
 }
 
-async fn get_tx_chunks<
+async fn get_spam_tx_chunks<
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync,
     P: PlanConfig<String> + Templater<String> + Send + Sync,
@@ -100,7 +94,7 @@ async fn get_tx_chunks<
 
 pub trait Spammer<F, D, S, P>
 where
-    F: OnTxSent + Send + Sync + 'static,
+    F: OnTxSent + OnBatchSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
@@ -120,10 +114,10 @@ where
         txs_per_period: usize,
         num_periods: usize,
         run_id: Option<u64>,
-        sent_tx_callback: Arc<F>,
+        callback: Arc<F>,
     ) -> impl std::future::Future<Output = Result<()>> {
         async move {
-            let tx_req_chunks = get_tx_chunks(scenario, txs_per_period, num_periods).await?;
+            let tx_req_chunks = get_spam_tx_chunks(scenario, txs_per_period, num_periods).await?;
             let start_block = scenario
                 .rpc_client
                 .get_block_number()
@@ -137,7 +131,7 @@ where
                     println!("\nCTRL-C received, stopping spamming...");
                     false
                 },
-                _ = execute_spammer(&mut cursor, scenario, &tx_req_chunks, sent_tx_callback) => {
+                _ = execute_spammer(&mut cursor, scenario, &tx_req_chunks, callback) => {
                     true
                 }
             };
@@ -151,7 +145,9 @@ where
                     let _ = scenario.msg_handle.stop().await;
                     false
                 },
-                _ = flush_tx_cache(start_block, run_id, scenario) => {
+                _ = {
+                        flush_tx_cache(start_block, run_id, scenario)
+                } => {
                     true
                 }
             };
