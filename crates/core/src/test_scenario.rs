@@ -118,14 +118,8 @@ where
             .map_err(|e| ContenderError::with_err(e, "failed to get chain id"))?;
 
         let mut nonces = HashMap::new();
-        let all_addrs = wallet_map.keys().copied().collect::<Vec<Address>>();
-        for addr in &all_addrs {
-            let nonce = rpc_client
-                .get_transaction_count(*addr)
-                .await
-                .map_err(|e| ContenderError::with_err(e, "failed to retrieve nonce from RPC"))?;
-            nonces.insert(*addr, nonce);
-        }
+        sync_nonces(&wallet_map, &mut nonces, &rpc_client).await?;
+
         let gas_limits = HashMap::new();
 
         let bundle_client = builder_rpc_url
@@ -155,16 +149,7 @@ where
     }
 
     pub async fn sync_nonces(&mut self) -> Result<()> {
-        let all_addrs = self.wallet_map.keys().copied().collect::<Vec<Address>>();
-        for addr in &all_addrs {
-            let nonce = self
-                .rpc_client
-                .get_transaction_count(*addr)
-                .await
-                .map_err(|e| ContenderError::with_err(e, "failed to retrieve nonce from RPC"))?;
-            self.nonces.insert(*addr, nonce);
-        }
-        Ok(())
+        sync_nonces(&self.wallet_map, &mut self.nonces, &self.rpc_client).await
     }
 
     pub async fn estimate_setup_cost(&self) -> Result<U256> {
@@ -755,6 +740,52 @@ where
             },
         )
     }
+}
+
+async fn sync_nonces(
+    wallet_map: &HashMap<Address, EthereumWallet>,
+    nonces: &mut HashMap<Address, u64>,
+    rpc_client: &AnyProvider,
+) -> Result<()> {
+    let all_addrs = wallet_map.keys().copied().collect::<Vec<Address>>();
+    let mut tasks = vec![];
+    let (sender, mut receiver) = tokio::sync::mpsc::channel::<(Address, u64)>(all_addrs.len() + 1);
+    for addr in &all_addrs {
+        let send = sender.clone();
+        tasks.push(async move {
+            let nonce = rpc_client
+                .get_transaction_count(*addr)
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to retrieve nonce from RPC"))?;
+            send.send((*addr, nonce))
+                .await
+                .expect("failed to send nonce");
+            Ok(())
+        });
+    }
+    for task in tasks {
+        task.await?;
+    }
+    receiver.close();
+
+    loop {
+        println!("waiting for nonces to sync...");
+        let res = receiver.recv().await;
+        if res.is_none() {
+            println!("breaking nonce sync loop");
+            break;
+        }
+        if let Some((addr, nonce)) = res {
+            println!(
+                "inserting nonce. addr: {}, nonce: {}",
+                addr.encode_hex(),
+                nonce
+            );
+            nonces.insert(addr, nonce);
+        }
+    }
+    println!("nonces synchronized");
+    Ok(())
 }
 
 impl<D, S, P> Generator<String, D, P> for TestScenario<D, S, P>
