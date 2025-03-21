@@ -126,6 +126,7 @@ mod tests {
                 signers: user_signers,
                 agent_store: agents,
                 tx_type,
+                gas_price_percent_add: None,
             },
         )
         .await

@@ -54,6 +54,7 @@ where
     pub gas_limits: HashMap<FixedBytes<32>, u64>,
     pub msg_handle: Arc<TxActorHandle>,
     pub tx_type: TxType,
+    pub gas_price_percent_add: u128,
 }
 
 pub struct TestScenarioParams {
@@ -62,6 +63,7 @@ pub struct TestScenarioParams {
     pub signers: Vec<PrivateKeySigner>,
     pub agent_store: AgentStore,
     pub tx_type: TxType,
+    pub gas_price_percent_add: Option<u16>,
 }
 
 impl<D, S, P> TestScenario<D, S, P>
@@ -82,6 +84,7 @@ where
             signers,
             agent_store,
             tx_type,
+            gas_price_percent_add,
         } = params;
 
         // use custom logging layer to log sendRawTransaction request IDs
@@ -115,14 +118,8 @@ where
             .map_err(|e| ContenderError::with_err(e, "failed to get chain id"))?;
 
         let mut nonces = HashMap::new();
-        let all_addrs = wallet_map.keys().copied().collect::<Vec<Address>>();
-        for addr in &all_addrs {
-            let nonce = rpc_client
-                .get_transaction_count(*addr)
-                .await
-                .map_err(|e| ContenderError::with_err(e, "failed to retrieve nonce from RPC"))?;
-            nonces.insert(*addr, nonce);
-        }
+        sync_nonces(&wallet_map, &mut nonces, &rpc_client).await?;
+
         let gas_limits = HashMap::new();
 
         let bundle_client = builder_rpc_url
@@ -147,20 +144,12 @@ where
             gas_limits,
             msg_handle,
             tx_type,
+            gas_price_percent_add: gas_price_percent_add.unwrap_or(0) as u128,
         })
     }
 
     pub async fn sync_nonces(&mut self) -> Result<()> {
-        let all_addrs = self.wallet_map.keys().copied().collect::<Vec<Address>>();
-        for addr in &all_addrs {
-            let nonce = self
-                .rpc_client
-                .get_transaction_count(*addr)
-                .await
-                .map_err(|e| ContenderError::with_err(e, "failed to retrieve nonce from RPC"))?;
-            self.nonces.insert(*addr, nonce);
-        }
-        Ok(())
+        sync_nonces(&self.wallet_map, &mut self.nonces, &self.rpc_client).await
     }
 
     pub async fn estimate_setup_cost(&self) -> Result<U256> {
@@ -188,6 +177,7 @@ where
                 signers: vec![admin_signer.to_owned()],
                 agent_store: self.agent_store.clone(),
                 tx_type: TxType::Legacy,
+                gas_price_percent_add: None,
             },
         )
         .await?;
@@ -522,51 +512,55 @@ where
             .get_gas_price()
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
+        let gas_price = gas_price + ((gas_price * self.gas_price_percent_add) / 100);
         let mut payloads = vec![];
         println!("preparing {} payloads", tx_requests.len());
         for tx in tx_requests {
-            let payload =
-                match tx {
-                    ExecutionRequest::Bundle(reqs) => {
-                        if self.bundle_client.is_none() {
-                            return Err(ContenderError::SpamError(
-                                "Bundle client not found. Specify a builder url to send bundles.",
-                                None,
-                            ));
-                        }
-
-                        // prepare each tx in the bundle (increment nonce, set gas price, etc)
-                        let mut bundle_txs = vec![];
-
-                        for req in reqs {
-                            let (tx_req, signer) = self
-                                .prepare_tx_request(&req.tx, gas_price)
-                                .await
-                                .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
-
-                            println!("bundle tx from {:?}", tx_req.from);
-                            // sign tx
-                            let tx_envelope = tx_req.build(&signer).await.map_err(|e| {
-                                ContenderError::with_err(e, "bad request: failed to build tx")
-                            })?;
-
-                            bundle_txs.push(tx_envelope);
-                        }
-                        ExecutionPayload::SignedTxBundle(bundle_txs, reqs.to_owned())
+            let payload = match tx {
+                ExecutionRequest::Bundle(reqs) => {
+                    if self.bundle_client.is_none() {
+                        return Err(ContenderError::SpamError(
+                            "Bundle client not found. Specify a builder url to send bundles.",
+                            None,
+                        ));
                     }
-                    ExecutionRequest::Tx(req) => {
+
+                    // prepare each tx in the bundle (increment nonce, set gas price, etc)
+                    let mut bundle_txs = vec![];
+
+                    for req in reqs {
                         let (tx_req, signer) = self
                             .prepare_tx_request(&req.tx, gas_price)
                             .await
                             .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
 
+                        println!("bundle tx from {:?}", tx_req.from);
                         // sign tx
-                        let tx_envelope = tx_req.to_owned().build(&signer).await.map_err(|e| {
+                        let tx_envelope = tx_req.build(&signer).await.map_err(|e| {
                             ContenderError::with_err(e, "bad request: failed to build tx")
                         })?;
 
-                        println!(
-                        "prepared tx {} from={} to={:?} input={} value={} gas_limit={} nonce={}",
+                        bundle_txs.push(tx_envelope);
+                    }
+                    ExecutionPayload::SignedTxBundle(bundle_txs, reqs.to_owned())
+                }
+                ExecutionRequest::Tx(req) => {
+                    let (tx_req, signer) = self
+                        .prepare_tx_request(&req.tx, gas_price)
+                        .await
+                        .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
+
+                    // sign tx
+                    let tx_envelope = tx_req.to_owned().build(&signer).await.map_err(|e| {
+                        ContenderError::with_err(e, "bad request: failed to build tx")
+                    })?;
+
+                    let priority_fee = tx_req
+                        .max_priority_fee_per_gas
+                        .map(|f| format!(" priority_fee: {},", f))
+                        .unwrap_or_default();
+                    println!(
+                        "prepared tx: {}, from: {}, to: {:?}, input: {}, value={}, gas_limit: {}, gas_price: {},{priority_fee} nonce={}",
                         tx_envelope.tx_hash(),
                         tx_req.from.map(|s| s.encode_hex()).unwrap_or_default(),
                         tx_envelope.to(),
@@ -584,12 +578,13 @@ where
                             .gas
                             .map(|g| g.to_string())
                             .unwrap_or("N/A".to_owned()),
+                        tx_req.gas_price.unwrap_or(tx_req.max_fee_per_gas.unwrap_or(0)),
                         tx_req.nonce.map(|n| n.to_string()).unwrap_or("N/A".to_owned())
                     );
 
-                        ExecutionPayload::SignedTx(Box::new(tx_envelope), req.to_owned())
-                    }
-                };
+                    ExecutionPayload::SignedTx(Box::new(tx_envelope), req.to_owned())
+                }
+            };
             payloads.push(payload);
         }
         println!("prepared {} payloads", payloads.len());
@@ -603,10 +598,7 @@ where
         callback_handler: Arc<impl OnTxSent + Send + Sync + 'static>,
     ) -> Result<Vec<tokio::task::JoinHandle<()>>> {
         let payloads = payloads.to_owned();
-
         let mut tasks: Vec<tokio::task::JoinHandle<()>> = vec![];
-
-        println!("executing {} spam payloads", payloads.len());
 
         for payload in payloads {
             let rpc_client = self.rpc_client.clone();
@@ -621,19 +613,32 @@ where
                     .expect("time went backwards")
                     .as_millis();
                 extra.insert("start_timestamp".to_owned(), start_timestamp.to_string());
-                let handles = match payload.to_owned() {
+                let handles = match payload {
                     ExecutionPayload::SignedTx(signed_tx, req) => {
+                        let tx_hash = signed_tx.tx_hash().to_owned();
                         let res = rpc_client
                             .send_tx_envelope(AnyTxEnvelope::Ethereum(*signed_tx))
-                            .await
-                            .expect("failed to send tx envelope");
-                        let maybe_handle = callback_handler.on_tx_sent(
-                            res.into_inner(),
-                            &req,
-                            Some(extra),
-                            Some(tx_handler.clone()),
-                        );
-                        vec![maybe_handle]
+                            .await;
+
+                        match res {
+                            Ok(res) => {
+                                //
+                                let maybe_handle = callback_handler.on_tx_sent(
+                                    res.into_inner(),
+                                    &req,
+                                    Some(extra),
+                                    Some(tx_handler.clone()),
+                                );
+                                vec![maybe_handle]
+                            }
+                            Err(e) => {
+                                if let Some(err) = e.as_error_resp() {
+                                    println!("failed to send tx {}: {:?}", tx_hash, err);
+                                }
+                                //
+                                vec![]
+                            }
+                        }
                     }
                     ExecutionPayload::SignedTxBundle(signed_txs, reqs) => {
                         let mut bundle_txs = vec![];
@@ -672,7 +677,7 @@ where
 
                                 let res = bundle_client.send_bundle(rpc_bundle).await;
                                 if let Err(e) = res {
-                                    eprintln!("failed to send bundle: {:?}", e);
+                                    println!("failed to send bundle: {:?}", e);
                                 }
                             }
                         } else {
@@ -735,6 +740,46 @@ where
             },
         )
     }
+}
+
+async fn sync_nonces(
+    wallet_map: &HashMap<Address, EthereumWallet>,
+    nonces: &mut HashMap<Address, u64>,
+    rpc_client: &AnyProvider,
+) -> Result<()> {
+    let all_addrs = wallet_map.keys().copied().collect::<Vec<Address>>();
+    let mut tasks = vec![];
+    let (sender, mut receiver) = tokio::sync::mpsc::channel::<(Address, u64)>(all_addrs.len() + 1);
+    for addr in &all_addrs {
+        let send = sender.clone();
+        tasks.push(async move {
+            let nonce = rpc_client
+                .get_transaction_count(*addr)
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to retrieve nonce from RPC"))?;
+            send.send((*addr, nonce))
+                .await
+                .expect("failed to send nonce");
+            Ok(())
+        });
+    }
+    for task in tasks {
+        task.await?;
+    }
+    receiver.close();
+
+    println!("waiting for nonces to sync...");
+    loop {
+        let res = receiver.recv().await;
+        if res.is_none() {
+            break;
+        }
+        if let Some((addr, nonce)) = res {
+            nonces.insert(addr, nonce);
+        }
+    }
+
+    Ok(())
 }
 
 impl<D, S, P> Generator<String, D, P> for TestScenario<D, S, P>
@@ -1055,6 +1100,7 @@ pub mod tests {
                 signers,
                 agent_store: agents,
                 tx_type,
+                gas_price_percent_add: None,
             },
         )
         .await

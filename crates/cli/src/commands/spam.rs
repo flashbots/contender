@@ -38,6 +38,7 @@ pub struct SpamCommandArgs {
     pub disable_reports: bool,
     pub min_balance: String,
     pub tx_type: TxType,
+    pub gas_price_percent_add: Option<u16>,
 }
 
 /// Runs spammer and returns run ID.
@@ -130,11 +131,12 @@ pub async fn spam(
             signers: user_signers,
             agent_store: agents,
             tx_type: args.tx_type,
+            gas_price_percent_add: args.gas_price_percent_add,
         },
     )
     .await?;
 
-    let total_cost =
+    let total_cost = // TODO: factor in gas price percent add
         get_max_spam_cost(scenario.to_owned(), &rpc_client).await? * U256::from(duration);
     if min_balance < U256::from(total_cost) {
         return Err(ContenderError::SpamError(
