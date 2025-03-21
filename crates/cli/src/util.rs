@@ -225,6 +225,8 @@ pub async fn fund_accounts(
         if call_fcu {
             if let Some(engine_provider) = &engine_provider {
                 advance_chain(engine_provider, DEFAULT_BLOCK_TIME).await?;
+            } else {
+                return Err("No engine provider found".into());
             }
         }
         let pending = rpc_client.watch_pending_transaction(tx).await?;
