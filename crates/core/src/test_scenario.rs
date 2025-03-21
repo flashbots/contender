@@ -768,23 +768,17 @@ async fn sync_nonces(
     }
     receiver.close();
 
+    println!("waiting for nonces to sync...");
     loop {
-        println!("waiting for nonces to sync...");
         let res = receiver.recv().await;
         if res.is_none() {
-            println!("breaking nonce sync loop");
             break;
         }
         if let Some((addr, nonce)) = res {
-            println!(
-                "inserting nonce. addr: {}, nonce: {}",
-                addr.encode_hex(),
-                nonce
-            );
             nonces.insert(addr, nonce);
         }
     }
-    println!("nonces synchronized");
+
     Ok(())
 }
 

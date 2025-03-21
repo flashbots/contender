@@ -169,8 +169,7 @@ pub async fn fund_accounts(
     }
 
     let mut fund_handles: Vec<tokio::task::JoinHandle<()>> = vec![];
-    let (sender, mut receiver) =
-        tokio::sync::mpsc::channel::<Option<PendingTransactionConfig>>(9000);
+    let (sender, mut receiver) = tokio::sync::mpsc::channel::<PendingTransactionConfig>(9000);
     let sendr = Arc::new(sender.clone());
     for (idx, (address, _)) in insufficient_balances.into_iter().enumerate() {
         let (balance_sufficient, balance) =
@@ -204,28 +203,23 @@ pub async fn fund_accounts(
                 tx_type,
             )
             .await;
-            sender
-                .send(res.ok())
-                .await
-                .expect("failed to handle pending tx");
+            match res.ok() {
+                Some(res) => sender.send(res).await.expect("failed to handle pending tx"),
+                None => {
+                    eprintln!("Error funding account {}", address);
+                }
+            }
         }));
     }
     println!("sending funding txs...");
     for handle in fund_handles {
         handle.await?;
     }
-    sender
-        .send(None)
-        .await
-        .expect("failed to send None to receiver");
+    receiver.close();
 
     while let Some(tx) = receiver.recv().await {
-        if let Some(tx) = tx {
-            let pending = rpc_client.watch_pending_transaction(tx).await?;
-            println!("funding tx confirmed ({})", pending.await?);
-        } else {
-            break;
-        }
+        let pending = rpc_client.watch_pending_transaction(tx).await?;
+        println!("funding tx confirmed ({})", pending.await?);
     }
 
     Ok(())
