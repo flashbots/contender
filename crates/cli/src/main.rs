@@ -108,6 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             auth_rpc_url,
             jwt_secret,
             call_forkchoice,
+            gas_price_percent_add,
         } => {
             let seed = seed.unwrap_or(stored_seed);
             let engine_args = if auth_rpc_url.is_some() && jwt_secret.is_some() {
@@ -137,6 +138,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tx_type: tx_type.into(),
                     engine_args,
                     call_forkchoice,
+                    gas_price_percent_add,
                 },
             )
             .await?;

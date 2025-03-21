@@ -121,6 +121,7 @@ pub async fn spam(
             signers: user_signers.to_owned(),
             agent_store: agents,
             tx_type: args.tx_type,
+            gas_price_percent_add: args.gas_price_percent_add,
         },
     )
     .await?;
@@ -248,4 +249,5 @@ pub struct SpamCommandArgs {
     pub engine_args: Option<EngineArgs>,
     /// Call `engine_forkchoiceUpdated` after each block
     pub call_forkchoice: bool,
+    pub gas_price_percent_add: Option<u16>,
 }

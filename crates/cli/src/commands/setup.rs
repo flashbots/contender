@@ -134,6 +134,7 @@ pub async fn setup(
             signers: user_signers_with_defaults,
             agent_store: agents,
             tx_type,
+            gas_price_percent_add: None,
         },
     )
     .await?;

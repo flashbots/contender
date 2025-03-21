@@ -147,7 +147,6 @@ pub async fn fund_accounts(
     let insufficient_balances =
         find_insufficient_balances(recipient_addresses, min_balance, rpc_client).await?;
 
-    let mut pending_fund_txs = vec![];
     let admin_nonce = rpc_client
         .get_transaction_count(fund_with.address())
         .await?;
@@ -171,7 +170,11 @@ pub async fn fund_accounts(
         .into());
     }
 
-    for (idx, (address, _)) in insufficient_balances.iter().enumerate() {
+    let mut fund_handles: Vec<tokio::task::JoinHandle<()>> = vec![];
+    let (sender_pending_tx, mut receiver_pending_tx) =
+        tokio::sync::mpsc::channel::<PendingTransactionConfig>(9000);
+
+    for (idx, (address, _)) in insufficient_balances.into_iter().enumerate() {
         let (balance_sufficient, balance) =
             is_balance_sufficient(&fund_with.address(), min_balance, rpc_client).await?;
         if !balance_sufficient {
@@ -188,59 +191,44 @@ pub async fn fund_accounts(
         }
 
         let fund_amount = min_balance;
-        pending_fund_txs.push(
-            fund_account(
-                fund_with,
-                *address,
+        let fund_with = fund_with.to_owned();
+        let rpc_client = Arc::new(rpc_client.clone());
+        let sender = sender_pending_tx.clone();
+
+        fund_handles.push(tokio::task::spawn(async move {
+            let res = fund_account(
+                &fund_with.to_owned(),
+                address,
                 fund_amount,
-                rpc_client,
+                &rpc_client,
                 Some(admin_nonce + idx as u64),
                 tx_type,
             )
-            .await?,
-        );
+            .await;
+            match res.ok() {
+                Some(res) => sender.send(res).await.expect("failed to handle pending tx"),
+                None => {
+                    eprintln!("Error funding account {}", address);
+                }
+            }
+        }));
     }
+    println!("sending funding txs...");
+    for handle in fund_handles {
+        handle.await?;
+    }
+    receiver_pending_tx.close();
 
     tokio::time::sleep(Duration::from_secs(DEFAULT_BLOCK_TIME)).await;
 
-    let (done_sender, mut done_receiver) = tokio::sync::mpsc::channel::<(u64, bool)>(2);
-    let rpc_client = Arc::new(rpc_client.clone());
-
-    let fcu_handle = engine_provider.map(|engine_provider| {
-        let done = Arc::new(done_sender.clone());
-        tokio::task::spawn(async move {
-            if call_fcu {
-                loop {
-                    let (wait_duration, stop) = done_receiver.recv().await.unwrap_or_default();
-
-                    if stop {
-                        println!("exiting FCU looper");
-                        break;
-                    }
-
-                    println!("building new block...");
-                    advance_chain(&engine_provider, DEFAULT_BLOCK_TIME)
-                        .await
-                        .expect("failed to advance chain");
-
-                    tokio::time::sleep(Duration::from_millis(wait_duration)).await;
-                    done.send((wait_duration, false))
-                        .await
-                        .expect("done msg send failed");
-                }
+    while let Some(tx) = receiver_pending_tx.recv().await {
+        if call_fcu {
+            if let Some(engine_provider) = &engine_provider {
+                advance_chain(engine_provider, DEFAULT_BLOCK_TIME).await?;
             }
-        })
-    });
-    done_sender.send((200, false)).await?;
-
-    for tx in pending_fund_txs {
+        }
         let pending = rpc_client.watch_pending_transaction(tx).await?;
         println!("funding tx confirmed ({})", pending.await?);
-    }
-
-    done_sender.send((0, true)).await?;
-    if let Some(fcu) = fcu_handle {
-        fcu.await?;
     }
 
     Ok(())

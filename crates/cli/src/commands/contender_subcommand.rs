@@ -99,6 +99,14 @@ May be specified multiple times."
         )]
         gen_report: bool,
 
+        /// Adds (gas_price * percent) / 100 to the standard gas price of the transactions.
+        #[arg(
+            short,
+            long,
+            long_help = "Adds given percent increase to the standard gas price of the transactions."
+        )]
+        gas_price_percent_add: Option<u16>,
+
         /// Transaction type
         #[arg(
             short = 't',

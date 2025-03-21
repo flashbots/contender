@@ -97,6 +97,7 @@ pub async fn run(
             signers: user_signers,
             agent_store: AgentStore::default(),
             tx_type: args.tx_type,
+            gas_price_percent_add: None, // TODO: support this here !!!
         },
     )
     .await?;
