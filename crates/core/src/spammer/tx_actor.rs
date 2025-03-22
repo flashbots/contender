@@ -17,7 +17,7 @@ enum TxActorMessage {
         tx_hash: TxHash,
         start_timestamp: usize,
         kind: Option<String>,
-        on_receipt: oneshot::Sender<()>,
+        on_receive: oneshot::Sender<()>,
     },
     FlushCache {
         run_id: u64,
@@ -189,7 +189,7 @@ where
                 tx_hash,
                 start_timestamp,
                 kind,
-                on_receipt,
+                on_receive,
             } => {
                 let run_tx = PendingRunTx {
                     tx_hash,
@@ -197,7 +197,7 @@ where
                     kind,
                 };
                 cache.push(run_tx.to_owned());
-                on_receipt.send(()).map_err(|_| {
+                on_receive.send(()).map_err(|_| {
                     ContenderError::SpamError("failed to join TxActor callback", None)
                 })?;
             }
@@ -233,7 +233,7 @@ where
                     tx_hash: _,
                     start_timestamp: _,
                     kind: _,
-                    on_receipt: _,
+                    on_receive: _,
                 } => {
                     Self::handle_message(&mut self.cache, &self.db, &self.rpc, msg).await?;
                 }
@@ -275,7 +275,7 @@ impl TxActorHandle {
                 tx_hash,
                 start_timestamp,
                 kind,
-                on_receipt: sender,
+                on_receive: sender,
             })
             .await?;
         receiver.await?;
