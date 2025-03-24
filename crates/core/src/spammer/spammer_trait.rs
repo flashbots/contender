@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::{pin::Pin, sync::Arc};
 
 use alloy::providers::Provider;
@@ -32,16 +33,34 @@ async fn flush_tx_cache<
                 .msg_handle
                 .flush_cache(run_id, block_start + block_counter as u64)
                 .await
-                .map_err(|e| {
-                    ContenderError::SpamError("failed to flush cache", e.to_string().into())
-                })?;
+                .map_err(|e| ContenderError::with_err(e.deref(), "failed to flush cache"))?;
             if cache_size == 0 {
                 break;
             }
 
             block_counter += 1;
         }
-        println!("done. run_id={}", run_id);
+    }
+    Ok(())
+}
+
+async fn dump_tx_cache<
+    D: DbOps + Send + Sync + 'static,
+    S: Seeder + Send + Sync,
+    P: PlanConfig<String> + Templater<String> + Send + Sync,
+>(
+    run_id: Option<u64>,
+    scenario: &TestScenario<D, S, P>,
+) -> Result<()> {
+    if let Some(run_id) = run_id {
+        let failed_txs = scenario
+            .msg_handle
+            .dump_cache(run_id)
+            .await
+            .map_err(|e| ContenderError::with_err(e.deref(), "failed to dump cache"))?;
+        if !failed_txs.is_empty() {
+            println!("{} txs failed to land onchain.", failed_txs.len());
+        }
     }
     Ok(())
 }
@@ -145,6 +164,7 @@ where
                 println!("Spammer terminated. Press CTRL-C again to stop result collection...");
             }
 
+            // collect results from cached pending txs
             let flush_finished: bool = tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
                     println!("\nCTRL-C received, stopping result collection...");
@@ -156,14 +176,27 @@ where
                 }
             };
             if !flush_finished {
-                let runid = if let Some(run_id) = run_id {
-                    format!(" run_id={run_id}")
-                } else {
-                    "".to_string()
-                };
-                println!("Result collection terminated. Some results may not have been saved to the database.{runid}");
+                println!("Result collection terminated. Some pending txs may not have been saved to the database.");
+                println!("Saving unconfirmed txs to DB. Press CTRL-C again to stop...");
             }
 
+            // clear out unconfirmed txs from the cache
+            let dump_finished: bool = tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    println!("\nCTRL-C received, stopping tx cache dump...");
+                    false
+                },
+                _ = dump_tx_cache(run_id, scenario) => {
+                    true
+                }
+            };
+            if !dump_finished {
+                println!("Tx cache dump terminated. Some unconfirmed txs may not have been saved to the database.");
+            }
+            let run_id = run_id
+                .map(|id| format!("run_id: {}", id))
+                .unwrap_or_default();
+            println!("done. {run_id}");
             Ok(())
         }
     }

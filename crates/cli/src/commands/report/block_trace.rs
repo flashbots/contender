@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::u64;
 
 use crate::commands::report::cache::CacheFile;
 use alloy::network::{AnyRpcBlock, AnyTransactionReceipt};
@@ -39,9 +40,17 @@ pub async fn get_block_trace_data(
         return Ok((cache_data.traces, cache_data.blocks));
     }
 
+    // filter out txs with no block number
+    let txs: Vec<RunTx> = txs
+        .iter()
+        .filter(|tx| tx.block_number.is_some())
+        .cloned()
+        .collect();
+
     // find block range of txs
     let (min_block, max_block) = txs.iter().fold((u64::MAX, 0), |(min, max), tx| {
-        (min.min(tx.block_number), max.max(tx.block_number))
+        let bn = tx.block_number.expect("tx has no block number");
+        (min.min(bn), max.max(bn))
     });
 
     // pad block range on each side

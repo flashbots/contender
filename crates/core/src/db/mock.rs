@@ -22,7 +22,7 @@ impl DbOps for MockDb {
         Ok(0)
     }
 
-    fn insert_named_txs(&self, _named_txs: Vec<NamedTx>, _rpc_url: &str) -> Result<()> {
+    fn insert_named_txs(&self, _named_txs: &[NamedTx], _rpc_url: &str) -> Result<()> {
         Ok(())
     }
 
@@ -42,7 +42,7 @@ impl DbOps for MockDb {
         )))
     }
 
-    fn insert_run_txs(&self, _run_id: u64, _run_txs: Vec<RunTx>) -> Result<()> {
+    fn insert_run_txs(&self, _run_id: u64, _run_txs: &[RunTx]) -> Result<()> {
         Ok(())
     }
 

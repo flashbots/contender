@@ -23,8 +23,10 @@ impl TimeToInclusionChart {
         let mut chart = TimeToInclusionChart::new();
 
         for tx in run_txs {
-            let tti = tx.end_timestamp - tx.start_timestamp;
-            chart.add_inclusion_time(tti as u64);
+            if let Some(end_timestamp) = tx.end_timestamp {
+                let tti = end_timestamp - tx.start_timestamp;
+                chart.add_inclusion_time(tti as u64);
+            }
         }
 
         chart

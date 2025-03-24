@@ -13,9 +13,9 @@ pub struct RunTx {
     #[serde(rename = "start_time")]
     pub start_timestamp: usize,
     #[serde(rename = "end_time")]
-    pub end_timestamp: usize,
-    pub block_number: u64,
-    pub gas_used: u64,
+    pub end_timestamp: Option<usize>,
+    pub block_number: Option<u64>,
+    pub gas_used: Option<u64>,
     pub kind: Option<String>,
 }
 
@@ -36,12 +36,6 @@ impl NamedTx {
     }
 }
 
-impl From<NamedTx> for Vec<NamedTx> {
-    fn from(named_tx: NamedTx) -> Self {
-        vec![named_tx]
-    }
-}
-
 pub struct SpamRun {
     pub id: u64,
     pub timestamp: usize,
@@ -59,13 +53,13 @@ pub trait DbOps {
 
     fn get_run(&self, run_id: u64) -> Result<Option<SpamRun>>;
 
-    fn insert_named_txs(&self, named_txs: Vec<NamedTx>, rpc_url: &str) -> Result<()>;
+    fn insert_named_txs(&self, named_txs: &[NamedTx], rpc_url: &str) -> Result<()>;
 
     fn get_named_tx(&self, name: &str, rpc_url: &str) -> Result<Option<NamedTx>>;
 
     fn get_named_tx_by_address(&self, address: &Address) -> Result<Option<NamedTx>>;
 
-    fn insert_run_txs(&self, run_id: u64, run_txs: Vec<RunTx>) -> Result<()>;
+    fn insert_run_txs(&self, run_id: u64, run_txs: &[RunTx]) -> Result<()>;
 
     fn get_run_txs(&self, run_id: u64) -> Result<Vec<RunTx>>;
 }

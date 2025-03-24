@@ -338,12 +338,11 @@ where
                     receipt.contract_address.unwrap_or_default()
                 );
                 db.insert_named_txs(
-                    NamedTx::new(
+                    &vec![NamedTx::new(
                         tx_req.name.unwrap_or_default(),
                         receipt.transaction_hash,
                         receipt.contract_address,
-                    )
-                    .into(),
+                    )],
                     rpc_url.as_str(),
                 )
                 .expect("failed to insert tx into db");
@@ -425,8 +424,7 @@ where
 
                 if let Some(name) = tx_req.name {
                     db.insert_named_txs(
-                        NamedTx::new(name, receipt.transaction_hash, receipt.contract_address)
-                            .into(),
+                        &vec![NamedTx::new(name, receipt.transaction_hash, receipt.contract_address)],
                         rpc_url.as_str(),
                     )
                     .expect("failed to insert tx into db");
