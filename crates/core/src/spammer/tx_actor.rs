@@ -15,8 +15,9 @@ use crate::{
 enum TxActorMessage {
     SentRunTx {
         tx_hash: TxHash,
-        start_timestamp: usize,
+        start_timestamp: u64,
         kind: Option<String>,
+        error: Option<String>,
         on_receive: oneshot::Sender<()>,
     },
     FlushCache {
@@ -46,16 +47,23 @@ where
 #[derive(Debug, Clone, PartialEq)]
 pub struct PendingRunTx {
     pub tx_hash: TxHash,
-    pub start_timestamp: usize,
+    pub start_timestamp: u64,
     pub kind: Option<String>,
+    pub error: Option<String>,
 }
 
 impl PendingRunTx {
-    pub fn new(tx_hash: TxHash, start_timestamp: usize, kind: Option<&str>) -> Self {
+    pub fn new(
+        tx_hash: TxHash,
+        start_timestamp: u64,
+        kind: Option<&str>,
+        error: Option<&str>,
+    ) -> Self {
         Self {
             tx_hash,
             start_timestamp,
             kind: kind.map(|s| s.to_owned()),
+            error: error.map(|s| s.to_owned()),
         }
     }
 }
@@ -157,10 +165,11 @@ where
                 RunTx {
                     tx_hash: pending_tx.tx_hash,
                     start_timestamp: pending_tx.start_timestamp / 1000,
-                    end_timestamp: Some(target_block.header.timestamp as usize),
+                    end_timestamp: Some(target_block.header.timestamp),
                     block_number: Some(target_block.header.number),
                     gas_used: Some(receipt.gas_used),
                     kind: pending_tx.kind,
+                    error: pending_tx.error,
                 }
             })
             .collect::<Vec<_>>();
@@ -180,15 +189,14 @@ where
     ) -> Result<Vec<RunTx>, Box<dyn std::error::Error>> {
         let run_txs = cache
             .iter()
-            .map(|pending_tx| {
-                RunTx {
-                    tx_hash: pending_tx.tx_hash,
-                    start_timestamp: pending_tx.start_timestamp / 1000,
-                    end_timestamp: None,
-                    block_number: None,
-                    gas_used: None,
-                    kind: pending_tx.kind.clone(),
-                }
+            .map(|pending_tx| RunTx {
+                tx_hash: pending_tx.tx_hash,
+                start_timestamp: pending_tx.start_timestamp as u64 / 1000,
+                end_timestamp: None,
+                block_number: None,
+                gas_used: None,
+                kind: pending_tx.kind.to_owned(),
+                error: pending_tx.error.to_owned(),
             })
             .collect::<Vec<_>>();
         db.insert_run_txs(run_id, &run_txs)?;
@@ -213,12 +221,14 @@ where
                 tx_hash,
                 start_timestamp,
                 kind,
+                error,
                 on_receive,
             } => {
                 let run_tx = PendingRunTx {
                     tx_hash,
                     start_timestamp,
                     kind,
+                    error,
                 };
                 cache.push(run_tx.to_owned());
                 on_receive.send(()).map_err(|_| {
@@ -232,10 +242,16 @@ where
             } => {
                 Self::flush_cache(cache, db, rpc, run_id, on_flush, target_block_num).await?;
             }
-            TxActorMessage::DumpCache { on_dump_cache, run_id } => {
+            TxActorMessage::DumpCache {
+                on_dump_cache,
+                run_id,
+            } => {
                 let res = Self::dump_cache(cache, db, run_id).await?;
                 on_dump_cache.send(res).map_err(|_| {
-                    ContenderError::SpamError("failed to join TxActor on_get_cache (FlushCache)", None)
+                    ContenderError::SpamError(
+                        "failed to join TxActor on_get_cache (FlushCache)",
+                        None,
+                    )
                 })?;
             }
         }
@@ -245,7 +261,10 @@ where
     pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         while let Some(msg) = self.receiver.recv().await {
             match &msg {
-                TxActorMessage::DumpCache { on_dump_cache: _, run_id: _ } => {
+                TxActorMessage::DumpCache {
+                    on_dump_cache: _,
+                    run_id: _,
+                } => {
                     tokio::select! {
                         _ = Self::handle_message(&mut self.cache, &self.db, &self.rpc,
                             msg
@@ -274,6 +293,7 @@ where
                     start_timestamp: _,
                     kind: _,
                     on_receive: _,
+                    error: _,
                 } => {
                     Self::handle_message(&mut self.cache, &self.db, &self.rpc, msg).await?;
                 }
@@ -307,8 +327,9 @@ impl TxActorHandle {
     pub async fn cache_run_tx(
         &self,
         tx_hash: TxHash,
-        start_timestamp: usize,
+        start_timestamp: u64,
         kind: Option<String>,
+        error: Option<String>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let (sender, receiver) = oneshot::channel();
         self.sender
@@ -317,6 +338,7 @@ impl TxActorHandle {
                 start_timestamp,
                 kind,
                 on_receive: sender,
+                error,
             })
             .await?;
         receiver.await?;

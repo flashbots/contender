@@ -211,9 +211,11 @@ pub async fn fund_accounts(
             }
         }));
     }
-    println!("sending funding txs...");
-    for handle in fund_handles {
-        handle.await?;
+    if !fund_handles.is_empty() {
+        println!("sending funding txs...");
+        for handle in fund_handles {
+            handle.await?;
+        }
     }
     receiver.close();
 

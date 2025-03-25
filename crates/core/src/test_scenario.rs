@@ -639,6 +639,7 @@ where
                                     // if they are due to nonce issues, this will fail, but if they do land somehow,
                                     // they will be awaited in the post-spam loop
                                     println!("error from tx {}: {:?}", tx_hash, err);
+                                    extra.insert("error".to_owned(), err.to_string());
                                     vec![callback_handler.on_tx_sent(
                                         PendingTransactionConfig::new(tx_hash),
                                         &req,

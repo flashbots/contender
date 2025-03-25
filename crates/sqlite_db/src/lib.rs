@@ -91,11 +91,12 @@ impl NamedTxRow {
 struct RunTxRow {
     run_id: i64,
     tx_hash: String,
-    start_timestamp: usize,
-    end_timestamp: Option<usize>,
+    start_timestamp: u64,
+    end_timestamp: Option<u64>,
     block_number: Option<u64>,
-    gas_used: Option<String>,
+    gas_used: Option<u64>,
     kind: Option<String>,
+    error: Option<String>,
 }
 
 impl RunTxRow {
@@ -108,6 +109,7 @@ impl RunTxRow {
             block_number: row.get(4)?,
             gas_used: row.get(5)?,
             kind: row.get(6)?,
+            error: row.get(7)?,
         })
     }
 }
@@ -122,10 +124,9 @@ impl From<RunTxRow> for RunTx {
             start_timestamp: row.start_timestamp,
             end_timestamp: row.end_timestamp,
             block_number: row.block_number,
-            gas_used: row
-                .gas_used
-                .map(|g| g.parse().expect("invalid gas_used parameter")),
+            gas_used: row.gas_used,
             kind: row.kind,
+            error: row.error,
         }
     }
 }
@@ -160,15 +161,13 @@ impl DbOps for SqliteDb {
         };
 
         let queries = [
-            self.execute(
-                "PRAGMA foreign_keys = ON;",
-                params![],
-            ),
+            self.execute("PRAGMA foreign_keys = ON;", params![]),
             self.execute(
                 "CREATE TABLE runs (
                     id INTEGER PRIMARY KEY,
                     timestamp TEXT NOT NULL,
-                    tx_count INTEGER NOT NULL
+                    tx_count INTEGER NOT NULL,
+                    scenario_name TEXT NOT NULL DEFAULT ''
                 )",
                 params![],
             ),
@@ -196,42 +195,15 @@ impl DbOps for SqliteDb {
                     run_id INTEGER NOT NULL,
                     tx_hash TEXT NOT NULL,
                     start_timestamp INTEGER NOT NULL,
-                    end_timestamp INTEGER NOT NULL,
-                    block_number INTEGER NOT NULL,
-                    gas_used TEXT NOT NULL,
+                    end_timestamp INTEGER,
+                    block_number INTEGER,
+                    gas_used INTEGER,
                     kind TEXT,
+                    error TEXT,
                     FOREIGN KEY(run_id) REFERENCES runs(id)
                 )",
                 params![],
             ),
-            self.execute(
-                "ALTER TABLE runs ADD COLUMN scenario_name TEXT NOT NULL DEFAULT '';",
-                params![],
-            ),
-            // migrate run_txs table to remove NOT NULL constraints
-            // -- Create the new table with foreign key constraints
-            self.execute("
-                CREATE TABLE run_txs_new (
-                    id INTEGER PRIMARY KEY,
-                    run_id INTEGER NOT NULL,
-                    tx_hash TEXT NOT NULL,
-                    start_timestamp INTEGER NOT NULL,
-                    end_timestamp INTEGER,
-                    block_number INTEGER,
-                    gas_used TEXT,
-                    kind TEXT,
-                    FOREIGN KEY(run_id) REFERENCES runs(id)
-                );
-            ", params![]),
-            // -- Copy data from the old table to the new table
-            self.execute("
-                INSERT INTO run_txs_new (id, run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind)
-                SELECT id, run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind
-                FROM run_txs;", params![]),
-            // -- Drop the old table
-            self.execute("DROP TABLE run_txs;", params![]),
-            // -- Rename the new table to the original table name
-            self.execute("ALTER TABLE run_txs_new RENAME TO run_txs;", params![]),
         ];
         for query in queries {
             query.or_else(ignore_already_exists)?;
@@ -380,18 +352,17 @@ impl DbOps for SqliteDb {
         let pool = self.get_pool()?;
 
         let stmts = run_txs.iter().map(|tx| {
-            let val_or_null_usize = |v: Option<usize>| v.map(|v| v.to_string()).unwrap_or("NULL".to_owned());
-            let val_or_null_u64 = |v: Option<u64>| v.map(|v| v.to_string()).unwrap_or("NULL".to_owned());
-            let val_or_null_str = |v: Option<String>| v.map(|v| format!("'{v}'")).unwrap_or("NULL".to_owned());
+            let val_or_null_u64 = |v: &Option<u64>| v.map(|v| v.to_string()).unwrap_or("NULL".to_owned());
+            let val_or_null_str = |v: &Option<String>| v.to_owned().map(|v| format!("'{v}'")).unwrap_or("NULL".to_owned());
 
-            let kind = val_or_null_str(tx.kind.to_owned());
-            let end_timestamp = val_or_null_usize(tx.end_timestamp);
-            let block_number = val_or_null_u64(tx.block_number);
-            // TODO: change gas_used in DB to INTEGER... idk why tf it's a string
-            let gas_used = tx.gas_used.map(|v| format!("'{v}'")).unwrap_or("NULL".to_owned());
+            let kind = val_or_null_str(&tx.kind);
+            let end_timestamp = val_or_null_u64(&tx.end_timestamp);
+            let block_number = val_or_null_u64(&tx.block_number);
+            let gas_used = val_or_null_u64(&tx.gas_used);
+            let error = val_or_null_str(&tx.error);
 
             format!(
-                "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind) VALUES ({}, '{}', {}, {}, {}, {}, {});",
+                "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind, error) VALUES ({}, '{}', {}, {}, {}, {}, {}, {});",
                 run_id,
                 tx.tx_hash.encode_hex(),
                 tx.start_timestamp,
@@ -399,6 +370,7 @@ impl DbOps for SqliteDb {
                 block_number,
                 gas_used,
                 kind,
+                error,
             )
         });
 
@@ -485,6 +457,7 @@ mod tests {
                 block_number: Some(1),
                 gas_used: Some(100),
                 kind: Some("test".to_string()),
+                error: None,
             },
             RunTx {
                 tx_hash: TxHash::from_slice(&[1u8; 32]),
@@ -493,6 +466,7 @@ mod tests {
                 block_number: Some(2),
                 gas_used: Some(200),
                 kind: Some("test".to_string()),
+                error: None,
             },
         ];
         db.insert_run_txs(run_id, &run_txs).unwrap();

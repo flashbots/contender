@@ -11,12 +11,13 @@ pub use mock::MockDb;
 pub struct RunTx {
     pub tx_hash: TxHash,
     #[serde(rename = "start_time")]
-    pub start_timestamp: usize,
+    pub start_timestamp: u64,
     #[serde(rename = "end_time")]
-    pub end_timestamp: Option<usize>,
+    pub end_timestamp: Option<u64>,
     pub block_number: Option<u64>,
     pub gas_used: Option<u64>,
     pub kind: Option<String>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]

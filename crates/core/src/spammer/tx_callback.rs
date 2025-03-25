@@ -56,15 +56,18 @@ impl OnTxSent for LogCallback {
     ) -> Option<JoinHandle<()>> {
         let start_timestamp = extra
             .as_ref()
-            .and_then(|e| e.get("start_timestamp").map(|t| t.parse::<usize>()))?
+            .and_then(|e| e.get("start_timestamp").map(|t| t.parse::<u64>()))?
             .unwrap_or(0);
         let kind = extra
             .as_ref()
-            .and_then(|e| e.get("kind").map(|k| k.to_string()));
+            .and_then(|e| e.get("kind").map(|k| k.to_owned()));
+        let error = extra
+            .as_ref()
+            .and_then(|e| e.get("error").map(|e| e.to_owned()));
         let handle = tokio::task::spawn(async move {
             if let Some(tx_actor) = tx_actor {
                 tx_actor
-                    .cache_run_tx(*tx_response.tx_hash(), start_timestamp, kind)
+                    .cache_run_tx(*tx_response.tx_hash(), start_timestamp, kind, error)
                     .await
                     .expect("failed to cache run tx");
             }
