@@ -11,8 +11,8 @@ use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
 use block_trace::get_block_trace_data;
 use cache::CacheFile;
 use chart::{
-    DrawableChart, GasPerBlockChart, HeatMapChart, ReportChartId, TimeToInclusionChart,
-    TxGasUsedChart,
+    DrawableChart, GasPerBlockChart, HeatMapChart, PendingTxsChart, ReportChartId,
+    TimeToInclusionChart, TxGasUsedChart,
 };
 use contender_core::db::{DbOps, RunTx};
 use csv::WriterBuilder;
@@ -110,6 +110,10 @@ pub async fn report(
     // make txGasUsed chart
     let tx_gas_used = TxGasUsedChart::new(&cache_data.traces);
     tx_gas_used.draw(&ReportChartId::TxGasUsed.filename(start_run_id, end_run_id)?)?;
+
+    // make pendingTxs chart
+    let pending_txs = PendingTxsChart::new(&all_txs);
+    pending_txs.draw(&ReportChartId::PendingTxs.filename(start_run_id, end_run_id)?)?;
 
     // compile report
     let report_path = build_html_report(ReportMetadata {
