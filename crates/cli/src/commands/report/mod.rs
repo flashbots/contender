@@ -96,8 +96,8 @@ pub async fn report(
     cache_data.save()?;
 
     // make heatmap
-    let heatmap = HeatMapChart::build(&cache_data.traces)?;
-    heatmap.draw(ReportChartId::Heatmap.filename(start_run_id, end_run_id)?)?;
+    let heatmap = HeatMapChart::new(&cache_data.traces)?;
+    heatmap.draw(&ReportChartId::Heatmap.filename(start_run_id, end_run_id)?)?;
 
     // make gasPerBlock chart
     let gas_per_block = GasPerBlockChart::new(&cache_data.blocks);

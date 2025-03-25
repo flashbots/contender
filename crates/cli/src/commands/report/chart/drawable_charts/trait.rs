@@ -6,7 +6,7 @@ use plotters::{
 };
 
 pub trait DrawableChart {
-    fn define_chart<'b>(
+    fn define_chart(
         &self,
         root: &DrawingArea<BitMapBackend, Shift>,
     ) -> Result<(), Box<dyn std::error::Error>>;
