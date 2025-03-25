@@ -104,12 +104,12 @@ pub async fn report(
     gas_per_block.draw(&ReportChartId::GasPerBlock.filename(start_run_id, end_run_id)?)?;
 
     // make timeToInclusion chart
-    let time_to_inclusion = TimeToInclusionChart::build(&all_txs);
-    time_to_inclusion.draw(ReportChartId::TimeToInclusion.filename(start_run_id, end_run_id)?)?;
+    let time_to_inclusion = TimeToInclusionChart::new(&all_txs);
+    time_to_inclusion.draw(&ReportChartId::TimeToInclusion.filename(start_run_id, end_run_id)?)?;
 
     // make txGasUsed chart
-    let tx_gas_used = TxGasUsedChart::build(&cache_data.traces)?;
-    tx_gas_used.draw(ReportChartId::TxGasUsed.filename(start_run_id, end_run_id)?)?;
+    let tx_gas_used = TxGasUsedChart::new(&cache_data.traces);
+    tx_gas_used.draw(&ReportChartId::TxGasUsed.filename(start_run_id, end_run_id)?)?;
 
     // compile report
     let report_path = build_html_report(ReportMetadata {
