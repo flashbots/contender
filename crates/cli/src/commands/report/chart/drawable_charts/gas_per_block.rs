@@ -51,7 +51,7 @@ impl DrawableChart for GasPerBlockChart {
         let mut chart = ChartBuilder::on(root)
             .margin(15)
             .margin_bottom(25)
-            .x_label_area_size(100)
+            .x_label_area_size(60)
             .y_label_area_size(80)
             .build_cartesian_2d(
                 (start_block - 1)..start_block + self.gas_used_per_block.len() as u64,

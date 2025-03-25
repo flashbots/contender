@@ -149,7 +149,7 @@ impl DrawableChart for HeatMapChart {
         let mut chart = ChartBuilder::on(&chart_area)
             .margin(20)
             .x_label_area_size(80)
-            .y_label_area_size(160)
+            .y_label_area_size(120)
             .build_cartesian_2d(0..x_size, 0..y_size)?;
 
         chart

@@ -45,7 +45,7 @@ impl DrawableChart for TimeToInclusionChart {
         let mut chart = ChartBuilder::on(&root)
             .margin(15)
             .x_label_area_size(60)
-            .y_label_area_size(40)
+            .y_label_area_size(60)
             .build_cartesian_2d(*min_tti..*max_tti + 1, 0..self.inclusion_times.len() as u32)?;
 
         chart

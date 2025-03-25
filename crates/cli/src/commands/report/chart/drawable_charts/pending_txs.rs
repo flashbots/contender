@@ -80,7 +80,7 @@ impl DrawableChart for PendingTxsChart {
         let mut chart = plotters::chart::ChartBuilder::on(&root)
             .margin(15)
             .x_label_area_size(60)
-            .y_label_area_size(40)
+            .y_label_area_size(60)
             .build_cartesian_2d(
                 min_timestamp..max_timestamp + 1,
                 0..max_pending_txs + (5 - (max_pending_txs % 5)),
