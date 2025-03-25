@@ -74,7 +74,7 @@ impl GasPerBlockChart {
             .y_label_area_size(80)
             .build_cartesian_2d(
                 (start_block - 1)..start_block + self.gas_used_per_block.len() as u64,
-                0..max_gas_used,
+                0..max_gas_used + (5_000_000 - (max_gas_used % 5_000_000)),
             )?;
 
         chart
