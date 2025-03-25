@@ -50,6 +50,8 @@ pub trait DbOps {
     /// Insert a new run into the database. Returns run_id.
     fn insert_run(&self, timestamp: u64, tx_count: usize, scenario_name: &str) -> Result<u64>;
 
+    fn version(&self) -> u64;
+
     fn num_runs(&self) -> Result<u64>;
 
     fn get_run(&self, run_id: u64) -> Result<Option<SpamRun>>;

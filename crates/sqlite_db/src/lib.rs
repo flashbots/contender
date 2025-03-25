@@ -9,6 +9,9 @@ use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, types::FromSql, Row};
 use serde::{Deserialize, Serialize};
 
+/// Increment this whenever making changes to the DB schema.
+pub static DB_VERSION: u64 = 1;
+
 #[derive(Clone)]
 pub struct SqliteDb {
     pool: Pool<SqliteConnectionManager>,
@@ -161,6 +164,11 @@ impl From<SpamRunRow> for SpamRun {
 }
 
 impl DbOps for SqliteDb {
+    fn version(&self) -> u64 {
+        self.query_row("PRAGMA user_version", params![], |row| row.get(0))
+            .unwrap_or(0)
+    }
+
     fn create_tables(&self) -> Result<()> {
         let ignore_already_exists = |e: ContenderError| {
             let err_str = format!("{:?}", e);
@@ -173,6 +181,7 @@ impl DbOps for SqliteDb {
 
         let queries = [
             self.execute("PRAGMA foreign_keys = ON;", params![]),
+            self.execute(&format!("PRAGMA user_version = {DB_VERSION};"), params![]),
             self.execute(
                 "CREATE TABLE runs (
                     id INTEGER PRIMARY KEY,

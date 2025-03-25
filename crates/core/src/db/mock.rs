@@ -6,6 +6,10 @@ use crate::Result;
 pub struct MockDb;
 
 impl DbOps for MockDb {
+    fn version(&self) -> u64 {
+        u64::MAX
+    }
+
     fn create_tables(&self) -> Result<()> {
         Ok(())
     }
