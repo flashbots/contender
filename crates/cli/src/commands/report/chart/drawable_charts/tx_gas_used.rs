@@ -1,9 +1,8 @@
 use plotters::{
     backend::BitMapBackend,
     chart::ChartBuilder,
-    drawing::IntoDrawingArea,
     series::Histogram,
-    style::{full_palette::BLUE, Color, RGBColor},
+    style::{full_palette::BLUE, Color},
 };
 
 use crate::commands::report::{block_trace::TxTraceReceipt, util::abbreviate_num};
