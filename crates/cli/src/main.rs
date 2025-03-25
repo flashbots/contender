@@ -20,7 +20,13 @@ static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = ContenderCli::parse_args();
-    DB.create_tables()?;
+    if DB.table_exists("run_txs")? {
+        println!("found existing DB");
+        // TODO: check version and error if DB version is incompatible
+    } else {
+        println!("no DB found, creating new DB");
+        DB.create_tables()?;
+    }
     let db = DB.clone();
     let data_path = data_dir()?;
     let db_path = db_file()?;
