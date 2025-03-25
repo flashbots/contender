@@ -19,7 +19,7 @@ impl TimeToInclusionChart {
         for tx in run_txs {
             if let Some(end_timestamp) = tx.end_timestamp {
                 let tti = end_timestamp - tx.start_timestamp;
-                inclusion_times.push(tti as u64);
+                inclusion_times.push(tti);
             }
         }
         Self { inclusion_times }
@@ -42,7 +42,7 @@ impl DrawableChart for TimeToInclusionChart {
             .max()
             .expect("no time-to-inclusion data found");
 
-        let mut chart = ChartBuilder::on(&root)
+        let mut chart = ChartBuilder::on(root)
             .margin(15)
             .x_label_area_size(60)
             .y_label_area_size(60)

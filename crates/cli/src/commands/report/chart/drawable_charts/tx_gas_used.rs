@@ -37,7 +37,7 @@ impl DrawableChart for TxGasUsedChart {
         }
         let highest_peak = gas_used_counts.values().max().unwrap_or(&0);
 
-        let mut chart = ChartBuilder::on(&root)
+        let mut chart = ChartBuilder::on(root)
             .margin(15)
             .x_label_area_size(40)
             .y_label_area_size(60)

@@ -191,7 +191,7 @@ where
             .iter()
             .map(|pending_tx| RunTx {
                 tx_hash: pending_tx.tx_hash,
-                start_timestamp: pending_tx.start_timestamp as u64 / 1000,
+                start_timestamp: pending_tx.start_timestamp / 1000,
                 end_timestamp: None,
                 block_number: None,
                 gas_used: None,

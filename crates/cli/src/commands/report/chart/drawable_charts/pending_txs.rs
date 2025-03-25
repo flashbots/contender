@@ -24,8 +24,8 @@ impl PendingTxsChart {
         // get min/max timestamps from run_txs; evaluate max of start_timestamp and end_timestamp
         let (min_timestamp, max_timestamp) =
             run_txs.iter().fold((u64::MAX, 0), |(min, max), tx| {
-                let start_timestamp = tx.start_timestamp as u64;
-                let end_timestamp = tx.end_timestamp.unwrap_or_default() as u64;
+                let start_timestamp = tx.start_timestamp;
+                let end_timestamp = tx.end_timestamp.unwrap_or_default();
                 (
                     min.min(start_timestamp).min(end_timestamp),
                     max.max(start_timestamp).max(end_timestamp),
@@ -36,8 +36,8 @@ impl PendingTxsChart {
             let pending_txs = run_txs
                 .iter()
                 .filter(|tx| {
-                    let start_timestamp = tx.start_timestamp as u64;
-                    let end_timestamp = tx.end_timestamp.map(|t| t as u64).unwrap_or(u64::MAX);
+                    let start_timestamp = tx.start_timestamp;
+                    let end_timestamp = tx.end_timestamp.unwrap_or(u64::MAX);
                     start_timestamp <= t && t < end_timestamp
                 })
                 .count() as u64;
@@ -77,7 +77,7 @@ impl DrawableChart for PendingTxsChart {
             .copied()
             .unwrap_or_default();
 
-        let mut chart = plotters::chart::ChartBuilder::on(&root)
+        let mut chart = plotters::chart::ChartBuilder::on(root)
             .margin(15)
             .x_label_area_size(60)
             .y_label_area_size(60)
@@ -106,7 +106,7 @@ impl DrawableChart for PendingTxsChart {
         let chart_data = self
             .pending_txs_per_second
             .iter()
-            .map(|(timestamp, gas_used)| (*timestamp as u64, *gas_used));
+            .map(|(timestamp, gas_used)| ({ *timestamp }, *gas_used));
         chart.draw_series(LineSeries::new(chart_data.to_owned(), &GREEN_400))?;
 
         // draw dots on line chart

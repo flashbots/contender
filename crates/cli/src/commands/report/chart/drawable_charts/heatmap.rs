@@ -50,7 +50,7 @@ impl HeatMapChart {
             }
         }
 
-        if updates_per_slot_per_block.len() == 0 {
+        if updates_per_slot_per_block.is_empty() {
             return Err("No trace data was collected. If transactions from the specified run landed, your target node may not support geth-style preState traces".into());
         }
 

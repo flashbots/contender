@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::u64;
 
 use crate::commands::report::cache::CacheFile;
 use alloy::network::{AnyRpcBlock, AnyTransactionReceipt};

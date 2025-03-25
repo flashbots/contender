@@ -21,13 +21,9 @@ static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = ContenderCli::parse_args();
     if DB.table_exists("run_txs")? {
-        println!("found existing DB");
-        // TODO: check version and error if DB version is incompatible
+        // check version and exit if DB version is incompatible
         let quit_early = DB.version() < DB_VERSION
-            && match &args.command {
-                ContenderSubcommand::Db { command: _ } => false,
-                _ => true,
-            };
+            && !matches!(&args.command, ContenderSubcommand::Db { command: _ });
         if quit_early {
             println!("Your database is incompatible with this version of contender. To backup your data, run `contender db export`.\nPlease run `contender db drop` before trying again.");
             return Ok(());

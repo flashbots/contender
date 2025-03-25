@@ -338,7 +338,7 @@ where
                     receipt.contract_address.unwrap_or_default()
                 );
                 db.insert_named_txs(
-                    &vec![NamedTx::new(
+                    &[NamedTx::new(
                         tx_req.name.unwrap_or_default(),
                         receipt.transaction_hash,
                         receipt.contract_address,
@@ -424,7 +424,7 @@ where
 
                 if let Some(name) = tx_req.name {
                     db.insert_named_txs(
-                        &vec![NamedTx::new(
+                        &[NamedTx::new(
                             name,
                             receipt.transaction_hash,
                             receipt.contract_address,
