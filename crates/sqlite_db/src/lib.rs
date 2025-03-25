@@ -440,8 +440,10 @@ mod tests {
         let name2 = "test_tx2";
         let rpc_url = "http://test.url:8545";
         db.insert_named_txs(
-            &[NamedTx::new(name1.to_owned(), tx_hash, contract_address),
-                NamedTx::new(name2.to_string(), tx_hash, contract_address)],
+            &[
+                NamedTx::new(name1.to_owned(), tx_hash, contract_address),
+                NamedTx::new(name2.to_string(), tx_hash, contract_address),
+            ],
             rpc_url,
         )
         .unwrap();
