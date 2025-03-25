@@ -42,6 +42,17 @@ impl SqliteDb {
         Ok(())
     }
 
+    pub fn table_exists(&self, table_name: &str) -> Result<bool> {
+        let exists: bool = self
+            .query_row(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?1",
+                params![table_name],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        Ok(exists)
+    }
+
     fn query_row<
         T: FromSql,
         P: rusqlite::Params,
@@ -231,7 +242,7 @@ impl DbOps for SqliteDb {
     fn get_run_txs(&self, run_id: u64) -> Result<Vec<RunTx>> {
         let pool = self.get_pool()?;
         let mut stmt = pool
-            .prepare("SELECT run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind FROM run_txs WHERE run_id = ?1")
+            .prepare("SELECT run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind, error FROM run_txs WHERE run_id = ?1")
             .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
 
         let rows = stmt
