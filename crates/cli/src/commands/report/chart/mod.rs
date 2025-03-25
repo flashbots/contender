@@ -1,11 +1,8 @@
 mod chart_id;
-mod gas_per_block;
-mod heatmap;
-mod time_to_inclusion;
-mod tx_gas_used;
+mod drawable_charts;
 
 pub use chart_id::ReportChartId;
-pub use gas_per_block::GasPerBlockChart;
-pub use heatmap::HeatMapChart;
-pub use time_to_inclusion::TimeToInclusionChart;
-pub use tx_gas_used::TxGasUsedChart;
+pub use drawable_charts::{
+    gas_per_block::GasPerBlockChart, heatmap::HeatMapChart, pending_txs::PendingTxsChart,
+    time_to_inclusion::TimeToInclusionChart, tx_gas_used::TxGasUsedChart, DrawableChart,
+};

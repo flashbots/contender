@@ -258,13 +258,7 @@ async fn get_max_spam_cost<D: DbOps + Send + Sync + 'static, S: Seeder + Send + 
     for tx in sample_txs {
         let tx_req = tx.tx;
         let (prepared_req, _signer) = scenario.prepare_tx_request(&tx_req, gas_price).await?;
-        println!(
-            "tx_request gas={:?} gas_price={:?} ({:?}, {:?})",
-            prepared_req.gas,
-            prepared_req.gas_price,
-            prepared_req.max_fee_per_gas,
-            prepared_req.max_priority_fee_per_gas
-        );
+
         prepared_sample_txs.push(prepared_req);
     }
 

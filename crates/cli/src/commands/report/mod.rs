@@ -10,8 +10,10 @@ use alloy::providers::DynProvider;
 use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
 use block_trace::get_block_trace_data;
 use cache::CacheFile;
-use chart::ReportChartId;
-use chart::{GasPerBlockChart, HeatMapChart, TimeToInclusionChart, TxGasUsedChart};
+use chart::{
+    DrawableChart, GasPerBlockChart, HeatMapChart, PendingTxsChart, ReportChartId,
+    TimeToInclusionChart, TxGasUsedChart,
+};
 use contender_core::db::{DbOps, RunTx};
 use csv::WriterBuilder;
 use gen_html::{build_html_report, ReportMetadata};
@@ -94,20 +96,24 @@ pub async fn report(
     cache_data.save()?;
 
     // make heatmap
-    let heatmap = HeatMapChart::build(&cache_data.traces)?;
-    heatmap.draw(ReportChartId::Heatmap.filename(start_run_id, end_run_id)?)?;
+    let heatmap = HeatMapChart::new(&cache_data.traces)?;
+    heatmap.draw(&ReportChartId::Heatmap.filename(start_run_id, end_run_id)?)?;
 
     // make gasPerBlock chart
-    let gas_per_block = GasPerBlockChart::build(&cache_data.blocks);
-    gas_per_block.draw(ReportChartId::GasPerBlock.filename(start_run_id, end_run_id)?)?;
+    let gas_per_block = GasPerBlockChart::new(&cache_data.blocks);
+    gas_per_block.draw(&ReportChartId::GasPerBlock.filename(start_run_id, end_run_id)?)?;
 
     // make timeToInclusion chart
-    let time_to_inclusion = TimeToInclusionChart::build(&all_txs);
-    time_to_inclusion.draw(ReportChartId::TimeToInclusion.filename(start_run_id, end_run_id)?)?;
+    let time_to_inclusion = TimeToInclusionChart::new(&all_txs);
+    time_to_inclusion.draw(&ReportChartId::TimeToInclusion.filename(start_run_id, end_run_id)?)?;
 
     // make txGasUsed chart
-    let tx_gas_used = TxGasUsedChart::build(&cache_data.traces)?;
-    tx_gas_used.draw(ReportChartId::TxGasUsed.filename(start_run_id, end_run_id)?)?;
+    let tx_gas_used = TxGasUsedChart::new(&cache_data.traces);
+    tx_gas_used.draw(&ReportChartId::TxGasUsed.filename(start_run_id, end_run_id)?)?;
+
+    // make pendingTxs chart
+    let pending_txs = PendingTxsChart::new(&all_txs);
+    pending_txs.draw(&ReportChartId::PendingTxs.filename(start_run_id, end_run_id)?)?;
 
     // compile report
     let report_path = build_html_report(ReportMetadata {
