@@ -10,8 +10,10 @@ use alloy::providers::DynProvider;
 use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
 use block_trace::get_block_trace_data;
 use cache::CacheFile;
-use chart::ReportChartId;
-use chart::{GasPerBlockChart, HeatMapChart, TimeToInclusionChart, TxGasUsedChart};
+use chart::{
+    DrawableChart, GasPerBlockChart, HeatMapChart, ReportChartId, TimeToInclusionChart,
+    TxGasUsedChart,
+};
 use contender_core::db::{DbOps, RunTx};
 use csv::WriterBuilder;
 use gen_html::{build_html_report, ReportMetadata};
@@ -98,8 +100,8 @@ pub async fn report(
     heatmap.draw(ReportChartId::Heatmap.filename(start_run_id, end_run_id)?)?;
 
     // make gasPerBlock chart
-    let gas_per_block = GasPerBlockChart::build(&cache_data.blocks);
-    gas_per_block.draw(ReportChartId::GasPerBlock.filename(start_run_id, end_run_id)?)?;
+    let gas_per_block = GasPerBlockChart::new(&cache_data.blocks);
+    gas_per_block.draw(&ReportChartId::GasPerBlock.filename(start_run_id, end_run_id)?)?;
 
     // make timeToInclusion chart
     let time_to_inclusion = TimeToInclusionChart::build(&all_txs);
