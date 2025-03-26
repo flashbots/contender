@@ -12,14 +12,19 @@ use crate::{
 enum TxActorMessage {
     SentRunTx {
         tx_hash: TxHash,
-        start_timestamp: usize,
+        start_timestamp: u64,
         kind: Option<String>,
-        on_receipt: oneshot::Sender<()>,
+        error: Option<String>,
+        on_receive: oneshot::Sender<()>,
     },
     FlushCache {
         run_id: Option<u64>,
         on_flush: oneshot::Sender<usize>, // returns the number of txs remaining in cache
         target_block_num: u64,
+    },
+    DumpCache {
+        run_id: u64,
+        on_dump_cache: oneshot::Sender<Vec<RunTx>>,
     },
     Stop {
         on_stop: oneshot::Sender<()>,
@@ -38,17 +43,24 @@ where
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PendingRunTx {
-    tx_hash: TxHash,
-    start_timestamp: usize,
-    kind: Option<String>,
+    pub tx_hash: TxHash,
+    pub start_timestamp: u64,
+    pub kind: Option<String>,
+    pub error: Option<String>,
 }
 
 impl PendingRunTx {
-    pub fn new(tx_hash: TxHash, start_timestamp: usize, kind: Option<&str>) -> Self {
+    pub fn new(
+        tx_hash: TxHash,
+        start_timestamp: u64,
+        kind: Option<&str>,
+        error: Option<&str>,
+    ) -> Self {
         Self {
             tx_hash,
             start_timestamp,
             kind: kind.map(|s| s.to_owned()),
+            error: error.map(|s| s.to_owned()),
         }
     }
 }
@@ -70,6 +82,9 @@ where
         }
     }
 
+    /// Waits for target block to appear onchain,
+    /// gets block receipts for the target block,
+    /// removes txs that were included in the block from cache, and saves them to the DB.
     async fn flush_cache(
         cache: &mut Vec<PendingRunTx>,
         db: &Arc<D>,
@@ -78,14 +93,7 @@ where
         on_flush: oneshot::Sender<usize>, // returns the number of txs remaining in cache
         target_block_num: u64,
     ) -> Result<Vec<PendingRunTx>, Box<dyn std::error::Error>> {
-        if cache.len() > 42 {
-            println!("unconfirmed txs: ({})", cache.len());
-        } else {
-            println!(
-                "unconfirmed txs: {:?}",
-                cache.iter().map(|tx| tx.tx_hash).collect::<Vec<_>>()
-            );
-        }
+        println!("unconfirmed txs: {}", cache.len());
         let mut maybe_block;
         // TODO: replace this garbage mutator thing with a while loop
         loop {
@@ -153,20 +161,44 @@ where
                 RunTx {
                     tx_hash: pending_tx.tx_hash,
                     start_timestamp: pending_tx.start_timestamp / 1000,
-                    end_timestamp: target_block.header.timestamp as usize,
-                    block_number: target_block.header.number,
-                    gas_used: receipt.gas_used,
+                    end_timestamp: Some(target_block.header.timestamp),
+                    block_number: Some(target_block.header.number),
+                    gas_used: Some(receipt.gas_used),
                     kind: pending_tx.kind,
+                    error: pending_tx.error,
                 }
             })
             .collect::<Vec<_>>();
         if let Some(run_id) = run_id {
-            db.insert_run_txs(run_id, run_txs)?;
+            db.insert_run_txs(run_id, &run_txs)?;
         }
         on_flush
             .send(new_txs.len())
             .map_err(|_| ContenderError::SpamError("failed to join TxActor on_flush", None))?;
         Ok(new_txs)
+    }
+
+    /// Dumps all cached txs into the DB. Does not assign `end_timestamp`, `block_number`, or `gas_used`.
+    async fn dump_cache(
+        cache: &mut Vec<PendingRunTx>,
+        db: &Arc<D>,
+        run_id: u64,
+    ) -> Result<Vec<RunTx>, Box<dyn std::error::Error>> {
+        let run_txs = cache
+            .iter()
+            .map(|pending_tx| RunTx {
+                tx_hash: pending_tx.tx_hash,
+                start_timestamp: pending_tx.start_timestamp / 1000,
+                end_timestamp: None,
+                block_number: None,
+                gas_used: None,
+                kind: pending_tx.kind.to_owned(),
+                error: pending_tx.error.to_owned(),
+            })
+            .collect::<Vec<_>>();
+        db.insert_run_txs(run_id, &run_txs)?;
+        cache.clear();
+        Ok(run_txs)
     }
 
     async fn handle_message(
@@ -178,7 +210,7 @@ where
         match message {
             TxActorMessage::Stop { on_stop } => {
                 on_stop.send(()).map_err(|_| {
-                    ContenderError::SpamError("failed to join TxActor on_stop", None)
+                    ContenderError::SpamError("failed to join TxActor on_stop (Stop)", None)
                 })?;
                 return Ok(());
             }
@@ -186,16 +218,18 @@ where
                 tx_hash,
                 start_timestamp,
                 kind,
-                on_receipt,
+                error,
+                on_receive,
             } => {
                 let run_tx = PendingRunTx {
                     tx_hash,
                     start_timestamp,
                     kind,
+                    error,
                 };
                 cache.push(run_tx.to_owned());
-                on_receipt.send(()).map_err(|_| {
-                    ContenderError::SpamError("failed to join TxActor callback", None)
+                on_receive.send(()).map_err(|_| {
+                    ContenderError::SpamError("failed to join TxActor on_receive (SentRunTx)", None)
                 })?;
             }
             TxActorMessage::FlushCache {
@@ -205,6 +239,18 @@ where
             } => {
                 Self::flush_cache(cache, db, rpc, run_id, on_flush, target_block_num).await?;
             }
+            TxActorMessage::DumpCache {
+                on_dump_cache,
+                run_id,
+            } => {
+                let res = Self::dump_cache(cache, db, run_id).await?;
+                on_dump_cache.send(res).map_err(|_| {
+                    ContenderError::SpamError(
+                        "failed to join TxActor on_get_cache (FlushCache)",
+                        None,
+                    )
+                })?;
+            }
         }
         Ok(())
     }
@@ -212,6 +258,19 @@ where
     pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         while let Some(msg) = self.receiver.recv().await {
             match &msg {
+                TxActorMessage::DumpCache {
+                    on_dump_cache: _,
+                    run_id: _,
+                } => {
+                    tokio::select! {
+                        _ = Self::handle_message(&mut self.cache, &self.db, &self.rpc,
+                            msg
+                        ) => {},
+                        Some(TxActorMessage::Stop{on_stop: _}) = self.receiver.recv() => {
+                            // exits early if a stop message is received
+                        },
+                    };
+                }
                 TxActorMessage::FlushCache {
                     run_id: _,
                     on_flush: _,
@@ -230,7 +289,8 @@ where
                     tx_hash: _,
                     start_timestamp: _,
                     kind: _,
-                    on_receipt: _,
+                    on_receive: _,
+                    error: _,
                 } => {
                     Self::handle_message(&mut self.cache, &self.db, &self.rpc, msg).await?;
                 }
@@ -260,11 +320,13 @@ impl TxActorHandle {
         Self { sender }
     }
 
+    /// Adds a new tx to the cache.
     pub async fn cache_run_tx(
         &self,
         tx_hash: TxHash,
-        start_timestamp: usize,
+        start_timestamp: u64,
         kind: Option<String>,
+        error: Option<String>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let (sender, receiver) = oneshot::channel();
         self.sender
@@ -272,13 +334,27 @@ impl TxActorHandle {
                 tx_hash,
                 start_timestamp,
                 kind,
-                on_receipt: sender,
+                on_receive: sender,
+                error,
             })
             .await?;
         receiver.await?;
         Ok(())
     }
 
+    /// Dumps remaining txs in cache to the DB and returns them. Does not assign `end_timestamp`, `block_number`, or `gas_used`.
+    pub async fn dump_cache(&self, run_id: u64) -> Result<Vec<RunTx>, Box<dyn std::error::Error>> {
+        let (sender, receiver) = oneshot::channel();
+        self.sender
+            .send(TxActorMessage::DumpCache {
+                on_dump_cache: sender,
+                run_id,
+            })
+            .await?;
+        Ok(receiver.await?)
+    }
+
+    /// Removes txs included onchain from the cache, saves them to the DB, and returns the number of txs remaining in the cache.
     pub async fn flush_cache(
         &self,
         run_id: Option<u64>,
@@ -295,6 +371,7 @@ impl TxActorHandle {
         Ok(receiver.await?)
     }
 
+    /// Stops the actor, terminating any pending tasks.
     pub async fn stop(&self) -> Result<(), Box<dyn std::error::Error>> {
         let (sender, receiver) = oneshot::channel();
         self.sender

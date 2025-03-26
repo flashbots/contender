@@ -1,49 +1,34 @@
 use plotters::{
     backend::BitMapBackend,
     chart::ChartBuilder,
-    drawing::IntoDrawingArea,
     series::Histogram,
-    style::{full_palette::BLUE, Color, RGBColor},
+    style::{full_palette::BLUE, Color},
 };
 
 use crate::commands::report::{block_trace::TxTraceReceipt, util::abbreviate_num};
+
+use super::DrawableChart;
 
 pub struct TxGasUsedChart {
     gas_used: Vec<u64>,
 }
 
-impl Default for TxGasUsedChart {
-    fn default() -> Self {
-        Self::new()
+impl TxGasUsedChart {
+    pub fn new(trace_data: &[TxTraceReceipt]) -> Self {
+        let mut gas_used = vec![];
+        for t in trace_data {
+            let gas = t.receipt.gas_used;
+            gas_used.push(gas + (1000 - (gas % 1000)));
+        }
+        Self { gas_used }
     }
 }
 
-impl TxGasUsedChart {
-    fn new() -> Self {
-        Self {
-            gas_used: Default::default(),
-        }
-    }
-
-    pub fn build(trace_data: &[TxTraceReceipt]) -> Result<Self, Box<dyn std::error::Error>> {
-        let mut chart = TxGasUsedChart::new();
-
-        for t in trace_data {
-            let gas = t.receipt.gas_used;
-            chart.add_gas_used(gas + (1000 - (gas % 1000)));
-        }
-
-        Ok(chart)
-    }
-
-    fn add_gas_used(&mut self, gas_used: u64) {
-        self.gas_used.push(gas_used);
-    }
-
-    pub fn draw(&self, filepath: impl AsRef<str>) -> Result<(), Box<dyn std::error::Error>> {
-        let root = BitMapBackend::new(filepath.as_ref(), (1024, 768)).into_drawing_area();
-        root.fill(&RGBColor(255, 255, 255))?;
-
+impl DrawableChart for TxGasUsedChart {
+    fn define_chart(
+        &self,
+        root: &plotters::prelude::DrawingArea<BitMapBackend, plotters::coord::Shift>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let max_gas_used = self.gas_used.iter().max().copied().unwrap_or_default();
 
         let mut gas_used_counts = std::collections::HashMap::new();
@@ -52,7 +37,7 @@ impl TxGasUsedChart {
         }
         let highest_peak = gas_used_counts.values().max().unwrap_or(&0);
 
-        let mut chart = ChartBuilder::on(&root)
+        let mut chart = ChartBuilder::on(root)
             .margin(15)
             .x_label_area_size(40)
             .y_label_area_size(60)
@@ -76,7 +61,6 @@ impl TxGasUsedChart {
                 .data(self.gas_used.iter().map(|&x| (x, 1))),
         )?;
 
-        println!("saved chart to {}", filepath.as_ref());
         Ok(())
     }
 }

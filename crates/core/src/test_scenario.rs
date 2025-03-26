@@ -427,12 +427,11 @@ where
                     receipt.contract_address.unwrap_or_default()
                 );
                 db.insert_named_txs(
-                    NamedTx::new(
+                    &[NamedTx::new(
                         tx_req.name.unwrap_or_default(),
                         receipt.transaction_hash,
                         receipt.contract_address,
-                    )
-                    .into(),
+                    )],
                     rpc_url.as_str(),
                 )
                 .expect("failed to insert tx into db");
@@ -517,8 +516,11 @@ where
 
                 if let Some(name) = tx_req.name {
                     db.insert_named_txs(
-                        NamedTx::new(name, receipt.transaction_hash, receipt.contract_address)
-                            .into(),
+                        &[NamedTx::new(
+                            name,
+                            receipt.transaction_hash,
+                            receipt.contract_address,
+                        )],
                         rpc_url.as_str(),
                     )
                     .expect("failed to insert tx into db");
@@ -725,10 +727,25 @@ where
                             }
                             Err(e) => {
                                 if let Some(err) = e.as_error_resp() {
-                                    println!("failed to send tx {}: {:?}", tx_hash, err);
+                                    // include errored txs in the cache; user may want to retry them
+                                    // if they are due to nonce issues, this will fail, but if they do land somehow,
+                                    // they will be awaited in the post-spam loop
+                                    println!("error from tx {}: {:?}", tx_hash, err);
+                                    extra.insert("error".to_owned(), err.to_string());
+                                    vec![callback_handler.on_tx_sent(
+                                        PendingTransactionConfig::new(tx_hash),
+                                        &req,
+                                        Some(extra),
+                                        Some(tx_handler.clone()),
+                                    )]
+                                } else {
+                                    // ignore errors that can't be decoded
+                                    println!(
+                                        "ignoring tx response, could not decode error: {:?}",
+                                        e
+                                    );
+                                    vec![]
                                 }
-                                //
-                                vec![]
                             }
                         }
                     }

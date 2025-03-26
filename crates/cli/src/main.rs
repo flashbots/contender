@@ -13,7 +13,7 @@ use commands::{
     ContenderCli, ContenderSubcommand, DbCommand,
 };
 use contender_core::{db::DbOps, generator::RandSeed};
-use contender_sqlite::SqliteDb;
+use contender_sqlite::{SqliteDb, DB_VERSION};
 use rand::Rng;
 use util::{data_dir, db_file};
 
@@ -26,7 +26,18 @@ static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = ContenderCli::parse_args();
-    DB.create_tables()?;
+    if DB.table_exists("run_txs")? {
+        // check version and exit if DB version is incompatible
+        let quit_early = DB.version() < DB_VERSION
+            && !matches!(&args.command, ContenderSubcommand::Db { command: _ });
+        if quit_early {
+            println!("Your database is incompatible with this version of contender. To backup your data, run `contender db export`.\nPlease run `contender db drop` before trying again.");
+            return Ok(());
+        }
+    } else {
+        println!("no DB found, creating new DB");
+        DB.create_tables()?;
+    }
     let db = DB.clone();
     let data_path = data_dir()?;
     let db_path = db_file()?;
