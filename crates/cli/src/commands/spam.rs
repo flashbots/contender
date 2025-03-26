@@ -149,7 +149,7 @@ pub async fn spam(
             !args.disable_reports,
             args.call_forkchoice,
             Some(Arc::new(rpc_client)),
-            auth_client.map(|c| Arc::new(c)).into(),
+            auth_client.map(Arc::new),
         )
         .await
         {
@@ -194,7 +194,7 @@ pub async fn spam(
         !args.disable_reports,
         args.call_forkchoice,
         Arc::new(rpc_client).into(),
-        auth_client.map(|c| Arc::new(c)).into(),
+        auth_client.map(Arc::new),
     )
     .await
     {

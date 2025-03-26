@@ -314,17 +314,13 @@ pub async fn call_fcu_default<N, P: EngineApiValidWaitExt<N>>(
             safe_block_hash: current_head,
             finalized_block_hash: current_head,
         },
-        if let Some(timestamp) = timestamp {
-            Some(PayloadAttributes {
-                timestamp,
-                prev_randao: B256::ZERO,
-                suggested_fee_recipient: Default::default(),
-                withdrawals: Some(vec![]),
-                parent_beacon_block_root: Some(B256::ZERO),
-            })
-        } else {
-            None
-        },
+        timestamp.map(|timestamp| PayloadAttributes {
+            timestamp,
+            prev_randao: B256::ZERO,
+            suggested_fee_recipient: Default::default(),
+            withdrawals: Some(vec![]),
+            parent_beacon_block_root: Some(B256::ZERO),
+        }),
     )
     .await
 }

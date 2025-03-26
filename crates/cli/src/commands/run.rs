@@ -178,7 +178,7 @@ pub async fn run(
     let provider = Arc::new(DynProvider::new(provider));
     let tx_callback = LogCallback::new(
         provider.clone(),
-        auth_provider.map(|p| Arc::new(p)),
+        auth_provider.map(Arc::new),
         false, // don't call in callback bc we're already calling in the loop
     );
 
