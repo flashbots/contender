@@ -1,11 +1,10 @@
 use clap::Subcommand;
 use std::path::PathBuf;
 
+use super::setup::SetupCliArgs;
+use super::spam::SpamCliArgs;
 use crate::default_scenarios::BuiltinScenario;
 use crate::util::TxTypeCli;
-
-use super::common::ScenarioSendTxsCliArgs;
-use super::spam::SpamCliArgs;
 
 #[derive(Debug, Subcommand)]
 pub enum ContenderSubcommand {
@@ -30,7 +29,7 @@ pub enum ContenderSubcommand {
     )]
     Setup {
         #[command(flatten)]
-        args: ScenarioSendTxsCliArgs,
+        args: SetupCliArgs,
     },
 
     #[command(

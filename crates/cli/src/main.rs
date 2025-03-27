@@ -7,7 +7,8 @@ use std::sync::LazyLock;
 use alloy::hex;
 use commands::{
     common::{ScenarioSendTxsCliArgs, SendSpamCliArgs},
-    ContenderCli, ContenderSubcommand, DbCommand, RunCommandArgs, SpamCliArgs, SpamCommandArgs,
+    ContenderCli, ContenderSubcommand, DbCommand, RunCommandArgs, SetupCliArgs, SpamCliArgs,
+    SpamCommandArgs,
 };
 use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::{SqliteDb, DB_VERSION};
@@ -63,13 +64,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         ContenderSubcommand::Setup {
             args:
-                ScenarioSendTxsCliArgs {
-                    testfile,
-                    rpc_url,
-                    private_keys,
-                    min_balance,
-                    seed,
-                    tx_type,
+                SetupCliArgs {
+                    args:
+                        ScenarioSendTxsCliArgs {
+                            testfile,
+                            rpc_url,
+                            private_keys,
+                            min_balance,
+                            seed,
+                            tx_type,
+                        },
                 },
         } => {
             let seed = seed.unwrap_or(stored_seed);

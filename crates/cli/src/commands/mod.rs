@@ -13,7 +13,7 @@ pub use contender_subcommand::{ContenderSubcommand, DbCommand};
 pub use db::*;
 pub use report::report;
 pub use run::{run, RunCommandArgs};
-pub use setup::setup;
+pub use setup::{setup, SetupCliArgs};
 pub use spam::{spam, SpamCliArgs, SpamCommandArgs};
 
 #[derive(Parser, Debug)]
