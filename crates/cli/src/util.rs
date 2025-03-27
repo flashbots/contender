@@ -205,16 +205,18 @@ pub async fn fund_accounts(
                 tx_type,
             )
             .await;
-            match res.ok() {
-                Some(res) => sender.send(res).await.expect("failed to handle pending tx"),
-                None => {
-                    eprintln!("Error funding account {}", address);
-                }
+            if let Err(e) = res {
+                let err = e.to_string();
+                println!("error funding account {}: {}", address, err);
+            } else {
+                sender
+                    .send(res.expect("fund result not sent"))
+                    .await
+                    .expect("failed to handle pending tx");
             }
         }));
     }
     if !fund_handles.is_empty() {
-        println!("sending funding txs...");
         for handle in fund_handles {
             handle.await?;
         }

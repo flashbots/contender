@@ -53,8 +53,7 @@ pub async fn advance_chain(
     let block = engine_client
         .get_block(BlockId::latest())
         .full()
-        .await
-        .expect("failed to get block")
+        .await?
         .expect("no block found");
 
     //
@@ -66,8 +65,7 @@ pub async fn advance_chain(
         block.header.hash,
         Some(block.header.timestamp + block_time_secs),
     )
-    .await
-    .expect("FCU call (1) failed");
+    .await?;
     println!("FCU call sent. Payload ID: {:?}", res.payload_id);
     let payload_id = res.payload_id.expect("need payload ID");
 
