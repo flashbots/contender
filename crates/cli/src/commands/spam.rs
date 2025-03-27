@@ -25,6 +25,8 @@ use crate::util::{
     SpamCallbackType,
 };
 
+use super::common::{ScenarioSendTxsCliArgs, SendSpamCliArgs};
+
 #[derive(Debug)]
 pub struct SpamCommandArgs {
     pub testfile: String,
@@ -38,6 +40,41 @@ pub struct SpamCommandArgs {
     pub disable_reports: bool,
     pub min_balance: String,
     pub tx_type: TxType,
+    pub gas_price_percent_add: Option<u16>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct SpamCliArgs {
+    #[command(flatten)]
+    pub eth_json_rpc_args: ScenarioSendTxsCliArgs,
+
+    #[command(flatten)]
+    pub spam_args: SendSpamCliArgs,
+
+    /// Whether to log reports for the spamming run.
+    #[arg(
+            long,
+            long_help = "Whether to log reports for the spamming run.",
+            visible_aliases = &["dr"]
+        )]
+    pub disable_reports: bool,
+
+    /// The path to save the report to.
+    /// If not provided, the report can be generated with the `report` subcommand.
+    /// If provided, the report is saved to the given path.
+    #[arg(
+        short = 'r',
+        long,
+        long_help = "Filename of the saved report. May be a fully-qualified path. If not provided, the report can be generated with the `report` subcommand. '.csv' extension is added automatically."
+    )]
+    pub gen_report: bool,
+
+    /// Adds (gas_price * percent) / 100 to the standard gas price of the transactions.
+    #[arg(
+        short,
+        long,
+        long_help = "Adds given percent increase to the standard gas price of the transactions."
+    )]
     pub gas_price_percent_add: Option<u16>,
 }
 

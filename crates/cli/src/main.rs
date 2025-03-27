@@ -5,7 +5,10 @@ mod util;
 use std::sync::LazyLock;
 
 use alloy::hex;
-use commands::{ContenderCli, ContenderSubcommand, DbCommand, RunCommandArgs, SpamCommandArgs};
+use commands::{
+    common::{ScenarioSendTxsCliArgs, SendSpamCliArgs},
+    ContenderCli, ContenderSubcommand, DbCommand, RunCommandArgs, SpamCliArgs, SpamCommandArgs,
+};
 use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::{SqliteDb, DB_VERSION};
 use rand::Rng;
@@ -59,12 +62,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
 
         ContenderSubcommand::Setup {
-            testfile,
-            rpc_url,
-            private_keys,
-            min_balance,
-            seed,
-            tx_type,
+            args:
+                ScenarioSendTxsCliArgs {
+                    testfile,
+                    rpc_url,
+                    private_keys,
+                    min_balance,
+                    seed,
+                    tx_type,
+                },
         } => {
             let seed = seed.unwrap_or(stored_seed);
             commands::setup(
@@ -80,19 +86,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         ContenderSubcommand::Spam {
-            testfile,
-            rpc_url,
-            builder_url,
-            txs_per_block,
-            txs_per_second,
-            duration,
-            seed,
-            private_keys,
-            disable_reports,
-            min_balance,
-            gen_report,
-            tx_type,
-            gas_price_percent_add,
+            args:
+                SpamCliArgs {
+                    eth_json_rpc_args:
+                        ScenarioSendTxsCliArgs {
+                            testfile,
+                            rpc_url,
+                            seed,
+                            private_keys,
+                            min_balance,
+                            tx_type,
+                        },
+                    spam_args:
+                        SendSpamCliArgs {
+                            duration,
+                            txs_per_block,
+                            txs_per_second,
+                            builder_url,
+                        },
+                    disable_reports,
+                    gen_report,
+                    gas_price_percent_add,
+                },
         } => {
             let seed = seed.unwrap_or(stored_seed);
             let run_id = commands::spam(
