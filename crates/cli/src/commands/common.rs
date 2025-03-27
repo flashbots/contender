@@ -2,7 +2,6 @@
 
 use crate::util::TxTypeCli;
 
-/// Args required to load a scenario and generate txs.
 #[derive(Debug, clap::Args)]
 pub struct ScenarioSendTxsCliArgs {
     /// The path to the test file to use for spamming.

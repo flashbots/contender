@@ -24,8 +24,17 @@ pub enum ContenderSubcommand {
     },
 
     #[command(
+        name = "spamd",
+        long_about = "Spam the RPC with tx requests as designated in the given testfile over a long duration."
+    )]
+    SpamD {
+        #[command(flatten)]
+        args: SpamCliArgs,
+    },
+
+    #[command(
         name = "setup",
-        long_about = "Run the setup step(s) in the given testfile."
+        long_about = "Deploy contracts and run the setup step(s) in the given testfile."
     )]
     Setup {
         #[command(flatten)]

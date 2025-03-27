@@ -108,7 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             txs_per_second,
                             builder_url,
                         },
-                    disable_reports,
+                    disable_reporting,
                     gen_report,
                     gas_price_percent_add,
                 },
@@ -125,7 +125,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     duration,
                     seed,
                     private_keys,
-                    disable_reports,
+                    disable_reporting,
                     min_balance,
                     tx_type: tx_type.into(),
                     gas_price_percent_add,
@@ -135,6 +135,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if gen_report {
                 commands::report(Some(run_id), 0, &db, &rpc_url).await?;
             }
+        }
+
+        ContenderSubcommand::SpamD {
+            args:
+                SpamCliArgs {
+                    eth_json_rpc_args:
+                        ScenarioSendTxsCliArgs {
+                            testfile,
+                            rpc_url,
+                            seed,
+                            private_keys,
+                            min_balance,
+                            tx_type,
+                        },
+                    spam_args:
+                        SendSpamCliArgs {
+                            duration,
+                            txs_per_block,
+                            txs_per_second,
+                            builder_url,
+                        },
+                    disable_reporting,
+                    gen_report,
+                    gas_price_percent_add,
+                },
+        } => {
+            let seed = seed.unwrap_or(stored_seed);
+            println!("running spamd");
         }
 
         ContenderSubcommand::Report {

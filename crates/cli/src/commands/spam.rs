@@ -37,7 +37,7 @@ pub struct SpamCommandArgs {
     pub duration: Option<usize>,
     pub seed: String,
     pub private_keys: Option<Vec<String>>,
-    pub disable_reports: bool,
+    pub disable_reporting: bool,
     pub min_balance: String,
     pub tx_type: TxType,
     pub gas_price_percent_add: Option<u16>,
@@ -54,10 +54,10 @@ pub struct SpamCliArgs {
     /// Whether to log reports for the spamming run.
     #[arg(
             long,
-            long_help = "Whether to log reports for the spamming run.",
+            long_help = "Prevent tx results from being saved to DB.",
             visible_aliases = &["dr"]
         )]
-    pub disable_reports: bool,
+    pub disable_reporting: bool,
 
     /// The path to save the report to.
     /// If not provided, the report can be generated with the `report` subcommand.
@@ -193,7 +193,7 @@ pub async fn spam(
         println!("Blockwise spamming with {} txs per block", txs_per_block);
         let spammer = BlockwiseSpammer {};
 
-        match spam_callback_default(!args.disable_reports, Arc::new(rpc_client).into()).await {
+        match spam_callback_default(!args.disable_reporting, Arc::new(rpc_client).into()).await {
             SpamCallbackType::Log(cback) => {
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -225,7 +225,7 @@ pub async fn spam(
     println!("Timed spamming with {} txs per second", tps);
     let interval = std::time::Duration::from_secs(1);
     let spammer = TimedSpammer::new(interval);
-    match spam_callback_default(!args.disable_reports, Arc::new(rpc_client).into()).await {
+    match spam_callback_default(!args.disable_reporting, Arc::new(rpc_client).into()).await {
         SpamCallbackType::Log(cback) => {
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
