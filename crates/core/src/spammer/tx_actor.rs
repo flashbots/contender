@@ -1,9 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use alloy::{
-    network::ReceiptResponse, primitives::TxHash, providers::Provider,
-    rpc::types::BlockTransactionsKind,
-};
+use alloy::{network::ReceiptResponse, primitives::TxHash, providers::Provider};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
@@ -21,7 +18,7 @@ enum TxActorMessage {
         on_receive: oneshot::Sender<()>,
     },
     FlushCache {
-        run_id: u64,
+        run_id: Option<u64>,
         on_flush: oneshot::Sender<usize>, // returns the number of txs remaining in cache
         target_block_num: u64,
     },
@@ -92,16 +89,15 @@ where
         cache: &mut Vec<PendingRunTx>,
         db: &Arc<D>,
         rpc: &Arc<AnyProvider>,
-        run_id: u64,
+        run_id: Option<u64>,
         on_flush: oneshot::Sender<usize>, // returns the number of txs remaining in cache
         target_block_num: u64,
     ) -> Result<Vec<PendingRunTx>, Box<dyn std::error::Error>> {
         println!("unconfirmed txs: {}", cache.len());
         let mut maybe_block;
+        // TODO: replace this garbage mutator thing with a while loop
         loop {
-            maybe_block = rpc
-                .get_block_by_number(target_block_num.into(), BlockTransactionsKind::Hashes)
-                .await;
+            maybe_block = rpc.get_block_by_number(target_block_num.into()).await;
             if let Ok(maybe_block) = &maybe_block {
                 if maybe_block.is_some() {
                     break;
@@ -173,8 +169,9 @@ where
                 }
             })
             .collect::<Vec<_>>();
-
-        db.insert_run_txs(run_id, &run_txs)?;
+        if let Some(run_id) = run_id {
+            db.insert_run_txs(run_id, &run_txs)?;
+        }
         on_flush
             .send(new_txs.len())
             .map_err(|_| ContenderError::SpamError("failed to join TxActor on_flush", None))?;
@@ -360,7 +357,7 @@ impl TxActorHandle {
     /// Removes txs included onchain from the cache, saves them to the DB, and returns the number of txs remaining in the cache.
     pub async fn flush_cache(
         &self,
-        run_id: u64,
+        run_id: Option<u64>,
         target_block_num: u64,
     ) -> Result<usize, Box<dyn std::error::Error>> {
         let (sender, receiver) = oneshot::channel();

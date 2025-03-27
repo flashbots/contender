@@ -9,8 +9,11 @@ name = "contender_core"
 path = "src/lib.rs"
 
 [dependencies]
-alloy = { workspace = true, features = ["full", "node-bindings", "rpc-types-mev", "json-rpc"] }
-# eyre = { workspace = true }
+alloy = { workspace = true, features = ["full", "node-bindings", "rpc-types-mev", "json-rpc", "provider-engine-api"] }
+alloy-rpc-types-engine = { workspace = true, features = ["std", "jwt"] }
+alloy-chains = { version = "0.1.64", default-features = false }
+alloy-json-rpc = { workspace = true }
+tracing = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
@@ -18,5 +21,8 @@ async-trait = { workspace = true }
 tokio = { workspace = true, features = ["signal"]}
 serde_json = { workspace = true }
 contender_bundle_provider = { workspace = true }
-tower = "0.5.2"
-eyre = "0.6.12"
+thiserror = { workspace = true }
+tower = { workspace = true }
+eyre = { workspace = true }
+
+reth-node-api = { git = "https://github.com/paradigmxyz/reth" }

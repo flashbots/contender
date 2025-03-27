@@ -1,17 +1,17 @@
-use std::{env, str::FromStr, sync::Arc};
+use std::{env, str::FromStr, sync::Arc, time::Duration};
 
 use alloy::{
     consensus::TxType,
     eips::BlockId,
     network::AnyNetwork,
     providers::{DynProvider, Provider, ProviderBuilder},
-    rpc::types::BlockTransactionsKind,
     transports::http::reqwest::Url,
 };
 use contender_core::{
     agent_controller::AgentStore,
     db::DbOps,
     error::ContenderError,
+    eth_engine::{advance_chain, get_auth_provider},
     generator::RandSeed,
     spammer::{LogCallback, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
@@ -23,6 +23,8 @@ use crate::{
     util::{check_private_keys, get_signers_with_defaults, prompt_cli},
 };
 
+use super::spam::EngineArgs;
+
 pub struct RunCommandArgs {
     pub scenario: BuiltinScenario,
     pub rpc_url: String,
@@ -32,6 +34,8 @@ pub struct RunCommandArgs {
     pub txs_per_duration: usize,
     pub skip_deploy_prompt: bool,
     pub tx_type: TxType,
+    pub engine_args: Option<EngineArgs>,
+    pub call_fcu: bool,
 }
 
 pub async fn run(
@@ -45,13 +49,26 @@ pub async fn run(
         .network::<AnyNetwork>()
         .on_http(Url::parse(&args.rpc_url).expect("Invalid RPC URL"));
     let block_gas_limit = provider
-        .get_block(BlockId::latest(), BlockTransactionsKind::Hashes)
+        .get_block(BlockId::latest())
         .await?
         .map(|b| b.header.gas_limit)
         .ok_or(ContenderError::SetupError(
             "failed getting gas limit from block",
             None,
         ))?;
+
+    if args.call_fcu && args.engine_args.is_none() {
+        return Err(ContenderError::GenericError(
+            "auth-rpc-url and jwt-secret are required to use forkchoice",
+            Default::default(),
+        )
+        .into());
+    }
+    let auth_provider = if let Some(engine_args) = args.engine_args {
+        Some(get_auth_provider(&engine_args.auth_rpc_url, engine_args.jwt_secret).await?)
+    } else {
+        None
+    };
 
     let fill_percent = env::var("C_FILL_PERCENT")
         .map(|s| u16::from_str(&s).expect("invalid u16: fill_percent"))
@@ -102,6 +119,43 @@ pub async fn run(
         true
     };
 
+    // channel for notifying async tasks to stop
+    let (done_sender, mut done_receiver) = tokio::sync::mpsc::channel::<(u64, bool)>(2);
+
+    // loop FCU calls in the background
+    let handle = if args.call_fcu {
+        if let Some(auth_provider) = auth_provider.to_owned() {
+            let done = Arc::new(done_sender.clone());
+            Some(tokio::task::spawn(async move {
+                loop {
+                    // sleep before checking if we should stop
+                    let (wait_duration, stop) = done_receiver.recv().await.unwrap_or_default();
+                    tokio::time::sleep(Duration::from_millis(wait_duration)).await;
+                    if stop {
+                        break;
+                    }
+
+                    println!("advancing chain...");
+                    advance_chain(&auth_provider, args.interval as u64)
+                        .await
+                        .expect("failed to advance chain");
+
+                    // self-continue
+                    done.send((wait_duration, false))
+                        .await
+                        .expect("done msg send failed");
+                }
+            }))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // send initial continue signal
+    done_sender.send((500, false)).await?;
+
     if do_deploy_contracts {
         println!("deploying contracts...");
         scenario.deploy_contracts().await?;
@@ -121,7 +175,12 @@ pub async fn run(
         args.duration * args.txs_per_duration,
         &format!("{} ({})", contract_name, scenario_name),
     )?;
-    let callback = LogCallback::new(Arc::new(DynProvider::new(provider.clone())));
+    let provider = Arc::new(DynProvider::new(provider));
+    let tx_callback = LogCallback::new(
+        provider.clone(),
+        auth_provider.map(Arc::new),
+        false, // don't call in callback bc we're already calling in the loop
+    );
 
     println!("starting spammer...");
     spammer
@@ -130,9 +189,17 @@ pub async fn run(
             args.txs_per_duration,
             args.duration,
             Some(run_id),
-            callback.into(),
+            tx_callback.into(),
         )
         .await?;
+
+    // done sending txs, stop the FCU loop
+    done_sender.send((0, true)).await?;
+    if let Some(handle) = handle {
+        handle.await?;
+    }
+
+    println!("done. run_id={}", run_id);
 
     Ok(())
 }
