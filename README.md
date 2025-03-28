@@ -99,6 +99,26 @@ Pass a private key with `-p` to fund agent accounts from your account:
 contender spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRV_KEY
 ```
 
+Generate a report immediately following a spam run:
+
+```bash
+contender spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRV_KEY --gen-report
+```
+
+---
+
+Run spammer indefinitely:
+
+```bash
+contender spamd ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRV_KEY
+```
+
+Run spammer for 5 minutes:
+
+```bash
+contender spamd ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRV_KEY --tl $((60 * 5))
+```
+
 ---
 
 Generate a chain performance report for the most recent run.

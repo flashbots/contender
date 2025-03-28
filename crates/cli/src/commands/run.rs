@@ -1,4 +1,4 @@
-use std::{env, str::FromStr, sync::Arc};
+use std::{env, str::FromStr};
 
 use alloy::{
     consensus::TxType,
@@ -121,7 +121,7 @@ pub async fn run(
         args.duration * args.txs_per_duration,
         &format!("{} ({})", contract_name, scenario_name),
     )?;
-    let callback = LogCallback::new(Arc::new(DynProvider::new(provider.clone())));
+    let callback = LogCallback::new(&DynProvider::new(provider.clone()));
 
     println!("starting spammer...");
     spammer
