@@ -12,6 +12,7 @@ use std::{
     time::Duration,
 };
 
+/// Runs spam in a loop, potentially executing multiple spam runs.
 pub async fn spamd(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     args: SpamCommandArgs,
