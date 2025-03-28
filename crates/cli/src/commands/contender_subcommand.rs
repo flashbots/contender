@@ -29,7 +29,15 @@ pub enum ContenderSubcommand {
     )]
     SpamD {
         #[command(flatten)]
-        args: SpamCliArgs,
+        spam_inner_args: SpamCliArgs,
+
+        #[arg(
+            short = 'l',
+            long,
+            long_help = "The time limit in seconds for the spam daemon. If not provided, the daemon will run indefinitely.",
+            visible_aliases = &["tl"]
+        )]
+        time_limit: Option<u64>,
     },
 
     #[command(

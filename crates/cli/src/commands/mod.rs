@@ -5,6 +5,7 @@ mod report;
 mod run;
 mod setup;
 mod spam;
+mod spamd;
 
 use clap::Parser;
 
@@ -14,6 +15,7 @@ pub use report::report;
 pub use run::{run, RunCommandArgs};
 pub use setup::{setup, SetupCliArgs};
 pub use spam::{spam, SpamCliArgs, SpamCommandArgs};
+pub use spamd::spamd;
 
 #[derive(Parser, Debug)]
 pub struct ContenderCli {
