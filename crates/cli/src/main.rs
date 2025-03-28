@@ -2,7 +2,10 @@ mod commands;
 mod default_scenarios;
 mod util;
 
-use std::sync::LazyLock;
+use std::{
+    sync::{Arc, LazyLock},
+    time::Duration,
+};
 
 use alloy::hex;
 use commands::{
@@ -133,7 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .await?;
             if gen_report {
-                commands::report(Some(run_id), 0, &db, &rpc_url).await?;
+                commands::report(run_id, 0, &db, &rpc_url).await?;
             }
         }
 
@@ -162,7 +165,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
         } => {
             let seed = seed.unwrap_or(stored_seed);
-            println!("running spamd");
+
+            // collects all run IDs for reporting
+            let mut run_ids = vec![];
+            let db = Arc::new(db);
+
+            // run spam command with duration 1 in an async loop
+            // trigger spam batch once per second
+            for _ in 0..duration.unwrap_or_default() {
+                let args = SpamCommandArgs {
+                    testfile: testfile.clone(),
+                    rpc_url: rpc_url.clone(),
+                    builder_url: builder_url.clone(),
+                    txs_per_block,
+                    txs_per_second,
+                    duration: Some(1),
+                    seed: seed.clone(),
+                    private_keys: private_keys.clone(),
+                    disable_reporting,
+                    min_balance: min_balance.clone(),
+                    tx_type: tx_type.into(),
+                    gas_price_percent_add,
+                };
+                let db = db.clone();
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                let spam_res = commands::spam(&*db, args).await;
+                if let Err(e) = spam_res {
+                    println!("spam failed: {:?}", e);
+                } else {
+                    println!("spam batch completed");
+                    let run_id = spam_res.expect("spam");
+                    if let Some(run_id) = run_id {
+                        run_ids.push(run_id);
+                    }
+                }
+            }
+
+            if gen_report {
+                let first_run_id = *run_ids.iter().min().expect("no run IDs found");
+                let last_run_id = *run_ids.iter().max().expect("no run IDs found");
+                commands::report(
+                    Some(last_run_id),
+                    last_run_id - first_run_id,
+                    &*db,
+                    &rpc_url,
+                )
+                .await?;
+            }
         }
 
         ContenderSubcommand::Report {

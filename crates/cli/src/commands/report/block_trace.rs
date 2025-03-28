@@ -88,7 +88,7 @@ pub async fn get_block_trace_data(
 
     // get tx traces for all txs in all_blocks
     let mut all_traces = vec![];
-    let (sender, mut receiver) = tokio::sync::mpsc::channel::<TxTraceReceipt>(9001);
+    let (sender, mut receiver) = tokio::sync::mpsc::channel::<TxTraceReceipt>(90001);
 
     for block in &all_blocks {
         let mut tx_tasks = vec![];
@@ -123,7 +123,6 @@ pub async fn get_block_trace_data(
                 if let Ok(receipt) = receipt {
                     if let Some(receipt) = receipt {
                         println!("got receipt for tx {:?}", tx_hash);
-                        // all_traces.push(TxTraceReceipt::new(trace, receipt));
                         sender
                             .send(TxTraceReceipt::new(trace, receipt))
                             .await

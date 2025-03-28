@@ -82,7 +82,7 @@ pub struct SpamCliArgs {
 pub async fn spam(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     args: SpamCommandArgs,
-) -> Result<u64, Box<dyn std::error::Error>> {
+) -> Result<Option<u64>, Box<dyn std::error::Error>> {
     let testconfig = TestConfig::from_file(&args.testfile)?;
     let rand_seed = RandSeed::seed_from_str(&args.seed);
     let url = Url::parse(&args.rpc_url).expect("Invalid RPC URL");
@@ -154,7 +154,7 @@ pub async fn spam(
     )
     .await?;
 
-    let mut run_id = 0;
+    let mut run_id = None;
 
     let mut scenario = TestScenario::new(
         testconfig,
@@ -199,16 +199,13 @@ pub async fn spam(
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("Time went backwards")
                     .as_millis();
-                run_id =
-                    db.insert_run(timestamp as u64, txs_per_block * duration, &args.testfile)?;
+                run_id = Some(db.insert_run(
+                    timestamp as u64,
+                    txs_per_block * duration,
+                    &args.testfile,
+                )?);
                 spammer
-                    .spam_rpc(
-                        &mut scenario,
-                        txs_per_block,
-                        duration,
-                        Some(run_id),
-                        cback.into(),
-                    )
+                    .spam_rpc(&mut scenario, txs_per_block, duration, run_id, cback.into())
                     .await?;
             }
             SpamCallbackType::Nil(cback) => {
@@ -231,9 +228,9 @@ pub async fn spam(
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_millis();
-            run_id = db.insert_run(timestamp as u64, tps * duration, &args.testfile)?;
+            run_id = Some(db.insert_run(timestamp as u64, tps * duration, &args.testfile)?);
             spammer
-                .spam_rpc(&mut scenario, tps, duration, Some(run_id), cback.into())
+                .spam_rpc(&mut scenario, tps, duration, run_id, cback.into())
                 .await?;
         }
         SpamCallbackType::Nil(cback) => {
