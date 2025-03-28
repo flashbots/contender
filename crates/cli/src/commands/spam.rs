@@ -82,7 +82,7 @@ pub struct SpamCliArgs {
     pub gas_price_percent_add: Option<u16>,
 }
 
-pub struct InitializedSpammer<D = SqliteDb, S = RandSeed, P = TestConfig>
+pub struct InitializedScenario<D = SqliteDb, S = RandSeed, P = TestConfig>
 where
     D: DbOps + Clone + Send + Sync + 'static,
     S: Seeder,
@@ -92,10 +92,11 @@ where
     pub rpc_client: AnyProvider,
 }
 
-pub async fn init_spam<D: DbOps + Clone + Send + Sync + 'static>(
+/// Initializes a TestScenario with the given arguments.
+pub async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
     db: &D,
     args: &SpamCommandArgs,
-) -> Result<InitializedSpammer<D>, Box<dyn std::error::Error>> {
+) -> Result<InitializedScenario<D>, Box<dyn std::error::Error>> {
     println!("Initializing spammer...");
     let SpamCommandArgs {
         txs_per_block,
@@ -213,7 +214,7 @@ pub async fn init_spam<D: DbOps + Clone + Send + Sync + 'static>(
         .into());
     }
 
-    Ok(InitializedSpammer {
+    Ok(InitializedScenario {
         scenario,
         rpc_client,
     })

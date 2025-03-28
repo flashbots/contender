@@ -7,8 +7,8 @@ use std::sync::LazyLock;
 use alloy::hex;
 use commands::{
     common::{ScenarioSendTxsCliArgs, SendSpamCliArgs},
-    init_spam, ContenderCli, ContenderSubcommand, DbCommand, InitializedSpammer, RunCommandArgs,
-    SetupCliArgs, SpamCliArgs, SpamCommandArgs,
+    init_scenario, ContenderCli, ContenderSubcommand, DbCommand, InitializedScenario,
+    RunCommandArgs, SetupCliArgs, SpamCliArgs, SpamCommandArgs,
 };
 use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::{SqliteDb, DB_VERSION};
@@ -128,10 +128,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 tx_type: tx_type.into(),
                 gas_price_percent_add,
             };
-            let InitializedSpammer {
+            let InitializedScenario {
                 mut scenario,
                 rpc_client,
-            } = init_spam(&db, &spam_args).await?;
+            } = init_scenario(&db, &spam_args).await?;
             let run_id = commands::spam(&db, spam_args, &mut scenario, &rpc_client).await?;
             if gen_report {
                 tokio::select! {

@@ -1,7 +1,7 @@
 use super::SpamCommandArgs;
 use crate::commands::{
     self,
-    spam::{init_spam, InitializedSpammer},
+    spam::{init_scenario, InitializedScenario},
 };
 use contender_core::{db::DbOps, error::ContenderError};
 use std::{
@@ -56,10 +56,10 @@ pub async fn spamd(
     // async-safe handle
     let is_finished = finished.clone();
 
-    let InitializedSpammer {
+    let InitializedScenario {
         mut scenario,
         rpc_client,
-    } = init_spam(db, &args).await?;
+    } = init_scenario(db, &args).await?;
 
     // runs spam command in an async loop; in closure for tokio::select to handle CTRL-C
     let spam_loop = || async move {
