@@ -14,10 +14,14 @@ use contender_core::{
     agent_controller::AgentStore,
     db::DbOps,
     error::ContenderError,
-    generator::{seeder::Seeder, types::AnyProvider, Generator, PlanType, RandSeed},
+    generator::{
+        seeder::Seeder, templater::Templater, types::AnyProvider, Generator, PlanConfig, PlanType,
+        RandSeed,
+    },
     spammer::{BlockwiseSpammer, ExecutionPayload, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
 };
+use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
 
 use crate::util::{
@@ -78,11 +82,21 @@ pub struct SpamCliArgs {
     pub gas_price_percent_add: Option<u16>,
 }
 
-/// Runs spammer and returns run ID.
-pub async fn spam(
-    db: &(impl DbOps + Clone + Send + Sync + 'static),
-    args: SpamCommandArgs,
-) -> Result<Option<u64>, Box<dyn std::error::Error>> {
+pub struct InitializedSpammer<D = SqliteDb, S = RandSeed, P = TestConfig>
+where
+    D: DbOps + Clone + Send + Sync + 'static,
+    S: Seeder,
+    P: PlanConfig<String> + Templater<String> + Send + Sync,
+{
+    pub scenario: TestScenario<D, S, P>,
+    pub rpc_client: AnyProvider,
+}
+
+pub async fn init_spam<D: DbOps + Clone + Send + Sync + 'static>(
+    db: &D,
+    args: &SpamCommandArgs,
+) -> Result<InitializedSpammer<D>, Box<dyn std::error::Error>> {
+    println!("Initializing spammer...");
     let testconfig = TestConfig::from_file(&args.testfile)?;
     let rand_seed = RandSeed::seed_from_str(&args.seed);
     let url = Url::parse(&args.rpc_url).expect("Invalid RPC URL");
@@ -96,7 +110,7 @@ pub async fn spam(
     let duration = args.duration.unwrap_or_default();
     let min_balance = parse_ether(&args.min_balance)?;
 
-    let user_signers = get_signers_with_defaults(args.private_keys);
+    let user_signers = get_signers_with_defaults(args.private_keys.to_owned());
     let spam = testconfig
         .spam
         .as_ref()
@@ -154,9 +168,7 @@ pub async fn spam(
     )
     .await?;
 
-    let mut run_id = None;
-
-    let mut scenario = TestScenario::new(
+    let scenario = TestScenario::new(
         testconfig,
         db.clone().into(),
         rand_seed,
@@ -164,16 +176,17 @@ pub async fn spam(
             rpc_url: url,
             builder_rpc_url: args
                 .builder_url
+                .to_owned()
                 .map(|url| Url::parse(&url).expect("Invalid builder URL")),
             signers: user_signers,
-            agent_store: agents,
+            agent_store: agents.to_owned(),
             tx_type: args.tx_type,
             gas_price_percent_add: args.gas_price_percent_add,
         },
     )
     .await?;
 
-    let total_cost = // TODO: factor in gas price percent add
+    let total_cost =
         get_max_spam_cost(scenario.to_owned(), &rpc_client).await? * U256::from(duration);
     if min_balance < U256::from(total_cost) {
         return Err(ContenderError::SpamError(
@@ -188,12 +201,40 @@ pub async fn spam(
         .into());
     }
 
+    Ok(InitializedSpammer {
+        scenario,
+        rpc_client,
+    })
+}
+
+/// Runs spammer and returns run ID.
+pub async fn spam<
+    D: DbOps + Clone + Send + Sync + 'static,
+    S: Seeder + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+>(
+    db: &D,
+    args: SpamCommandArgs,
+    test_scenario: &mut TestScenario<D, S, P>,
+    rpc_client: &AnyProvider,
+) -> Result<Option<u64>, Box<dyn std::error::Error>> {
+    let SpamCommandArgs {
+        txs_per_block,
+        duration,
+        disable_reporting,
+        ..
+    } = &args;
+
+    let duration = duration.unwrap_or_default();
+    println!("Duration: {} seconds", duration);
+    let mut run_id = None;
+
     // trigger blockwise spammer
-    if let Some(txs_per_block) = args.txs_per_block {
+    if let Some(txs_per_block) = txs_per_block {
         println!("Blockwise spamming with {} txs per block", txs_per_block);
         let spammer = BlockwiseSpammer {};
 
-        match spam_callback_default(!args.disable_reporting, Arc::new(rpc_client).into()).await {
+        match spam_callback_default(!disable_reporting, Some(&Arc::new(rpc_client))).await {
             SpamCallbackType::Log(cback) => {
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -205,12 +246,18 @@ pub async fn spam(
                     &args.testfile,
                 )?);
                 spammer
-                    .spam_rpc(&mut scenario, txs_per_block, duration, run_id, cback.into())
+                    .spam_rpc(
+                        test_scenario,
+                        *txs_per_block,
+                        duration,
+                        run_id,
+                        cback.into(),
+                    )
                     .await?;
             }
             SpamCallbackType::Nil(cback) => {
                 spammer
-                    .spam_rpc(&mut scenario, txs_per_block, duration, None, cback.into())
+                    .spam_rpc(test_scenario, *txs_per_block, duration, None, cback.into())
                     .await?;
             }
         };
@@ -222,7 +269,7 @@ pub async fn spam(
     println!("Timed spamming with {} txs per second", tps);
     let interval = std::time::Duration::from_secs(1);
     let spammer = TimedSpammer::new(interval);
-    match spam_callback_default(!args.disable_reporting, Arc::new(rpc_client).into()).await {
+    match spam_callback_default(!args.disable_reporting, Some(&Arc::new(rpc_client))).await {
         SpamCallbackType::Log(cback) => {
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -230,12 +277,12 @@ pub async fn spam(
                 .as_millis();
             run_id = Some(db.insert_run(timestamp as u64, tps * duration, &args.testfile)?);
             spammer
-                .spam_rpc(&mut scenario, tps, duration, run_id, cback.into())
+                .spam_rpc(test_scenario, tps, duration, run_id, cback.into())
                 .await?;
         }
         SpamCallbackType::Nil(cback) => {
             spammer
-                .spam_rpc(&mut scenario, tps, duration, None, cback.into())
+                .spam_rpc(test_scenario, tps, duration, None, cback.into())
                 .await?;
         }
     };

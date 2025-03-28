@@ -1,5 +1,8 @@
 use super::SpamCommandArgs;
-use crate::commands::{self};
+use crate::commands::{
+    self,
+    spam::{init_spam, InitializedSpammer},
+};
 use contender_core::{db::DbOps, error::ContenderError};
 use std::{
     sync::{
@@ -31,7 +34,7 @@ pub async fn spamd(
         min_balance,
         tx_type,
         gas_price_percent_add,
-    } = args;
+    } = &args;
 
     let finished = Arc::new(AtomicBool::new(false));
     let start_time = std::time::Instant::now();
@@ -50,8 +53,15 @@ pub async fn spamd(
         }
     });
 
-    // runs spam command in an async loop; in closure for tokio::select to handle CTRL-C
+    // async-safe handle
     let is_finished = finished.clone();
+
+    let InitializedSpammer {
+        mut scenario,
+        rpc_client,
+    } = init_spam(db, &args).await?;
+
+    // runs spam command in an async loop; in closure for tokio::select to handle CTRL-C
     let spam_loop = || async move {
         loop {
             if is_finished.load(Ordering::SeqCst) {
@@ -62,18 +72,18 @@ pub async fn spamd(
                 testfile: testfile.clone(),
                 rpc_url: rpc.to_owned(),
                 builder_url: builder_url.clone(),
-                txs_per_block,
-                txs_per_second,
-                duration: duration.clone(),
+                txs_per_block: *txs_per_block,
+                txs_per_second: *txs_per_second,
+                duration: *duration,
                 seed: seed.clone(),
                 private_keys: private_keys.clone(),
-                disable_reporting,
+                disable_reporting: *disable_reporting,
                 min_balance: min_balance.clone(),
-                tx_type: tx_type.into(),
-                gas_price_percent_add,
+                tx_type: *tx_type,
+                gas_price_percent_add: *gas_price_percent_add,
             };
             let db = db.clone();
-            let spam_res = commands::spam(&db, args).await;
+            let spam_res = commands::spam(&db, args, &mut scenario, &rpc_client).await;
             if let Err(e) = spam_res {
                 println!("spam failed: {:?}", e);
             } else {
@@ -115,16 +125,11 @@ pub async fn spamd(
             }
             let first_run_id = run_ids.iter().min().expect("no run IDs found");
             let last_run_id = *run_ids.iter().max().expect("no run IDs found");
-            commands::report(
-                Some(last_run_id),
-                last_run_id - first_run_id,
-                &*db,
-                &rpc_url,
-            )
-            .await
-            .map_err(|e| {
-                ContenderError::GenericError("failed to generate report", e.to_string())
-            })?;
+            commands::report(Some(last_run_id), last_run_id - first_run_id, db, rpc_url)
+                .await
+                .map_err(|e| {
+                    ContenderError::GenericError("failed to generate report", e.to_string())
+                })?;
         }
         Ok(())
     };

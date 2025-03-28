@@ -28,8 +28,10 @@ pub struct LogCallback {
 }
 
 impl LogCallback {
-    pub fn new(rpc_provider: Arc<AnyProvider>) -> Self {
-        Self { rpc_provider }
+    pub fn new(rpc_provider: &AnyProvider) -> Self {
+        Self {
+            rpc_provider: Arc::new(rpc_provider.to_owned()),
+        }
     }
 }
 

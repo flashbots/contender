@@ -7,8 +7,8 @@ use std::sync::LazyLock;
 use alloy::hex;
 use commands::{
     common::{ScenarioSendTxsCliArgs, SendSpamCliArgs},
-    ContenderCli, ContenderSubcommand, DbCommand, RunCommandArgs, SetupCliArgs, SpamCliArgs,
-    SpamCommandArgs,
+    init_spam, ContenderCli, ContenderSubcommand, DbCommand, InitializedSpammer, RunCommandArgs,
+    SetupCliArgs, SpamCliArgs, SpamCommandArgs,
 };
 use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::{SqliteDb, DB_VERSION};
@@ -114,26 +114,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
         } => {
             let seed = seed.unwrap_or(stored_seed);
-            let run_id = commands::spam(
-                &db,
-                SpamCommandArgs {
-                    testfile,
-                    rpc_url: rpc_url.to_owned(),
-                    builder_url,
-                    txs_per_block,
-                    txs_per_second,
-                    duration,
-                    seed,
-                    private_keys,
-                    disable_reporting,
-                    min_balance,
-                    tx_type: tx_type.into(),
-                    gas_price_percent_add,
-                },
-            )
-            .await?;
+            let spam_args = SpamCommandArgs {
+                testfile,
+                rpc_url: rpc_url.to_owned(),
+                builder_url,
+                txs_per_block,
+                txs_per_second,
+                duration,
+                seed,
+                private_keys,
+                disable_reporting,
+                min_balance,
+                tx_type: tx_type.into(),
+                gas_price_percent_add,
+            };
+            let InitializedSpammer {
+                mut scenario,
+                rpc_client,
+            } = init_spam(&db, &spam_args).await?;
+            let run_id = commands::spam(&db, spam_args, &mut scenario, &rpc_client).await?;
             if gen_report {
-                commands::report(run_id, 0, &db, &rpc_url).await?;
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {
+                        println!("CTRL-C received, discarding report...");
+                    }
+                    _ = commands::report(run_id, 0, &db, &rpc_url) => {
+                        println!("Report generated successfully");
+                    }
+                }
             }
         }
 
