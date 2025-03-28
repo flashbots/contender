@@ -13,7 +13,7 @@ use commands::{
     ContenderCli, ContenderSubcommand, DbCommand, RunCommandArgs, SetupCliArgs, SpamCliArgs,
     SpamCommandArgs,
 };
-use contender_core::{db::DbOps, generator::RandSeed};
+use contender_core::{db::DbOps, error::ContenderError, generator::RandSeed};
 use contender_sqlite::{SqliteDb, DB_VERSION};
 use rand::Rng;
 use util::{data_dir, db_file};
@@ -172,45 +172,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // run spam command with duration 1 in an async loop
             // trigger spam batch once per second
-            for _ in 0..duration.unwrap_or_default() {
-                let args = SpamCommandArgs {
-                    testfile: testfile.clone(),
-                    rpc_url: rpc_url.clone(),
-                    builder_url: builder_url.clone(),
-                    txs_per_block,
-                    txs_per_second,
-                    duration: Some(1),
-                    seed: seed.clone(),
-                    private_keys: private_keys.clone(),
-                    disable_reporting,
-                    min_balance: min_balance.clone(),
-                    tx_type: tx_type.into(),
-                    gas_price_percent_add,
-                };
-                let db = db.clone();
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                let spam_res = commands::spam(&*db, args).await;
-                if let Err(e) = spam_res {
-                    println!("spam failed: {:?}", e);
-                } else {
-                    println!("spam batch completed");
-                    let run_id = spam_res.expect("spam");
-                    if let Some(run_id) = run_id {
-                        run_ids.push(run_id);
+
+            let do_thing = || async move {
+                for _ in 0..duration.unwrap_or_default() {
+                    let args = SpamCommandArgs {
+                        testfile: testfile.clone(),
+                        rpc_url: rpc_url.clone(),
+                        builder_url: builder_url.clone(),
+                        txs_per_block,
+                        txs_per_second,
+                        duration: Some(1),
+                        seed: seed.clone(),
+                        private_keys: private_keys.clone(),
+                        disable_reporting,
+                        min_balance: min_balance.clone(),
+                        tx_type: tx_type.into(),
+                        gas_price_percent_add,
+                    };
+                    let db = db.clone();
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    let spam_res = commands::spam(&*db, args).await;
+                    if let Err(e) = spam_res {
+                        println!("spam failed: {:?}", e);
+                    } else {
+                        println!("spam batch completed");
+                        let run_id = spam_res.expect("spam");
+                        if let Some(run_id) = run_id {
+                            run_ids.push(run_id);
+                        }
                     }
                 }
-            }
 
-            if gen_report {
-                let first_run_id = *run_ids.iter().min().expect("no run IDs found");
-                let last_run_id = *run_ids.iter().max().expect("no run IDs found");
-                commands::report(
-                    Some(last_run_id),
-                    last_run_id - first_run_id,
-                    &*db,
-                    &rpc_url,
-                )
-                .await?;
+                if gen_report {
+                    let first_run_id = *run_ids.iter().min().expect("no run IDs found");
+                    let last_run_id = *run_ids.iter().max().expect("no run IDs found");
+                    commands::report(
+                        Some(last_run_id),
+                        last_run_id - first_run_id,
+                        &*db,
+                        &rpc_url,
+                    )
+                    .await
+                    .map_err(|e| {
+                        ContenderError::GenericError("failed to generate report", e.to_string())
+                    })?;
+                }
+                Ok::<_, ContenderError>(())
+            };
+
+            tokio::select! {
+                _ = do_thing() => {},
+                _ = tokio::signal::ctrl_c() => {
+                    println!("CTRL-C received, hard-stopping spam daemon...");
+                }
             }
         }
 
