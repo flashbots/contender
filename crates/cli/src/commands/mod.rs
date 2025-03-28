@@ -5,7 +5,6 @@ mod report;
 mod run;
 mod setup;
 mod spam;
-mod spamd;
 
 use clap::Parser;
 
