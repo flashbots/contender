@@ -52,6 +52,7 @@ impl DrawableChart for TimeToInclusionChart {
             .configure_mesh()
             .label_style(("sans-serif", 15))
             .x_label_offset(10)
+            .x_labels(20)
             .x_desc("Time to Inclusion (seconds)")
             .y_desc("# Transactions")
             .draw()?;

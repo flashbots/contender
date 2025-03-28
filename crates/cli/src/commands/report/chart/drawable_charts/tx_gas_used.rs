@@ -51,6 +51,7 @@ impl DrawableChart for TxGasUsedChart {
             .disable_x_mesh()
             .label_style(("sans-serif", 15))
             .x_desc("Gas Used")
+            .x_labels(20)
             .x_label_formatter(&|x| abbreviate_num(*x))
             .y_desc("# Transactions")
             .draw()?;
