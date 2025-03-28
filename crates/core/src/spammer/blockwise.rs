@@ -52,6 +52,7 @@ where
 mod tests {
     use alloy::{
         consensus::constants::ETH_TO_WEI,
+        network::AnyNetwork,
         primitives::U256,
         providers::{DynProvider, ProviderBuilder},
     };
@@ -71,8 +72,11 @@ mod tests {
     #[tokio::test]
     async fn watches_blocks_and_spams_them() {
         let anvil = spawn_anvil();
-        let provider =
-            DynProvider::new(ProviderBuilder::new().on_http(anvil.endpoint_url().to_owned()));
+        let provider = DynProvider::new(
+            ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .on_http(anvil.endpoint_url().to_owned()),
+        );
         println!("anvil url: {}", anvil.endpoint_url());
         let seed = crate::generator::RandSeed::seed_from_str("444444444444");
         let mut agents = AgentStore::new();
@@ -122,6 +126,7 @@ mod tests {
                 signers: user_signers,
                 agent_store: agents,
                 tx_type,
+                gas_price_percent_add: None,
             },
         )
         .await
@@ -147,15 +152,9 @@ mod tests {
         let current_block = provider.get_block_number().await.unwrap();
 
         while n_block <= current_block {
-            let block = provider
-                .get_block(
-                    n_block.into(),
-                    alloy::rpc::types::BlockTransactionsKind::Full,
-                )
-                .await
-                .unwrap();
-            if let Some(block) = block {
-                for tx in block.transactions.into_transactions() {
+            let receipts = provider.get_block_receipts(n_block.into()).await.unwrap();
+            if let Some(receipts) = receipts {
+                for tx in receipts {
                     unique_addresses.insert(tx.from);
                 }
             }

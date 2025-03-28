@@ -11,7 +11,7 @@ use alloy::{
     transports::http::reqwest::Url,
 };
 use contender_core::{
-    agent_controller::{AgentStore, SignerStore},
+    agent_controller::AgentStore,
     db::DbOps,
     error::ContenderError,
     generator::{seeder::Seeder, types::AnyProvider, Generator, PlanType, RandSeed},
@@ -21,8 +21,8 @@ use contender_core::{
 use contender_testfile::TestConfig;
 
 use crate::util::{
-    check_private_keys, fund_accounts, get_signers_with_defaults, get_spam_pools,
-    spam_callback_default, SpamCallbackType,
+    check_private_keys, fund_accounts, get_signers_with_defaults, spam_callback_default,
+    SpamCallbackType,
 };
 
 #[derive(Debug)]
@@ -38,6 +38,7 @@ pub struct SpamCommandArgs {
     pub disable_reports: bool,
     pub min_balance: String,
     pub tx_type: TxType,
+    pub gas_price_percent_add: Option<u16>,
 }
 
 /// Runs spammer and returns run ID.
@@ -69,39 +70,19 @@ pub async fn spam(
     }
 
     // distill all from_pool arguments from the spam requests
-    let from_pool_declarations = get_spam_pools(&testconfig);
+    let from_pool_declarations = testconfig.get_spam_pools();
 
     let mut agents = AgentStore::new();
     let signers_per_period = args
         .txs_per_block
         .unwrap_or(args.txs_per_second.unwrap_or(spam.len()));
-
-    for from_pool in &from_pool_declarations {
-        if agents.has_agent(from_pool) {
-            continue;
-        }
-
-        let agent = SignerStore::new_random(
-            signers_per_period / from_pool_declarations.len().max(1),
-            &rand_seed,
-            from_pool,
-        );
-        agents.add_agent(from_pool, agent);
-    }
+    agents.init(
+        &from_pool_declarations,
+        signers_per_period / from_pool_declarations.len().max(1),
+        &rand_seed,
+    );
 
     let all_agents = agents.all_agents().collect::<Vec<_>>();
-    let all_signer_addrs = [
-        user_signers
-            .iter()
-            .map(|signer| signer.address())
-            .collect::<Vec<_>>(),
-        all_agents
-            .iter()
-            .flat_map(|(_, agent)| agent.signers.iter().map(|signer| signer.address()))
-            .collect::<Vec<_>>(),
-    ]
-    .concat();
-
     if signers_per_period < all_agents.len() {
         return Err(ContenderError::SpamError(
             "Not enough signers to cover all spam pools. Set --tps or --tpb to a higher value.",
@@ -123,6 +104,8 @@ pub async fn spam(
     if args.txs_per_block.is_none() && args.txs_per_second.is_none() {
         panic!("Must set either --txs-per-block (--tpb) or --txs-per-second (--tps)");
     }
+
+    let all_signer_addrs = agents.all_signer_addresses();
 
     fund_accounts(
         &all_signer_addrs,
@@ -148,11 +131,12 @@ pub async fn spam(
             signers: user_signers,
             agent_store: agents,
             tx_type: args.tx_type,
+            gas_price_percent_add: args.gas_price_percent_add,
         },
     )
     .await?;
 
-    let total_cost =
+    let total_cost = // TODO: factor in gas price percent add
         get_max_spam_cost(scenario.to_owned(), &rpc_client).await? * U256::from(duration);
     if min_balance < U256::from(total_cost) {
         return Err(ContenderError::SpamError(
@@ -274,13 +258,7 @@ async fn get_max_spam_cost<D: DbOps + Send + Sync + 'static, S: Seeder + Send + 
     for tx in sample_txs {
         let tx_req = tx.tx;
         let (prepared_req, _signer) = scenario.prepare_tx_request(&tx_req, gas_price).await?;
-        println!(
-            "tx_request gas={:?} gas_price={:?} ({:?}, {:?})",
-            prepared_req.gas,
-            prepared_req.gas_price,
-            prepared_req.max_fee_per_gas,
-            prepared_req.max_priority_fee_per_gas
-        );
+
         prepared_sample_txs.push(prepared_req);
     }
 

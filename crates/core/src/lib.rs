@@ -2,6 +2,7 @@ pub mod agent_controller;
 pub mod db;
 pub mod error;
 pub mod generator;
+pub mod provider;
 pub mod spammer;
 pub mod test_scenario;
 

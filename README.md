@@ -174,73 +174,7 @@ contender_testfile = { git = "https://github.com/flashbots/contender" }
 tokio = { version = "1.40.0", features = ["rt-multi-thread"] }
 ```
 
-```rust
-use contender_core::{
-    db::DbOps,
-    generator::RandSeed,
-    spammer::{BlockwiseSpammer, TimedSpammer, NilCallback, LogCallback},
-    test_scenario::{TestScenario, TestScenarioParams},
-};
-use contender_sqlite::SqliteDb;
-use contender_testfile::TestConfig;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let db = &SqliteDb::new_memory();
-    db.create_tables()?;
-    let cfg = TestConfig::from_file("testfile.toml")?;
-    let mut agents = AgentStore::new();
-    let rand_seed = RandSeed::new();
-    agents.add_random_agent(
-        "agentName",
-        4, // number of random signers to create
-        rand_seed
-    )
-    let mut scenario = TestScenario::new(
-        cfg,
-        db.clone().into(),
-        rand_seed,
-        TestScenarioParams {
-            rpc_url: "http://localhost:8545".parse::<_>()?,
-            builder_rpc_url: None,
-            signers: [
-                "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-                "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
-                "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
-            ]
-            .iter()
-            .map(|s| s.parse::<_>().unwrap())
-            .collect::<Vec<_>>(),
-            agent_store: agents,
-            tx_type: alloy::consensus::TxType::Legacy,
-        },
-    )
-    .await?;
-
-    if db.get_named_tx("MyContract").is_err() {
-        scenario.deploy_contracts().await?;
-        scenario.run_setup().await?;
-    }
-
-    let spammer = TimedSpammer::new(std::time::Duration::from_secs(1));
-    // or
-    // let spammer = BlockwiseSpammer {};
-
-    // callback is triggered when tx/bundle request is sent
-    // NilCallback does nothing, LogCallback writes tx data to DB
-    let tx_callback = LogCallback::new(scenario.rpc_client().clone());
-    // or
-    // let tx_callback = NilCallback;
-
-    // placeholder; this should identify the run in the DB
-    let run_id = 1_u64;
-    
-    // send 20 requests per second, over 10 seconds
-    spammer.spam_rpc(&mut scenario, 20, 10, Some(run_id), tx_callback.into()).await?;
-
-    Ok(())
-}
-```
+See [here](https://github.com/flashbots/contender/blob/main/crates/cli/src/commands/spam.rs) and [here](https://github.com/flashbots/rbuilder/compare/develop...feat/contender-in-tester) for examples of Contender being used as a library.
 
 ## Scenario Configuration
 

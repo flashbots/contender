@@ -16,8 +16,7 @@ use contender_testfile::TestConfig;
 use std::str::FromStr;
 
 use crate::util::{
-    check_private_keys_fns, find_insufficient_balances, fund_accounts, get_create_pools,
-    get_setup_pools, get_signers_with_defaults,
+    check_private_keys_fns, find_insufficient_balances, fund_accounts, get_signers_with_defaults,
 };
 
 pub async fn setup(
@@ -76,7 +75,7 @@ pub async fn setup(
 
     // load agents from setup and create pools
     let from_pool_declarations =
-        [get_setup_pools(&testconfig), get_create_pools(&testconfig)].concat();
+        [testconfig.get_setup_pools(), testconfig.get_create_pools()].concat();
 
     // create agents for each from_pool declaration
     let mut agents = AgentStore::new();
@@ -124,6 +123,7 @@ pub async fn setup(
             signers: user_signers_with_defaults,
             agent_store: agents,
             tx_type,
+            gas_price_percent_add: None,
         },
     )
     .await?;

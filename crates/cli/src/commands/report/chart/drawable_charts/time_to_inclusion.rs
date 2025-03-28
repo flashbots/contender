@@ -2,10 +2,11 @@ use contender_core::db::RunTx;
 use plotters::{
     backend::BitMapBackend,
     chart::ChartBuilder,
-    drawing::IntoDrawingArea,
     series::Histogram,
-    style::{full_palette::BLUE, Color, RGBColor},
+    style::{full_palette::BLUE, Color},
 };
+
+use super::DrawableChart;
 
 pub struct TimeToInclusionChart {
     /// Maps number of times a block was included in a time period.
@@ -13,31 +14,23 @@ pub struct TimeToInclusionChart {
 }
 
 impl TimeToInclusionChart {
-    fn new() -> Self {
-        Self {
-            inclusion_times: Default::default(),
-        }
-    }
-
-    pub fn build(run_txs: &[RunTx]) -> Self {
-        let mut chart = TimeToInclusionChart::new();
-
+    pub fn new(run_txs: &[RunTx]) -> Self {
+        let mut inclusion_times = vec![];
         for tx in run_txs {
-            let tti = tx.end_timestamp - tx.start_timestamp;
-            chart.add_inclusion_time(tti as u64);
+            if let Some(end_timestamp) = tx.end_timestamp {
+                let tti = end_timestamp - tx.start_timestamp;
+                inclusion_times.push(tti);
+            }
         }
-
-        chart
+        Self { inclusion_times }
     }
+}
 
-    fn add_inclusion_time(&mut self, time_to_include: u64) {
-        self.inclusion_times.push(time_to_include);
-    }
-
-    pub fn draw(&self, filepath: impl AsRef<str>) -> Result<(), Box<dyn std::error::Error>> {
-        let root = BitMapBackend::new(filepath.as_ref(), (1024, 768)).into_drawing_area();
-        root.fill(&RGBColor(255, 255, 255))?;
-
+impl DrawableChart for TimeToInclusionChart {
+    fn define_chart(
+        &self,
+        root: &plotters::prelude::DrawingArea<BitMapBackend, plotters::coord::Shift>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let min_tti = self
             .inclusion_times
             .iter()
@@ -49,10 +42,10 @@ impl TimeToInclusionChart {
             .max()
             .expect("no time-to-inclusion data found");
 
-        let mut chart = ChartBuilder::on(&root)
+        let mut chart = ChartBuilder::on(root)
             .margin(15)
             .x_label_area_size(60)
-            .y_label_area_size(40)
+            .y_label_area_size(60)
             .build_cartesian_2d(*min_tti..*max_tti + 1, 0..self.inclusion_times.len() as u32)?;
 
         chart
@@ -69,9 +62,6 @@ impl TimeToInclusionChart {
                 .data(self.inclusion_times.iter().map(|&x| (x, 1))),
         )?;
 
-        root.present()?;
-
-        println!("saved chart to {}", filepath.as_ref());
         Ok(())
     }
 }

@@ -9,7 +9,7 @@ name = "contender_core"
 path = "src/lib.rs"
 
 [dependencies]
-alloy = { workspace = true, features = ["full", "node-bindings", "rpc-types-mev"] }
+alloy = { workspace = true, features = ["full", "node-bindings", "rpc-types-mev", "json-rpc"] }
 # eyre = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -18,3 +18,5 @@ async-trait = { workspace = true }
 tokio = { workspace = true, features = ["signal"]}
 serde_json = { workspace = true }
 contender_bundle_provider = { workspace = true }
+tower = "0.5.2"
+eyre = "0.6.12"
