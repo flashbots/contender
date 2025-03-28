@@ -44,7 +44,7 @@ pub async fn spamd(
         if let Some(limit) = time_limit {
             tokio::time::sleep(Duration::from_secs(limit)).await;
             if start_time.elapsed().as_secs() >= limit {
-                println!("Time limit reached.Spam daemon will shut down as soon as current batch finishes...");
+                println!("Time limit reached. Spam daemon will shut down as soon as current batch finishes...");
                 is_finished.store(true, Ordering::SeqCst);
             }
         }
