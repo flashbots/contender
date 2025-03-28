@@ -97,9 +97,24 @@ pub async fn init_spam<D: DbOps + Clone + Send + Sync + 'static>(
     args: &SpamCommandArgs,
 ) -> Result<InitializedSpammer<D>, Box<dyn std::error::Error>> {
     println!("Initializing spammer...");
-    let testconfig = TestConfig::from_file(&args.testfile)?;
-    let rand_seed = RandSeed::seed_from_str(&args.seed);
-    let url = Url::parse(&args.rpc_url).expect("Invalid RPC URL");
+    let SpamCommandArgs {
+        txs_per_block,
+        txs_per_second,
+        testfile,
+        duration,
+        seed,
+        rpc_url,
+        builder_url,
+        min_balance,
+        private_keys,
+        tx_type,
+        gas_price_percent_add,
+        ..
+    } = &args;
+
+    let testconfig = TestConfig::from_file(testfile)?;
+    let rand_seed = RandSeed::seed_from_str(seed);
+    let url = Url::parse(rpc_url).expect("Invalid RPC URL");
     let rpc_client = DynProvider::new(
         ProviderBuilder::new()
             .network::<AnyNetwork>()
@@ -107,10 +122,10 @@ pub async fn init_spam<D: DbOps + Clone + Send + Sync + 'static>(
     );
     let eth_client = DynProvider::new(ProviderBuilder::new().on_http(url.to_owned()));
 
-    let duration = args.duration.unwrap_or_default();
-    let min_balance = parse_ether(&args.min_balance)?;
+    let duration = duration.unwrap_or_default();
+    let min_balance = parse_ether(min_balance)?;
 
-    let user_signers = get_signers_with_defaults(args.private_keys.to_owned());
+    let user_signers = get_signers_with_defaults(private_keys.to_owned());
     let spam = testconfig
         .spam
         .as_ref()
@@ -124,9 +139,7 @@ pub async fn init_spam<D: DbOps + Clone + Send + Sync + 'static>(
     let from_pool_declarations = testconfig.get_spam_pools();
 
     let mut agents = AgentStore::new();
-    let signers_per_period = args
-        .txs_per_block
-        .unwrap_or(args.txs_per_second.unwrap_or(spam.len()));
+    let signers_per_period = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam.len()));
     agents.init(
         &from_pool_declarations,
         signers_per_period / from_pool_declarations.len().max(1),
@@ -149,10 +162,10 @@ pub async fn init_spam<D: DbOps + Clone + Send + Sync + 'static>(
 
     check_private_keys(&testconfig, &user_signers);
 
-    if args.txs_per_block.is_some() && args.txs_per_second.is_some() {
+    if txs_per_block.is_some() && txs_per_second.is_some() {
         panic!("Cannot set both --txs-per-block and --txs-per-second");
     }
-    if args.txs_per_block.is_none() && args.txs_per_second.is_none() {
+    if txs_per_block.is_none() && txs_per_second.is_none() {
         panic!("Must set either --txs-per-block (--tpb) or --txs-per-second (--tps)");
     }
 
@@ -164,7 +177,7 @@ pub async fn init_spam<D: DbOps + Clone + Send + Sync + 'static>(
         &rpc_client,
         &eth_client,
         min_balance,
-        args.tx_type,
+        *tx_type,
     )
     .await?;
 
@@ -174,14 +187,13 @@ pub async fn init_spam<D: DbOps + Clone + Send + Sync + 'static>(
         rand_seed,
         TestScenarioParams {
             rpc_url: url,
-            builder_rpc_url: args
-                .builder_url
+            builder_rpc_url: builder_url
                 .to_owned()
                 .map(|url| Url::parse(&url).expect("Invalid builder URL")),
             signers: user_signers,
             agent_store: agents.to_owned(),
-            tx_type: args.tx_type,
-            gas_price_percent_add: args.gas_price_percent_add,
+            tx_type: *tx_type,
+            gas_price_percent_add: *gas_price_percent_add,
         },
     )
     .await?;
@@ -220,6 +232,8 @@ pub async fn spam<
 ) -> Result<Option<u64>, Box<dyn std::error::Error>> {
     let SpamCommandArgs {
         txs_per_block,
+        txs_per_second,
+        testfile,
         duration,
         disable_reporting,
         ..
@@ -240,11 +254,8 @@ pub async fn spam<
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("Time went backwards")
                     .as_millis();
-                run_id = Some(db.insert_run(
-                    timestamp as u64,
-                    txs_per_block * duration,
-                    &args.testfile,
-                )?);
+                run_id =
+                    Some(db.insert_run(timestamp as u64, txs_per_block * duration, testfile)?);
                 spammer
                     .spam_rpc(
                         test_scenario,
@@ -265,17 +276,17 @@ pub async fn spam<
     }
 
     // trigger timed spammer
-    let tps = args.txs_per_second.unwrap_or(10);
+    let tps = txs_per_second.unwrap_or(10);
     println!("Timed spamming with {} txs per second", tps);
     let interval = std::time::Duration::from_secs(1);
     let spammer = TimedSpammer::new(interval);
-    match spam_callback_default(!args.disable_reporting, Some(&Arc::new(rpc_client))).await {
+    match spam_callback_default(!disable_reporting, Some(&Arc::new(rpc_client))).await {
         SpamCallbackType::Log(cback) => {
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_millis();
-            run_id = Some(db.insert_run(timestamp as u64, tps * duration, &args.testfile)?);
+            run_id = Some(db.insert_run(timestamp as u64, tps * duration, testfile)?);
             spammer
                 .spam_rpc(test_scenario, tps, duration, run_id, cback.into())
                 .await?;
