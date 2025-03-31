@@ -20,6 +20,17 @@ use contender_core::{
 use contender_testfile::TestConfig;
 use std::{str::FromStr, sync::Arc, time::Duration};
 
+use super::common::ScenarioSendTxsCliArgs;
+use crate::util::{
+    check_private_keys_fns, find_insufficient_balances, fund_accounts, get_signers_with_defaults,
+};
+
+#[derive(Debug, clap::Args)]
+pub struct SetupCliArgs {
+    #[command(flatten)]
+    pub args: ScenarioSendTxsCliArgs,
+}
+
 pub async fn setup(
     db: &(impl contender_core::db::DbOps + Clone + Send + Sync + 'static),
     args: SetupCommandArgs,

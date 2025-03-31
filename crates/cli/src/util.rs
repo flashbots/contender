@@ -174,9 +174,10 @@ pub async fn fund_accounts(
     let (sender_pending_tx, mut receiver_pending_tx) =
         tokio::sync::mpsc::channel::<PendingTransactionConfig>(9000);
 
+    let rpc_client = Arc::new(rpc_client.to_owned());
     for (idx, (address, _)) in insufficient_balances.into_iter().enumerate() {
         let (balance_sufficient, balance) =
-            is_balance_sufficient(&fund_with.address(), min_balance, rpc_client).await?;
+            is_balance_sufficient(&fund_with.address(), min_balance, &rpc_client).await?;
         if !balance_sufficient {
             // error early if admin account runs out of funds
             return Err(format!(
@@ -195,6 +196,7 @@ pub async fn fund_accounts(
         let rpc_client = Arc::new(rpc_client.clone());
         let sender = sender_pending_tx.clone();
 
+        let rpc = rpc_client.clone();
         fund_handles.push(tokio::task::spawn(async move {
             let res = fund_account(
                 &fund_with.to_owned(),
@@ -298,8 +300,8 @@ pub async fn find_insufficient_balances(
 pub async fn spam_callback_default(
     log_txs: bool,
     send_fcu: bool,
-    rpc_client: Option<Arc<AnyProvider>>,
-    auth_client: Option<Arc<AnyProvider>>,
+    rpc_client: Option<&Arc<AnyProvider>>,
+    auth_client: Option<&Arc<AnyProvider>>,
 ) -> SpamCallbackType {
     if let Some(rpc_client) = rpc_client {
         if log_txs {

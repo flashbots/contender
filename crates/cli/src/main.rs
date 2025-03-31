@@ -6,11 +6,13 @@ use std::sync::LazyLock;
 
 use alloy::hex;
 use commands::{
+    common::{ScenarioSendTxsCliArgs, SendSpamCliArgs},
     db::{drop_db, export_db, import_db, reset_db},
     run::RunCommandArgs,
     setup::SetupCommandArgs,
     spam::{EngineArgs, SpamCommandArgs},
-    ContenderCli, ContenderSubcommand, DbCommand,
+    ContenderCli, ContenderCli, ContenderSubcommand, ContenderSubcommand, DbCommand, DbCommand,
+    InitializedScenario, RunCommandArgs, SetupCliArgs, SpamCliArgs, SpamCommandArgs,
 };
 use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::{SqliteDb, DB_VERSION};
@@ -65,15 +67,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
 
         ContenderSubcommand::Setup {
-            testfile,
-            rpc_url,
-            private_keys,
-            min_balance,
-            seed,
-            tx_type,
-            auth_rpc_url,
-            jwt_secret,
-            call_forkchoice,
+            args:
+                SetupCliArgs {
+                    args:
+                        ScenarioSendTxsCliArgs {
+                            testfile,
+                            rpc_url,
+                            private_keys,
+                            min_balance,
+                            seed,
+                            tx_type,
+                            auth_rpc_url,
+                            jwt_secret,
+                            call_forkchoice,
+                        },
+                },
         } => {
             let seed = seed.unwrap_or(stored_seed);
             if call_forkchoice && (auth_rpc_url.is_none() || jwt_secret.is_none()) {
@@ -104,22 +112,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         ContenderSubcommand::Spam {
-            testfile,
-            rpc_url,
-            builder_url,
-            txs_per_block,
-            txs_per_second,
-            duration,
-            seed,
-            private_keys,
-            disable_reports,
-            min_balance,
-            gen_report,
-            tx_type,
-            auth_rpc_url,
-            jwt_secret,
-            call_forkchoice,
-            gas_price_percent_add,
+            args:
+                SpamCliArgs {
+                    eth_json_rpc_args:
+                        ScenarioSendTxsCliArgs {
+                            testfile,
+                            rpc_url,
+                            seed,
+                            private_keys,
+                            min_balance,
+                            tx_type,
+                            auth_rpc_url,
+                            jwt_secret,
+                            call_forkchoice,
+                        },
+                    spam_args:
+                        SendSpamCliArgs {
+                            duration,
+                            txs_per_block,
+                            txs_per_second,
+                            builder_url,
+                        },
+                    disable_reporting,
+                    gen_report,
+                    gas_price_percent_add,
+                },
         } => {
             let seed = seed.unwrap_or(stored_seed);
             let engine_args = if auth_rpc_url.is_some() && jwt_secret.is_some() {
@@ -133,29 +150,97 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if call_forkchoice && engine_args.is_none() {
                 return Err("engine args required for forkchoice".into());
             }
-            let run_id = commands::spam(
-                &db,
-                SpamCommandArgs {
-                    testfile,
-                    rpc_url: rpc_url.to_owned(),
-                    builder_url,
-                    txs_per_block,
-                    txs_per_second,
-                    duration,
-                    seed,
-                    private_keys,
-                    disable_reports,
-                    min_balance,
-                    tx_type: tx_type.into(),
-                    engine_args,
-                    call_forkchoice,
-                    gas_price_percent_add,
-                },
-            )
-            .await?;
+            let spam_args = SpamCommandArgs {
+                testfile,
+                rpc_url: rpc_url.to_owned(),
+                builder_url,
+                txs_per_block,
+                txs_per_second,
+                duration,
+                seed,
+                private_keys,
+                disable_reporting,
+                min_balance,
+                tx_type: tx_type.into(),
+                gas_price_percent_add,
+                engine_args,
+                call_forkchoice,
+            };
+            let InitializedScenario {
+                mut scenario,
+                rpc_client,
+            } = spam_args.init_scenario(&db).await?;
+            let run_id = commands::spam(&db, &spam_args, &mut scenario, &rpc_client).await?;
             if gen_report {
-                commands::report(Some(run_id), 0, &db, &rpc_url).await?;
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {
+                        println!("CTRL-C received, discarding report...");
+                    }
+                    _ = commands::report(run_id, 0, &db, &rpc_url) => {
+                        println!("Report generated successfully");
+                    }
+                }
             }
+        }
+
+        ContenderSubcommand::SpamD {
+            spam_inner_args,
+            time_limit,
+        } => {
+            let SpamCliArgs {
+                eth_json_rpc_args:
+                    ScenarioSendTxsCliArgs {
+                        testfile,
+                        rpc_url,
+                        seed,
+                        private_keys,
+                        min_balance,
+                        tx_type,
+                        auth_rpc_url,
+                        jwt_secret,
+                        call_forkchoice,
+                    },
+                spam_args:
+                    SendSpamCliArgs {
+                        duration,
+                        txs_per_block,
+                        txs_per_second,
+                        builder_url,
+                    },
+                disable_reporting,
+                gen_report,
+                gas_price_percent_add,
+            } = spam_inner_args;
+
+            let seed = seed.unwrap_or(stored_seed);
+            let engine_args = if auth_rpc_url.is_some() && jwt_secret.is_some() {
+                Some(EngineArgs {
+                    auth_rpc_url: auth_rpc_url.expect("auth_rpc_url"),
+                    jwt_secret: jwt_secret.expect("jwt_secret").into(),
+                })
+            } else {
+                None
+            };
+            if call_forkchoice && engine_args.is_none() {
+                return Err("engine args required for forkchoice".into());
+            }
+            let spam_args = SpamCommandArgs {
+                testfile,
+                rpc_url: rpc_url.to_owned(),
+                builder_url,
+                txs_per_block,
+                txs_per_second,
+                duration,
+                seed: seed.clone(),
+                private_keys,
+                disable_reporting,
+                min_balance,
+                tx_type: tx_type.into(),
+                gas_price_percent_add,
+                engine_args,
+                call_forkchoice,
+            };
+            commands::spamd(&db, spam_args, gen_report, time_limit).await?;
         }
 
         ContenderSubcommand::Report {

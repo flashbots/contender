@@ -8,4 +8,4 @@ bytecode = "0x608060405234801561000f575f5ffd5b5060405180602001604052805f8152505f
 to = "{SpamMe5}"
 from_pool = "spammers"
 signature = "callPrecompile(string memory method, uint256 iterations)"
-args = ["ecMul", "3"]
+args = ["ecMul", "5"]

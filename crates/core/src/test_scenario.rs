@@ -91,11 +91,11 @@ where
         let client = ClientBuilder::default()
             .layer(LoggingLayer)
             .http(rpc_url.to_owned());
-        let rpc_client = Arc::new(DynProvider::new(
+        let rpc_client = DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
                 .on_client(client),
-        ));
+        );
 
         let mut wallet_map = HashMap::new();
         let wallets = signers.iter().map(|s| {
@@ -126,13 +126,17 @@ where
             .as_ref()
             .map(|url| Arc::new(BundleClient::new(url.clone())));
 
-        let msg_handle = Arc::new(TxActorHandle::new(12, db.clone(), rpc_client.clone()));
+        let msg_handle = Arc::new(TxActorHandle::new(
+            12,
+            db.clone(),
+            Arc::new(rpc_client.clone()),
+        ));
 
         Ok(Self {
             config,
             db: db.clone(),
             rpc_url: rpc_url.to_owned(),
-            rpc_client: rpc_client.clone(),
+            rpc_client: Arc::new(rpc_client),
             eth_client: Arc::new(DynProvider::new(ProviderBuilder::new().on_http(rpc_url))),
             bundle_client,
             builder_rpc_url,
@@ -845,6 +849,95 @@ where
                 "".to_string()
             },
         )
+    }
+
+    /// Returns the maximum cost of a single spam transaction by creating a new scenario
+    /// and running estimateGas calls to estimate the cost of the spam transactions.
+    pub async fn get_max_spam_cost(&self, user_signers: &[PrivateKeySigner]) -> Result<U256> {
+        let mut scenario = TestScenario::new(
+            self.config.to_owned(),
+            self.db.clone(),
+            self.rand_seed.clone(),
+            TestScenarioParams {
+                rpc_url: self.rpc_url.clone(),
+                builder_rpc_url: self.builder_rpc_url.clone(),
+                signers: user_signers.to_owned(),
+                agent_store: self.agent_store.clone(),
+                tx_type: self.tx_type,
+                gas_price_percent_add: Some(self.gas_price_percent_add as u16),
+            },
+        )
+        .await?;
+
+        // load a sample of each spam tx from the scenario
+        let sample_txs = scenario
+            .prepare_spam(
+                &scenario
+                    .load_txs(PlanType::Spam(
+                        scenario
+                            .config
+                            .get_spam_steps()
+                            .map(|s| s.len()) // take the number of spam txs from the testfile
+                            .unwrap_or(0),
+                        |_named_req| {
+                            // we can look at the named request here if needed
+                            Ok(None)
+                        },
+                    ))
+                    .await?,
+            )
+            .await?
+            .iter()
+            .map(|ex_payload| match ex_payload {
+                ExecutionPayload::SignedTx(_envelope, tx_req) => vec![tx_req.to_owned()],
+                ExecutionPayload::SignedTxBundle(_envelopes, tx_reqs) => tx_reqs
+                    .iter()
+                    .map(|tx| Box::new(tx.to_owned()))
+                    .collect::<Vec<_>>(),
+            })
+            .collect::<Vec<_>>()
+            .concat();
+
+        let gas_price = scenario
+            .rpc_client
+            .get_gas_price()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
+
+        // get gas limit for each tx
+        let mut prepared_sample_txs = vec![];
+        for tx in sample_txs {
+            let tx_req = tx.tx;
+            let (prepared_req, _signer) = scenario.prepare_tx_request(&tx_req, gas_price).await?;
+            println!(
+                "tx_request gas={:?} gas_price={:?} ({:?}, {:?})",
+                prepared_req.gas,
+                prepared_req.gas_price,
+                prepared_req.max_fee_per_gas,
+                prepared_req.max_priority_fee_per_gas
+            );
+            prepared_sample_txs.push(prepared_req);
+        }
+
+        // get the highest gas cost of all spam txs
+        let highest_gas_cost = prepared_sample_txs
+            .iter()
+            .map(|tx| {
+                let mut gas_price = tx.max_fee_per_gas.unwrap_or(tx.gas_price.unwrap_or(0));
+                if let Some(priority_fee) = tx.max_priority_fee_per_gas {
+                    gas_price += priority_fee;
+                }
+                println!("gas_price={:?}", gas_price);
+                U256::from(gas_price * tx.gas.unwrap_or(0) as u128) + tx.value.unwrap_or(U256::ZERO)
+            })
+            .max()
+            .ok_or(ContenderError::SpamError(
+                "failed to get max gas cost for spam txs",
+                None,
+            ))?;
+
+        // we assume the highest possible cost to minimize the chances of running out of ETH mid-test
+        Ok(highest_gas_cost)
     }
 }
 
