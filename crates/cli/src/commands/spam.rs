@@ -227,7 +227,7 @@ pub async fn spam<
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 >(
     db: &D,
-    args: SpamCommandArgs,
+    args: &SpamCommandArgs,
     test_scenario: &mut TestScenario<D, S, P>,
     rpc_client: &AnyProvider,
 ) -> Result<Option<u64>, Box<dyn std::error::Error>> {
@@ -238,7 +238,7 @@ pub async fn spam<
         duration,
         disable_reporting,
         ..
-    } = &args;
+    } = args;
 
     let duration = duration.unwrap_or_default();
     println!("Duration: {} seconds", duration);

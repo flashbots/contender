@@ -132,7 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 mut scenario,
                 rpc_client,
             } = init_scenario(&db, &spam_args).await?;
-            let run_id = commands::spam(&db, spam_args, &mut scenario, &rpc_client).await?;
+            let run_id = commands::spam(&db, &spam_args, &mut scenario, &rpc_client).await?;
             if gen_report {
                 tokio::select! {
                     _ = tokio::signal::ctrl_c() => {

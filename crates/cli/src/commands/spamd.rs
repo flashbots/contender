@@ -19,24 +19,8 @@ pub async fn spamd(
     gen_report: bool,
     time_limit: Option<u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let SpamCommandArgs {
-        testfile,
-        rpc_url,
-        builder_url,
-        txs_per_block,
-        txs_per_second,
-        duration,
-        seed,
-        private_keys,
-        disable_reporting,
-        min_balance,
-        tx_type,
-        gas_price_percent_add,
-    } = &args;
-
     let finished = Arc::new(AtomicBool::new(false));
     let start_time = std::time::Instant::now();
-    let rpc = rpc_url.clone();
 
     // spawn a task to check the time limit and set finished to true if it is reached
     let is_finished = finished.clone();
@@ -77,22 +61,8 @@ pub async fn spamd(
             println!("Spam loop finished");
             break;
         }
-        let args = SpamCommandArgs {
-            testfile: testfile.clone(),
-            rpc_url: rpc.to_owned(),
-            builder_url: builder_url.clone(),
-            txs_per_block: *txs_per_block,
-            txs_per_second: *txs_per_second,
-            duration: *duration,
-            seed: seed.clone(),
-            private_keys: private_keys.clone(),
-            disable_reporting: *disable_reporting,
-            min_balance: min_balance.clone(),
-            tx_type: *tx_type,
-            gas_price_percent_add: *gas_price_percent_add,
-        };
         let db = db.clone();
-        let spam_res = commands::spam(&db, args, &mut scenario, &rpc_client).await;
+        let spam_res = commands::spam(&db, &args, &mut scenario, &rpc_client).await;
         if let Err(e) = spam_res {
             println!("spam failed: {:?}", e);
         } else {
@@ -113,11 +83,16 @@ pub async fn spamd(
             }
             let first_run_id = run_ids.iter().min().expect("no run IDs found");
             let last_run_id = *run_ids.iter().max().expect("no run IDs found");
-            commands::report(Some(last_run_id), last_run_id - first_run_id, db, rpc_url)
-                .await
-                .map_err(|e| {
-                    ContenderError::GenericError("failed to generate report", e.to_string())
-                })?;
+            commands::report(
+                Some(last_run_id),
+                last_run_id - first_run_id,
+                db,
+                &args.rpc_url,
+            )
+            .await
+            .map_err(|e| {
+                ContenderError::GenericError("failed to generate report", e.to_string())
+            })?;
         }
         Ok(())
     };
