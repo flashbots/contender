@@ -282,7 +282,7 @@ pub async fn find_insufficient_balances(
 
 pub async fn spam_callback_default(
     log_txs: bool,
-    rpc_client: Option<&AnyProvider>,
+    rpc_client: Option<&Arc<AnyProvider>>,
 ) -> SpamCallbackType {
     if let Some(rpc_client) = rpc_client {
         if log_txs {

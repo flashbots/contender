@@ -253,13 +253,14 @@ pub async fn spam<
     let duration = duration.unwrap_or_default();
     println!("Duration: {} seconds", duration);
     let mut run_id = None;
+    let rpc_client = Arc::new(rpc_client.to_owned());
 
     // trigger blockwise spammer
     if let Some(txs_per_block) = txs_per_block {
         println!("Blockwise spamming with {} txs per block", txs_per_block);
         let spammer = BlockwiseSpammer {};
 
-        match spam_callback_default(!disable_reporting, Some(&Arc::new(rpc_client))).await {
+        match spam_callback_default(!disable_reporting, Some(&rpc_client)).await {
             SpamCallbackType::Log(cback) => {
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -291,7 +292,7 @@ pub async fn spam<
     println!("Timed spamming with {} txs per second", tps);
     let interval = std::time::Duration::from_secs(1);
     let spammer = TimedSpammer::new(interval);
-    match spam_callback_default(!disable_reporting, Some(&Arc::new(rpc_client))).await {
+    match spam_callback_default(!disable_reporting, Some(&rpc_client)).await {
         SpamCallbackType::Log(cback) => {
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
