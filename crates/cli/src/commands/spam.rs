@@ -208,8 +208,9 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
     )
     .await?;
 
+    // don't multiply by TPS or TPB, because that number scales the number of accounts; this cost is per account
     let total_cost =
-        get_max_spam_cost(scenario.to_owned(), &rpc_client).await? * U256::from(duration);
+        U256::from(duration) * get_max_spam_cost(scenario.to_owned(), &rpc_client).await?;
     if min_balance < U256::from(total_cost) {
         return Err(ContenderError::SpamError(
             "min_balance is not enough to cover the cost of the spam transactions",
@@ -311,14 +312,18 @@ pub async fn spam<
     Ok(run_id)
 }
 
-/// Returns the maximum cost of a spam transaction.
+/// Returns the maximum cost of a single spam transaction.
 ///
 /// We take `scenario` by value rather than by reference, because we call `prepare_tx_request`
-/// and `prepare_spam` which will mutate the scenario (namely the overly-optimistic internal nonce counter).
+/// and `prepare_spam` which will mutate the scenario (namely the internal nonce counter).
 /// We're not going to run the transactions we generate here; we just want to see the cost of
 /// our spam txs, so we can estimate how much the user should provide for `min_balance`.
-async fn get_max_spam_cost<D: DbOps + Send + Sync + 'static, S: Seeder + Send + Sync + Clone>(
-    scenario: TestScenario<D, S, TestConfig>,
+async fn get_max_spam_cost<
+    D: DbOps + Send + Sync + 'static,
+    S: Seeder + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+>(
+    scenario: TestScenario<D, S, P>,
     rpc_client: &AnyProvider,
 ) -> Result<U256, Box<dyn std::error::Error>> {
     let mut scenario = scenario;
@@ -330,8 +335,7 @@ async fn get_max_spam_cost<D: DbOps + Send + Sync + 'static, S: Seeder + Send + 
                 .load_txs(PlanType::Spam(
                     scenario
                         .config
-                        .spam
-                        .to_owned()
+                        .get_spam_steps()
                         .map(|s| s.len()) // take the number of spam txs from the testfile
                         .unwrap_or(0),
                     |_named_req| {
