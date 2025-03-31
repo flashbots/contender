@@ -1,4 +1,12 @@
-use std::{env, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    env,
+    str::FromStr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use alloy::{
     consensus::TxType,
@@ -119,42 +127,29 @@ pub async fn run(
         true
     };
 
-    // channel for notifying async tasks to stop
-    let (done_sender, mut done_receiver) = tokio::sync::mpsc::channel::<(u64, bool)>(2);
+    let done = AtomicBool::new(false);
+    let is_done = Arc::new(done);
 
     // loop FCU calls in the background
-    let handle = if args.call_fcu {
+    if args.call_fcu {
         if let Some(auth_provider) = auth_provider.to_owned() {
-            let done = Arc::new(done_sender.clone());
-            Some(tokio::task::spawn(async move {
+            let is_done = is_done.clone();
+            tokio::task::spawn(async move {
                 loop {
                     // sleep before checking if we should stop
-                    let (wait_duration, stop) = done_receiver.recv().await.unwrap_or_default();
-                    tokio::time::sleep(Duration::from_millis(wait_duration)).await;
-                    if stop {
+                    if is_done.load(Ordering::SeqCst) {
                         break;
                     }
 
-                    println!("advancing chain...");
                     advance_chain(&auth_provider, args.interval as u64)
                         .await
                         .expect("failed to advance chain");
 
-                    // self-continue
-                    done.send((wait_duration, false))
-                        .await
-                        .expect("done msg send failed");
+                    tokio::time::sleep(Duration::from_millis(500)).await;
                 }
-            }))
-        } else {
-            None
+            });
         }
-    } else {
-        None
-    };
-
-    // send initial continue signal
-    done_sender.send((500, false)).await?;
+    }
 
     if do_deploy_contracts {
         println!("deploying contracts...");
@@ -194,12 +189,7 @@ pub async fn run(
         .await?;
 
     // done sending txs, stop the FCU loop
-    done_sender.send((0, true)).await?;
-    if let Some(handle) = handle {
-        handle.await?;
-    }
-
-    println!("done. run_id={}", run_id);
+    is_done.store(true, Ordering::SeqCst);
 
     Ok(())
 }

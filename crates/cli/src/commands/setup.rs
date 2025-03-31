@@ -18,7 +18,14 @@ use contender_core::{
     test_scenario::{TestScenario, TestScenarioParams},
 };
 use contender_testfile::TestConfig;
-use std::{str::FromStr, sync::Arc, time::Duration};
+use std::{
+    str::FromStr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use super::common::ScenarioSendTxsCliArgs;
 
@@ -161,14 +168,17 @@ pub async fn setup(
         .into());
     }
 
-    let (done_sender, mut done_receiver) = tokio::sync::mpsc::channel::<bool>(2);
-    let done = Arc::new(done_sender);
-    let handle = if call_fcu && auth_client.is_some() {
+    let done = AtomicBool::new(false);
+    let is_done = Arc::new(done);
+
+    if call_fcu && auth_client.is_some() {
         let auth_client = Arc::new(auth_client.expect("auth_client"));
-        let done = done.clone();
-        Some(tokio::task::spawn(async move {
+        let is_done = is_done.clone();
+
+        // spawn a task to advance the chain periodically while setup is running
+        tokio::task::spawn(async move {
             loop {
-                if done_receiver.recv().await.unwrap_or_default() {
+                if is_done.load(Ordering::SeqCst) {
                     break;
                 }
 
@@ -177,23 +187,17 @@ pub async fn setup(
                     .expect("failed to advance chain");
 
                 tokio::time::sleep(Duration::from_millis(100)).await;
-                done.send(false).await.unwrap();
             }
-        }))
-    } else {
-        None
-    };
-    done.send(false).await?;
+        });
+    }
 
     scenario.deploy_contracts().await?;
     println!("Finished deploying contracts. Running setup txs...");
     scenario.run_setup().await?;
     println!("Setup complete. To run the scenario, use the `spam` command.");
 
-    done.send(true).await?;
-    if let Some(handle) = handle {
-        handle.await?;
-    }
+    // stop advancing the chain
+    is_done.store(true, Ordering::SeqCst);
 
     Ok(())
 }
