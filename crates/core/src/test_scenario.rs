@@ -304,7 +304,7 @@ where
             let handle = tokio::task::spawn(async move {
                 // estimate gas limit
                 let gas_limit = wallet
-                    .estimate_gas(&tx_req.tx)
+                    .estimate_gas(tx_req.tx.to_owned())
                     .await
                     .expect("failed to estimate gas");
 
@@ -396,9 +396,12 @@ where
                 let gas_limit = if let Some(gas) = tx_req.tx.gas {
                     gas
                 } else {
-                    wallet.estimate_gas(&tx_req.tx).await.unwrap_or_else(|_| {
-                        panic!("failed to estimate gas for setup step '{}'", tx_label)
-                    })
+                    wallet
+                        .estimate_gas(tx_req.tx.to_owned())
+                        .await
+                        .unwrap_or_else(|_| {
+                            panic!("failed to estimate gas for setup step '{}'", tx_label)
+                        })
                 };
                 let mut tx = tx_req.tx;
                 complete_tx_request(
@@ -469,7 +472,7 @@ where
                 gas
             } else {
                 self.eth_client
-                    .estimate_gas(tx_req)
+                    .estimate_gas(tx_req.to_owned())
                     .await
                     .map_err(|e| ContenderError::with_err(e, "failed to estimate gas for tx"))?
             };
@@ -668,10 +671,7 @@ where
                             SpamTrigger::BlockNumber(n) => n,
                             SpamTrigger::BlockHash(h) => {
                                 let block = rpc_client
-                                    .get_block_by_hash(
-                                        h,
-                                        alloy::rpc::types::BlockTransactionsKind::Hashes,
-                                    )
+                                    .get_block_by_hash(h)
                                     .await
                                     .expect("failed to get block")
                                     .expect("block not found");

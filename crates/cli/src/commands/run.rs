@@ -5,7 +5,6 @@ use alloy::{
     eips::BlockId,
     network::AnyNetwork,
     providers::{DynProvider, Provider, ProviderBuilder},
-    rpc::types::BlockTransactionsKind,
     transports::http::reqwest::Url,
 };
 use contender_core::{
@@ -45,7 +44,7 @@ pub async fn run(
         .network::<AnyNetwork>()
         .on_http(Url::parse(&args.rpc_url).expect("Invalid RPC URL"));
     let block_gas_limit = provider
-        .get_block(BlockId::latest(), BlockTransactionsKind::Hashes)
+        .get_block(BlockId::latest())
         .await?
         .map(|b| b.header.gas_limit)
         .ok_or(ContenderError::SetupError(

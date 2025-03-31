@@ -3,7 +3,6 @@ use std::sync::Arc;
 use crate::commands::report::cache::CacheFile;
 use alloy::network::{AnyRpcBlock, AnyTransactionReceipt};
 use alloy::providers::ext::DebugApi;
-use alloy::rpc::types::BlockTransactionsKind;
 use alloy::{
     providers::Provider,
     rpc::types::trace::geth::{
@@ -70,7 +69,8 @@ pub async fn get_block_trace_data(
         let handle = tokio::task::spawn(async move {
             println!("getting block {}...", block_num);
             let block = rpc_client
-                .get_block_by_number(block_num.into(), BlockTransactionsKind::Full)
+                .get_block_by_number(block_num.into())
+                .full()
                 .await
                 .expect("failed to get block");
             if let Some(block) = block {
