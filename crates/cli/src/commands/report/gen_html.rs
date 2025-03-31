@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{report_dir, ReportChartId};
+use crate::{commands::report::chart::ReportChartId, util::report_dir};
 
 pub struct ReportMetadata {
     pub scenario_name: String,
