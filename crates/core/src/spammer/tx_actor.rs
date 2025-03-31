@@ -1,9 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use alloy::{
-    network::ReceiptResponse, primitives::TxHash, providers::Provider,
-    rpc::types::BlockTransactionsKind,
-};
+use alloy::{network::ReceiptResponse, primitives::TxHash, providers::Provider};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
@@ -99,9 +96,7 @@ where
         println!("unconfirmed txs: {}", cache.len());
         let mut maybe_block;
         loop {
-            maybe_block = rpc
-                .get_block_by_number(target_block_num.into(), BlockTransactionsKind::Hashes)
-                .await;
+            maybe_block = rpc.get_block_by_number(target_block_num.into()).await;
             if let Ok(maybe_block) = &maybe_block {
                 if maybe_block.is_some() {
                     break;

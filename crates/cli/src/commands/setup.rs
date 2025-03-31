@@ -41,7 +41,6 @@ pub async fn setup(
             .network::<AnyNetwork>()
             .on_http(url.to_owned()),
     );
-    let eth_client = DynProvider::new(ProviderBuilder::new().on_http(url.to_owned()));
     let testconfig: TestConfig = TestConfig::from_file(testfile.as_ref())?;
     let min_balance = parse_ether(&min_balance)?;
 
@@ -114,7 +113,6 @@ pub async fn setup(
         &all_signer_addrs,
         admin_signer,
         &rpc_client,
-        &eth_client,
         min_balance,
         tx_type,
     )
