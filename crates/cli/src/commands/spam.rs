@@ -1,5 +1,8 @@
-use std::sync::Arc;
-
+use super::common::{ScenarioSendTxsCliArgs, SendSpamCliArgs};
+use crate::util::{
+    check_private_keys, fund_accounts, get_signers_with_defaults, spam_callback_default,
+    SpamCallbackType,
+};
 use alloy::{
     consensus::TxType,
     network::AnyNetwork,
@@ -7,29 +10,20 @@ use alloy::{
         utils::{format_ether, parse_ether},
         U256,
     },
-    providers::{DynProvider, Provider, ProviderBuilder},
+    providers::{DynProvider, ProviderBuilder},
     transports::http::reqwest::Url,
 };
 use contender_core::{
     agent_controller::AgentStore,
     db::DbOps,
     error::ContenderError,
-    generator::{
-        seeder::Seeder, templater::Templater, types::AnyProvider, Generator, PlanConfig, PlanType,
-        RandSeed,
-    },
-    spammer::{BlockwiseSpammer, ExecutionPayload, Spammer, TimedSpammer},
+    generator::{seeder::Seeder, templater::Templater, types::AnyProvider, PlanConfig, RandSeed},
+    spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
 };
 use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
-
-use crate::util::{
-    check_private_keys, fund_accounts, get_signers_with_defaults, spam_callback_default,
-    SpamCallbackType,
-};
-
-use super::common::{ScenarioSendTxsCliArgs, SendSpamCliArgs};
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct SpamCommandArgs {
@@ -200,7 +194,7 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
             builder_rpc_url: builder_url
                 .to_owned()
                 .map(|url| Url::parse(&url).expect("Invalid builder URL")),
-            signers: user_signers,
+            signers: user_signers.to_owned(),
             agent_store: agents.to_owned(),
             tx_type: *tx_type,
             gas_price_percent_add: *gas_price_percent_add,
@@ -209,8 +203,7 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
     .await?;
 
     // don't multiply by TPS or TPB, because that number scales the number of accounts; this cost is per account
-    let total_cost =
-        U256::from(duration) * get_max_spam_cost(scenario.to_owned(), &rpc_client).await?;
+    let total_cost = U256::from(duration) * scenario.get_max_spam_cost(&user_signers).await?;
     if min_balance < U256::from(total_cost) {
         return Err(ContenderError::SpamError(
             "min_balance is not enough to cover the cost of the spam transactions",
@@ -311,81 +304,4 @@ pub async fn spam<
     };
 
     Ok(run_id)
-}
-
-/// Returns the maximum cost of a single spam transaction.
-///
-/// We take `scenario` by value rather than by reference, because we call `prepare_tx_request`
-/// and `prepare_spam` which will mutate the scenario (namely the internal nonce counter).
-/// We're not going to run the transactions we generate here; we just want to see the cost of
-/// our spam txs, so we can estimate how much the user should provide for `min_balance`.
-async fn get_max_spam_cost<
-    D: DbOps + Send + Sync + 'static,
-    S: Seeder + Send + Sync + Clone,
-    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
->(
-    scenario: TestScenario<D, S, P>,
-    rpc_client: &AnyProvider,
-) -> Result<U256, Box<dyn std::error::Error>> {
-    let mut scenario = scenario;
-
-    // load a sample of each spam tx from the scenario
-    let sample_txs = scenario
-        .prepare_spam(
-            &scenario
-                .load_txs(PlanType::Spam(
-                    scenario
-                        .config
-                        .get_spam_steps()
-                        .map(|s| s.len()) // take the number of spam txs from the testfile
-                        .unwrap_or(0),
-                    |_named_req| {
-                        // we can look at the named request here if needed
-                        Ok(None)
-                    },
-                ))
-                .await?,
-        )
-        .await?
-        .iter()
-        .map(|ex_payload| match ex_payload {
-            ExecutionPayload::SignedTx(_envelope, tx_req) => vec![tx_req.to_owned()],
-            ExecutionPayload::SignedTxBundle(_envelopes, tx_reqs) => tx_reqs
-                .iter()
-                .map(|tx| Box::new(tx.to_owned()))
-                .collect::<Vec<_>>(),
-        })
-        .collect::<Vec<_>>()
-        .concat();
-
-    let gas_price = rpc_client.get_gas_price().await?;
-
-    // get gas limit for each tx
-    let mut prepared_sample_txs = vec![];
-    for tx in sample_txs {
-        let tx_req = tx.tx;
-        let (prepared_req, _signer) = scenario.prepare_tx_request(&tx_req, gas_price).await?;
-
-        prepared_sample_txs.push(prepared_req);
-    }
-
-    // get the highest gas cost of all spam txs
-    let highest_gas_cost = prepared_sample_txs
-        .iter()
-        .map(|tx| {
-            let mut gas_price = tx.max_fee_per_gas.unwrap_or(tx.gas_price.unwrap_or(0));
-            if let Some(priority_fee) = tx.max_priority_fee_per_gas {
-                gas_price += priority_fee;
-            }
-            println!("gas_price={:?}", gas_price);
-            U256::from(gas_price * tx.gas.unwrap_or(0) as u128) + tx.value.unwrap_or(U256::ZERO)
-        })
-        .max()
-        .ok_or(ContenderError::SpamError(
-            "failed to get max gas cost for spam txs",
-            None,
-        ))?;
-
-    // we assume the highest possible cost to minimize the chances of running out of ETH mid-test
-    Ok(highest_gas_cost)
 }
