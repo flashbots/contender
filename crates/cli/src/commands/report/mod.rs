@@ -5,5 +5,4 @@ mod command;
 mod gen_html;
 mod util;
 
-pub use chart::ReportChartId;
 pub use command::report;

@@ -8,11 +8,8 @@ use alloy::hex;
 use commands::{
     common::{ScenarioSendTxsCliArgs, SendSpamCliArgs},
     db::{drop_db, export_db, import_db, reset_db},
-    run::RunCommandArgs,
-    setup::SetupCommandArgs,
-    spam::{EngineArgs, SpamCommandArgs},
-    ContenderCli, ContenderCli, ContenderSubcommand, ContenderSubcommand, DbCommand, DbCommand,
-    InitializedScenario, RunCommandArgs, SetupCliArgs, SpamCliArgs, SpamCommandArgs,
+    ContenderCli, ContenderSubcommand, DbCommand, EngineArgs, InitializedScenario, RunCommandArgs,
+    SetupCliArgs, SetupCommandArgs, SpamCliArgs, SpamCommandArgs,
 };
 use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::{SqliteDb, DB_VERSION};

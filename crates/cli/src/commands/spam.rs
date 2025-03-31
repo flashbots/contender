@@ -18,7 +18,6 @@ use contender_core::{
     db::DbOps,
     error::ContenderError,
     eth_engine::get_auth_provider,
-    generator::RandSeed,
     generator::{seeder::Seeder, templater::Templater, types::AnyProvider, PlanConfig, RandSeed},
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
@@ -127,6 +126,7 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
         tx_type,
         gas_price_percent_add,
         call_forkchoice,
+        engine_args,
         ..
     } = &args;
 
@@ -138,8 +138,8 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
             .network::<AnyNetwork>()
             .on_http(url.to_owned()),
     );
-    let auth_client = if let Some(engine_args) = args.engine_args {
-        Some(get_auth_provider(&engine_args.auth_rpc_url, engine_args.jwt_secret).await?)
+    let auth_client = if let Some(engine_args) = engine_args {
+        Some(get_auth_provider(&engine_args.auth_rpc_url, engine_args.jwt_secret.to_owned()).await?)
     } else {
         None
     };
@@ -259,6 +259,7 @@ pub async fn spam<
         duration,
         disable_reporting,
         call_forkchoice,
+        engine_args,
         ..
     } = args;
 
@@ -267,6 +268,12 @@ pub async fn spam<
     let mut run_id = None;
     let rpc_client = Arc::new(rpc_client.to_owned());
 
+    let auth_client = if let Some(engine_args) = engine_args {
+        Some(get_auth_provider(&engine_args.auth_rpc_url, engine_args.jwt_secret.to_owned()).await?)
+    } else {
+        None
+    };
+
     // trigger blockwise spammer
     if let Some(txs_per_block) = txs_per_block {
         println!("Blockwise spamming with {} txs per block", txs_per_block);
@@ -274,8 +281,8 @@ pub async fn spam<
 
         match spam_callback_default(
             !disable_reporting,
-            call_forkchoice,
-            Some(Arc::new(rpc_client)),
+            *call_forkchoice,
+            Some(rpc_client.clone()),
             auth_client.map(Arc::new),
         )
         .await
@@ -292,7 +299,7 @@ pub async fn spam<
                         test_scenario,
                         *txs_per_block,
                         duration,
-                        Some(run_id),
+                        run_id,
                         tx_callback.into(),
                     )
                     .await?;
@@ -300,7 +307,7 @@ pub async fn spam<
             SpamCallbackType::Nil(tx_callback) => {
                 spammer
                     .spam_rpc(
-                        &mut scenario,
+                        test_scenario,
                         *txs_per_block,
                         duration,
                         None,
@@ -320,7 +327,7 @@ pub async fn spam<
     match spam_callback_default(
         !disable_reporting,
         args.call_forkchoice,
-        Arc::new(rpc_client).into(),
+        rpc_client.into(),
         auth_client.map(Arc::new),
     )
     .await
@@ -330,21 +337,15 @@ pub async fn spam<
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_millis();
-            run_id = db.insert_run(timestamp as u64, tps * duration, &args.testfile)?;
+            run_id = Some(db.insert_run(timestamp as u64, tps * duration, &args.testfile)?);
 
             spammer
-                .spam_rpc(
-                    &mut scenario,
-                    tps,
-                    duration,
-                    Some(run_id),
-                    tx_callback.into(),
-                )
+                .spam_rpc(test_scenario, tps, duration, run_id, tx_callback.into())
                 .await?;
         }
         SpamCallbackType::Nil(cback) => {
             spammer
-                .spam_rpc(&mut scenario, tps, duration, None, cback.to_owned().into())
+                .spam_rpc(test_scenario, tps, duration, None, cback.to_owned().into())
                 .await?;
         }
     };

@@ -1,5 +1,3 @@
-use super::ReportChartId;
-use crate::util::report_dir;
 use crate::{commands::report::chart::ReportChartId, util::report_dir};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
