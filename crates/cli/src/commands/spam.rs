@@ -47,6 +47,15 @@ pub struct SpamCommandArgs {
     pub gas_price_percent_add: Option<u16>,
 }
 
+impl SpamCommandArgs {
+    pub async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
+        &self,
+        db: &D,
+    ) -> Result<InitializedScenario<D>, Box<dyn std::error::Error>> {
+        init_scenario(db, self).await
+    }
+}
+
 #[derive(Debug, clap::Args)]
 pub struct SpamCliArgs {
     #[command(flatten)]
@@ -93,7 +102,7 @@ where
 }
 
 /// Initializes a TestScenario with the given arguments.
-pub async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
+async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
     db: &D,
     args: &SpamCommandArgs,
 ) -> Result<InitializedScenario<D>, Box<dyn std::error::Error>> {

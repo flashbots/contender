@@ -1,8 +1,5 @@
 use super::SpamCommandArgs;
-use crate::commands::{
-    self,
-    spam::{init_scenario, InitializedScenario},
-};
+use crate::commands::{self, spam::InitializedScenario};
 use contender_core::{db::DbOps, error::ContenderError};
 use std::{
     sync::{
@@ -38,7 +35,7 @@ pub async fn spamd(
     let InitializedScenario {
         mut scenario,
         rpc_client,
-    } = init_scenario(db, &args).await?;
+    } = args.init_scenario(db).await?;
 
     // collects run IDs from the spam command
     let mut run_ids = vec![];

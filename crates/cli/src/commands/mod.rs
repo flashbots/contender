@@ -14,7 +14,7 @@ pub use db::*;
 pub use report::report;
 pub use run::{run, RunCommandArgs};
 pub use setup::{setup, SetupCliArgs};
-pub use spam::{init_scenario, spam, InitializedScenario, SpamCliArgs, SpamCommandArgs};
+pub use spam::{spam, InitializedScenario, SpamCliArgs, SpamCommandArgs};
 pub use spamd::spamd;
 
 #[derive(Parser, Debug)]
