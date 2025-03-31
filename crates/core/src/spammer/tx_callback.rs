@@ -28,8 +28,10 @@ pub struct LogCallback {
 }
 
 impl LogCallback {
-    pub fn new(rpc_provider: Arc<AnyProvider>) -> Self {
-        Self { rpc_provider }
+    pub fn new(rpc_provider: &Arc<AnyProvider>) -> Self {
+        Self {
+            rpc_provider: rpc_provider.clone(),
+        }
     }
 }
 

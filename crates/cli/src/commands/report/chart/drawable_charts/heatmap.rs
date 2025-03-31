@@ -155,7 +155,7 @@ impl DrawableChart for HeatMapChart {
         chart
             .configure_mesh()
             .x_desc("Block")
-            .x_labels(32)
+            .x_labels(20)
             .x_label_formatter(&|i| {
                 if *i == block_nums.len() {
                     return String::default();

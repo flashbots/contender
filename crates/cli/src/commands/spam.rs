@@ -14,16 +14,22 @@ use contender_core::{
     agent_controller::AgentStore,
     db::DbOps,
     error::ContenderError,
-    generator::{seeder::Seeder, types::AnyProvider, Generator, PlanType, RandSeed},
+    generator::{
+        seeder::Seeder, templater::Templater, types::AnyProvider, Generator, PlanConfig, PlanType,
+        RandSeed,
+    },
     spammer::{BlockwiseSpammer, ExecutionPayload, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
 };
+use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
 
 use crate::util::{
     check_private_keys, fund_accounts, get_signers_with_defaults, spam_callback_default,
     SpamCallbackType,
 };
+
+use super::common::{ScenarioSendTxsCliArgs, SendSpamCliArgs};
 
 #[derive(Debug)]
 pub struct SpamCommandArgs {
@@ -35,20 +41,90 @@ pub struct SpamCommandArgs {
     pub duration: Option<usize>,
     pub seed: String,
     pub private_keys: Option<Vec<String>>,
-    pub disable_reports: bool,
+    pub disable_reporting: bool,
     pub min_balance: String,
     pub tx_type: TxType,
     pub gas_price_percent_add: Option<u16>,
 }
 
-/// Runs spammer and returns run ID.
-pub async fn spam(
-    db: &(impl DbOps + Clone + Send + Sync + 'static),
-    args: SpamCommandArgs,
-) -> Result<u64, Box<dyn std::error::Error>> {
-    let testconfig = TestConfig::from_file(&args.testfile)?;
-    let rand_seed = RandSeed::seed_from_str(&args.seed);
-    let url = Url::parse(&args.rpc_url).expect("Invalid RPC URL");
+impl SpamCommandArgs {
+    pub async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
+        &self,
+        db: &D,
+    ) -> Result<InitializedScenario<D>, Box<dyn std::error::Error>> {
+        init_scenario(db, self).await
+    }
+}
+
+#[derive(Debug, clap::Args)]
+pub struct SpamCliArgs {
+    #[command(flatten)]
+    pub eth_json_rpc_args: ScenarioSendTxsCliArgs,
+
+    #[command(flatten)]
+    pub spam_args: SendSpamCliArgs,
+
+    /// Whether to log reports for the spamming run.
+    #[arg(
+            long,
+            long_help = "Prevent tx results from being saved to DB.",
+            visible_aliases = &["dr"]
+        )]
+    pub disable_reporting: bool,
+
+    /// The path to save the report to.
+    /// If not provided, the report can be generated with the `report` subcommand.
+    /// If provided, the report is saved to the given path.
+    #[arg(
+        short = 'r',
+        long,
+        long_help = "Filename of the saved report. May be a fully-qualified path. If not provided, the report can be generated with the `report` subcommand. '.csv' extension is added automatically."
+    )]
+    pub gen_report: bool,
+
+    /// Adds (gas_price * percent) / 100 to the standard gas price of the transactions.
+    #[arg(
+        short,
+        long,
+        long_help = "Adds given percent increase to the standard gas price of the transactions."
+    )]
+    pub gas_price_percent_add: Option<u16>,
+}
+
+pub struct InitializedScenario<D = SqliteDb, S = RandSeed, P = TestConfig>
+where
+    D: DbOps + Clone + Send + Sync + 'static,
+    S: Seeder,
+    P: PlanConfig<String> + Templater<String> + Send + Sync,
+{
+    pub scenario: TestScenario<D, S, P>,
+    pub rpc_client: AnyProvider,
+}
+
+/// Initializes a TestScenario with the given arguments.
+async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
+    db: &D,
+    args: &SpamCommandArgs,
+) -> Result<InitializedScenario<D>, Box<dyn std::error::Error>> {
+    println!("Initializing spammer...");
+    let SpamCommandArgs {
+        txs_per_block,
+        txs_per_second,
+        testfile,
+        duration,
+        seed,
+        rpc_url,
+        builder_url,
+        min_balance,
+        private_keys,
+        tx_type,
+        gas_price_percent_add,
+        ..
+    } = &args;
+
+    let testconfig = TestConfig::from_file(testfile)?;
+    let rand_seed = RandSeed::seed_from_str(seed);
+    let url = Url::parse(rpc_url).expect("Invalid RPC URL");
     let rpc_client = DynProvider::new(
         ProviderBuilder::new()
             .network::<AnyNetwork>()
@@ -56,10 +132,10 @@ pub async fn spam(
     );
     let eth_client = DynProvider::new(ProviderBuilder::new().on_http(url.to_owned()));
 
-    let duration = args.duration.unwrap_or_default();
-    let min_balance = parse_ether(&args.min_balance)?;
+    let duration = duration.unwrap_or_default();
+    let min_balance = parse_ether(min_balance)?;
 
-    let user_signers = get_signers_with_defaults(args.private_keys);
+    let user_signers = get_signers_with_defaults(private_keys.to_owned());
     let spam = testconfig
         .spam
         .as_ref()
@@ -73,9 +149,7 @@ pub async fn spam(
     let from_pool_declarations = testconfig.get_spam_pools();
 
     let mut agents = AgentStore::new();
-    let signers_per_period = args
-        .txs_per_block
-        .unwrap_or(args.txs_per_second.unwrap_or(spam.len()));
+    let signers_per_period = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam.len()));
     agents.init(
         &from_pool_declarations,
         signers_per_period / from_pool_declarations.len().max(1),
@@ -98,10 +172,10 @@ pub async fn spam(
 
     check_private_keys(&testconfig, &user_signers);
 
-    if args.txs_per_block.is_some() && args.txs_per_second.is_some() {
+    if txs_per_block.is_some() && txs_per_second.is_some() {
         panic!("Cannot set both --txs-per-block and --txs-per-second");
     }
-    if args.txs_per_block.is_none() && args.txs_per_second.is_none() {
+    if txs_per_block.is_none() && txs_per_second.is_none() {
         panic!("Must set either --txs-per-block (--tpb) or --txs-per-second (--tps)");
     }
 
@@ -113,31 +187,30 @@ pub async fn spam(
         &rpc_client,
         &eth_client,
         min_balance,
-        args.tx_type,
+        *tx_type,
     )
     .await?;
 
-    let mut run_id = 0;
-
-    let mut scenario = TestScenario::new(
+    let scenario = TestScenario::new(
         testconfig,
         db.clone().into(),
         rand_seed,
         TestScenarioParams {
             rpc_url: url,
-            builder_rpc_url: args
-                .builder_url
+            builder_rpc_url: builder_url
+                .to_owned()
                 .map(|url| Url::parse(&url).expect("Invalid builder URL")),
             signers: user_signers,
-            agent_store: agents,
-            tx_type: args.tx_type,
-            gas_price_percent_add: args.gas_price_percent_add,
+            agent_store: agents.to_owned(),
+            tx_type: *tx_type,
+            gas_price_percent_add: *gas_price_percent_add,
         },
     )
     .await?;
 
-    let total_cost = // TODO: factor in gas price percent add
-        get_max_spam_cost(scenario.to_owned(), &rpc_client).await? * U256::from(duration);
+    // don't multiply by TPS or TPB, because that number scales the number of accounts; this cost is per account
+    let total_cost =
+        U256::from(duration) * get_max_spam_cost(scenario.to_owned(), &rpc_client).await?;
     if min_balance < U256::from(total_cost) {
         return Err(ContenderError::SpamError(
             "min_balance is not enough to cover the cost of the spam transactions",
@@ -151,32 +224,63 @@ pub async fn spam(
         .into());
     }
 
+    Ok(InitializedScenario {
+        scenario,
+        rpc_client,
+    })
+}
+
+/// Runs spammer and returns run ID.
+pub async fn spam<
+    D: DbOps + Clone + Send + Sync + 'static,
+    S: Seeder + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+>(
+    db: &D,
+    args: &SpamCommandArgs,
+    test_scenario: &mut TestScenario<D, S, P>,
+    rpc_client: &AnyProvider,
+) -> Result<Option<u64>, Box<dyn std::error::Error>> {
+    let SpamCommandArgs {
+        txs_per_block,
+        txs_per_second,
+        testfile,
+        duration,
+        disable_reporting,
+        ..
+    } = args;
+
+    let duration = duration.unwrap_or_default();
+    println!("Duration: {} seconds", duration);
+    let mut run_id = None;
+    let rpc_client = Arc::new(rpc_client.to_owned());
+
     // trigger blockwise spammer
-    if let Some(txs_per_block) = args.txs_per_block {
+    if let Some(txs_per_block) = txs_per_block {
         println!("Blockwise spamming with {} txs per block", txs_per_block);
         let spammer = BlockwiseSpammer {};
 
-        match spam_callback_default(!args.disable_reports, Arc::new(rpc_client).into()).await {
+        match spam_callback_default(!disable_reporting, Some(&rpc_client)).await {
             SpamCallbackType::Log(cback) => {
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("Time went backwards")
                     .as_millis();
                 run_id =
-                    db.insert_run(timestamp as u64, txs_per_block * duration, &args.testfile)?;
+                    Some(db.insert_run(timestamp as u64, txs_per_block * duration, testfile)?);
                 spammer
                     .spam_rpc(
-                        &mut scenario,
-                        txs_per_block,
+                        test_scenario,
+                        *txs_per_block,
                         duration,
-                        Some(run_id),
+                        run_id,
                         cback.into(),
                     )
                     .await?;
             }
             SpamCallbackType::Nil(cback) => {
                 spammer
-                    .spam_rpc(&mut scenario, txs_per_block, duration, None, cback.into())
+                    .spam_rpc(test_scenario, *txs_per_block, duration, None, cback.into())
                     .await?;
             }
         };
@@ -184,24 +288,24 @@ pub async fn spam(
     }
 
     // trigger timed spammer
-    let tps = args.txs_per_second.unwrap_or(10);
+    let tps = txs_per_second.unwrap_or(10);
     println!("Timed spamming with {} txs per second", tps);
     let interval = std::time::Duration::from_secs(1);
     let spammer = TimedSpammer::new(interval);
-    match spam_callback_default(!args.disable_reports, Arc::new(rpc_client).into()).await {
+    match spam_callback_default(!disable_reporting, Some(&rpc_client)).await {
         SpamCallbackType::Log(cback) => {
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_millis();
-            run_id = db.insert_run(timestamp as u64, tps * duration, &args.testfile)?;
+            run_id = Some(db.insert_run(timestamp as u64, tps * duration, testfile)?);
             spammer
-                .spam_rpc(&mut scenario, tps, duration, Some(run_id), cback.into())
+                .spam_rpc(test_scenario, tps, duration, run_id, cback.into())
                 .await?;
         }
         SpamCallbackType::Nil(cback) => {
             spammer
-                .spam_rpc(&mut scenario, tps, duration, None, cback.into())
+                .spam_rpc(test_scenario, tps, duration, None, cback.into())
                 .await?;
         }
     };
@@ -209,14 +313,18 @@ pub async fn spam(
     Ok(run_id)
 }
 
-/// Returns the maximum cost of a spam transaction.
+/// Returns the maximum cost of a single spam transaction.
 ///
 /// We take `scenario` by value rather than by reference, because we call `prepare_tx_request`
-/// and `prepare_spam` which will mutate the scenario (namely the overly-optimistic internal nonce counter).
+/// and `prepare_spam` which will mutate the scenario (namely the internal nonce counter).
 /// We're not going to run the transactions we generate here; we just want to see the cost of
 /// our spam txs, so we can estimate how much the user should provide for `min_balance`.
-async fn get_max_spam_cost<D: DbOps + Send + Sync + 'static, S: Seeder + Send + Sync + Clone>(
-    scenario: TestScenario<D, S, TestConfig>,
+async fn get_max_spam_cost<
+    D: DbOps + Send + Sync + 'static,
+    S: Seeder + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+>(
+    scenario: TestScenario<D, S, P>,
     rpc_client: &AnyProvider,
 ) -> Result<U256, Box<dyn std::error::Error>> {
     let mut scenario = scenario;
@@ -228,8 +336,7 @@ async fn get_max_spam_cost<D: DbOps + Send + Sync + 'static, S: Seeder + Send + 
                 .load_txs(PlanType::Spam(
                     scenario
                         .config
-                        .spam
-                        .to_owned()
+                        .get_spam_steps()
                         .map(|s| s.len()) // take the number of spam txs from the testfile
                         .unwrap_or(0),
                     |_named_req| {
