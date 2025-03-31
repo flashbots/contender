@@ -7,5 +7,5 @@ bytecode = "0x608060405234801561000f575f5ffd5b5060405180602001604052805f8152505f
 [spam.tx]
 to = "{SpamMe5}"
 from_pool = "spammers"
-signature = "consumeGas(string memory method, uint256 iterations)"
-args = ["hash_sha256", "5"]
+signature = "callPrecompile(string memory method, uint256 iterations)"
+args = ["ecMul", "5"]
