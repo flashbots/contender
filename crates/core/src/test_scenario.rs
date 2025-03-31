@@ -91,11 +91,11 @@ where
         let client = ClientBuilder::default()
             .layer(LoggingLayer)
             .http(rpc_url.to_owned());
-        let rpc_client = Arc::new(DynProvider::new(
+        let rpc_client = DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
                 .on_client(client),
-        ));
+        );
 
         let mut wallet_map = HashMap::new();
         let wallets = signers.iter().map(|s| {
@@ -126,13 +126,17 @@ where
             .as_ref()
             .map(|url| Arc::new(BundleClient::new(url.clone())));
 
-        let msg_handle = Arc::new(TxActorHandle::new(12, db.clone(), rpc_client.clone()));
+        let msg_handle = Arc::new(TxActorHandle::new(
+            12,
+            db.clone(),
+            Arc::new(rpc_client.clone()),
+        ));
 
         Ok(Self {
             config,
             db: db.clone(),
             rpc_url: rpc_url.to_owned(),
-            rpc_client: rpc_client.clone(),
+            rpc_client: Arc::new(rpc_client),
             eth_client: Arc::new(DynProvider::new(ProviderBuilder::new().on_http(rpc_url))),
             bundle_client,
             builder_rpc_url,

@@ -124,7 +124,6 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
             .network::<AnyNetwork>()
             .on_http(url.to_owned()),
     );
-    let eth_client = DynProvider::new(ProviderBuilder::new().on_http(url.to_owned()));
 
     let duration = duration.unwrap_or_default();
     let min_balance = parse_ether(min_balance)?;
@@ -179,7 +178,6 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
         &all_signer_addrs,
         &user_signers[0],
         &rpc_client,
-        &eth_client,
         min_balance,
         *tx_type,
     )
