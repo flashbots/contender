@@ -326,7 +326,7 @@ pub async fn spam<
     let spammer = TimedSpammer::new(interval);
     match spam_callback_default(
         !disable_reporting,
-        args.call_forkchoice,
+        *call_forkchoice,
         rpc_client.into(),
         auth_client.map(Arc::new),
     )
@@ -337,7 +337,7 @@ pub async fn spam<
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_millis();
-            run_id = Some(db.insert_run(timestamp as u64, tps * duration, &args.testfile)?);
+            run_id = Some(db.insert_run(timestamp as u64, tps * duration, testfile)?);
 
             spammer
                 .spam_rpc(test_scenario, tps, duration, run_id, tx_callback.into())
