@@ -296,7 +296,7 @@ pub async fn spam<
                         println!("Error advancing chain: {}", e);
                     }
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(420)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
             }
         });
     }
