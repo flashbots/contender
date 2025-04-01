@@ -64,8 +64,8 @@ mod tests {
         spammer::util::test::{fund_account, get_test_signers, MockCallback},
         test_scenario::{tests::MockConfig, TestScenarioParams},
     };
-    use std::collections::HashSet;
     use std::sync::Arc;
+    use std::{collections::HashSet, sync::atomic::AtomicBool};
 
     use super::*;
 
@@ -144,6 +144,7 @@ mod tests {
                 periods,
                 None,
                 callback.clone(),
+                Arc::new(AtomicBool::new(false)),
             )
             .await;
         assert!(result.is_ok());

@@ -17,15 +17,15 @@ use contender_core::{
     agent_controller::AgentStore,
     db::DbOps,
     error::ContenderError,
-    eth_engine::get_auth_provider,
+    eth_engine::{advance_chain, get_auth_provider, DEFAULT_BLOCK_TIME},
     generator::{seeder::Seeder, templater::Templater, types::AnyProvider, PlanConfig, RandSeed},
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
 };
 use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
-use std::path::PathBuf;
 use std::sync::Arc;
+use std::{path::PathBuf, sync::atomic::AtomicBool};
 
 #[derive(Debug)]
 pub struct EngineArgs {
@@ -274,6 +274,33 @@ pub async fn spam<
         None
     };
 
+    // thread-safe flag to stop spammer at different stages
+    let done_fcu = AtomicBool::new(false);
+    let is_fcu_done = Arc::new(done_fcu);
+    let done_sending = AtomicBool::new(false);
+    let is_sending_done = Arc::new(done_sending);
+
+    // run loop in background to call fcu when spamming is done
+    if let Some(auth_client) = auth_client.to_owned() {
+        let auth_client = Arc::new(auth_client);
+        let is_fcu_done = is_fcu_done.clone();
+        let is_sending_done = is_sending_done.clone();
+        tokio::spawn(async move {
+            loop {
+                if is_fcu_done.load(std::sync::atomic::Ordering::SeqCst) {
+                    break;
+                }
+                if is_sending_done.load(std::sync::atomic::Ordering::SeqCst) {
+                    let res = advance_chain(&auth_client, DEFAULT_BLOCK_TIME).await;
+                    if let Err(e) = res {
+                        println!("Error advancing chain: {}", e);
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(420)).await;
+            }
+        });
+    }
+
     // trigger blockwise spammer
     if let Some(txs_per_block) = txs_per_block {
         println!("Blockwise spamming with {} txs per block", txs_per_block);
@@ -301,6 +328,7 @@ pub async fn spam<
                         duration,
                         run_id,
                         tx_callback.into(),
+                        is_sending_done.clone(),
                     )
                     .await?;
             }
@@ -312,6 +340,7 @@ pub async fn spam<
                         duration,
                         None,
                         tx_callback.to_owned().into(),
+                        is_sending_done.clone(),
                     )
                     .await?;
             }
@@ -340,15 +369,30 @@ pub async fn spam<
             run_id = Some(db.insert_run(timestamp as u64, tps * duration, testfile)?);
 
             spammer
-                .spam_rpc(test_scenario, tps, duration, run_id, tx_callback.into())
+                .spam_rpc(
+                    test_scenario,
+                    tps,
+                    duration,
+                    run_id,
+                    tx_callback.into(),
+                    is_sending_done.clone(),
+                )
                 .await?;
         }
         SpamCallbackType::Nil(cback) => {
             spammer
-                .spam_rpc(test_scenario, tps, duration, None, cback.to_owned().into())
+                .spam_rpc(
+                    test_scenario,
+                    tps,
+                    duration,
+                    None,
+                    cback.to_owned().into(),
+                    is_sending_done.clone(),
+                )
                 .await?;
         }
     };
+    is_fcu_done.store(true, std::sync::atomic::Ordering::SeqCst);
 
     Ok(run_id)
 }

@@ -1,4 +1,5 @@
 use std::ops::Deref;
+use std::sync::atomic::AtomicBool;
 use std::{pin::Pin, sync::Arc};
 
 use alloy::providers::Provider;
@@ -41,6 +42,7 @@ where
         num_periods: usize,
         run_id: Option<u64>,
         sent_tx_callback: Arc<F>,
+        done_sending: Arc<AtomicBool>,
     ) -> impl std::future::Future<Output = Result<()>> {
         async move {
             let tx_req_chunks = get_spam_tx_chunks(scenario, txs_per_period, num_periods).await?;
@@ -64,6 +66,7 @@ where
             if !spam_finished {
                 println!("Spammer terminated. Press CTRL-C again to stop result collection...");
             }
+            done_sending.store(true, std::sync::atomic::Ordering::SeqCst);
 
             // collect results from cached pending txs
             let flush_finished: bool = tokio::select! {

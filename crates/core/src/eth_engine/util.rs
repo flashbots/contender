@@ -50,6 +50,8 @@ pub async fn advance_chain(
     engine_client: &AnyProvider,
     block_time_secs: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    println!("advancing chain...");
+
     let block = engine_client
         .get_block(BlockId::latest())
         .full()

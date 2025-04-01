@@ -104,7 +104,7 @@ where
                 }
             }
             println!("waiting for block {}", target_block_num);
-            std::thread::sleep(Duration::from_secs(1));
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
         let target_block = maybe_block
             .expect("this should never happen")

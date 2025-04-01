@@ -98,9 +98,8 @@ impl OnBatchSent for LogCallback {
     fn on_batch_sent(&self) -> Option<JoinHandle<()>> {
         if let Some(provider) = &self.auth_provider {
             if !self.send_fcu {
-                return Some(tokio::task::spawn(async move {
-                    // maybe do something metrics-related here
-                }));
+                // maybe do something metrics-related here
+                return None;
             }
             let provider = provider.clone();
             return Some(tokio::task::spawn(async move {
