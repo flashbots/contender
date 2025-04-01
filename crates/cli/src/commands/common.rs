@@ -45,6 +45,32 @@ May be specified multiple times."
             default_value_t = TxTypeCli::Eip1559,
         )]
     pub tx_type: TxTypeCli,
+
+    /// Auth RPC URL for `engine_` calls
+    #[arg(
+                long,
+                long_help = "Provide this URL to enable use of engine_ calls.",
+                visible_aliases = &["auth"]
+            )]
+    pub auth_rpc_url: Option<String>,
+
+    /// JWT secret used for `engine_` calls
+    #[arg(
+                long,
+                long_help = "JWT secret.
+    Required if --auth-rpc-url is set.",
+                visible_aliases = &["jwt"]
+            )]
+    pub jwt_secret: Option<String>,
+
+    /// Call `engine_forkchoiceUpdated` after each block
+    #[arg(
+                long,
+                long_help = "Call engine_forkchoiceUpdated on Auth RPC after each block.
+    Requires --auth-rpc-url and --jwt-secret to be set.",
+                visible_aliases = &["fcu"]
+            )]
+    pub call_forkchoice: bool,
 }
 
 #[derive(Debug, clap::Args)]

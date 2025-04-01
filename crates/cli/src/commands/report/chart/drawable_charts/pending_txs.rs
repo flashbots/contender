@@ -79,7 +79,7 @@ impl DrawableChart for PendingTxsChart {
 
         let mut chart = plotters::chart::ChartBuilder::on(root)
             .margin(15)
-            .x_label_area_size(60)
+            .x_label_area_size(80)
             .y_label_area_size(60)
             .build_cartesian_2d(
                 min_timestamp..max_timestamp + 1,
@@ -90,7 +90,7 @@ impl DrawableChart for PendingTxsChart {
             .configure_mesh()
             .disable_x_mesh()
             .x_desc("Timestamp          ")
-            .x_label_formatter(&|timestamp| format!("               {}", timestamp))
+            .x_label_formatter(&|timestamp| format!("                 {}", timestamp))
             .x_label_style(
                 ("sans-serif", 15)
                     .into_text_style(root)

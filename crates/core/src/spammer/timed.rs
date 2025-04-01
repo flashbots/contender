@@ -10,6 +10,7 @@ use crate::{
     test_scenario::TestScenario,
 };
 
+use super::tx_callback::OnBatchSent;
 use super::{OnTxSent, SpamTrigger, Spammer};
 
 pub struct TimedSpammer {
@@ -24,7 +25,7 @@ impl TimedSpammer {
 
 impl<F, D, S, P> Spammer<F, D, S, P> for TimedSpammer
 where
-    F: OnTxSent + Send + Sync + 'static,
+    F: OnTxSent + OnBatchSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,

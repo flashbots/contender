@@ -1,3 +1,7 @@
+use super::spam::EngineArgs;
+use crate::util::{
+    check_private_keys_fns, find_insufficient_balances, fund_accounts, get_signers_with_defaults,
+};
 use alloy::{
     consensus::TxType,
     network::AnyNetwork,
@@ -9,16 +13,21 @@ use alloy::{
 use contender_core::{
     agent_controller::{AgentStore, SignerStore},
     error::ContenderError,
+    eth_engine::{advance_chain, get_auth_provider, DEFAULT_BLOCK_TIME},
     generator::RandSeed,
     test_scenario::{TestScenario, TestScenarioParams},
 };
 use contender_testfile::TestConfig;
-use std::str::FromStr;
+use std::{
+    str::FromStr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use super::common::ScenarioSendTxsCliArgs;
-use crate::util::{
-    check_private_keys_fns, find_insufficient_balances, fund_accounts, get_signers_with_defaults,
-};
 
 #[derive(Debug, clap::Args)]
 pub struct SetupCliArgs {
@@ -28,19 +37,30 @@ pub struct SetupCliArgs {
 
 pub async fn setup(
     db: &(impl contender_core::db::DbOps + Clone + Send + Sync + 'static),
-    testfile: impl AsRef<str>,
-    rpc_url: impl AsRef<str>,
-    private_keys: Option<Vec<String>>,
-    min_balance: String,
-    seed: RandSeed,
-    tx_type: TxType,
+    args: SetupCommandArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let SetupCommandArgs {
+        testfile,
+        rpc_url,
+        private_keys,
+        min_balance,
+        seed,
+        tx_type,
+        engine_args,
+        call_fcu,
+    } = args;
+
     let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
     let rpc_client = DynProvider::new(
         ProviderBuilder::new()
             .network::<AnyNetwork>()
             .on_http(url.to_owned()),
     );
+    let auth_client = if let Some(engine_args) = engine_args {
+        Some(get_auth_provider(&engine_args.auth_rpc_url, engine_args.jwt_secret).await?)
+    } else {
+        None
+    };
     let testconfig: TestConfig = TestConfig::from_file(testfile.as_ref())?;
     let min_balance = parse_ether(&min_balance)?;
 
@@ -115,6 +135,7 @@ pub async fn setup(
         &rpc_client,
         min_balance,
         tx_type,
+        (auth_client.to_owned(), call_fcu),
     )
     .await?;
 
@@ -147,10 +168,47 @@ pub async fn setup(
         .into());
     }
 
+    let done = AtomicBool::new(false);
+    let is_done = Arc::new(done);
+
+    if call_fcu && auth_client.is_some() {
+        let auth_client = Arc::new(auth_client.expect("auth_client"));
+        let is_done = is_done.clone();
+
+        // spawn a task to advance the chain periodically while setup is running
+        tokio::task::spawn(async move {
+            loop {
+                if is_done.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                advance_chain(&auth_client, DEFAULT_BLOCK_TIME)
+                    .await
+                    .expect("failed to advance chain");
+
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        });
+    }
+
     scenario.deploy_contracts().await?;
     println!("Finished deploying contracts. Running setup txs...");
     scenario.run_setup().await?;
     println!("Setup complete. To run the scenario, use the `spam` command.");
 
+    // stop advancing the chain
+    is_done.store(true, Ordering::SeqCst);
+
     Ok(())
+}
+
+pub struct SetupCommandArgs {
+    pub testfile: String,
+    pub rpc_url: String,
+    pub private_keys: Option<Vec<String>>,
+    pub min_balance: String,
+    pub seed: RandSeed,
+    pub tx_type: TxType,
+    pub engine_args: Option<EngineArgs>,
+    pub call_fcu: bool,
 }

@@ -1,8 +1,6 @@
-use std::collections::HashMap;
-
-use serde::{Deserialize, Serialize};
-
 use crate::{commands::report::chart::ReportChartId, util::report_dir};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 pub struct ReportMetadata {
     pub scenario_name: String,
