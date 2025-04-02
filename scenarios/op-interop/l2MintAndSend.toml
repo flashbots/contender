@@ -1,0 +1,31 @@
+[env]
+L2ToL2CrossDomainMessenger = "0x4200000000000000000000000000000000000023"
+SuperchainTokenBridge = "0x4200000000000000000000000000000000000028"
+L2NativeSuperchainERC20 = "0x420beeF000000000000000000000000000000001"
+# sourceChainId = "901"
+targetChainId = "902"
+
+# mint tokens on source L2
+[[spam]]
+[spam.tx]
+to = "{L2NativeSuperchainERC20}"
+from_pool = "spammers"
+signature = "mint(address _to, uint256 _amount)"
+args = [
+    "{_sender}",
+    "1000"
+]
+
+# send tokens to other L2
+[[spam]]
+[spam.tx]
+to = "{SuperchainTokenBridge}"
+from_pool = "spammers"
+signature = "sendERC20(address _token, address _to, uint256 _amount, uint256 _chainId)"
+args = [
+    "{L2NativeSuperchainERC20}",
+    "{_sender}",
+    "1000",
+    "{targetChainId}"
+]
+gas_limit = 100000
