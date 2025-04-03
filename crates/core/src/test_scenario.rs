@@ -634,6 +634,20 @@ where
     ) -> Result<Vec<tokio::task::JoinHandle<()>>> {
         let mut tasks: Vec<tokio::task::JoinHandle<()>> = vec![];
 
+        // sort payloads by nonce
+        let mut payloads = payloads;
+        payloads.sort_by(|a, b| {
+            let a_nonce = match a {
+                ExecutionPayload::SignedTx(_, req) => req.tx.nonce,
+                ExecutionPayload::SignedTxBundle(_, reqs) => reqs[0].tx.nonce,
+            };
+            let b_nonce = match b {
+                ExecutionPayload::SignedTx(_, req) => req.tx.nonce,
+                ExecutionPayload::SignedTxBundle(_, reqs) => reqs[0].tx.nonce,
+            };
+            a_nonce.cmp(&b_nonce)
+        });
+
         for payload in payloads {
             let rpc_client = self.rpc_client.clone();
             let bundle_client = self.bundle_client.clone();
@@ -656,7 +670,6 @@ where
 
                         match res {
                             Ok(res) => {
-                                //
                                 let maybe_handle = callback_handler.on_tx_sent(
                                     res.into_inner(),
                                     &req,
