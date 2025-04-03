@@ -37,6 +37,62 @@ where
 
     /// Get spam step templates from the plan configuration.
     fn get_spam_steps(&self) -> Result<Vec<SpamRequest>>;
+
+    /// Returns unique from_pool declarations from the `create` section of the testfile.
+    fn get_create_pools(&self) -> Vec<String> {
+        let mut from_pools: Vec<_> = self
+            .get_create_steps()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|s| s.from_pool)
+            .collect();
+        from_pools.sort();
+        from_pools.dedup();
+        from_pools
+    }
+
+    /// Returns unique from_pool declarations from the `setup` section of the testfile.
+    fn get_setup_pools(&self) -> Vec<String> {
+        let mut from_pools: Vec<_> = self
+            .get_setup_steps()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|s| s.from_pool)
+            .collect();
+        from_pools.sort();
+        from_pools.dedup();
+        from_pools
+    }
+
+    /// Returns unique from_pool declarations from the `spam` section of the testfile.
+    fn get_spam_pools(&self) -> Vec<String> {
+        let mut from_pools = vec![];
+        let spam = self
+            .get_spam_steps()
+            .expect("No spam function calls found in testfile");
+
+        for s in spam {
+            match s {
+                SpamRequest::Tx(fn_call) => {
+                    if let Some(from_pool) = &fn_call.from_pool {
+                        from_pools.push(from_pool.to_owned());
+                    }
+                }
+                SpamRequest::Bundle(bundle) => {
+                    for tx in &bundle.txs {
+                        if let Some(from_pool) = &tx.from_pool {
+                            from_pools.push(from_pool.to_owned());
+                        }
+                    }
+                }
+            }
+        }
+
+        // filter out non-unique pools
+        from_pools.sort();
+        from_pools.dedup();
+        from_pools
+    }
 }
 
 #[async_trait]
@@ -88,10 +144,12 @@ where
                     "from_pool not found in agent store",
                     Some(from_pool.to_owned()),
                 ))?;
-            agent.get_address(idx).ok_or(ContenderError::SpamError(
-                "signer not found in agent store",
-                Some(format!("from_pool={}, idx={}", from_pool, idx)),
-            ))?
+            agent
+                .get_address(idx % agent.signers.len())
+                .ok_or(ContenderError::SpamError(
+                    "signer not found in agent store",
+                    Some(format!("from_pool={}, idx={}", from_pool, idx)),
+                ))?
         } else if let Some(from) = &create_def.from {
             from.parse().map_err(|e| {
                 ContenderError::SpamError(
@@ -131,10 +189,12 @@ where
                     "from_pool not found in agent store",
                     Some(from_pool.to_owned()),
                 ))?;
-            agent.get_address(idx).ok_or(ContenderError::SpamError(
-                "signer not found in agent store",
-                Some(format!("from_pool={}, idx={}", from_pool, idx)),
-            ))?
+            agent
+                .get_address(idx % agent.signers.len())
+                .ok_or(ContenderError::SpamError(
+                    "signer not found in agent store",
+                    Some(format!("from_pool={}, idx={}", from_pool, idx)),
+                ))?
         } else if let Some(from) = &funcdef.from {
             from.parse().map_err(|e| {
                 ContenderError::SpamError(
@@ -181,6 +241,7 @@ where
         })
     }
 
+    /// Loads transactions from the plan configuration and returns execution requests.
     async fn load_txs<F: Send + Sync + Fn(NamedTxRequest) -> CallbackResult>(
         &self,
         plan_type: PlanType<F>,
@@ -201,7 +262,6 @@ where
             PlanType::Create(on_create_step) => {
                 let create_steps = conf.get_create_steps()?;
 
-                // txs will be grouped by account [from=1, from=1, from=1, from=2, from=2, from=2, ...]
                 for step in create_steps.iter() {
                     // populate step with from address
                     let step = self.make_strict_create(step, 0)?;
@@ -232,8 +292,6 @@ where
             }
             PlanType::Setup(on_setup_step) => {
                 let setup_steps = conf.get_setup_steps()?;
-
-                // txs will be grouped by account [from=1, from=1, from=1, from=2, from=2, from=2, ...]
                 let rpc_url = self.get_rpc_url();
 
                 for step in setup_steps.iter() {
@@ -305,20 +363,7 @@ where
                     };
                 }
 
-                let agentstore = self.get_agent_store();
-                let num_accts = agentstore
-                    .all_agents()
-                    .next()
-                    .map(|(_, store)| store.signers.len())
-                    .unwrap_or(1);
-                if num_accts == 0 {
-                    return Err(ContenderError::SpamError(
-                        "no accounts found in agent store",
-                        None,
-                    ));
-                }
-
-                // txs will be grouped by step [from=1, from=2, from=3, from=1, from=2, from=3, ...]
+                // txs will be grouped by full step sequences [from=1, from=2, from=3, from=1, from=2, from=3, ...]
                 for step in spam_steps.iter() {
                     for i in 0..(num_txs / num_steps) {
                         // converts a FunctionCallDefinition to a NamedTxRequest (filling in fuzzable args),
@@ -335,7 +380,7 @@ where
 
                             let tx = NamedTxRequest::new(
                                 templater.template_function_call(
-                                    &self.make_strict_call(&req, i % num_accts)?, // 'from' address injected here
+                                    &self.make_strict_call(&req, i)?, // 'from' address injected here
                                     &placeholder_map,
                                 )?,
                                 None,

@@ -137,4 +137,8 @@ impl SignerStore {
     pub fn remove_signer(&mut self, idx: usize) {
         self.signers.remove(idx);
     }
+
+    pub fn all_addresses(&self) -> Vec<Address> {
+        self.signers.iter().map(|s| s.address()).collect()
+    }
 }

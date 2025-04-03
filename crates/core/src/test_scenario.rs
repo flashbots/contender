@@ -25,7 +25,10 @@ use alloy::signers::local::{LocalSigner, PrivateKeySigner};
 use alloy::transports::http::reqwest::Url;
 use contender_bundle_provider::bundle_provider::new_basic_bundle;
 use contender_bundle_provider::BundleClient;
+use futures::{Stream, StreamExt};
 use std::collections::HashMap;
+use std::ops::Deref;
+use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -200,7 +203,17 @@ where
         let start_balances: HashMap<Address, U256> =
             HashMap::from_iter(addresses.iter().map(|addr| (*addr, fund_amount)));
 
-        scenario.fund_agents(&admin_wallet, fund_amount).await?;
+        let all_pools: Vec<String> = scenario
+            .agent_store
+            .all_agents()
+            .map(|(name, _)| name.to_owned())
+            .collect();
+        for agent_name in all_pools {
+            scenario
+                .fund_agent_signers(agent_name, &admin_wallet, fund_amount)
+                .await?;
+        }
+
         scenario.deploy_contracts().await?;
         scenario.run_setup().await?;
 
@@ -229,14 +242,22 @@ where
         Ok(total_cost)
     }
 
-    /// Funds all agents in the agent store with the given amount.
+    /// Funds all signers in the agent with the given amount.
     /// Does not check if the agents are already funded.
-    pub async fn fund_agents(&mut self, funder: &EthereumWallet, amount: U256) -> Result<()> {
+    pub async fn fund_agent_signers(
+        &mut self,
+        agent_name: impl AsRef<str>,
+        funder: &EthereumWallet,
+        amount: U256,
+    ) -> Result<()> {
         let addresses = self
             .agent_store
-            .all_signer_addresses()
-            .into_iter()
-            .collect::<Vec<Address>>();
+            .get_agent(&agent_name)
+            .ok_or(ContenderError::SetupError(
+                "agent not found",
+                Some(agent_name.as_ref().to_owned()),
+            ))?
+            .all_addresses();
         let gas_price = self
             .rpc_client
             .get_gas_price()
@@ -523,7 +544,7 @@ where
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
         let gas_price = gas_price + ((gas_price * self.gas_price_percent_add) / 100);
         let mut payloads = vec![];
-        println!("preparing {} payloads", tx_requests.len());
+        println!("preparing {} spam payloads", tx_requests.len());
         for tx in tx_requests {
             let payload = match tx {
                 ExecutionRequest::Bundle(reqs) => {
@@ -558,40 +579,44 @@ where
                         .prepare_tx_request(&req.tx, gas_price)
                         .await
                         .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
+                    let mut new_req = req.to_owned();
+                    new_req.tx = tx_req.to_owned();
 
                     // sign tx
-                    let tx_envelope = tx_req.to_owned().build(&signer).await.map_err(|e| {
+                    let tx_envelope = tx_req.build(&signer).await.map_err(|e| {
                         ContenderError::with_err(e, "bad request: failed to build tx")
                     })?;
 
-                    let priority_fee = tx_req
+                    // log tx details
+                    let priority_fee = new_req
+                        .tx
                         .max_priority_fee_per_gas
                         .map(|f| format!(" priority_fee: {},", f))
                         .unwrap_or_default();
                     println!(
                         "prepared tx: {}, from: {}, to: {:?}, input: {}, value={}, gas_limit: {}, gas_price: {},{priority_fee} nonce={}",
                         tx_envelope.tx_hash(),
-                        tx_req.from.map(|s| s.encode_hex()).unwrap_or_default(),
+                        new_req.tx.from.map(|s| s.encode_hex()).unwrap_or_default(),
                         tx_envelope.to(),
-                        tx_req
+                        new_req.tx
                             .input
                             .input
                             .as_ref()
                             .map(|s| s.encode_hex())
                             .unwrap_or_default(),
-                        tx_req
+                        new_req.tx
                             .value
                             .map(|s| s.to_string())
                             .unwrap_or("0".to_owned()),
-                        tx_req
+                        new_req.tx
                             .gas
                             .map(|g| g.to_string())
                             .unwrap_or("N/A".to_owned()),
-                        tx_req.gas_price.unwrap_or(tx_req.max_fee_per_gas.unwrap_or(0)),
-                        tx_req.nonce.map(|n| n.to_string()).unwrap_or("N/A".to_owned())
+                        new_req.tx.gas_price.unwrap_or(new_req.tx.max_fee_per_gas.unwrap_or(0)),
+                        new_req.tx.nonce.map(|n| n.to_string()).unwrap_or("N/A".to_owned())
                     );
 
-                    ExecutionPayload::SignedTx(Box::new(tx_envelope), req.to_owned())
+                    ExecutionPayload::SignedTx(Box::new(tx_envelope), new_req)
                 }
             };
             payloads.push(payload);
@@ -600,13 +625,13 @@ where
         Ok(payloads)
     }
 
-    pub async fn execute_spam(
+    /// Send one batch of spam txs.
+    async fn execute_spam(
         &mut self,
         trigger: SpamTrigger,
-        payloads: &[ExecutionPayload],
+        payloads: Vec<ExecutionPayload>,
         callback_handler: Arc<impl OnTxSent + Send + Sync + 'static>,
     ) -> Result<Vec<tokio::task::JoinHandle<()>>> {
-        let payloads = payloads.to_owned();
         let mut tasks: Vec<tokio::task::JoinHandle<()>> = vec![];
 
         for payload in payloads {
@@ -729,6 +754,34 @@ where
         Ok(tasks)
     }
 
+    /// Send spam batches until the cursor is depleted.
+    pub async fn execute_spammer<F: OnTxSent + Send + Sync + 'static>(
+        &mut self,
+        cursor: &mut futures::stream::Take<Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>>,
+        tx_req_chunks: &[Vec<ExecutionRequest>],
+        sent_tx_callback: Arc<F>,
+    ) -> Result<()> {
+        let mut tick = 0;
+        while let Some(trigger) = cursor.next().await {
+            let trigger = trigger.to_owned();
+            let payloads = self.prepare_spam(&tx_req_chunks[tick]).await?;
+
+            let spam_tasks = self
+                .execute_spam(trigger, payloads, sent_tx_callback.clone())
+                .await?;
+            println!("[{}] executing {} spam tasks", tick, spam_tasks.len());
+            for task in spam_tasks {
+                let res = task.await;
+                if let Err(e) = res {
+                    eprintln!("spam task failed: {:?}", e);
+                }
+            }
+            tick += 1;
+        }
+
+        Ok(())
+    }
+
     fn format_setup_log(&self, tx_req: &NamedTxRequest) -> String {
         let to_address = tx_req.tx.to.unwrap_or_default();
         let to_address = to_address.to();
@@ -820,13 +873,6 @@ where
         for tx in sample_txs {
             let tx_req = tx.tx;
             let (prepared_req, _signer) = scenario.prepare_tx_request(&tx_req, gas_price).await?;
-            println!(
-                "tx_request gas={:?} gas_price={:?} ({:?}, {:?})",
-                prepared_req.gas,
-                prepared_req.gas_price,
-                prepared_req.max_fee_per_gas,
-                prepared_req.max_priority_fee_per_gas
-            );
             prepared_sample_txs.push(prepared_req);
         }
 
@@ -838,7 +884,6 @@ where
                 if let Some(priority_fee) = tx.max_priority_fee_per_gas {
                     gas_price += priority_fee;
                 }
-                println!("gas_price={:?}", gas_price);
                 U256::from(gas_price * tx.gas.unwrap_or(0) as u128) + tx.value.unwrap_or(U256::ZERO)
             })
             .max()
@@ -849,6 +894,59 @@ where
 
         // we assume the highest possible cost to minimize the chances of running out of ETH mid-test
         Ok(highest_gas_cost)
+    }
+
+    pub async fn get_spam_tx_chunks(
+        &self,
+        txs_per_period: usize,
+        num_periods: usize,
+    ) -> Result<Vec<Vec<ExecutionRequest>>> {
+        let tx_requests = self
+            .load_txs(crate::generator::PlanType::Spam(
+                txs_per_period * num_periods,
+                |_named_req| Ok(None), // we can look at the named request here if needed
+            ))
+            .await?;
+        Ok(tx_requests
+            .chunks(txs_per_period)
+            .map(|chunk| chunk.to_vec())
+            .collect::<Vec<Vec<ExecutionRequest>>>())
+    }
+
+    pub async fn flush_tx_cache(&self, block_start: u64, run_id: Option<u64>) -> Result<()> {
+        let mut block_counter = 0;
+        if let Some(run_id) = run_id {
+            loop {
+                let cache_size = self
+                    .msg_handle
+                    .flush_cache(run_id, block_start + block_counter as u64)
+                    .await
+                    .map_err(|e| ContenderError::with_err(e.deref(), "failed to flush cache"))?;
+                if cache_size == 0 {
+                    break;
+                }
+
+                block_counter += 1;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn dump_tx_cache(&self, run_id: Option<u64>) -> Result<()> {
+        if let Some(run_id) = run_id {
+            let failed_txs = self
+                .msg_handle
+                .dump_cache(run_id)
+                .await
+                .map_err(|e| ContenderError::with_err(e.deref(), "failed to dump cache"))?;
+            if !failed_txs.is_empty() {
+                println!(
+                    "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
+                    failed_txs.len()
+                );
+            }
+        }
+        Ok(())
     }
 }
 
@@ -937,7 +1035,7 @@ pub mod tests {
     use crate::spammer::util::test::get_test_signers;
     use crate::test_scenario::TestScenario;
     use crate::Result;
-    use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
+    use alloy::consensus::constants::GWEI_TO_WEI;
     use alloy::hex::ToHexExt;
     use alloy::node_bindings::AnvilInstance;
     use alloy::primitives::{Address, U256};
@@ -1046,36 +1144,7 @@ pub mod tests {
         }
 
         fn get_spam_steps(&self) -> Result<Vec<SpamRequest>> {
-            let fn_call = |data: &str, from_addr: &str| {
-                SpamRequest::Tx(FunctionCallDefinition {
-                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                    from: Some(from_addr.to_owned()),
-                    from_pool: None,
-                    value: None,
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
-                    args: vec![
-                        "1".to_owned(),
-                        "2".to_owned(),
-                        // {_sender} will be replaced with the `from` address
-                        "{_sender}".to_owned(),
-                        data.to_owned(),
-                    ]
-                    .into(),
-                    fuzz: vec![FuzzParam {
-                        param: Some("x".to_string()),
-                        value: None,
-                        min: None,
-                        max: None,
-                    }]
-                    .into(),
-                    kind: None,
-                    gas_limit: None,
-                })
-            };
             Ok(vec![
-                fn_call("0xbeef", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
-                fn_call("0xea75", "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
-                fn_call("0xf00d", "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
                 SpamRequest::Tx(FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                     from: None,
@@ -1182,26 +1251,26 @@ pub mod tests {
 
     pub async fn get_test_scenario(
         anvil: &AnvilInstance,
+        txs_per_duration: usize,
+        fund_amount_eth: f64,
     ) -> TestScenario<MockDb, RandSeed, MockConfig> {
         let seed = RandSeed::seed_from_bytes(&[0x01; 32]);
         let tx_type = alloy::consensus::TxType::Eip1559;
         let signers = get_test_signers();
+
         let mut agents = AgentStore::new();
-        let pool1 = SignerStore::new_random(10, &seed, "0x0defa117");
-        let pool2 = SignerStore::new_random(10, &seed, "0xf00d1337");
+        let config = MockConfig;
+        let num_pools = config.get_spam_pools().len().max(1);
+        println!("spam pools: {num_pools}, txs_per_duration: {txs_per_duration}");
+        agents.init(&["pool1", "pool2"], txs_per_duration / num_pools, &seed);
+
         let admin1_signers = SignerStore::new_random(1, &seed, "admin1");
         let admin2_signers = SignerStore::new_random(1, &seed, "admin2");
-        let mut pool_signers = pool1.signers.to_vec();
-        pool_signers.extend_from_slice(&pool2.signers);
-        pool_signers.extend_from_slice(&admin1_signers.signers);
-        pool_signers.extend_from_slice(&admin2_signers.signers);
-        agents.add_agent("pool1", pool1);
-        agents.add_agent("pool2", pool2);
         agents.add_agent("admin1", admin1_signers);
         agents.add_agent("admin2", admin2_signers);
 
         let mut scenario = TestScenario::new(
-            MockConfig,
+            config,
             MockDb.into(),
             seed.to_owned(),
             TestScenarioParams {
@@ -1216,10 +1285,30 @@ pub mod tests {
         .await
         .unwrap();
 
-        scenario
-            .fund_agents(&anvil.wallet().unwrap(), U256::from(10 * ETH_TO_WEI))
-            .await
-            .unwrap();
+        let fund_amount_wei = U256::from(fund_amount_eth * 1e18);
+        println!("fund_amount_wei: {}", fund_amount_wei);
+        println!("fund_amount_eth: {}", fund_amount_eth);
+
+        let all_agent_names = scenario
+            .agent_store
+            .all_agents()
+            .map(|(name, _)| name.to_owned())
+            .collect::<Vec<_>>();
+        for agent_name in &all_agent_names {
+            println!(
+                "funding agent: {agent_name} (num signers: {})",
+                scenario
+                    .agent_store
+                    .get_agent(&agent_name)
+                    .unwrap()
+                    .signers
+                    .len()
+            );
+            scenario
+                .fund_agent_signers(agent_name, &anvil.wallet().unwrap(), fund_amount_wei)
+                .await
+                .unwrap();
+        }
 
         scenario
     }
@@ -1227,7 +1316,7 @@ pub mod tests {
     #[tokio::test]
     async fn it_creates_scenarios() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil).await;
+        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
 
         let create_txs = scenario
             .load_txs(PlanType::Create(|tx| {
@@ -1260,7 +1349,7 @@ pub mod tests {
     #[tokio::test]
     async fn gas_limit_override_works() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil).await;
+        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
         let spam_txs = scenario
             .load_txs(PlanType::Spam(20, |tx| {
                 println!("spam tx callback triggered! {:?}\n", tx);
@@ -1291,7 +1380,7 @@ pub mod tests {
     #[tokio::test]
     async fn fncall_replaces_sender_placeholder_with_from_address() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil).await;
+        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
 
         let spam_txs = scenario
             .load_txs(PlanType::Spam(10, |tx| {
@@ -1315,7 +1404,7 @@ pub mod tests {
     #[tokio::test]
     async fn create_replaces_sender_placeholder_with_from_address() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil).await;
+        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
 
         let txs = scenario
             .load_txs(PlanType::Create(|tx| {
@@ -1340,7 +1429,7 @@ pub mod tests {
     #[tokio::test]
     async fn create_steps_use_agent_signers() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil).await;
+        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
 
         // assert that the agent store has the correct number of signers
         let create_steps = scenario
@@ -1380,7 +1469,7 @@ pub mod tests {
     #[tokio::test]
     async fn setup_steps_use_agent_signers() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil).await;
+        let mut scenario = get_test_scenario(&anvil, 10, 10.0).await;
         scenario.deploy_contracts().await.unwrap();
         let setup_steps = scenario
             .load_txs(PlanType::Setup(|_| Ok(None)))
@@ -1415,7 +1504,7 @@ pub mod tests {
     #[tokio::test]
     async fn scenario_creates_contracts() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil).await;
+        let mut scenario = get_test_scenario(&anvil, 10, 10.0).await;
         let res = scenario.deploy_contracts().await;
         assert!(res.is_ok());
     }
@@ -1423,7 +1512,7 @@ pub mod tests {
     #[tokio::test]
     async fn scenario_runs_setup() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil).await;
+        let mut scenario = get_test_scenario(&anvil, 10, 10.0).await;
         scenario.deploy_contracts().await.unwrap();
         let res = scenario.run_setup().await;
         println!("{:?}", res);
@@ -1434,12 +1523,77 @@ pub mod tests {
     async fn setup_cost_estimates_are_correct(
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil).await;
+        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
         let cost = scenario.estimate_setup_cost().await?;
         let total_txs = scenario.config.get_setup_steps().unwrap().len()
             + scenario.config.get_create_steps().unwrap().len();
         let expected_cost_min = U256::from(GWEI_TO_WEI * 21000 * total_txs as u64); // assuming gas price is 1 gwei and txs are cheap
         assert!(cost > expected_cost_min);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn all_tx_requests_are_contiguous() -> std::result::Result<(), Box<dyn std::error::Error>>
+    {
+        let anvil = spawn_anvil();
+        let txs_per_duration: usize = 500;
+        let duration = 3;
+        let mut scenario = get_test_scenario(&anvil, txs_per_duration, 0.01).await;
+
+        // make tx chunks
+        let tx_req_chunks = scenario
+            .get_spam_tx_chunks(txs_per_duration, duration)
+            .await?;
+
+        // test chunk size & count
+        assert_eq!(tx_req_chunks.len(), duration);
+        for chunk in tx_req_chunks.iter() {
+            assert_eq!(chunk.len(), txs_per_duration);
+        }
+
+        // prepare tx requests & collect them all into a single array
+        let mut prepared_txs: Vec<crate::spammer::ExecutionPayload> = vec![];
+        for chunk in tx_req_chunks {
+            let tx_reqs = scenario.prepare_spam(&chunk).await?;
+            prepared_txs.extend(tx_reqs);
+        }
+
+        // group prepared_txs by `from` address, then sort each group by nonce, then assert that all nonces are contiguous (no gaps)
+        let mut grouped_txs = std::collections::HashMap::new();
+        for tx in &prepared_txs {
+            match tx {
+                crate::spammer::ExecutionPayload::SignedTx(_, tx_req) => {
+                    let from = tx_req.tx.from.unwrap();
+                    let nonce = tx_req.tx.nonce.unwrap();
+                    grouped_txs.entry(from).or_insert_with(Vec::new).push(nonce);
+                }
+                crate::spammer::ExecutionPayload::SignedTxBundle(_, _) => {
+                    // ignore
+                }
+            }
+        }
+        for (from, nonces) in grouped_txs {
+            let mut nonces = nonces;
+            nonces.sort();
+            let mut prev_nonce = nonces[0];
+            let mut min_nonce = prev_nonce;
+            let mut max_nonce = prev_nonce;
+            for nonce in &nonces[1..] {
+                assert_eq!(prev_nonce + 1, *nonce);
+                prev_nonce = *nonce;
+                if *nonce < min_nonce {
+                    min_nonce = *nonce;
+                }
+                if *nonce > max_nonce {
+                    max_nonce = *nonce;
+                }
+            }
+            println!(
+                "({from}) min_nonce: {}, max_nonce: {}",
+                min_nonce, max_nonce
+            );
+        }
+
         Ok(())
     }
 }
