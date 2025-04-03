@@ -910,7 +910,7 @@ where
         Ok(tx_requests
             .chunks(txs_per_period)
             .map(|chunk| chunk.to_vec())
-            .collect::<Vec<Vec<ExecutionRequest>>>())
+            .collect::<_>())
     }
 
     pub async fn flush_tx_cache(&self, block_start: u64, run_id: Option<u64>) -> Result<()> {
