@@ -31,6 +31,7 @@ use std::ops::Deref;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// A test scenario can be used to run a test with a specific configuration, database, and RPC provider.
 #[derive(Clone, Debug)]
@@ -632,8 +633,6 @@ where
         payloads: Vec<ExecutionPayload>,
         callback_handler: Arc<impl OnTxSent + Send + Sync + 'static>,
     ) -> Result<Vec<tokio::task::JoinHandle<()>>> {
-        let mut tasks: Vec<tokio::task::JoinHandle<()>> = vec![];
-
         // sort payloads by nonce
         let mut payloads = payloads;
         payloads.sort_by(|a, b| {
@@ -648,12 +647,15 @@ where
             a_nonce.cmp(&b_nonce)
         });
 
+        let mut tasks: Vec<tokio::task::JoinHandle<()>> = vec![];
         for payload in payloads {
             let rpc_client = self.rpc_client.clone();
             let bundle_client = self.bundle_client.clone();
             let callback_handler = callback_handler.clone();
             let tx_handler = self.msg_handle.clone();
 
+            // limit spawn rate to 200 tasks/s
+            std::thread::sleep(Duration::from_millis(5));
             tasks.push(tokio::task::spawn(async move {
                 let mut extra = HashMap::new();
                 let start_timestamp = std::time::SystemTime::now()
@@ -758,7 +760,6 @@ where
                 };
 
                 for handle in handles.into_iter().flatten() {
-                    // ignore None values so we don't attempt to await them
                     handle.await.expect("msg handle failed");
                 }
             }));
@@ -784,8 +785,7 @@ where
                 .await?;
             println!("[{}] executing {} spam tasks", tick, spam_tasks.len());
             for task in spam_tasks {
-                let res = task.await;
-                if let Err(e) = res {
+                if let Err(e) = task.await {
                     eprintln!("spam task failed: {:?}", e);
                 }
             }
@@ -971,33 +971,31 @@ async fn sync_nonces(
     let all_addrs = wallet_map.keys().copied().collect::<Vec<Address>>();
     let mut tasks = vec![];
     let (sender, mut receiver) = tokio::sync::mpsc::channel::<(Address, u64)>(all_addrs.len() + 1);
-    for addr in &all_addrs {
+    for addr in all_addrs {
         let send = sender.clone();
-        tasks.push(async move {
+        let rpc_client = Arc::new(rpc_client.clone());
+        tasks.push(tokio::task::spawn(async move {
             let nonce = rpc_client
-                .get_transaction_count(*addr)
+                .get_transaction_count(addr)
                 .await
                 .map_err(|e| ContenderError::with_err(e, "failed to retrieve nonce from RPC"))?;
-            send.send((*addr, nonce))
+            send.send((addr, nonce))
                 .await
-                .expect("failed to send nonce");
-            Ok(())
-        });
+                .map_err(|e| ContenderError::with_err(e, "(mpsc) failed to send nonce"))?;
+            Ok::<_, ContenderError>(())
+        }));
     }
+
     for task in tasks {
-        task.await?;
+        if let Err(e) = task.await {
+            eprintln!("failed to sync nonce: {:?}", e);
+        }
     }
     receiver.close();
 
     println!("waiting for nonces to sync...");
-    loop {
-        let res = receiver.recv().await;
-        if res.is_none() {
-            break;
-        }
-        if let Some((addr, nonce)) = res {
-            nonces.insert(addr, nonce);
-        }
+    while let Some((addr, nonce)) = receiver.recv().await {
+        nonces.insert(addr, nonce);
     }
 
     Ok(())
