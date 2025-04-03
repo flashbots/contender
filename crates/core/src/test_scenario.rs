@@ -1341,8 +1341,8 @@ pub mod tests {
             }))
             .await?;
 
-        // should round down; there are 6 spam steps
-        assert!(spam_txs.len() == 18);
+        // should round up to nearest multiple of 3 (3 spam steps in config, 20 txs requested)
+        assert_eq!(spam_txs.len(), 21);
         Ok(())
     }
 
