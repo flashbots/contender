@@ -648,14 +648,15 @@ where
         });
 
         let mut tasks: Vec<tokio::task::JoinHandle<()>> = vec![];
+        // spawn at regular interval
+        let micros_per_task = 1_000_000 / payloads.len().max(1) as u64;
         for payload in payloads {
             let rpc_client = self.rpc_client.clone();
             let bundle_client = self.bundle_client.clone();
             let callback_handler = callback_handler.clone();
             let tx_handler = self.msg_handle.clone();
 
-            // limit spawn rate to 500 tasks/s & spawn at regular interval
-            std::thread::sleep(Duration::from_millis(2));
+            std::thread::sleep(Duration::from_micros(micros_per_task));
             tasks.push(tokio::task::spawn(async move {
                 let mut extra = HashMap::new();
                 let start_timestamp = std::time::SystemTime::now()
