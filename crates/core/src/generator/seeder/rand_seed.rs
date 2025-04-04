@@ -110,7 +110,7 @@ mod tests {
     use alloy::hex::ToHexExt;
 
     use super::U256;
-    use crate::generator::seeder::SeedValue;
+    use crate::generator::seeder::{SeedValue, Seeder};
 
     #[test]
     fn encodes_seed_bytes() {
@@ -138,5 +138,36 @@ mod tests {
         let n = U256::MAX;
         let seed = super::RandSeed::seed_from_u256(n);
         assert_eq!(seed.as_u256(), n);
+    }
+
+    #[test]
+    fn seed_strings_yield_unique_values() {
+        let seed1 = super::RandSeed::seed_from_str("0x01");
+        let seed2 = super::RandSeed::seed_from_str("0x02");
+        assert_ne!(seed1.as_u256(), seed2.as_u256());
+
+        let num_vals = 100;
+        let seed1_values = seed1.seed_values(num_vals, None, None).collect::<Vec<_>>();
+        let seed2_values = seed2.seed_values(num_vals, None, None).collect::<Vec<_>>();
+        assert_eq!(seed1_values.len(), num_vals);
+        assert_eq!(seed2_values.len(), num_vals);
+        for i in 0..num_vals {
+            assert_ne!(seed1_values[i].as_u256(), seed2_values[i].as_u256());
+        }
+    }
+
+    #[test]
+    fn seed_values_yield_deterministic_values() {
+        let seed1 = super::RandSeed::seed_from_str("0x01");
+        let seed2 = super::RandSeed::seed_from_str("0x01");
+        assert_eq!(seed1.as_u256(), seed2.as_u256());
+
+        let num_vals = 100;
+        let seed1_values = seed1.seed_values(num_vals, None, None).collect::<Vec<_>>();
+        let seed2_values = seed2.seed_values(num_vals, None, None).collect::<Vec<_>>();
+
+        for i in 0..num_vals {
+            assert_eq!(seed1_values[i].as_u256(), seed2_values[i].as_u256());
+        }
     }
 }

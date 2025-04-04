@@ -6,6 +6,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
     transports::http::reqwest::Url,
 };
+use contender_core::generator::PlanConfig;
 use contender_core::{
     agent_controller::{AgentStore, SignerStore},
     error::ContenderError,
@@ -94,23 +95,11 @@ pub async fn setup(
         agents.add_agent(from_pool, agent);
     }
 
-    let all_signer_addrs = [
-        // don't include default accounts (`user_signers_with_defaults`) here because if you're using them, they should already be funded
-        user_signers
-            .iter()
-            .map(|signer| signer.address())
-            .collect::<Vec<_>>(),
-        agents
-            .all_agents()
-            .flat_map(|(_, agent)| agent.signers.iter().map(|signer| signer.address()))
-            .collect::<Vec<_>>(),
-    ]
-    .concat();
-
+    // user-provided signers must be pre-funded
     let admin_signer = &user_signers_with_defaults[0];
 
     fund_accounts(
-        &all_signer_addrs,
+        &agents.all_signer_addresses(),
         admin_signer,
         &rpc_client,
         min_balance,
