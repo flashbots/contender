@@ -654,8 +654,8 @@ where
             let callback_handler = callback_handler.clone();
             let tx_handler = self.msg_handle.clone();
 
-            // limit spawn rate to 200 tasks/s
-            std::thread::sleep(Duration::from_millis(5));
+            // limit spawn rate to 500 tasks/s & spawn at regular interval
+            std::thread::sleep(Duration::from_millis(2));
             tasks.push(tokio::task::spawn(async move {
                 let mut extra = HashMap::new();
                 let start_timestamp = std::time::SystemTime::now()
