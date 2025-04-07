@@ -1311,7 +1311,7 @@ pub mod tests {
                 "funding agent: {agent_name} (num signers: {})",
                 scenario
                     .agent_store
-                    .get_agent(&agent_name)
+                    .get_agent(agent_name)
                     .unwrap()
                     .signers
                     .len()
