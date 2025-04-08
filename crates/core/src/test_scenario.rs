@@ -4,24 +4,34 @@ use crate::error::ContenderError;
 use crate::generator::named_txs::ExecutionRequest;
 use crate::generator::templater::Templater;
 use crate::generator::types::{AnyProvider, EthProvider};
+use crate::generator::util::complete_tx_request;
 use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
+use crate::provider::LoggingLayer;
 use crate::spammer::tx_actor::TxActorHandle;
 use crate::spammer::{ExecutionPayload, OnTxSent, SpamTrigger};
 use crate::Result;
-use alloy::consensus::Transaction;
+use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
+use alloy::consensus::{Transaction, TxType};
 use alloy::eips::eip2718::Encodable2718;
 use alloy::hex::ToHexExt;
 use alloy::network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, TransactionBuilder};
-use alloy::primitives::{keccak256, Address, FixedBytes};
+use alloy::node_bindings::Anvil;
+use alloy::primitives::{keccak256, Address, FixedBytes, U256};
 use alloy::providers::{DynProvider, PendingTransactionConfig, Provider, ProviderBuilder};
+use alloy::rpc::client::ClientBuilder;
 use alloy::rpc::types::TransactionRequest;
-use alloy::signers::local::PrivateKeySigner;
+use alloy::signers::local::{LocalSigner, PrivateKeySigner};
 use alloy::transports::http::reqwest::Url;
 use contender_bundle_provider::bundle_provider::new_basic_bundle;
 use contender_bundle_provider::BundleClient;
+use futures::{Stream, StreamExt};
 use std::collections::HashMap;
+use std::ops::Deref;
+use std::pin::Pin;
+use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// A test scenario can be used to run a test with a specific configuration, database, and RPC provider.
 #[derive(Clone, Debug)]
@@ -47,28 +57,49 @@ where
     pub chain_id: u64,
     pub gas_limits: HashMap<FixedBytes<32>, u64>,
     pub msg_handle: Arc<TxActorHandle>,
+    pub tx_type: TxType,
+    pub gas_price_percent_add: u128,
+}
+
+pub struct TestScenarioParams {
+    pub rpc_url: Url,
+    pub builder_rpc_url: Option<Url>,
+    pub signers: Vec<PrivateKeySigner>,
+    pub agent_store: AgentStore,
+    pub tx_type: TxType,
+    pub gas_price_percent_add: Option<u16>,
 }
 
 impl<D, S, P> TestScenario<D, S, P>
 where
     D: DbOps + Send + Sync + 'static,
-    S: Seeder + Send + Sync,
-    P: PlanConfig<String> + Templater<String> + Send + Sync,
+    S: Seeder + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
     pub async fn new(
         config: P,
         db: Arc<D>,
-        rpc_url: Url,
-        builder_rpc_url: Option<Url>,
         rand_seed: S,
-        signers: &[PrivateKeySigner],
-        agent_store: AgentStore,
+        params: TestScenarioParams,
     ) -> Result<Self> {
-        let rpc_client = Arc::new(DynProvider::new(
+        let TestScenarioParams {
+            rpc_url,
+            builder_rpc_url,
+            signers,
+            agent_store,
+            tx_type,
+            gas_price_percent_add,
+        } = params;
+
+        // use custom logging layer to log sendRawTransaction request IDs
+        let client = ClientBuilder::default()
+            .layer(LoggingLayer)
+            .http(rpc_url.to_owned());
+        let rpc_client = DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
-                .on_http(rpc_url.to_owned()),
-        ));
+                .on_client(client),
+        );
 
         let mut wallet_map = HashMap::new();
         let wallets = signers.iter().map(|s| {
@@ -91,27 +122,25 @@ where
             .map_err(|e| ContenderError::with_err(e, "failed to get chain id"))?;
 
         let mut nonces = HashMap::new();
-        let all_addrs = wallet_map.keys().copied().collect::<Vec<Address>>();
-        for addr in &all_addrs {
-            let nonce = rpc_client
-                .get_transaction_count(*addr)
-                .await
-                .map_err(|e| ContenderError::with_err(e, "failed to retrieve nonce from RPC"))?;
-            nonces.insert(*addr, nonce);
-        }
+        sync_nonces(&wallet_map, &mut nonces, &rpc_client).await?;
+
         let gas_limits = HashMap::new();
 
         let bundle_client = builder_rpc_url
             .as_ref()
             .map(|url| Arc::new(BundleClient::new(url.clone())));
 
-        let msg_handle = Arc::new(TxActorHandle::new(12, db.clone(), rpc_client.clone()));
+        let msg_handle = Arc::new(TxActorHandle::new(
+            12,
+            db.clone(),
+            Arc::new(rpc_client.clone()),
+        ));
 
         Ok(Self {
             config,
             db: db.clone(),
             rpc_url: rpc_url.to_owned(),
-            rpc_client: rpc_client.clone(),
+            rpc_client: Arc::new(rpc_client),
             eth_client: Arc::new(DynProvider::new(ProviderBuilder::new().on_http(rpc_url))),
             bundle_client,
             builder_rpc_url,
@@ -122,19 +151,144 @@ where
             nonces,
             gas_limits,
             msg_handle,
+            tx_type,
+            gas_price_percent_add: gas_price_percent_add.unwrap_or(0) as u128,
         })
     }
 
     pub async fn sync_nonces(&mut self) -> Result<()> {
-        let all_addrs = self.wallet_map.keys().copied().collect::<Vec<Address>>();
-        for addr in &all_addrs {
-            let nonce = self
-                .rpc_client
-                .get_transaction_count(*addr)
-                .await
-                .map_err(|e| ContenderError::with_err(e, "failed to retrieve nonce from RPC"))?;
-            self.nonces.insert(*addr, nonce);
+        sync_nonces(&self.wallet_map, &mut self.nonces, &self.rpc_client).await
+    }
+
+    pub async fn estimate_setup_cost(&self) -> Result<U256> {
+        println!(
+            "
+================================================================================
+================= running simulation to estimate setup cost ====================
+================================================================================
+"
+        );
+        // start anvil with dev accounts holding 1M eth
+        let anvil = Anvil::new().args(["--balance", "1000000"]).spawn();
+        let admin_signer = LocalSigner::from_str(
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        )
+        .expect("invalid signer");
+        let admin_wallet = EthereumWallet::new(admin_signer.clone());
+        let mut scenario = Self::new(
+            self.config.to_owned(),
+            self.db.clone(),
+            self.rand_seed.to_owned(),
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers: vec![admin_signer.to_owned()],
+                agent_store: self.agent_store.clone(),
+                tx_type: TxType::Legacy,
+                gas_price_percent_add: None,
+            },
+        )
+        .await?;
+
+        let addresses = scenario
+            .agent_store
+            .all_signer_addresses()
+            .into_iter()
+            .collect::<Vec<Address>>();
+
+        let fund_amount = if addresses.len() >= 999 {
+            U256::from(999999 * ETH_TO_WEI / addresses.len() as u128)
+        } else {
+            U256::from(1000 * ETH_TO_WEI)
+        };
+        let start_balances: HashMap<Address, U256> =
+            HashMap::from_iter(addresses.iter().map(|addr| (*addr, fund_amount)));
+
+        let all_pools: Vec<String> = scenario
+            .agent_store
+            .all_agents()
+            .map(|(name, _)| name.to_owned())
+            .collect();
+        for agent_name in all_pools {
+            scenario
+                .fund_agent_signers(agent_name, &admin_wallet, fund_amount)
+                .await?;
         }
+
+        scenario.deploy_contracts().await?;
+        scenario.run_setup().await?;
+
+        let mut total_cost = U256::ZERO;
+        for (addr, start_balance) in &start_balances {
+            let new_balance = scenario
+                .rpc_client
+                .get_balance(*addr)
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to get balance"))?;
+            if new_balance >= *start_balance {
+                continue;
+            }
+            let cost = start_balance - new_balance;
+            total_cost += cost;
+        }
+
+        println!(
+            "
+================================================================================
+============================= simulation complete ==============================
+================================================================================
+"
+        );
+
+        Ok(total_cost)
+    }
+
+    /// Funds all signers in the agent with the given amount.
+    /// Does not check if the agents are already funded.
+    pub async fn fund_agent_signers(
+        &mut self,
+        agent_name: impl AsRef<str>,
+        funder: &EthereumWallet,
+        amount: U256,
+    ) -> Result<()> {
+        let addresses = self
+            .agent_store
+            .get_agent(&agent_name)
+            .ok_or(ContenderError::SetupError(
+                "agent not found",
+                Some(agent_name.as_ref().to_owned()),
+            ))?
+            .all_addresses();
+        let gas_price = self
+            .rpc_client
+            .get_gas_price()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
+
+        for addr in addresses {
+            let tx_req = TransactionRequest::default()
+                .with_from(funder.default_signer().address())
+                .with_to(addr)
+                .with_value(amount);
+            let (tx_req, _) = self
+                .prepare_tx_request(&tx_req, gas_price + GWEI_TO_WEI as u128)
+                .await?;
+            let signed_tx = tx_req
+                .build(funder)
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to build funding tx"))?;
+            let pending = self
+                .rpc_client
+                .send_tx_envelope(AnyTxEnvelope::Ethereum(signed_tx))
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to send funding tx"))?;
+            println!(
+                "funded account {}, tx: {}",
+                addr.encode_hex(),
+                pending.tx_hash()
+            );
+        }
+
         Ok(())
     }
 
@@ -172,19 +326,17 @@ where
                 tx_req.name.as_ref().unwrap_or(&"".to_string())
             );
             let rpc_url = self.rpc_url.to_owned();
+            let tx_type = self.tx_type;
             let handle = tokio::task::spawn(async move {
                 // estimate gas limit
                 let gas_limit = wallet
-                    .estimate_gas(&tx_req.tx)
+                    .estimate_gas(tx_req.tx.to_owned())
                     .await
                     .expect("failed to estimate gas");
 
                 // inject missing fields into tx_req.tx
-                let tx = tx_req
-                    .tx
-                    .with_gas_price(gas_price)
-                    .with_chain_id(chain_id)
-                    .with_gas_limit(gas_limit);
+                let mut tx = tx_req.tx;
+                complete_tx_request(&mut tx, tx_type, gas_price, (GWEI_TO_WEI as u128).min(gas_price - 1), gas_limit, chain_id);
 
                 let res = wallet.send_transaction(tx).await;
                 if let Err(err) = res {
@@ -212,12 +364,11 @@ where
                     receipt.contract_address.unwrap_or_default()
                 );
                 db.insert_named_txs(
-                    NamedTx::new(
+                    &[NamedTx::new(
                         tx_req.name.unwrap_or_default(),
                         receipt.transaction_hash,
                         receipt.contract_address,
-                    )
-                    .into(),
+                    )],
                     rpc_url.as_str(),
                 )
                 .expect("failed to insert tx into db");
@@ -251,6 +402,7 @@ where
                 .to_owned();
             let db = self.db.clone();
             let rpc_url = self.rpc_url.clone();
+            let tx_type = self.tx_type;
 
             let handle = tokio::task::spawn(async move {
                 let wallet = ProviderBuilder::new()
@@ -267,14 +419,27 @@ where
                 let gas_price = wallet.get_gas_price().await.unwrap_or_else(|_| {
                     panic!("failed to get gas price for setup step '{}'", tx_label)
                 });
-                let gas_limit = wallet.estimate_gas(&tx_req.tx).await.unwrap_or_else(|_| {
-                    panic!("failed to estimate gas for setup step '{}'", tx_label)
-                });
-                let tx = tx_req
-                    .tx
-                    .with_gas_price(gas_price)
-                    .with_chain_id(chain_id)
-                    .with_gas_limit(gas_limit);
+                let gas_limit = if let Some(gas) = tx_req.tx.gas {
+                    gas
+                } else {
+                    wallet
+                        .estimate_gas(tx_req.tx.to_owned())
+                        .await
+                        .unwrap_or_else(|_| {
+                            panic!("failed to estimate gas for setup step '{}'", tx_label)
+                        })
+                };
+                let mut tx = tx_req.tx;
+                complete_tx_request(
+                    &mut tx,
+                    tx_type,
+                    gas_price,
+                    (GWEI_TO_WEI as u128).min(gas_price - 1),
+                    gas_limit,
+                    chain_id,
+                );
+
+                // wallet will assign nonce before sending
                 let res = wallet
                     .send_transaction(tx)
                     .await
@@ -288,8 +453,11 @@ where
 
                 if let Some(name) = tx_req.name {
                     db.insert_named_txs(
-                        NamedTx::new(name, receipt.transaction_hash, receipt.contract_address)
-                            .into(),
+                        &[NamedTx::new(
+                            name,
+                            receipt.transaction_hash,
+                            receipt.contract_address,
+                        )],
                         rpc_url.as_str(),
                     )
                     .expect("failed to insert tx into db");
@@ -330,7 +498,7 @@ where
                 gas
             } else {
                 self.eth_client
-                    .estimate_gas(tx_req)
+                    .estimate_gas(tx_req.to_owned())
                     .await
                     .map_err(|e| ContenderError::with_err(e, "failed to estimate gas for tx"))?
             };
@@ -352,13 +520,16 @@ where
                 None,
             ))?
             .to_owned();
-        let full_tx = tx_req
-            .to_owned()
-            .with_nonce(nonce)
-            .with_max_fee_per_gas(gas_price + (gas_price / 5))
-            .with_max_priority_fee_per_gas(gas_price)
-            .with_chain_id(self.chain_id)
-            .with_gas_limit(gas_limit);
+
+        let mut full_tx = tx_req.to_owned().with_nonce(nonce);
+        complete_tx_request(
+            &mut full_tx,
+            self.tx_type,
+            gas_price,
+            (GWEI_TO_WEI as u128).min(gas_price - 1),
+            gas_limit,
+            self.chain_id,
+        );
 
         Ok((full_tx, signer))
     }
@@ -372,7 +543,9 @@ where
             .get_gas_price()
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
+        let gas_price = gas_price + ((gas_price * self.gas_price_percent_add) / 100);
         let mut payloads = vec![];
+        println!("preparing {} spam payloads", tx_requests.len());
         for tx in tx_requests {
             let payload = match tx {
                 ExecutionRequest::Bundle(reqs) => {
@@ -387,9 +560,8 @@ where
                     let mut bundle_txs = vec![];
 
                     for req in reqs {
-                        let tx_req = req.tx.to_owned();
                         let (tx_req, signer) = self
-                            .prepare_tx_request(&tx_req, gas_price)
+                            .prepare_tx_request(&req.tx, gas_price)
                             .await
                             .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
 
@@ -404,63 +576,87 @@ where
                     ExecutionPayload::SignedTxBundle(bundle_txs, reqs.to_owned())
                 }
                 ExecutionRequest::Tx(req) => {
-                    let tx_req = req.tx.to_owned();
-
                     let (tx_req, signer) = self
-                        .prepare_tx_request(&tx_req, gas_price)
+                        .prepare_tx_request(&req.tx, gas_price)
                         .await
                         .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
+                    let mut new_req = req.to_owned();
+                    new_req.tx = tx_req.to_owned();
 
                     // sign tx
-                    let tx_envelope = tx_req.to_owned().build(&signer).await.map_err(|e| {
+                    let tx_envelope = tx_req.build(&signer).await.map_err(|e| {
                         ContenderError::with_err(e, "bad request: failed to build tx")
                     })?;
 
+                    // log tx details
+                    let priority_fee = new_req
+                        .tx
+                        .max_priority_fee_per_gas
+                        .map(|f| format!(" priority_fee: {},", f))
+                        .unwrap_or_default();
                     println!(
-                        "sending tx {} from={} to={:?} input={} value={} gas_limit={}",
+                        "prepared tx: {}, from: {}, to: {:?}, input: {}, value={}, gas_limit: {}, gas_price: {},{priority_fee} nonce={}",
                         tx_envelope.tx_hash(),
-                        tx_req.from.map(|s| s.encode_hex()).unwrap_or_default(),
+                        new_req.tx.from.map(|s| s.encode_hex()).unwrap_or_default(),
                         tx_envelope.to(),
-                        tx_req
+                        new_req.tx
                             .input
                             .input
                             .as_ref()
                             .map(|s| s.encode_hex())
                             .unwrap_or_default(),
-                        tx_req
+                        new_req.tx
                             .value
                             .map(|s| s.to_string())
-                            .unwrap_or_else(|| "0".to_owned()),
-                        tx_req
+                            .unwrap_or("0".to_owned()),
+                        new_req.tx
                             .gas
                             .map(|g| g.to_string())
-                            .unwrap_or_else(|| "N/A".to_owned())
+                            .unwrap_or("N/A".to_owned()),
+                        new_req.tx.gas_price.unwrap_or(new_req.tx.max_fee_per_gas.unwrap_or(0)),
+                        new_req.tx.nonce.map(|n| n.to_string()).unwrap_or("N/A".to_owned())
                     );
 
-                    ExecutionPayload::SignedTx(tx_envelope, req.to_owned())
+                    ExecutionPayload::SignedTx(Box::new(tx_envelope), new_req)
                 }
             };
             payloads.push(payload);
         }
+        println!("prepared {} payloads", payloads.len());
         Ok(payloads)
     }
 
-    pub async fn execute_spam(
+    /// Send one batch of spam txs.
+    async fn execute_spam(
         &mut self,
         trigger: SpamTrigger,
-        payloads: &[ExecutionPayload],
+        payloads: Vec<ExecutionPayload>,
         callback_handler: Arc<impl OnTxSent + Send + Sync + 'static>,
     ) -> Result<Vec<tokio::task::JoinHandle<()>>> {
-        let payloads = payloads.to_owned();
+        // sort payloads by nonce
+        let mut payloads = payloads;
+        payloads.sort_by(|a, b| {
+            let a_nonce = match a {
+                ExecutionPayload::SignedTx(_, req) => req.tx.nonce,
+                ExecutionPayload::SignedTxBundle(_, reqs) => reqs[0].tx.nonce,
+            };
+            let b_nonce = match b {
+                ExecutionPayload::SignedTx(_, req) => req.tx.nonce,
+                ExecutionPayload::SignedTxBundle(_, reqs) => reqs[0].tx.nonce,
+            };
+            a_nonce.cmp(&b_nonce)
+        });
 
         let mut tasks: Vec<tokio::task::JoinHandle<()>> = vec![];
-
+        // spawn at regular interval
+        let micros_per_task = 1_000_000 / payloads.len().max(1) as u64;
         for payload in payloads {
             let rpc_client = self.rpc_client.clone();
             let bundle_client = self.bundle_client.clone();
             let callback_handler = callback_handler.clone();
             let tx_handler = self.msg_handle.clone();
 
+            std::thread::sleep(Duration::from_micros(micros_per_task));
             tasks.push(tokio::task::spawn(async move {
                 let mut extra = HashMap::new();
                 let start_timestamp = std::time::SystemTime::now()
@@ -468,19 +664,46 @@ where
                     .expect("time went backwards")
                     .as_millis();
                 extra.insert("start_timestamp".to_owned(), start_timestamp.to_string());
-                let handles = match payload.to_owned() {
+                let handles = match payload {
                     ExecutionPayload::SignedTx(signed_tx, req) => {
+                        let tx_hash = signed_tx.tx_hash().to_owned();
                         let res = rpc_client
-                            .send_tx_envelope(AnyTxEnvelope::Ethereum(signed_tx.to_owned()))
-                            .await
-                            .expect("failed to send tx envelope");
-                        let maybe_handle = callback_handler.on_tx_sent(
-                            res.into_inner(),
-                            &req,
-                            Some(extra),
-                            Some(tx_handler.clone()),
-                        );
-                        vec![maybe_handle]
+                            .send_tx_envelope(AnyTxEnvelope::Ethereum(*signed_tx))
+                            .await;
+
+                        match res {
+                            Ok(res) => {
+                                let maybe_handle = callback_handler.on_tx_sent(
+                                    res.into_inner(),
+                                    &req,
+                                    Some(extra),
+                                    Some(tx_handler.clone()),
+                                );
+                                vec![maybe_handle]
+                            }
+                            Err(e) => {
+                                if let Some(err) = e.as_error_resp() {
+                                    // include errored txs in the cache; user may want to retry them
+                                    // if they are due to nonce issues, this will fail, but if they do land somehow,
+                                    // they will be awaited in the post-spam loop
+                                    println!("error from tx {}: {:?}", tx_hash, err);
+                                    extra.insert("error".to_owned(), err.to_string());
+                                    vec![callback_handler.on_tx_sent(
+                                        PendingTransactionConfig::new(tx_hash),
+                                        &req,
+                                        Some(extra),
+                                        Some(tx_handler.clone()),
+                                    )]
+                                } else {
+                                    // ignore errors that can't be decoded
+                                    println!(
+                                        "ignoring tx response, could not decode error: {:?}",
+                                        e
+                                    );
+                                    vec![]
+                                }
+                            }
+                        }
                     }
                     ExecutionPayload::SignedTxBundle(signed_txs, reqs) => {
                         let mut bundle_txs = vec![];
@@ -493,10 +716,7 @@ where
                             SpamTrigger::BlockNumber(n) => n,
                             SpamTrigger::BlockHash(h) => {
                                 let block = rpc_client
-                                    .get_block_by_hash(
-                                        h,
-                                        alloy::rpc::types::BlockTransactionsKind::Hashes,
-                                    )
+                                    .get_block_by_hash(h)
                                     .await
                                     .expect("failed to get block")
                                     .expect("block not found");
@@ -519,7 +739,7 @@ where
 
                                 let res = bundle_client.send_bundle(rpc_bundle).await;
                                 if let Err(e) = res {
-                                    eprintln!("failed to send bundle: {:?}", e);
+                                    println!("failed to send bundle: {:?}", e);
                                 }
                             }
                         } else {
@@ -541,13 +761,39 @@ where
                 };
 
                 for handle in handles.into_iter().flatten() {
-                    // ignore None values so we don't attempt to await them
                     handle.await.expect("msg handle failed");
                 }
             }));
         }
 
         Ok(tasks)
+    }
+
+    /// Send spam batches until the cursor is depleted.
+    pub async fn execute_spammer<F: OnTxSent + Send + Sync + 'static>(
+        &mut self,
+        cursor: &mut futures::stream::Take<Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>>,
+        tx_req_chunks: &[Vec<ExecutionRequest>],
+        sent_tx_callback: Arc<F>,
+    ) -> Result<()> {
+        let mut tick = 0;
+        while let Some(trigger) = cursor.next().await {
+            let trigger = trigger.to_owned();
+            let payloads = self.prepare_spam(&tx_req_chunks[tick]).await?;
+
+            let spam_tasks = self
+                .execute_spam(trigger, payloads, sent_tx_callback.clone())
+                .await?;
+            println!("[{}] executing {} spam tasks", tick, spam_tasks.len());
+            for task in spam_tasks {
+                if let Err(e) = task.await {
+                    eprintln!("spam task failed: {:?}", e);
+                }
+            }
+            tick += 1;
+        }
+
+        Ok(())
     }
 
     fn format_setup_log(&self, tx_req: &NamedTxRequest) -> String {
@@ -582,6 +828,178 @@ where
             },
         )
     }
+
+    /// Returns the maximum cost of a single spam transaction by creating a new scenario
+    /// and running estimateGas calls to estimate the cost of the spam transactions.
+    pub async fn get_max_spam_cost(&self, user_signers: &[PrivateKeySigner]) -> Result<U256> {
+        let mut scenario = TestScenario::new(
+            self.config.to_owned(),
+            self.db.clone(),
+            self.rand_seed.clone(),
+            TestScenarioParams {
+                rpc_url: self.rpc_url.clone(),
+                builder_rpc_url: self.builder_rpc_url.clone(),
+                signers: user_signers.to_owned(),
+                agent_store: self.agent_store.clone(),
+                tx_type: self.tx_type,
+                gas_price_percent_add: Some(self.gas_price_percent_add as u16),
+            },
+        )
+        .await?;
+
+        // load a sample of each spam tx from the scenario
+        let sample_txs = scenario
+            .prepare_spam(
+                &scenario
+                    .load_txs(PlanType::Spam(
+                        scenario
+                            .config
+                            .get_spam_steps()
+                            .map(|s| s.len()) // take the number of spam txs from the testfile
+                            .unwrap_or(0),
+                        |_named_req| {
+                            // we can look at the named request here if needed
+                            Ok(None)
+                        },
+                    ))
+                    .await?,
+            )
+            .await?
+            .iter()
+            .map(|ex_payload| match ex_payload {
+                ExecutionPayload::SignedTx(_envelope, tx_req) => vec![tx_req.to_owned()],
+                ExecutionPayload::SignedTxBundle(_envelopes, tx_reqs) => tx_reqs
+                    .iter()
+                    .map(|tx| Box::new(tx.to_owned()))
+                    .collect::<Vec<_>>(),
+            })
+            .collect::<Vec<_>>()
+            .concat();
+
+        let gas_price = scenario
+            .rpc_client
+            .get_gas_price()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
+
+        // get gas limit for each tx
+        let mut prepared_sample_txs = vec![];
+        for tx in sample_txs {
+            let tx_req = tx.tx;
+            let (prepared_req, _signer) = scenario.prepare_tx_request(&tx_req, gas_price).await?;
+            prepared_sample_txs.push(prepared_req);
+        }
+
+        // get the highest gas cost of all spam txs
+        let highest_gas_cost = prepared_sample_txs
+            .iter()
+            .map(|tx| {
+                let mut gas_price = tx.max_fee_per_gas.unwrap_or(tx.gas_price.unwrap_or(0));
+                if let Some(priority_fee) = tx.max_priority_fee_per_gas {
+                    gas_price += priority_fee;
+                }
+                U256::from(gas_price * tx.gas.unwrap_or(0) as u128) + tx.value.unwrap_or(U256::ZERO)
+            })
+            .max()
+            .ok_or(ContenderError::SpamError(
+                "failed to get max gas cost for spam txs",
+                None,
+            ))?;
+
+        // we assume the highest possible cost to minimize the chances of running out of ETH mid-test
+        Ok(highest_gas_cost)
+    }
+
+    pub async fn get_spam_tx_chunks(
+        &self,
+        txs_per_period: usize,
+        num_periods: usize,
+    ) -> Result<Vec<Vec<ExecutionRequest>>> {
+        let tx_requests = self
+            .load_txs(crate::generator::PlanType::Spam(
+                txs_per_period * num_periods,
+                |_named_req| Ok(None), // we can look at the named request here if needed
+            ))
+            .await?;
+        Ok(tx_requests
+            .chunks(txs_per_period)
+            .map(|chunk| chunk.to_vec())
+            .collect::<_>())
+    }
+
+    pub async fn flush_tx_cache(&self, block_start: u64, run_id: Option<u64>) -> Result<()> {
+        let mut block_counter = 0;
+        if let Some(run_id) = run_id {
+            loop {
+                let cache_size = self
+                    .msg_handle
+                    .flush_cache(run_id, block_start + block_counter as u64)
+                    .await
+                    .map_err(|e| ContenderError::with_err(e.deref(), "failed to flush cache"))?;
+                if cache_size == 0 {
+                    break;
+                }
+
+                block_counter += 1;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn dump_tx_cache(&self, run_id: Option<u64>) -> Result<()> {
+        if let Some(run_id) = run_id {
+            let failed_txs = self
+                .msg_handle
+                .dump_cache(run_id)
+                .await
+                .map_err(|e| ContenderError::with_err(e.deref(), "failed to dump cache"))?;
+            if !failed_txs.is_empty() {
+                println!(
+                    "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
+                    failed_txs.len()
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
+async fn sync_nonces(
+    wallet_map: &HashMap<Address, EthereumWallet>,
+    nonces: &mut HashMap<Address, u64>,
+    rpc_client: &AnyProvider,
+) -> Result<()> {
+    let all_addrs = wallet_map.keys().copied().collect::<Vec<Address>>();
+    let mut tasks = vec![];
+    let (sender, mut receiver) = tokio::sync::mpsc::channel::<(Address, u64)>(all_addrs.len() + 1);
+    for addr in all_addrs {
+        let send = sender.clone();
+        let rpc_client = Arc::new(rpc_client.clone());
+        tasks.push(tokio::task::spawn(async move {
+            let nonce = rpc_client
+                .get_transaction_count(addr)
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to retrieve nonce from RPC"))?;
+            send.send((addr, nonce))
+                .await
+                .map_err(|e| ContenderError::with_err(e, "(mpsc) failed to send nonce"))?;
+            Ok::<_, ContenderError>(())
+        }));
+    }
+
+    for task in tasks {
+        if let Err(e) = task.await {
+            eprintln!("failed to sync nonce: {:?}", e);
+        }
+    }
+    receiver.close();
+
+    println!("waiting for nonces to sync...");
+    while let Some((addr, nonce)) = receiver.recv().await {
+        nonces.insert(addr, nonce);
+    }
+
+    Ok(())
 }
 
 impl<D, S, P> Generator<String, D, P> for TestScenario<D, S, P>
@@ -626,18 +1044,18 @@ pub mod tests {
     };
     use crate::generator::{types::PlanType, util::test::spawn_anvil, RandSeed};
     use crate::generator::{Generator, PlanConfig};
-    use crate::spammer::util::test::{fund_account, get_test_signers};
+    use crate::spammer::util::test::get_test_signers;
     use crate::test_scenario::TestScenario;
     use crate::Result;
-    use alloy::consensus::constants::ETH_TO_WEI;
+    use alloy::consensus::constants::GWEI_TO_WEI;
     use alloy::hex::ToHexExt;
-    use alloy::network::{Ethereum, EthereumWallet, TransactionBuilder};
     use alloy::node_bindings::AnvilInstance;
     use alloy::primitives::{Address, U256};
-    use alloy::providers::{DynProvider, Provider, ProviderBuilder};
-    use alloy::rpc::types::TransactionRequest;
     use std::collections::HashMap;
 
+    use super::TestScenarioParams;
+
+    #[derive(Clone)]
     pub struct MockConfig;
 
     pub const COUNTER_BYTECODE: &str =
@@ -738,36 +1156,7 @@ pub mod tests {
         }
 
         fn get_spam_steps(&self) -> Result<Vec<SpamRequest>> {
-            let fn_call = |data: &str, from_addr: &str| {
-                SpamRequest::Tx(FunctionCallDefinition {
-                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                    from: Some(from_addr.to_owned()),
-                    from_pool: None,
-                    value: None,
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
-                    args: vec![
-                        "1".to_owned(),
-                        "2".to_owned(),
-                        // {_sender} will be replaced with the `from` address
-                        "{_sender}".to_owned(),
-                        data.to_owned(),
-                    ]
-                    .into(),
-                    fuzz: vec![FuzzParam {
-                        param: Some("x".to_string()),
-                        value: None,
-                        min: None,
-                        max: None,
-                    }]
-                    .into(),
-                    kind: None,
-                    gas_limit: None,
-                })
-            };
             Ok(vec![
-                fn_call("0xbeef", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
-                fn_call("0xea75", "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
-                fn_call("0xf00d", "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
                 SpamRequest::Tx(FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
                     from: None,
@@ -874,96 +1263,79 @@ pub mod tests {
 
     pub async fn get_test_scenario(
         anvil: &AnvilInstance,
+        txs_per_duration: usize,
+        fund_amount_eth: f64,
     ) -> TestScenario<MockDb, RandSeed, MockConfig> {
         let seed = RandSeed::seed_from_bytes(&[0x01; 32]);
+        let tx_type = alloy::consensus::TxType::Eip1559;
         let signers = get_test_signers();
-        let provider = DynProvider::new(
-            ProviderBuilder::new()
-                .network::<Ethereum>()
-                .on_http(anvil.endpoint_url()),
-        );
+
         let mut agents = AgentStore::new();
-        let pool1 = SignerStore::new_random(10, &seed, "0x0defa117");
-        let pool2 = SignerStore::new_random(10, &seed, "0xf00d1337");
+        let config = MockConfig;
+        let num_pools = config.get_spam_pools().len().max(1);
+        println!("spam pools: {num_pools}, txs_per_duration: {txs_per_duration}");
+        agents.init(&["pool1", "pool2"], txs_per_duration / num_pools, &seed);
+
         let admin1_signers = SignerStore::new_random(1, &seed, "admin1");
         let admin2_signers = SignerStore::new_random(1, &seed, "admin2");
-        let mut pool_signers = pool1.signers.to_vec();
-        pool_signers.extend_from_slice(&admin1_signers.signers);
-        pool_signers.extend_from_slice(&admin2_signers.signers);
-        let admin = &signers[0];
-        agents.add_agent("pool1", pool1);
-        agents.add_agent("pool2", pool2);
         agents.add_agent("admin1", admin1_signers);
         agents.add_agent("admin2", admin2_signers);
 
-        // fund accounts
-        let mut nonce = provider
-            .get_transaction_count(admin.address())
-            .await
-            .unwrap();
-        for (_pool_name, agent) in agents.all_agents() {
-            for signer in &agent.signers {
-                let res = fund_account(
-                    &signers[0],
-                    signer.address(),
-                    U256::from(ETH_TO_WEI),
-                    &provider,
-                    Some(nonce),
-                )
-                .await
-                .unwrap();
-                println!("funded signer: {:?}", res);
-                provider.watch_pending_transaction(res).await.unwrap();
-                nonce += 1;
-            }
-        }
-
-        let chain_id = anvil.chain_id();
-        for signer in &pool_signers {
-            let tx = TransactionRequest::default()
-                .with_from(signers[0].address())
-                .with_to(signer.address())
-                .with_value(U256::from(100_000_000_000_000_000u128))
-                .with_nonce(nonce)
-                .with_max_fee_per_gas(10_000_000_000_u128)
-                .with_max_priority_fee_per_gas(1_000_000_000_u128)
-                .with_gas_limit(21000)
-                .with_chain_id(chain_id);
-            nonce += 1;
-            let signed_tx = tx
-                .build::<EthereumWallet>(&admin.to_owned().into())
-                .await
-                .unwrap();
-
-            let res = provider.send_tx_envelope(signed_tx).await.unwrap();
-            res.get_receipt().await.unwrap();
-        }
-
-        TestScenario::new(
-            MockConfig,
+        let mut scenario = TestScenario::new(
+            config,
             MockDb.into(),
-            anvil.endpoint_url(),
-            None,
             seed.to_owned(),
-            signers.as_slice(),
-            agents,
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers,
+                agent_store: agents,
+                tx_type,
+                gas_price_percent_add: None,
+            },
         )
         .await
-        .unwrap()
+        .unwrap();
+
+        let fund_amount_wei = U256::from(fund_amount_eth * 1e18);
+        println!("fund_amount_wei: {}", fund_amount_wei);
+        println!("fund_amount_eth: {}", fund_amount_eth);
+
+        let all_agent_names = scenario
+            .agent_store
+            .all_agents()
+            .map(|(name, _)| name.to_owned())
+            .collect::<Vec<_>>();
+        for agent_name in &all_agent_names {
+            println!(
+                "funding agent: {agent_name} (num signers: {})",
+                scenario
+                    .agent_store
+                    .get_agent(agent_name)
+                    .unwrap()
+                    .signers
+                    .len()
+            );
+            scenario
+                .fund_agent_signers(agent_name, &anvil.wallet().unwrap(), fund_amount_wei)
+                .await
+                .unwrap();
+        }
+
+        scenario
     }
 
     #[tokio::test]
-    async fn it_creates_scenarios() {
+    async fn it_creates_scenarios() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil).await;
+        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
 
         let create_txs = scenario
             .load_txs(PlanType::Create(|tx| {
                 println!("create tx callback triggered! {:?}\n", tx);
                 Ok(None)
             }))
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(create_txs.len(), 5);
 
         let setup_txs = scenario
@@ -971,8 +1343,7 @@ pub mod tests {
                 println!("setup tx callback triggered! {:?}\n", tx);
                 Ok(None)
             }))
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(setup_txs.len(), 3);
 
         let spam_txs = scenario
@@ -980,17 +1351,17 @@ pub mod tests {
                 println!("spam tx callback triggered! {:?}\n", tx);
                 Ok(None)
             }))
-            .await
-            .unwrap();
+            .await?;
 
-        // should round down; there are 6 spam steps
-        assert!(spam_txs.len() == 18);
+        // should round up to nearest multiple of 3 (3 spam steps in config, 20 txs requested)
+        assert_eq!(spam_txs.len(), 21);
+        Ok(())
     }
 
     #[tokio::test]
     async fn gas_limit_override_works() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil).await;
+        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
         let spam_txs = scenario
             .load_txs(PlanType::Spam(20, |tx| {
                 println!("spam tx callback triggered! {:?}\n", tx);
@@ -1021,7 +1392,7 @@ pub mod tests {
     #[tokio::test]
     async fn fncall_replaces_sender_placeholder_with_from_address() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil).await;
+        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
 
         let spam_txs = scenario
             .load_txs(PlanType::Spam(10, |tx| {
@@ -1045,7 +1416,7 @@ pub mod tests {
     #[tokio::test]
     async fn create_replaces_sender_placeholder_with_from_address() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil).await;
+        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
 
         let txs = scenario
             .load_txs(PlanType::Create(|tx| {
@@ -1070,7 +1441,7 @@ pub mod tests {
     #[tokio::test]
     async fn create_steps_use_agent_signers() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil).await;
+        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
 
         // assert that the agent store has the correct number of signers
         let create_steps = scenario
@@ -1110,7 +1481,7 @@ pub mod tests {
     #[tokio::test]
     async fn setup_steps_use_agent_signers() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil).await;
+        let mut scenario = get_test_scenario(&anvil, 10, 10.0).await;
         scenario.deploy_contracts().await.unwrap();
         let setup_steps = scenario
             .load_txs(PlanType::Setup(|_| Ok(None)))
@@ -1145,7 +1516,7 @@ pub mod tests {
     #[tokio::test]
     async fn scenario_creates_contracts() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil).await;
+        let mut scenario = get_test_scenario(&anvil, 10, 10.0).await;
         let res = scenario.deploy_contracts().await;
         assert!(res.is_ok());
     }
@@ -1153,10 +1524,88 @@ pub mod tests {
     #[tokio::test]
     async fn scenario_runs_setup() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil).await;
+        let mut scenario = get_test_scenario(&anvil, 10, 10.0).await;
         scenario.deploy_contracts().await.unwrap();
         let res = scenario.run_setup().await;
         println!("{:?}", res);
         assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn setup_cost_estimates_are_correct(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let anvil = spawn_anvil();
+        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let cost = scenario.estimate_setup_cost().await?;
+        let total_txs = scenario.config.get_setup_steps().unwrap().len()
+            + scenario.config.get_create_steps().unwrap().len();
+        let expected_cost_min = U256::from(GWEI_TO_WEI * 21000 * total_txs as u64); // assuming gas price is 1 gwei and txs are cheap
+        assert!(cost > expected_cost_min);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn all_tx_requests_are_contiguous() -> std::result::Result<(), Box<dyn std::error::Error>>
+    {
+        let anvil = spawn_anvil();
+        let txs_per_duration: usize = 500;
+        let duration = 3;
+        let mut scenario = get_test_scenario(&anvil, txs_per_duration, 0.01).await;
+
+        // make tx chunks
+        let tx_req_chunks = scenario
+            .get_spam_tx_chunks(txs_per_duration, duration)
+            .await?;
+
+        // test chunk size & count
+        assert_eq!(tx_req_chunks.len(), duration);
+        for chunk in tx_req_chunks.iter() {
+            assert_eq!(chunk.len(), txs_per_duration);
+        }
+
+        // prepare tx requests & collect them all into a single array
+        let mut prepared_txs: Vec<crate::spammer::ExecutionPayload> = vec![];
+        for chunk in tx_req_chunks {
+            let tx_reqs = scenario.prepare_spam(&chunk).await?;
+            prepared_txs.extend(tx_reqs);
+        }
+
+        // group prepared_txs by `from` address, then sort each group by nonce, then assert that all nonces are contiguous (no gaps)
+        let mut grouped_txs = std::collections::HashMap::new();
+        for tx in &prepared_txs {
+            match tx {
+                crate::spammer::ExecutionPayload::SignedTx(_, tx_req) => {
+                    let from = tx_req.tx.from.unwrap();
+                    let nonce = tx_req.tx.nonce.unwrap();
+                    grouped_txs.entry(from).or_insert_with(Vec::new).push(nonce);
+                }
+                crate::spammer::ExecutionPayload::SignedTxBundle(_, _) => {
+                    // ignore
+                }
+            }
+        }
+        for (from, nonces) in grouped_txs {
+            let mut nonces = nonces;
+            nonces.sort();
+            let mut prev_nonce = nonces[0];
+            let mut min_nonce = prev_nonce;
+            let mut max_nonce = prev_nonce;
+            for nonce in &nonces[1..] {
+                assert_eq!(prev_nonce + 1, *nonce);
+                prev_nonce = *nonce;
+                if *nonce < min_nonce {
+                    min_nonce = *nonce;
+                }
+                if *nonce > max_nonce {
+                    max_nonce = *nonce;
+                }
+            }
+            println!(
+                "({from}) min_nonce: {}, max_nonce: {}",
+                min_nonce, max_nonce
+            );
+        }
+
+        Ok(())
     }
 }

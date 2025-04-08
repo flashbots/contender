@@ -9,6 +9,9 @@ use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, types::FromSql, Row};
 use serde::{Deserialize, Serialize};
 
+/// Increment this whenever making changes to the DB schema.
+pub static DB_VERSION: u64 = 1;
+
 #[derive(Clone)]
 pub struct SqliteDb {
     pool: Pool<SqliteConnectionManager>,
@@ -40,6 +43,17 @@ impl SqliteDb {
             .execute(query, params)
             .map_err(|e| ContenderError::DbError("failed to execute query", Some(e.to_string())))?;
         Ok(())
+    }
+
+    pub fn table_exists(&self, table_name: &str) -> Result<bool> {
+        let exists: bool = self
+            .query_row(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?1",
+                params![table_name],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        Ok(exists)
     }
 
     fn query_row<
@@ -91,11 +105,12 @@ impl NamedTxRow {
 struct RunTxRow {
     run_id: i64,
     tx_hash: String,
-    start_timestamp: usize,
-    end_timestamp: usize,
-    block_number: u64,
-    gas_used: String,
+    start_timestamp: u64,
+    end_timestamp: Option<u64>,
+    block_number: Option<u64>,
+    gas_used: Option<u64>,
     kind: Option<String>,
+    error: Option<String>,
 }
 
 impl RunTxRow {
@@ -108,11 +123,14 @@ impl RunTxRow {
             block_number: row.get(4)?,
             gas_used: row.get(5)?,
             kind: row.get(6)?,
+            error: row.get(7)?,
         })
     }
 }
 
 impl From<RunTxRow> for RunTx {
+    /// # panics
+    /// if the tx_hash is invalid.
     fn from(row: RunTxRow) -> Self {
         let tx_hash = TxHash::from_hex(&row.tx_hash).expect("invalid tx hash");
         Self {
@@ -120,8 +138,9 @@ impl From<RunTxRow> for RunTx {
             start_timestamp: row.start_timestamp,
             end_timestamp: row.end_timestamp,
             block_number: row.block_number,
-            gas_used: row.gas_used.parse().expect("invalid gas_used parameter"),
+            gas_used: row.gas_used,
             kind: row.kind,
+            error: row.error,
         }
     }
 }
@@ -145,6 +164,11 @@ impl From<SpamRunRow> for SpamRun {
 }
 
 impl DbOps for SqliteDb {
+    fn version(&self) -> u64 {
+        self.query_row("PRAGMA user_version", params![], |row| row.get(0))
+            .unwrap_or(0)
+    }
+
     fn create_tables(&self) -> Result<()> {
         let ignore_already_exists = |e: ContenderError| {
             let err_str = format!("{:?}", e);
@@ -156,11 +180,14 @@ impl DbOps for SqliteDb {
         };
 
         let queries = [
+            self.execute("PRAGMA foreign_keys = ON;", params![]),
+            self.execute(&format!("PRAGMA user_version = {DB_VERSION};"), params![]),
             self.execute(
                 "CREATE TABLE runs (
                     id INTEGER PRIMARY KEY,
                     timestamp TEXT NOT NULL,
-                    tx_count INTEGER NOT NULL
+                    tx_count INTEGER NOT NULL,
+                    scenario_name TEXT NOT NULL DEFAULT ''
                 )",
                 params![],
             ),
@@ -188,16 +215,13 @@ impl DbOps for SqliteDb {
                     run_id INTEGER NOT NULL,
                     tx_hash TEXT NOT NULL,
                     start_timestamp INTEGER NOT NULL,
-                    end_timestamp INTEGER NOT NULL,
-                    block_number INTEGER NOT NULL,
-                    gas_used TEXT NOT NULL,
+                    end_timestamp INTEGER,
+                    block_number INTEGER,
+                    gas_used INTEGER,
                     kind TEXT,
-                    FOREIGN KEY(run_id) REFERENCES runs(runid)
+                    error TEXT,
+                    FOREIGN KEY(run_id) REFERENCES runs(id)
                 )",
-                params![],
-            ),
-            self.execute(
-                "ALTER TABLE runs ADD COLUMN scenario_name TEXT NOT NULL DEFAULT '';",
                 params![],
             ),
         ];
@@ -227,7 +251,7 @@ impl DbOps for SqliteDb {
     fn get_run_txs(&self, run_id: u64) -> Result<Vec<RunTx>> {
         let pool = self.get_pool()?;
         let mut stmt = pool
-            .prepare("SELECT run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind FROM run_txs WHERE run_id = ?1")
+            .prepare("SELECT run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind, error FROM run_txs WHERE run_id = ?1")
             .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
 
         let rows = stmt
@@ -264,7 +288,7 @@ impl DbOps for SqliteDb {
         Ok(res.map(|r| r.into()))
     }
 
-    fn insert_named_txs(&self, named_txs: Vec<NamedTx>, rpc_url: &str) -> Result<()> {
+    fn insert_named_txs(&self, named_txs: &[NamedTx], rpc_url: &str) -> Result<()> {
         let pool = self.get_pool()?;
 
         // first check the rpc_urls table; insert if not present
@@ -344,32 +368,32 @@ impl DbOps for SqliteDb {
         Ok(res)
     }
 
-    fn insert_run_txs(&self, run_id: u64, run_txs: Vec<RunTx>) -> Result<()> {
+    fn insert_run_txs(&self, run_id: u64, run_txs: &[RunTx]) -> Result<()> {
         let pool = self.get_pool()?;
+
         let stmts = run_txs.iter().map(|tx| {
-            if let Some(kind) = &tx.kind {
-                format!(
-                    "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind) VALUES ({}, '{}', {}, {}, {}, '{}', '{}');",
-                    run_id,
-                    tx.tx_hash.encode_hex(),
-                    tx.start_timestamp,
-                    tx.end_timestamp,
-                    tx.block_number,
-                    tx.gas_used,
-                    kind,
-                )
-            } else {
-                format!(
-                    "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used) VALUES ({}, '{}', {}, {}, {}, '{}');",
-                    run_id,
-                    tx.tx_hash.encode_hex(),
-                    tx.start_timestamp,
-                    tx.end_timestamp,
-                    tx.block_number,
-                    tx.gas_used,
-                )
-            }
+            let val_or_null_u64 = |v: &Option<u64>| v.map(|v| v.to_string()).unwrap_or("NULL".to_owned());
+            let val_or_null_str = |v: &Option<String>| v.to_owned().map(|v| format!("'{v}'")).unwrap_or("NULL".to_owned());
+
+            let kind = val_or_null_str(&tx.kind);
+            let end_timestamp = val_or_null_u64(&tx.end_timestamp);
+            let block_number = val_or_null_u64(&tx.block_number);
+            let gas_used = val_or_null_u64(&tx.gas_used);
+            let error = val_or_null_str(&tx.error);
+
+            format!(
+                "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind, error) VALUES ({}, '{}', {}, {}, {}, {}, {}, {});",
+                run_id,
+                tx.tx_hash.encode_hex(),
+                tx.start_timestamp,
+                end_timestamp,
+                block_number,
+                gas_used,
+                kind,
+                error,
+            )
         });
+
         pool.execute_batch(&format!(
             "BEGIN;
             {}
@@ -416,7 +440,7 @@ mod tests {
         let name2 = "test_tx2";
         let rpc_url = "http://test.url:8545";
         db.insert_named_txs(
-            vec![
+            &[
                 NamedTx::new(name1.to_owned(), tx_hash, contract_address),
                 NamedTx::new(name2.to_string(), tx_hash, contract_address),
             ],
@@ -449,21 +473,23 @@ mod tests {
             RunTx {
                 tx_hash: TxHash::from_slice(&[0u8; 32]),
                 start_timestamp: 100,
-                end_timestamp: 200,
-                block_number: 1,
-                gas_used: 100,
+                end_timestamp: Some(200),
+                block_number: Some(1),
+                gas_used: Some(100),
                 kind: Some("test".to_string()),
+                error: None,
             },
             RunTx {
                 tx_hash: TxHash::from_slice(&[1u8; 32]),
                 start_timestamp: 200,
-                end_timestamp: 300,
-                block_number: 2,
-                gas_used: 200,
+                end_timestamp: Some(300),
+                block_number: Some(2),
+                gas_used: Some(200),
                 kind: Some("test".to_string()),
+                error: None,
             },
         ];
-        db.insert_run_txs(run_id, run_txs).unwrap();
+        db.insert_run_txs(run_id, &run_txs).unwrap();
         let count: i64 = db
             .get_pool()
             .unwrap()

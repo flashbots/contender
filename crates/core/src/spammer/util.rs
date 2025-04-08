@@ -3,7 +3,8 @@ pub mod test {
     use std::{collections::HashMap, str::FromStr, sync::Arc};
 
     use alloy::{
-        network::{EthereumWallet, TransactionBuilder},
+        consensus::TxType,
+        network::{AnyTxEnvelope, EthereumWallet, TransactionBuilder},
         primitives::{Address, U256},
         providers::{PendingTransactionConfig, Provider},
         rpc::types::TransactionRequest,
@@ -12,7 +13,7 @@ pub mod test {
     use tokio::task::JoinHandle;
 
     use crate::{
-        generator::{types::EthProvider, NamedTxRequest},
+        generator::{types::AnyProvider, util::complete_tx_request, NamedTxRequest},
         spammer::{tx_actor::TxActorHandle, OnTxSent},
     };
 
@@ -45,8 +46,9 @@ pub mod test {
         sender: &PrivateKeySigner,
         recipient: Address,
         amount: U256,
-        rpc_client: &EthProvider,
+        rpc_client: &AnyProvider,
         nonce: Option<u64>,
+        tx_type: TxType,
     ) -> Result<PendingTransactionConfig, Box<dyn std::error::Error>> {
         println!(
             "funding account {} with user account {}",
@@ -57,19 +59,21 @@ pub mod test {
         let gas_price = rpc_client.get_gas_price().await?;
         let nonce = nonce.unwrap_or(rpc_client.get_transaction_count(sender.address()).await?);
         let chain_id = rpc_client.get_chain_id().await?;
-        let tx_req = TransactionRequest {
+        let mut tx_req = TransactionRequest {
             from: Some(sender.address()),
             to: Some(alloy::primitives::TxKind::Call(recipient)),
             value: Some(amount),
-            gas: Some(21000),
-            gas_price: Some(gas_price + 4_200_000_000),
             nonce: Some(nonce),
-            chain_id: Some(chain_id),
             ..Default::default()
         };
+
+        complete_tx_request(&mut tx_req, tx_type, gas_price, 1_u128, 21000, chain_id);
+
         let eth_wallet = EthereumWallet::from(sender.to_owned());
         let tx = tx_req.build(&eth_wallet).await?;
-        let res = rpc_client.send_tx_envelope(tx).await?;
+        let res = rpc_client
+            .send_tx_envelope(AnyTxEnvelope::Ethereum(tx))
+            .await?;
 
         Ok(res.into_inner())
     }

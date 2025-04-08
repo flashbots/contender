@@ -1,4 +1,4 @@
-name: Build and Test
+name: Test
 
 on:
   push:
@@ -11,8 +11,13 @@ env:
 
 jobs:
   build:
-
-    runs-on: ubuntu-latest
+    name: Build on ${{ matrix.configs.runner }}
+    runs-on: ${{ matrix.configs.runner }}
+    strategy:
+      matrix:
+        configs:
+          - runner: warp-ubuntu-latest-x64-32x
+          - runner: warp-ubuntu-latest-arm64-32x
 
     steps:
     - uses: actions/checkout@v4
@@ -26,7 +31,13 @@ jobs:
       run: cargo build --verbose --workspace
 
   test:
-    runs-on: ubuntu-latest
+    name: Test on ${{ matrix.configs.runner }}
+    runs-on: ${{ matrix.configs.runner }}
+    strategy:
+      matrix:
+        configs:
+          - runner: warp-ubuntu-latest-x64-16x
+          - runner: warp-ubuntu-latest-arm64-16x
 
     steps:
     - uses: actions/checkout@v4

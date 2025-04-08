@@ -42,6 +42,20 @@ impl AgentStore {
         }
     }
 
+    pub fn init(
+        &mut self,
+        agent_names: &[impl AsRef<str>],
+        signers_per_agent: usize,
+        seed: &RandSeed,
+    ) {
+        for agent in agent_names {
+            if self.has_agent(agent) {
+                continue;
+            }
+            self.add_random_agent(agent, signers_per_agent, seed);
+        }
+    }
+
     pub fn add_agent(&mut self, name: impl AsRef<str>, signers: SignerStore) {
         self.agents.insert(name.as_ref().to_owned(), signers);
     }
@@ -70,6 +84,17 @@ impl AgentStore {
 
     pub fn remove_agent(&mut self, name: impl AsRef<str>) {
         self.agents.remove(name.as_ref());
+    }
+
+    pub fn all_signers(&self) -> Vec<&PrivateKeySigner> {
+        self.agents
+            .values()
+            .flat_map(|s| s.signers.iter())
+            .collect()
+    }
+
+    pub fn all_signer_addresses(&self) -> Vec<Address> {
+        self.all_signers().iter().map(|s| s.address()).collect()
     }
 }
 
@@ -111,5 +136,9 @@ impl SignerStore {
 
     pub fn remove_signer(&mut self, idx: usize) {
         self.signers.remove(idx);
+    }
+
+    pub fn all_addresses(&self) -> Vec<Address> {
+        self.signers.iter().map(|s| s.address()).collect()
     }
 }

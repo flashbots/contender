@@ -1,0 +1,7 @@
+[[spam]]
+[spam.tx]
+to = "{_sender}"
+from_pool = "spammers"
+signature = "hey()"
+args = []
+value = "1"

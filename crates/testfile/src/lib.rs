@@ -100,6 +100,7 @@ impl Templater<String> for TestConfig {
 pub mod tests {
     use super::TestConfig;
     use alloy::{
+        consensus::TxType,
         hex::ToHexExt,
         node_bindings::{Anvil, AnvilInstance},
         primitives::{Address, U256},
@@ -115,7 +116,7 @@ pub mod tests {
             },
             Generator, RandSeed,
         },
-        test_scenario::TestScenario,
+        test_scenario::{TestScenario, TestScenarioParams},
     };
     use std::{collections::HashMap, fs, str::FromStr};
 
@@ -375,14 +376,19 @@ pub mod tests {
         let anvil = spawn_anvil();
         let test_file = get_testconfig();
         let seed = RandSeed::new();
+        let tx_type = TxType::Eip1559;
         let test_gen = TestScenario::new(
             test_file,
             MockDb.into(),
-            anvil.endpoint_url(),
-            None,
             seed,
-            &get_test_signers(),
-            Default::default(),
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers: get_test_signers(),
+                agent_store: Default::default(),
+                tx_type,
+                gas_price_percent_add: None,
+            },
         )
         .await
         .unwrap();
@@ -415,25 +421,34 @@ pub mod tests {
         let test_file = get_fuzzy_testconfig();
         let seed = RandSeed::seed_from_bytes(&[0x01; 32]);
         let signers = get_test_signers();
+        let tx_type = TxType::Eip1559;
         let scenario1 = TestScenario::new(
             test_file.clone(),
             MockDb.into(),
-            anvil.endpoint_url(),
-            None,
             seed.to_owned(),
-            &signers,
-            Default::default(),
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers: signers.to_owned(),
+                agent_store: Default::default(),
+                tx_type,
+                gas_price_percent_add: None,
+            },
         )
         .await
         .unwrap();
         let scenario2 = TestScenario::new(
             test_file,
             MockDb.into(),
-            anvil.endpoint_url(),
-            None,
             seed,
-            &signers,
-            Default::default(),
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers,
+                agent_store: Default::default(),
+                tx_type,
+                gas_price_percent_add: None,
+            },
         )
         .await
         .unwrap();

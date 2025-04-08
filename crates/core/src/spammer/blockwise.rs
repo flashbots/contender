@@ -25,8 +25,8 @@ impl<F, D, S, P> Spammer<F, D, S, P> for BlockwiseSpammer
 where
     F: OnTxSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
-    S: Seeder + Send + Sync,
-    P: PlanConfig<String> + Templater<String> + Send + Sync,
+    S: Seeder + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
     async fn on_spam(
         &self,
@@ -52,6 +52,7 @@ where
 mod tests {
     use alloy::{
         consensus::constants::ETH_TO_WEI,
+        network::AnyNetwork,
         primitives::U256,
         providers::{DynProvider, ProviderBuilder},
     };
@@ -61,7 +62,7 @@ mod tests {
         db::MockDb,
         generator::util::test::spawn_anvil,
         spammer::util::test::{fund_account, get_test_signers, MockCallback},
-        test_scenario::tests::MockConfig,
+        test_scenario::{tests::MockConfig, TestScenarioParams},
     };
     use std::collections::HashSet;
     use std::sync::Arc;
@@ -71,13 +72,17 @@ mod tests {
     #[tokio::test]
     async fn watches_blocks_and_spams_them() {
         let anvil = spawn_anvil();
-        let provider =
-            DynProvider::new(ProviderBuilder::new().on_http(anvil.endpoint_url().to_owned()));
+        let provider = DynProvider::new(
+            ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .on_http(anvil.endpoint_url().to_owned()),
+        );
         println!("anvil url: {}", anvil.endpoint_url());
         let seed = crate::generator::RandSeed::seed_from_str("444444444444");
         let mut agents = AgentStore::new();
         let txs_per_period = 10;
         let periods = 3;
+        let tx_type = alloy::consensus::TxType::Legacy;
         agents.add_agent(
             "pool1",
             SignerStore::new_random(txs_per_period / periods, &seed, "eeeeeeee"),
@@ -101,6 +106,7 @@ mod tests {
                     U256::from(ETH_TO_WEI),
                     &provider,
                     Some(nonce),
+                    tx_type,
                 )
                 .await
                 .unwrap();
@@ -113,11 +119,15 @@ mod tests {
         let mut scenario = TestScenario::new(
             MockConfig,
             MockDb.into(),
-            anvil.endpoint_url(),
-            None,
             seed,
-            &user_signers,
-            agents,
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers: user_signers,
+                agent_store: agents,
+                tx_type,
+                gas_price_percent_add: None,
+            },
         )
         .await
         .unwrap();
@@ -142,15 +152,9 @@ mod tests {
         let current_block = provider.get_block_number().await.unwrap();
 
         while n_block <= current_block {
-            let block = provider
-                .get_block(
-                    n_block.into(),
-                    alloy::rpc::types::BlockTransactionsKind::Full,
-                )
-                .await
-                .unwrap();
-            if let Some(block) = block {
-                for tx in block.transactions.into_transactions() {
+            let receipts = provider.get_block_receipts(n_block.into()).await.unwrap();
+            if let Some(receipts) = receipts {
+                for tx in receipts {
                     unique_addresses.insert(tx.from);
                 }
             }

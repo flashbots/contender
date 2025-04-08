@@ -1,10 +1,10 @@
 use std::{env, str::FromStr, sync::Arc};
 
 use alloy::{
+    consensus::TxType,
     eips::BlockId,
     network::AnyNetwork,
     providers::{DynProvider, Provider, ProviderBuilder},
-    rpc::types::BlockTransactionsKind,
     transports::http::reqwest::Url,
 };
 use contender_core::{
@@ -13,7 +13,7 @@ use contender_core::{
     error::ContenderError,
     generator::RandSeed,
     spammer::{LogCallback, Spammer, TimedSpammer},
-    test_scenario::TestScenario,
+    test_scenario::{TestScenario, TestScenarioParams},
 };
 use contender_testfile::TestConfig;
 
@@ -30,6 +30,7 @@ pub struct RunCommandArgs {
     pub duration: usize,
     pub txs_per_duration: usize,
     pub skip_deploy_prompt: bool,
+    pub tx_type: TxType,
 }
 
 pub async fn run(
@@ -43,7 +44,7 @@ pub async fn run(
         .network::<AnyNetwork>()
         .on_http(Url::parse(&args.rpc_url).expect("Invalid RPC URL"));
     let block_gas_limit = provider
-        .get_block(BlockId::latest(), BlockTransactionsKind::Hashes)
+        .get_block(BlockId::latest())
         .await?
         .map(|b| b.header.gas_limit)
         .ok_or(ContenderError::SetupError(
@@ -71,11 +72,15 @@ pub async fn run(
     let mut scenario = TestScenario::new(
         testconfig,
         db.clone().into(),
-        rpc_url.to_owned(),
-        None,
         rand_seed,
-        &user_signers,
-        AgentStore::default(),
+        TestScenarioParams {
+            rpc_url: rpc_url.to_owned(),
+            builder_rpc_url: None,
+            signers: user_signers,
+            agent_store: AgentStore::default(),
+            tx_type: args.tx_type,
+            gas_price_percent_add: None, // TODO: support this here !!!
+        },
     )
     .await?;
 
@@ -115,11 +120,8 @@ pub async fn run(
         args.duration * args.txs_per_duration,
         &format!("{} ({})", contract_name, scenario_name),
     )?;
-    let callback = LogCallback::new(Arc::new(DynProvider::new(
-        ProviderBuilder::new()
-            .network::<AnyNetwork>()
-            .on_http(rpc_url),
-    )));
+
+    let callback = LogCallback::new(&Arc::new(DynProvider::new(provider)));
 
     println!("starting spammer...");
     spammer

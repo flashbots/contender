@@ -1,29 +1,18 @@
+use super::DrawableChart;
+use crate::commands::report::block_trace::TxTraceReceipt;
 use alloy::primitives::FixedBytes;
 use plotters::prelude::*;
 use std::collections::BTreeMap;
-
-use crate::commands::report::block_trace::TxTraceReceipt;
 
 pub struct HeatMapChart {
     updates_per_slot_per_block: BTreeMap<u64, BTreeMap<FixedBytes<32>, u64>>,
 }
 
-impl Default for HeatMapChart {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// Represents data as a mapping of block_num => slot => count.
 impl HeatMapChart {
-    fn new() -> Self {
-        Self {
-            updates_per_slot_per_block: Default::default(),
-        }
-    }
-
-    pub fn build(trace_data: &[TxTraceReceipt]) -> Result<Self, Box<dyn std::error::Error>> {
-        let mut heatmap = HeatMapChart::new();
+    pub fn new(trace_data: &[TxTraceReceipt]) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut updates_per_slot_per_block: BTreeMap<u64, BTreeMap<FixedBytes<32>, u64>> =
+            Default::default();
 
         for t in trace_data {
             let block_num = t
@@ -49,27 +38,25 @@ impl HeatMapChart {
                     .expect("invalid key; this should never happen");
                 // for every storage slot in this frame, increment the count for the slot at this block number
                 update.storage.iter().for_each(|(slot, _)| {
-                    heatmap.add_update(block_num, *slot);
+                    if let Some(slot_map) = updates_per_slot_per_block.get_mut(&block_num) {
+                        let value = slot_map.get(slot).map(|v| v + 1).unwrap_or(1);
+                        slot_map.insert(*slot, value);
+                    } else {
+                        let mut slot_map = BTreeMap::new();
+                        slot_map.insert(*slot, 1);
+                        updates_per_slot_per_block.insert(block_num, slot_map);
+                    }
                 });
             }
         }
 
-        if heatmap.get_num_slots() == 0 {
-            return Err("No trace data was collected. Ensure your target node supports geth-style preState traces.".into());
+        if updates_per_slot_per_block.is_empty() {
+            return Err("No trace data was collected. If transactions from the specified run landed, your target node may not support geth-style preState traces".into());
         }
 
-        Ok(heatmap)
-    }
-
-    fn add_update(&mut self, block_num: u64, slot: FixedBytes<32>) {
-        if let Some(slot_map) = self.updates_per_slot_per_block.get_mut(&block_num) {
-            let value = slot_map.get(&slot).map(|v| v + 1).unwrap_or(1);
-            slot_map.insert(slot, value);
-        } else {
-            let mut slot_map = BTreeMap::new();
-            slot_map.insert(slot, 1);
-            self.updates_per_slot_per_block.insert(block_num, slot_map);
-        }
+        Ok(Self {
+            updates_per_slot_per_block,
+        })
     }
 
     fn get_block_numbers(&self) -> Vec<u64> {
@@ -138,19 +125,19 @@ impl HeatMapChart {
         slots.sort();
         slots.iter().map(|s| format!("{:?}", s)).collect()
     }
+}
 
-    pub fn draw(&self, filepath: impl AsRef<str>) -> Result<(), Box<dyn std::error::Error>> {
-        let matrix = self.get_matrix();
-
-        // plotters
-        let root = BitMapBackend::new(filepath.as_ref(), (1024, 768)).into_drawing_area();
-        root.fill(&RGBColor(255, 255, 255))?;
-
+impl DrawableChart for HeatMapChart {
+    fn define_chart(
+        &self,
+        root: &DrawingArea<BitMapBackend, plotters::coord::Shift>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let (chart_area, legend_area) = root.split_horizontally(900);
         let legend_area = legend_area.margin(40, 40, 10, 10);
 
         let block_nums = self.get_block_numbers();
         let slot_names = self.get_hex_slots();
+        let matrix = self.get_matrix();
 
         let x_size = matrix.len();
         let y_size = matrix[0].len();
@@ -162,13 +149,13 @@ impl HeatMapChart {
         let mut chart = ChartBuilder::on(&chart_area)
             .margin(20)
             .x_label_area_size(80)
-            .y_label_area_size(160)
+            .y_label_area_size(120)
             .build_cartesian_2d(0..x_size, 0..y_size)?;
 
         chart
             .configure_mesh()
             .x_desc("Block")
-            .x_labels(32)
+            .x_labels(20)
             .x_label_formatter(&|i| {
                 if *i == block_nums.len() {
                     return String::default();
@@ -250,9 +237,6 @@ impl HeatMapChart {
                 .into_font()
                 .transform(FontTransform::Rotate90),
         ))?;
-
-        root.present()?;
-        println!("saved chart to {}", filepath.as_ref());
 
         Ok(())
     }
