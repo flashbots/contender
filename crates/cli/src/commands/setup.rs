@@ -14,7 +14,7 @@ use contender_core::generator::PlanConfig;
 use contender_core::{
     agent_controller::{AgentStore, SignerStore},
     error::ContenderError,
-    eth_engine::{advance_chain, get_auth_provider, DEFAULT_BLOCK_TIME},
+    eth_engine::{AuthProvider, DEFAULT_BLOCK_TIME},
     generator::RandSeed,
     test_scenario::{TestScenario, TestScenarioParams},
 };
@@ -58,7 +58,7 @@ pub async fn setup(
             .on_http(url.to_owned()),
     );
     let auth_client = if let Some(engine_args) = engine_args {
-        Some(get_auth_provider(&engine_args.auth_rpc_url, engine_args.jwt_secret).await?)
+        Some(AuthProvider::new(&engine_args.auth_rpc_url, engine_args.jwt_secret).await?)
     } else {
         None
     };
@@ -171,7 +171,8 @@ pub async fn setup(
                     break;
                 }
 
-                advance_chain(&auth_client, DEFAULT_BLOCK_TIME)
+                auth_client
+                    .advance_chain(DEFAULT_BLOCK_TIME)
                     .await
                     .expect("failed to advance chain");
 

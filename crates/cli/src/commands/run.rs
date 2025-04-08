@@ -19,7 +19,7 @@ use contender_core::{
     agent_controller::AgentStore,
     db::DbOps,
     error::ContenderError,
-    eth_engine::{advance_chain, get_auth_provider},
+    eth_engine::AuthProvider,
     generator::RandSeed,
     spammer::{LogCallback, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
@@ -73,7 +73,7 @@ pub async fn run(
         .into());
     }
     let auth_provider = if let Some(engine_args) = args.engine_args {
-        Some(get_auth_provider(&engine_args.auth_rpc_url, engine_args.jwt_secret).await?)
+        Some(AuthProvider::new(&engine_args.auth_rpc_url, engine_args.jwt_secret).await?)
     } else {
         None
     };
@@ -141,7 +141,8 @@ pub async fn run(
                         break;
                     }
 
-                    advance_chain(&auth_provider, args.interval as u64)
+                    auth_provider
+                        .advance_chain(args.interval as u64)
                         .await
                         .expect("failed to advance chain");
 

@@ -17,7 +17,7 @@ use contender_core::{
     agent_controller::AgentStore,
     db::DbOps,
     error::ContenderError,
-    eth_engine::{advance_chain, get_auth_provider, DEFAULT_BLOCK_TIME},
+    eth_engine::{AuthProvider, DEFAULT_BLOCK_TIME},
     generator::{seeder::Seeder, templater::Templater, types::AnyProvider, PlanConfig, RandSeed},
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
@@ -139,7 +139,7 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
             .on_http(url.to_owned()),
     );
     let auth_client = if let Some(engine_args) = engine_args {
-        Some(get_auth_provider(&engine_args.auth_rpc_url, engine_args.jwt_secret.to_owned()).await?)
+        Some(AuthProvider::new(&engine_args.auth_rpc_url, engine_args.jwt_secret.to_owned()).await?)
     } else {
         None
     };
@@ -266,7 +266,7 @@ pub async fn spam<
     let rpc_client = Arc::new(rpc_client.to_owned());
 
     let auth_client = if let Some(engine_args) = engine_args {
-        Some(get_auth_provider(&engine_args.auth_rpc_url, engine_args.jwt_secret.to_owned()).await?)
+        Some(AuthProvider::new(&engine_args.auth_rpc_url, engine_args.jwt_secret.to_owned()).await?)
     } else {
         None
     };
@@ -288,7 +288,7 @@ pub async fn spam<
                     break;
                 }
                 if is_sending_done.load(std::sync::atomic::Ordering::SeqCst) {
-                    let res = advance_chain(&auth_client, DEFAULT_BLOCK_TIME).await;
+                    let res = auth_client.advance_chain(DEFAULT_BLOCK_TIME).await;
                     if let Err(e) = res {
                         println!("Error advancing chain: {}", e);
                     }

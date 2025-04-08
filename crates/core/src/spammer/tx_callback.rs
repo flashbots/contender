@@ -4,7 +4,7 @@ use alloy::providers::PendingTransactionConfig;
 use tokio::task::JoinHandle;
 
 use crate::{
-    eth_engine::{advance_chain, DEFAULT_BLOCK_TIME},
+    eth_engine::{AuthProvider, DEFAULT_BLOCK_TIME},
     generator::{types::AnyProvider, NamedTxRequest},
 };
 
@@ -33,14 +33,14 @@ pub struct NilCallback;
 
 pub struct LogCallback {
     pub rpc_provider: Arc<AnyProvider>,
-    pub auth_provider: Option<Arc<AnyProvider>>,
+    pub auth_provider: Option<Arc<AuthProvider>>,
     pub send_fcu: bool,
 }
 
 impl LogCallback {
     pub fn new(
         rpc_provider: Arc<AnyProvider>,
-        auth_provider: Option<Arc<AnyProvider>>,
+        auth_provider: Option<Arc<AuthProvider>>,
         send_fcu: bool,
     ) -> Self {
         Self {
@@ -103,7 +103,8 @@ impl OnBatchSent for LogCallback {
             }
             let provider = provider.clone();
             return Some(tokio::task::spawn(async move {
-                advance_chain(&provider, DEFAULT_BLOCK_TIME)
+                provider
+                    .advance_chain(DEFAULT_BLOCK_TIME)
                     .await
                     .expect("failed to advance chain");
             }));

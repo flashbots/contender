@@ -9,7 +9,7 @@ use alloy::{
 };
 use contender_core::{
     db::RunTx,
-    eth_engine::{advance_chain, DEFAULT_BLOCK_TIME},
+    eth_engine::{AuthProvider, DEFAULT_BLOCK_TIME},
     generator::{
         types::{AnyProvider, FunctionCallDefinition, SpamRequest},
         util::complete_tx_request,
@@ -141,7 +141,7 @@ pub async fn fund_accounts(
     rpc_client: &AnyProvider,
     min_balance: U256,
     tx_type: TxType,
-    engine_params: (Option<AnyProvider>, bool),
+    engine_params: (Option<AuthProvider>, bool),
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (engine_provider, call_fcu) = engine_params;
     let insufficient_balances =
@@ -229,7 +229,7 @@ pub async fn fund_accounts(
     while let Some(tx) = receiver_pending_tx.recv().await {
         if call_fcu {
             if let Some(engine_provider) = &engine_provider {
-                advance_chain(engine_provider, DEFAULT_BLOCK_TIME).await?;
+                engine_provider.advance_chain(DEFAULT_BLOCK_TIME).await?;
             } else {
                 return Err("No engine provider found".into());
             }
@@ -300,7 +300,7 @@ pub async fn spam_callback_default(
     log_txs: bool,
     send_fcu: bool,
     rpc_client: Option<Arc<AnyProvider>>,
-    auth_client: Option<Arc<AnyProvider>>,
+    auth_client: Option<Arc<AuthProvider>>,
 ) -> SpamCallbackType {
     if let Some(rpc_client) = rpc_client {
         if log_txs {
