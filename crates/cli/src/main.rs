@@ -8,8 +8,8 @@ use alloy::hex;
 use commands::{
     common::{ScenarioSendTxsCliArgs, SendSpamCliArgs},
     db::{drop_db, export_db, import_db, reset_db},
-    ContenderCli, ContenderSubcommand, DbCommand, EngineArgs, InitializedScenario, RunCommandArgs,
-    SetupCliArgs, SetupCommandArgs, SpamCliArgs, SpamCommandArgs,
+    ContenderCli, ContenderSubcommand, DbCommand, EngineArgs, RunCommandArgs, SetupCliArgs,
+    SetupCommandArgs, SpamCliArgs, SpamCommandArgs,
 };
 use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::{SqliteDb, DB_VERSION};
@@ -163,11 +163,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engine_args,
                 call_forkchoice,
             };
-            let InitializedScenario {
-                mut scenario,
-                rpc_client,
-            } = spam_args.init_scenario(&db).await?;
-            let run_id = commands::spam(&db, &spam_args, &mut scenario, &rpc_client).await?;
+            let mut scenario = spam_args.init_scenario(&db).await?;
+            let run_id = commands::spam(&db, &spam_args, &mut scenario).await?;
             if gen_report {
                 tokio::select! {
                     _ = tokio::signal::ctrl_c() => {

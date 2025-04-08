@@ -18,11 +18,10 @@ use contender_core::{
     db::DbOps,
     error::ContenderError,
     eth_engine::{AdvanceChain, AuthProvider, DEFAULT_BLOCK_TIME},
-    generator::{seeder::Seeder, templater::Templater, types::AnyProvider, PlanConfig, RandSeed},
+    generator::{seeder::Seeder, templater::Templater, PlanConfig, RandSeed},
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
 };
-use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
 use std::sync::Arc;
 use std::{path::PathBuf, sync::atomic::AtomicBool};
@@ -57,7 +56,7 @@ impl SpamCommandArgs {
     pub async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
         &self,
         db: &D,
-    ) -> Result<InitializedScenario<D>, Box<dyn std::error::Error>> {
+    ) -> Result<TestScenario<D, RandSeed, TestConfig>, Box<dyn std::error::Error>> {
         init_scenario(db, self).await
     }
 }
@@ -97,21 +96,11 @@ pub struct SpamCliArgs {
     pub gas_price_percent_add: Option<u16>,
 }
 
-pub struct InitializedScenario<D = SqliteDb, S = RandSeed, P = TestConfig>
-where
-    D: DbOps + Clone + Send + Sync + 'static,
-    S: Seeder,
-    P: PlanConfig<String> + Templater<String> + Send + Sync,
-{
-    pub scenario: TestScenario<D, S, P>,
-    pub rpc_client: AnyProvider,
-}
-
 /// Initializes a TestScenario with the given arguments.
 async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
     db: &D,
     args: &SpamCommandArgs,
-) -> Result<InitializedScenario<D>, Box<dyn std::error::Error>> {
+) -> Result<TestScenario<D, RandSeed, TestConfig>, Box<dyn std::error::Error>> {
     println!("Initializing spammer...");
     let SpamCommandArgs {
         txs_per_block,
@@ -232,10 +221,7 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
         .into());
     }
 
-    Ok(InitializedScenario {
-        scenario,
-        rpc_client,
-    })
+    Ok(scenario)
 }
 
 /// Runs spammer and returns run ID.
@@ -247,7 +233,6 @@ pub async fn spam<
     db: &D,
     args: &SpamCommandArgs,
     test_scenario: &mut TestScenario<D, S, P>,
-    rpc_client: &AnyProvider,
 ) -> Result<Option<u64>, Box<dyn std::error::Error>> {
     let SpamCommandArgs {
         txs_per_block,
@@ -263,7 +248,8 @@ pub async fn spam<
     let duration = duration.unwrap_or_default();
     println!("Duration: {} seconds", duration);
     let mut run_id = None;
-    let rpc_client = Arc::new(rpc_client.to_owned());
+
+    let rpc_client = test_scenario.rpc_client.clone();
 
     let auth_client = if let Some(engine_args) = engine_args {
         Some(AuthProvider::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret).await?)
