@@ -246,7 +246,6 @@ pub async fn spam<
     } = args;
 
     let duration = duration.unwrap_or_default();
-    println!("Duration: {} seconds", duration);
     let mut run_id = None;
 
     let rpc_client = test_scenario.rpc_client.clone();
