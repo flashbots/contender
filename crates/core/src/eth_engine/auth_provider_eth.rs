@@ -9,13 +9,14 @@ use alloy::{
     transports::http::reqwest::Url,
 };
 use alloy_rpc_types_engine::JwtSecret;
+use async_trait::async_trait;
 
 use crate::{
     error::ContenderError,
     eth_engine::valid_payload::{call_fcu_default, call_new_payload},
 };
 
-use super::auth_transport::AuthenticatedTransportConnect;
+use super::{auth_transport::AuthenticatedTransportConnect, AdvanceChain};
 
 #[derive(Clone)]
 pub struct AuthProvider {
@@ -60,12 +61,12 @@ impl AuthProvider {
         let jwt = JwtSecret::from_hex(jwt)?;
         Self::new(auth_rpc_url, jwt).await
     }
+}
 
+#[async_trait]
+impl AdvanceChain for AuthProvider {
     /// Advance the chain by calling `engine_forkchoiceUpdated` (FCU) and `engine_newPayload` methods.
-    pub async fn advance_chain(
-        &self,
-        block_time_secs: u64,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn advance_chain(&self, block_time_secs: u64) -> Result<(), Box<dyn std::error::Error>> {
         println!("advancing chain...");
         let engine_client = &self.inner;
 

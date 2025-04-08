@@ -4,7 +4,7 @@ use alloy::providers::PendingTransactionConfig;
 use tokio::task::JoinHandle;
 
 use crate::{
-    eth_engine::{AuthProvider, DEFAULT_BLOCK_TIME},
+    eth_engine::{AdvanceChain, AuthProvider, DEFAULT_BLOCK_TIME},
     generator::{types::AnyProvider, NamedTxRequest},
 };
 

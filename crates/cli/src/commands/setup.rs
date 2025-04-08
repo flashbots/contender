@@ -14,7 +14,7 @@ use contender_core::generator::PlanConfig;
 use contender_core::{
     agent_controller::{AgentStore, SignerStore},
     error::ContenderError,
-    eth_engine::{AuthProvider, DEFAULT_BLOCK_TIME},
+    eth_engine::{AdvanceChain, AuthProvider, DEFAULT_BLOCK_TIME},
     generator::RandSeed,
     test_scenario::{TestScenario, TestScenarioParams},
 };

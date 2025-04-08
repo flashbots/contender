@@ -17,7 +17,7 @@ use contender_core::{
     agent_controller::AgentStore,
     db::DbOps,
     error::ContenderError,
-    eth_engine::{AuthProvider, DEFAULT_BLOCK_TIME},
+    eth_engine::{AdvanceChain, AuthProvider, DEFAULT_BLOCK_TIME},
     generator::{seeder::Seeder, templater::Templater, types::AnyProvider, PlanConfig, RandSeed},
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},

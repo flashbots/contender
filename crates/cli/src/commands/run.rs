@@ -19,7 +19,7 @@ use contender_core::{
     agent_controller::AgentStore,
     db::DbOps,
     error::ContenderError,
-    eth_engine::AuthProvider,
+    eth_engine::{AdvanceChain, AuthProvider},
     generator::RandSeed,
     spammer::{LogCallback, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},

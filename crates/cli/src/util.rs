@@ -9,7 +9,7 @@ use alloy::{
 };
 use contender_core::{
     db::RunTx,
-    eth_engine::{AuthProvider, DEFAULT_BLOCK_TIME},
+    eth_engine::{AdvanceChain, AuthProvider, DEFAULT_BLOCK_TIME},
     generator::{
         types::{AnyProvider, FunctionCallDefinition, SpamRequest},
         util::complete_tx_request,

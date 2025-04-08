@@ -17,7 +17,7 @@ tracing = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
-async-trait = { workspace = true }
+async-trait.workspace = true
 tokio = { workspace = true, features = ["signal"]}
 serde_json = { workspace = true }
 contender_bundle_provider = { workspace = true }
