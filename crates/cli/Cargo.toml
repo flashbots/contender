@@ -1,7 +1,12 @@
 [package]
-edition = "2021"
 name = "contender_cli"
-version = "0.1.0"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "contender"
@@ -11,9 +16,10 @@ path = "src/main.rs"
 contender_core = {workspace = true}
 contender_sqlite = {workspace = true}
 contender_testfile = {workspace = true}
+contender_engine_provider = { workspace = true }
+
 serde = {workspace = true}
 tokio = {workspace = true, features = ["rt-multi-thread"]}
-
 alloy = {workspace = true, features = ["full", "node-bindings", "rpc-types-debug", "rpc-types-trace"]}
 chrono = "0.4.39"
 clap = {workspace = true, features = ["derive"]}

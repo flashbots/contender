@@ -95,6 +95,7 @@ where
     ) -> Result<Vec<PendingRunTx>, Box<dyn std::error::Error>> {
         println!("unconfirmed txs: {}", cache.len());
         let mut maybe_block;
+        // TODO: replace this garbage mutator thing with a while loop
         loop {
             maybe_block = rpc.get_block_by_number(target_block_num.into()).await;
             if let Ok(maybe_block) = &maybe_block {
@@ -103,7 +104,7 @@ where
                 }
             }
             println!("waiting for block {}", target_block_num);
-            std::thread::sleep(Duration::from_secs(1));
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
         let target_block = maybe_block
             .expect("this should never happen")
@@ -168,8 +169,8 @@ where
                 }
             })
             .collect::<Vec<_>>();
-
         db.insert_run_txs(run_id, &run_txs)?;
+        // }
         on_flush
             .send(new_txs.len())
             .map_err(|_| ContenderError::SpamError("failed to join TxActor on_flush", None))?;

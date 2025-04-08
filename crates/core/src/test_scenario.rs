@@ -9,7 +9,7 @@ use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use crate::provider::LoggingLayer;
 use crate::spammer::tx_actor::TxActorHandle;
-use crate::spammer::{ExecutionPayload, OnTxSent, SpamTrigger};
+use crate::spammer::{ExecutionPayload, OnBatchSent, OnTxSent, SpamTrigger};
 use crate::Result;
 use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
 use alloy::consensus::{Transaction, TxType};
@@ -631,7 +631,7 @@ where
         &mut self,
         trigger: SpamTrigger,
         payloads: Vec<ExecutionPayload>,
-        callback_handler: Arc<impl OnTxSent + Send + Sync + 'static>,
+        callback_handler: Arc<impl OnTxSent + OnBatchSent + Send + Sync + 'static>,
     ) -> Result<Vec<tokio::task::JoinHandle<()>>> {
         // sort payloads by nonce
         let mut payloads = payloads;
@@ -770,7 +770,7 @@ where
     }
 
     /// Send spam batches until the cursor is depleted.
-    pub async fn execute_spammer<F: OnTxSent + Send + Sync + 'static>(
+    pub async fn execute_spammer<F: OnTxSent + OnBatchSent + Send + Sync + 'static>(
         &mut self,
         cursor: &mut futures::stream::Take<Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>>,
         tx_req_chunks: &[Vec<ExecutionRequest>],
@@ -790,6 +790,12 @@ where
                     eprintln!("spam task failed: {:?}", e);
                 }
             }
+
+            if let Some(task) = sent_tx_callback.on_batch_sent() {
+                task.await
+                    .map_err(|e| ContenderError::with_err(e, "on_batch_sent callback failed"))?;
+            }
+
             tick += 1;
         }
 

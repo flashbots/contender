@@ -15,9 +15,10 @@ use contender_core::{
     },
     spammer::{LogCallback, NilCallback},
 };
+use contender_engine_provider::{AdvanceChain, AuthProvider, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
 use csv::Writer;
-use std::{io::Write, str::FromStr, sync::Arc};
+use std::{io::Write, str::FromStr, sync::Arc, time::Duration};
 use termcolor::{ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 pub enum SpamCallbackType {
@@ -140,7 +141,9 @@ pub async fn fund_accounts(
     rpc_client: &AnyProvider,
     min_balance: U256,
     tx_type: TxType,
+    engine_params: (Option<AuthProvider>, bool),
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let (engine_provider, call_fcu) = engine_params;
     let insufficient_balances =
         find_insufficient_balances(recipient_addresses, min_balance, rpc_client).await?;
 
@@ -168,8 +171,9 @@ pub async fn fund_accounts(
     }
 
     let mut fund_handles: Vec<tokio::task::JoinHandle<()>> = vec![];
-    let (sender, mut receiver) = tokio::sync::mpsc::channel::<PendingTransactionConfig>(9000);
-    let sendr = Arc::new(sender.clone());
+    let (sender_pending_tx, mut receiver_pending_tx) =
+        tokio::sync::mpsc::channel::<PendingTransactionConfig>(9000);
+
     let rpc_client = Arc::new(rpc_client.to_owned());
     for (idx, (address, _)) in insufficient_balances.into_iter().enumerate() {
         let (balance_sufficient, balance) =
@@ -189,36 +193,47 @@ pub async fn fund_accounts(
 
         let fund_amount = min_balance;
         let fund_with = fund_with.to_owned();
-        let sender = sendr.clone();
+        let rpc_client = Arc::new(rpc_client.clone());
+        let sender = sender_pending_tx.clone();
 
-        let rpc = rpc_client.clone();
         fund_handles.push(tokio::task::spawn(async move {
             let res = fund_account(
                 &fund_with.to_owned(),
                 address,
                 fund_amount,
-                &rpc,
+                &rpc_client,
                 Some(admin_nonce + idx as u64),
                 tx_type,
             )
             .await;
-            match res.ok() {
-                Some(res) => sender.send(res).await.expect("failed to handle pending tx"),
-                None => {
-                    eprintln!("Error funding account {}", address);
-                }
+            if let Err(e) = res {
+                let err = e.to_string();
+                println!("error funding account {}: {}", address, err);
+            } else {
+                sender
+                    .send(res.expect("fund result not sent"))
+                    .await
+                    .expect("failed to handle pending tx");
             }
         }));
     }
     if !fund_handles.is_empty() {
-        println!("sending funding txs...");
         for handle in fund_handles {
             handle.await?;
         }
     }
-    receiver.close();
+    receiver_pending_tx.close();
 
-    while let Some(tx) = receiver.recv().await {
+    tokio::time::sleep(Duration::from_secs(DEFAULT_BLOCK_TIME)).await;
+
+    while let Some(tx) = receiver_pending_tx.recv().await {
+        if call_fcu {
+            if let Some(engine_provider) = &engine_provider {
+                engine_provider.advance_chain(DEFAULT_BLOCK_TIME).await?;
+            } else {
+                return Err("No engine provider found".into());
+            }
+        }
         let pending = rpc_client.watch_pending_transaction(tx).await?;
         println!("funding tx confirmed ({})", pending.await?);
     }
@@ -283,11 +298,14 @@ pub async fn find_insufficient_balances(
 
 pub async fn spam_callback_default(
     log_txs: bool,
-    rpc_client: Option<&Arc<AnyProvider>>,
+    send_fcu: bool,
+    rpc_client: Option<Arc<AnyProvider>>,
+    auth_client: Option<Arc<AuthProvider>>,
 ) -> SpamCallbackType {
     if let Some(rpc_client) = rpc_client {
         if log_txs {
-            return SpamCallbackType::Log(LogCallback::new(rpc_client));
+            let log_callback = LogCallback::new(rpc_client.clone(), auth_client.clone(), send_fcu);
+            return SpamCallbackType::Log(log_callback);
         }
     }
     SpamCallbackType::Nil(NilCallback)
@@ -396,6 +414,7 @@ mod test {
             &rpc_client,
             min_balance,
             tx_type,
+            (None, false),
         )
         .await
         .unwrap();
@@ -414,6 +433,7 @@ mod test {
             &rpc_client,
             min_balance,
             tx_type,
+            (None, false),
         )
         .await;
         println!("res: {:?}", res);

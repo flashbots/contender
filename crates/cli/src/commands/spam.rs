@@ -17,13 +17,20 @@ use contender_core::{
     agent_controller::AgentStore,
     db::DbOps,
     error::ContenderError,
-    generator::{seeder::Seeder, templater::Templater, types::AnyProvider, PlanConfig, RandSeed},
+    generator::{seeder::Seeder, templater::Templater, PlanConfig, RandSeed},
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
 };
-use contender_sqlite::SqliteDb;
+use contender_engine_provider::{AdvanceChain, AuthProvider, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
 use std::sync::Arc;
+use std::{path::PathBuf, sync::atomic::AtomicBool};
+
+#[derive(Debug)]
+pub struct EngineArgs {
+    pub auth_rpc_url: String,
+    pub jwt_secret: PathBuf,
+}
 
 #[derive(Debug)]
 pub struct SpamCommandArgs {
@@ -39,13 +46,17 @@ pub struct SpamCommandArgs {
     pub min_balance: String,
     pub tx_type: TxType,
     pub gas_price_percent_add: Option<u16>,
+    /// Provide to enable engine calls (required to use `call_forkchoice`)
+    pub engine_args: Option<EngineArgs>,
+    /// Call `engine_forkchoiceUpdated` after each block
+    pub call_forkchoice: bool,
 }
 
 impl SpamCommandArgs {
     pub async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
         &self,
         db: &D,
-    ) -> Result<InitializedScenario<D>, Box<dyn std::error::Error>> {
+    ) -> Result<TestScenario<D, RandSeed, TestConfig>, Box<dyn std::error::Error>> {
         init_scenario(db, self).await
     }
 }
@@ -85,21 +96,11 @@ pub struct SpamCliArgs {
     pub gas_price_percent_add: Option<u16>,
 }
 
-pub struct InitializedScenario<D = SqliteDb, S = RandSeed, P = TestConfig>
-where
-    D: DbOps + Clone + Send + Sync + 'static,
-    S: Seeder,
-    P: PlanConfig<String> + Templater<String> + Send + Sync,
-{
-    pub scenario: TestScenario<D, S, P>,
-    pub rpc_client: AnyProvider,
-}
-
 /// Initializes a TestScenario with the given arguments.
 async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
     db: &D,
     args: &SpamCommandArgs,
-) -> Result<InitializedScenario<D>, Box<dyn std::error::Error>> {
+) -> Result<TestScenario<D, RandSeed, TestConfig>, Box<dyn std::error::Error>> {
     println!("Initializing spammer...");
     let SpamCommandArgs {
         txs_per_block,
@@ -113,6 +114,8 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
         private_keys,
         tx_type,
         gas_price_percent_add,
+        call_forkchoice,
+        engine_args,
         ..
     } = &args;
 
@@ -124,6 +127,11 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
             .network::<AnyNetwork>()
             .on_http(url.to_owned()),
     );
+    let auth_client = if let Some(engine_args) = engine_args {
+        Some(AuthProvider::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret).await?)
+    } else {
+        None
+    };
 
     let duration = duration.unwrap_or_default();
     let min_balance = parse_ether(min_balance)?;
@@ -177,6 +185,7 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
         &rpc_client,
         min_balance,
         *tx_type,
+        (auth_client.clone(), *call_forkchoice),
     )
     .await?;
 
@@ -212,10 +221,7 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
         .into());
     }
 
-    Ok(InitializedScenario {
-        scenario,
-        rpc_client,
-    })
+    Ok(scenario)
 }
 
 /// Runs spammer and returns run ID.
@@ -227,7 +233,6 @@ pub async fn spam<
     db: &D,
     args: &SpamCommandArgs,
     test_scenario: &mut TestScenario<D, S, P>,
-    rpc_client: &AnyProvider,
 ) -> Result<Option<u64>, Box<dyn std::error::Error>> {
     let SpamCommandArgs {
         txs_per_block,
@@ -235,21 +240,63 @@ pub async fn spam<
         testfile,
         duration,
         disable_reporting,
+        call_forkchoice,
+        engine_args,
         ..
     } = args;
 
     let duration = duration.unwrap_or_default();
-    println!("Duration: {} seconds", duration);
     let mut run_id = None;
-    let rpc_client = Arc::new(rpc_client.to_owned());
+
+    let rpc_client = test_scenario.rpc_client.clone();
+
+    let auth_client = if let Some(engine_args) = engine_args {
+        Some(AuthProvider::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret).await?)
+    } else {
+        None
+    };
+
+    // thread-safe flag to stop spammer at different stages
+    let done_fcu = AtomicBool::new(false);
+    let is_fcu_done = Arc::new(done_fcu);
+    let done_sending = AtomicBool::new(false);
+    let is_sending_done = Arc::new(done_sending);
+
+    // run loop in background to call fcu when spamming is done
+    if let Some(auth_client) = auth_client.to_owned() {
+        let auth_client = Arc::new(auth_client);
+        let is_fcu_done = is_fcu_done.clone();
+        let is_sending_done = is_sending_done.clone();
+        tokio::spawn(async move {
+            loop {
+                if is_fcu_done.load(std::sync::atomic::Ordering::SeqCst) {
+                    break;
+                }
+                if is_sending_done.load(std::sync::atomic::Ordering::SeqCst) {
+                    let res = auth_client.advance_chain(DEFAULT_BLOCK_TIME).await;
+                    if let Err(e) = res {
+                        println!("Error advancing chain: {}", e);
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            }
+        });
+    }
 
     // trigger blockwise spammer
     if let Some(txs_per_block) = txs_per_block {
         println!("Blockwise spamming with {} txs per block", txs_per_block);
         let spammer = BlockwiseSpammer {};
 
-        match spam_callback_default(!disable_reporting, Some(&rpc_client)).await {
-            SpamCallbackType::Log(cback) => {
+        match spam_callback_default(
+            !disable_reporting,
+            *call_forkchoice,
+            Some(rpc_client.clone()),
+            auth_client.map(Arc::new),
+        )
+        .await
+        {
+            SpamCallbackType::Log(tx_callback) => {
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("Time went backwards")
@@ -262,13 +309,21 @@ pub async fn spam<
                         *txs_per_block,
                         duration,
                         run_id,
-                        cback.into(),
+                        tx_callback.into(),
+                        is_sending_done.clone(),
                     )
                     .await?;
             }
-            SpamCallbackType::Nil(cback) => {
+            SpamCallbackType::Nil(tx_callback) => {
                 spammer
-                    .spam_rpc(test_scenario, *txs_per_block, duration, None, cback.into())
+                    .spam_rpc(
+                        test_scenario,
+                        *txs_per_block,
+                        duration,
+                        None,
+                        tx_callback.to_owned().into(),
+                        is_sending_done.clone(),
+                    )
                     .await?;
             }
         };
@@ -280,23 +335,46 @@ pub async fn spam<
     println!("Timed spamming with {} txs per second", tps);
     let interval = std::time::Duration::from_secs(1);
     let spammer = TimedSpammer::new(interval);
-    match spam_callback_default(!disable_reporting, Some(&rpc_client)).await {
-        SpamCallbackType::Log(cback) => {
+    match spam_callback_default(
+        !disable_reporting,
+        *call_forkchoice,
+        rpc_client.into(),
+        auth_client.map(Arc::new),
+    )
+    .await
+    {
+        SpamCallbackType::Log(tx_callback) => {
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_millis();
             run_id = Some(db.insert_run(timestamp as u64, tps * duration, testfile)?);
+
             spammer
-                .spam_rpc(test_scenario, tps, duration, run_id, cback.into())
+                .spam_rpc(
+                    test_scenario,
+                    tps,
+                    duration,
+                    run_id,
+                    tx_callback.into(),
+                    is_sending_done.clone(),
+                )
                 .await?;
         }
         SpamCallbackType::Nil(cback) => {
             spammer
-                .spam_rpc(test_scenario, tps, duration, None, cback.into())
+                .spam_rpc(
+                    test_scenario,
+                    tps,
+                    duration,
+                    None,
+                    cback.to_owned().into(),
+                    is_sending_done.clone(),
+                )
                 .await?;
         }
     };
+    is_fcu_done.store(true, std::sync::atomic::Ordering::SeqCst);
 
     Ok(run_id)
 }
