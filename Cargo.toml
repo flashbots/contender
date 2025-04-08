@@ -1,7 +1,7 @@
 [workspace] 
 members = [ "crates/bundle_provider",
     "crates/cli/",
-    "crates/core/",
+    "crates/core/", "crates/engine_provider",
     "crates/sqlite_db/",
     "crates/testfile/"
 ]
@@ -22,6 +22,7 @@ contender_core = { path = "crates/core/" }
 contender_sqlite = { path = "crates/sqlite_db/" }
 contender_testfile = { path = "crates/testfile/" }
 contender_bundle_provider = { path = "crates/bundle_provider/" }
+contender_engine_provider = { path = "crates/engine_provider/" }
 
 eyre = "0.6.12"
 tokio = { version = "1.40.0" }

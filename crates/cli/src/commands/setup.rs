@@ -14,10 +14,10 @@ use contender_core::generator::PlanConfig;
 use contender_core::{
     agent_controller::{AgentStore, SignerStore},
     error::ContenderError,
-    eth_engine::{AdvanceChain, AuthProvider, DEFAULT_BLOCK_TIME},
     generator::RandSeed,
     test_scenario::{TestScenario, TestScenarioParams},
 };
+use contender_engine_provider::{AdvanceChain, AuthProvider, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
 use std::{
     str::FromStr,

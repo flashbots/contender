@@ -1,5 +1,5 @@
 [package]
-name = "contender_core"
+name = "contender_engine_provider"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,12 +9,10 @@ homepage.workspace = true
 repository.workspace = true
 
 [lib]
-name = "contender_core"
+name = "contender_engine_provider"
 path = "src/lib.rs"
 
 [dependencies]
-contender_bundle_provider = { workspace = true }
-contender_engine_provider = { workspace = true }
 
 alloy = { workspace = true, features = ["full", "node-bindings", "rpc-types-mev", "json-rpc", "provider-engine-api"] }
 alloy-rpc-types-engine = { workspace = true, features = ["std", "jwt"] }
@@ -27,6 +25,7 @@ futures = { workspace = true }
 async-trait.workspace = true
 tokio = { workspace = true, features = ["signal"]}
 serde_json = { workspace = true }
+contender_bundle_provider = { workspace = true }
 thiserror = { workspace = true }
 tower = { workspace = true }
 eyre = { workspace = true }

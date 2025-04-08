@@ -19,11 +19,11 @@ use contender_core::{
     agent_controller::AgentStore,
     db::DbOps,
     error::ContenderError,
-    eth_engine::{AdvanceChain, AuthProvider},
     generator::RandSeed,
     spammer::{LogCallback, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
 };
+use contender_engine_provider::{AdvanceChain, AuthProvider};
 use contender_testfile::TestConfig;
 
 use crate::{

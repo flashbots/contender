@@ -11,10 +11,7 @@ use alloy::{
 use alloy_rpc_types_engine::JwtSecret;
 use async_trait::async_trait;
 
-use crate::{
-    error::ContenderError,
-    eth_engine::valid_payload::{call_fcu_default, call_new_payload},
-};
+use crate::valid_payload::{call_fcu_default, call_new_payload};
 
 use super::{auth_transport::AuthenticatedTransportConnect, AdvanceChain};
 
@@ -51,9 +48,9 @@ impl AuthProvider {
         //
         // the jwt is hex encoded so we will decode it after
         if !jwt_secret_file.is_file() {
-            return Err(ContenderError::GenericError(
-                "JWT secret file not found:",
-                jwt_secret_file.to_string_lossy().into(),
+            return Err(format!(
+                "JWT secret file not found: {}",
+                jwt_secret_file.to_string_lossy(),
             )
             .into());
         }

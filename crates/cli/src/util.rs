@@ -9,13 +9,13 @@ use alloy::{
 };
 use contender_core::{
     db::RunTx,
-    eth_engine::{AdvanceChain, AuthProvider, DEFAULT_BLOCK_TIME},
     generator::{
         types::{AnyProvider, FunctionCallDefinition, SpamRequest},
         util::complete_tx_request,
     },
     spammer::{LogCallback, NilCallback},
 };
+use contender_engine_provider::{AdvanceChain, AuthProvider, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
 use csv::Writer;
 use std::{io::Write, str::FromStr, sync::Arc, time::Duration};

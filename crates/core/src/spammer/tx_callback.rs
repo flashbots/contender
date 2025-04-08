@@ -1,14 +1,9 @@
-use std::{collections::HashMap, sync::Arc};
-
-use alloy::providers::PendingTransactionConfig;
-use tokio::task::JoinHandle;
-
-use crate::{
-    eth_engine::{AdvanceChain, AuthProvider, DEFAULT_BLOCK_TIME},
-    generator::{types::AnyProvider, NamedTxRequest},
-};
-
 use super::tx_actor::TxActorHandle;
+use crate::generator::{types::AnyProvider, NamedTxRequest};
+use alloy::providers::PendingTransactionConfig;
+use contender_engine_provider::{AdvanceChain, AuthProvider, DEFAULT_BLOCK_TIME};
+use std::{collections::HashMap, sync::Arc};
+use tokio::task::JoinHandle;
 
 pub trait OnTxSent<K = String, V = String>
 where
