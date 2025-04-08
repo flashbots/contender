@@ -1,4 +1,3 @@
-use std::ops::Deref;
 use std::sync::atomic::AtomicBool;
 use std::{pin::Pin, sync::Arc};
 
