@@ -73,7 +73,7 @@ pub async fn run(
         .into());
     }
     let auth_provider = if let Some(engine_args) = args.engine_args {
-        Some(AuthProvider::new(&engine_args.auth_rpc_url, engine_args.jwt_secret).await?)
+        Some(AuthProvider::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret).await?)
     } else {
         None
     };

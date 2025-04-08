@@ -139,7 +139,7 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
             .on_http(url.to_owned()),
     );
     let auth_client = if let Some(engine_args) = engine_args {
-        Some(AuthProvider::new(&engine_args.auth_rpc_url, engine_args.jwt_secret.to_owned()).await?)
+        Some(AuthProvider::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret).await?)
     } else {
         None
     };
@@ -266,7 +266,7 @@ pub async fn spam<
     let rpc_client = Arc::new(rpc_client.to_owned());
 
     let auth_client = if let Some(engine_args) = engine_args {
-        Some(AuthProvider::new(&engine_args.auth_rpc_url, engine_args.jwt_secret.to_owned()).await?)
+        Some(AuthProvider::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret).await?)
     } else {
         None
     };

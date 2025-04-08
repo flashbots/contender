@@ -58,7 +58,7 @@ pub async fn setup(
             .on_http(url.to_owned()),
     );
     let auth_client = if let Some(engine_args) = engine_args {
-        Some(AuthProvider::new(&engine_args.auth_rpc_url, engine_args.jwt_secret).await?)
+        Some(AuthProvider::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret).await?)
     } else {
         None
     };

@@ -23,27 +23,14 @@ pub struct AuthProvider {
 }
 
 impl AuthProvider {
+    /// Create a new AuthProvider instance.
+    /// This will create a new authenticated transport connected to `auth_rpc_url` using `jwt_secret`.
     pub async fn new(
         auth_rpc_url: &str,
-        jwt_secret: PathBuf,
+        jwt_secret: JwtSecret,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        // parse url from engine args
         let auth_url = Url::parse(auth_rpc_url).expect("Invalid auth RPC URL");
-
-        // fetch jwt from file
-        //
-        // the jwt is hex encoded so we will decode it after
-        if !jwt_secret.is_file() {
-            return Err(ContenderError::GenericError(
-                "JWT secret file not found:",
-                jwt_secret.to_string_lossy().into(),
-            )
-            .into());
-        }
-        let jwt = std::fs::read_to_string(jwt_secret)?;
-        let jwt = JwtSecret::from_hex(jwt)?;
-
-        let auth_transport = AuthenticatedTransportConnect::new(auth_url, jwt);
+        let auth_transport = AuthenticatedTransportConnect::new(auth_url, jwt_secret);
         let client = ClientBuilder::default()
             .connect_with(auth_transport)
             .await?;
@@ -53,6 +40,28 @@ impl AuthProvider {
         })
     }
 
+    /// Create a new AuthProvider instance from a JWT secret file.
+    /// The JWT secret is hex encoded and will be decoded after reading the file.
+    pub async fn from_jwt_file(
+        auth_rpc_url: &str,
+        jwt_secret_file: &PathBuf,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        // fetch jwt from file
+        //
+        // the jwt is hex encoded so we will decode it after
+        if !jwt_secret_file.is_file() {
+            return Err(ContenderError::GenericError(
+                "JWT secret file not found:",
+                jwt_secret_file.to_string_lossy().into(),
+            )
+            .into());
+        }
+        let jwt = std::fs::read_to_string(jwt_secret_file)?;
+        let jwt = JwtSecret::from_hex(jwt)?;
+        Self::new(auth_rpc_url, jwt).await
+    }
+
+    /// Advance the chain by calling `engine_forkchoiceUpdated` (FCU) and `engine_newPayload` methods.
     pub async fn advance_chain(
         &self,
         block_time_secs: u64,
