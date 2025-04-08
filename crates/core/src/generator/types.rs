@@ -108,8 +108,12 @@ pub struct Plan {
 
 pub type CallbackResult = crate::Result<Option<JoinHandle<()>>>;
 
+/// Defines the type of plan to be executed.
 pub enum PlanType<F: Fn(NamedTxRequest) -> CallbackResult> {
+    /// Run contract deployments, triggering a callback after each tx is sent.
     Create(F),
+    /// Run setup steps, triggering a callback after each tx is sent.
     Setup(F),
+    /// Spam with a number of txs and trigger a callback after each one is sent.
     Spam(usize, F),
 }

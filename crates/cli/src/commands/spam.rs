@@ -142,17 +142,14 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
     let from_pool_declarations = testconfig.get_spam_pools();
 
     let mut agents = AgentStore::new();
-    let signers_per_period = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam.len()));
-    agents.init(
-        &from_pool_declarations,
-        signers_per_period / from_pool_declarations.len().max(1),
-        &rand_seed,
-    );
+    let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam.len()));
+    let signers_per_period = txs_per_duration / from_pool_declarations.len().max(1);
+    agents.init(&from_pool_declarations, signers_per_period, &rand_seed);
 
     let all_agents = agents.all_agents().collect::<Vec<_>>();
-    if signers_per_period < all_agents.len() {
+    if txs_per_duration < all_agents.len() {
         return Err(ContenderError::SpamError(
-            "Not enough signers to cover all spam pools. Set --tps or --tpb to a higher value.",
+            "Not enough signers to cover all agent pools. Set --tps or --tpb to a higher value.",
             format!(
                 "signers_per_period: {}, agents: {}",
                 signers_per_period,
