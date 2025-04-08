@@ -1678,22 +1678,16 @@ name = "contender_core"
 version = "0.1.0"
 dependencies = [
  "alloy",
- "alloy-chains",
- "alloy-json-rpc",
- "alloy-rpc-types-engine",
  "async-trait",
  "contender_bundle_provider",
  "contender_engine_provider",
  "eyre",
  "futures",
  "rand 0.8.5",
- "reth-node-api",
  "serde",
  "serde_json",
- "thiserror 2.0.12",
  "tokio",
  "tower",
- "tracing",
 ]
 
 [[package]]
@@ -1705,13 +1699,9 @@ dependencies = [
  "alloy-json-rpc",
  "alloy-rpc-types-engine",
  "async-trait",
- "contender_bundle_provider",
  "eyre",
  "futures",
- "rand 0.8.5",
  "reth-node-api",
- "serde",
- "serde_json",
  "thiserror 2.0.12",
  "tokio",
  "tower",

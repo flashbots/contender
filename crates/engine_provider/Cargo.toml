@@ -13,19 +13,14 @@ name = "contender_engine_provider"
 path = "src/lib.rs"
 
 [dependencies]
-
 alloy = { workspace = true, features = ["full", "node-bindings", "rpc-types-mev", "json-rpc", "provider-engine-api"] }
 alloy-rpc-types-engine = { workspace = true, features = ["std", "jwt"] }
 alloy-chains = { version = "0.1.64", default-features = false }
 alloy-json-rpc = { workspace = true }
 tracing = { workspace = true }
-rand = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
 async-trait.workspace = true
-tokio = { workspace = true, features = ["signal"]}
-serde_json = { workspace = true }
-contender_bundle_provider = { workspace = true }
+tokio = { workspace = true }
 thiserror = { workspace = true }
 tower = { workspace = true }
 eyre = { workspace = true }
