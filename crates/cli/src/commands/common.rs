@@ -60,7 +60,7 @@ pub struct SendSpamCliArgs {
     /// The number of txs to send per second using the timed spammer. This is the default spammer.
     /// May not be set if `txs_per_block` is set.
     #[arg(long, long_help = "Number of txs to send per second. Must not be set if --txs-per-block is set.", visible_aliases = &["tps"])]
-    pub txs_per_second: Option<usize>,
+    pub txs_per_second: Option<u64>,
 
     /// The number of txs to send per block using the blockwise spammer.
     /// May not be set if `txs_per_second` is set. Requires `prv_keys` to be set.
@@ -70,14 +70,14 @@ pub struct SendSpamCliArgs {
 "Number of txs to send per block. Must not be set if --txs-per-second is set.
 Requires --priv-key to be set for each 'from' address in the given testfile.",
         visible_aliases = &["tpb"])]
-    pub txs_per_block: Option<usize>,
+    pub txs_per_block: Option<u64>,
 
     /// The duration of the spamming run in seconds or blocks, depending on whether `txs_per_second` or `txs_per_block` is set.
     #[arg(
         short,
         long,
-        default_value = "10",
+        default_value = "1",
         long_help = "Duration of the spamming run in seconds or blocks, depending on whether --txs-per-second or --txs-per-block is set."
     )]
-    pub duration: Option<usize>,
+    pub duration: u64,
 }

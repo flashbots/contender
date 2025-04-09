@@ -5,7 +5,7 @@ use tokio::task::JoinHandle;
 
 use crate::generator::{types::AnyProvider, NamedTxRequest};
 
-use super::tx_actor::TxActorHandle;
+use super::tx_actor::{CacheTx, TxActorHandle};
 
 pub trait OnTxSent<K = String, V = String>
 where
@@ -68,8 +68,14 @@ impl OnTxSent for LogCallback {
             .and_then(|e| e.get("error").map(|e| e.to_owned()));
         let handle = tokio::task::spawn(async move {
             if let Some(tx_actor) = tx_actor {
+                let tx = CacheTx {
+                    tx_hash: *tx_response.tx_hash(),
+                    start_timestamp,
+                    kind,
+                    error,
+                };
                 tx_actor
-                    .cache_run_tx(*tx_response.tx_hash(), start_timestamp, kind, error)
+                    .cache_run_tx(tx)
                     .await
                     .expect("failed to cache run tx");
             }

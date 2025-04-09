@@ -202,6 +202,8 @@ pub async fn fund_accounts(
                 tx_type,
             )
             .await;
+
+            // TODO: figure out how to handle this error (not type-safe?)
             match res.ok() {
                 Some(res) => sender.send(res).await.expect("failed to handle pending tx"),
                 None => {

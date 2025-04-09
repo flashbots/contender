@@ -929,15 +929,55 @@ where
 
     pub async fn flush_tx_cache(&self, block_start: u64, run_id: Option<u64>) -> Result<()> {
         let mut block_counter = 0;
+        const TIMEOUT_SECS: u64 = 24;
         if let Some(run_id) = run_id {
+            let mut last_cache_sizes = [1; TIMEOUT_SECS as usize];
             loop {
-                let cache_size = self
+                let pending_txs = self
                     .msg_handle
                     .flush_cache(run_id, block_start + block_counter as u64)
                     .await
                     .map_err(|e| ContenderError::with_err(e.deref(), "failed to flush cache"))?;
-                if cache_size == 0 {
+                last_cache_sizes.rotate_right(1);
+                last_cache_sizes[0] = pending_txs.len();
+
+                if pending_txs.is_empty() {
                     break;
+                } else {
+                    // if a tx has been sitting in the cache for > TIMEOUT_SECS, remove it
+                    // this is a bit arbitrary, but we don't want to wait forever for txs to be mined
+                    // and we don't want to keep txs in the cache that are unlikely to be mined
+                    let current_timestamp = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("time went backwards")
+                        .as_millis();
+
+                    // remove cached txs if the size hasn't changed for the last TIMEOUT_SECS blocks
+                    // (TODO: get a better number; block time isn't constant)
+                    if last_cache_sizes
+                        .iter()
+                        .all(|&size| size == last_cache_sizes[0])
+                    {
+                        println!(
+                            "Cache size has not changed for the last {} blocks. Removing stalled txs...",
+                            TIMEOUT_SECS,
+                        );
+                        for tx in pending_txs {
+                            // only remove txs that have been waiting for > TIMEOUT_SECS seconds
+                            if current_timestamp
+                                > (tx.start_timestamp + (TIMEOUT_SECS * 1000)) as u128
+                            {
+                                self.msg_handle.remove_cached_tx(tx.tx_hash).await.map_err(
+                                    |e| {
+                                        ContenderError::with_err(
+                                            e.deref(),
+                                            "failed to remove tx from cache",
+                                        )
+                                    },
+                                )?;
+                            }
+                        }
+                    }
                 }
 
                 block_counter += 1;
