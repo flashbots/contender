@@ -803,17 +803,26 @@ where
         let mut tick = 0;
         while let Some(trigger) = cursor.next().await {
             let trigger = trigger.to_owned();
+            // assign from addrs, nonces, and gas prices for this chunk of tx requests
             let payloads = self.prepare_spam(&tx_req_chunks[tick]).await?;
 
+            // send this batch of spam txs
             let spam_tasks = self
                 .execute_spam(trigger, payloads, sent_tx_callback.clone())
                 .await?;
-            println!("[{}] executing {} spam tasks", tick, spam_tasks.len());
+            let mut num_tasks = spam_tasks.len();
+
+            // wait for spam txs to finish sending
             for task in spam_tasks {
                 if let Err(e) = task.await {
-                    eprintln!("spam task failed: {:?}", e);
+                    println!("spam task failed: {:?}", e);
+                    num_tasks -= 1;
                 }
             }
+
+            println!("[{}] executed {} spam tasks", tick, num_tasks);
+
+            // increment tick to get next chunk of txs
             tick += 1;
         }
 
