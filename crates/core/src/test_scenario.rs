@@ -952,78 +952,77 @@ where
             .collect::<_>())
     }
 
-    pub async fn flush_tx_cache(&self, block_start: u64, run_id: Option<u64>) -> Result<()> {
+    pub async fn flush_tx_cache(&self, block_start: u64, run_id: u64) -> Result<()> {
         let mut block_counter = 0;
-        if let Some(run_id) = run_id {
-            let mut cache_size_queue = vec![];
-            let block_timeout = self.pending_tx_timeout_secs / self.block_time_secs;
-            cache_size_queue.resize(block_timeout as usize, 1);
-            loop {
-                let pending_txs = self
-                    .msg_handle
-                    .flush_cache(run_id, block_start + block_counter as u64)
-                    .await
-                    .map_err(|e| ContenderError::with_err(e.deref(), "failed to flush cache"))?;
-                cache_size_queue.rotate_right(1);
-                cache_size_queue[0] = pending_txs.len();
+        let mut cache_size_queue = vec![];
+        let block_timeout = self.pending_tx_timeout_secs / self.block_time_secs;
+        cache_size_queue.resize(block_timeout as usize, 1);
+        loop {
+            let pending_txs = self
+                .msg_handle
+                .flush_cache(run_id, block_start + block_counter as u64)
+                .await
+                .map_err(|e| ContenderError::with_err(e.deref(), "failed to flush cache"))?;
+            cache_size_queue.rotate_right(1);
+            cache_size_queue[0] = pending_txs.len();
 
-                if pending_txs.is_empty() {
-                    break;
-                } else {
-                    // if a tx has been sitting in the cache for > T seconds, remove it
-                    let current_timestamp = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .expect("time went backwards")
-                        .as_millis();
+            if pending_txs.is_empty() {
+                break;
+            } else {
+                // if a tx has been sitting in the cache for > T seconds, remove it
+                let current_timestamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("time went backwards")
+                    .as_millis();
 
-                    // remove cached txs if the size hasn't changed for the last N blocks
-                    if cache_size_queue
-                        .iter()
-                        .all(|&size| size == cache_size_queue[0])
-                    {
-                        println!(
+                // remove cached txs if the size hasn't changed for the last N blocks
+                if cache_size_queue
+                    .iter()
+                    .all(|&size| size == cache_size_queue[0])
+                {
+                    println!(
                             "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
                         );
-                        for tx in &pending_txs {
-                            // only remove txs that have been waiting for > T seconds
-                            if current_timestamp
-                                > (tx.start_timestamp + (self.pending_tx_timeout_secs * 1000))
-                                    as u128
-                            {
-                                self.msg_handle.remove_cached_tx(tx.tx_hash).await.map_err(
-                                    |e| {
-                                        ContenderError::with_err(
-                                            e.deref(),
-                                            "failed to remove tx from cache",
-                                        )
-                                    },
-                                )?;
-                            }
+                    for tx in &pending_txs {
+                        // only remove txs that have been waiting for > T seconds
+                        if current_timestamp
+                            > (tx.start_timestamp + (self.pending_tx_timeout_secs * 1000)) as u128
+                        {
+                            self.msg_handle
+                                .remove_cached_tx(tx.tx_hash)
+                                .await
+                                .map_err(|e| {
+                                    ContenderError::with_err(
+                                        e.deref(),
+                                        "failed to remove tx from cache",
+                                    )
+                                })?;
                         }
                     }
                 }
-
-                block_counter += 1;
             }
+
+            block_counter += 1;
         }
+
         Ok(())
     }
 
-    pub async fn dump_tx_cache(&self, run_id: Option<u64>) -> Result<()> {
+    pub async fn dump_tx_cache(&self, run_id: u64) -> Result<()> {
         println!("dumping tx cache...");
-        if let Some(run_id) = run_id {
-            let failed_txs = self
-                .msg_handle
-                .dump_cache(run_id)
-                .await
-                .map_err(|e| ContenderError::with_err(e.deref(), "failed to dump cache"))?;
-            if !failed_txs.is_empty() {
-                println!(
-                    "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
-                    failed_txs.len()
-                );
-            }
+
+        let failed_txs = self
+            .msg_handle
+            .dump_cache(run_id)
+            .await
+            .map_err(|e| ContenderError::with_err(e.deref(), "failed to dump cache"))?;
+        if !failed_txs.is_empty() {
+            println!(
+                "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
+                failed_txs.len()
+            );
         }
+
         Ok(())
     }
 }
