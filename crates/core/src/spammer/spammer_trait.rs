@@ -78,21 +78,21 @@ where
             if !flush_finished {
                 println!("Result collection terminated. Some pending txs may not have been saved to the database.");
                 println!("Saving unconfirmed txs to DB. Press CTRL-C again to stop...");
+                // clear out unconfirmed txs from the cache
+                let dump_finished: bool = tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {
+                        println!("\nCTRL-C received, stopping tx cache dump...");
+                        false
+                    },
+                    _ = scenario.dump_tx_cache(run_id) => {
+                        true
+                    }
+                };
+                if !dump_finished {
+                    println!("Tx cache dump terminated. Some unconfirmed txs may not have been saved to the database.");
+                }
             }
 
-            // clear out unconfirmed txs from the cache
-            let dump_finished: bool = tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
-                    println!("\nCTRL-C received, stopping tx cache dump...");
-                    false
-                },
-                _ = scenario.dump_tx_cache(run_id) => {
-                    true
-                }
-            };
-            if !dump_finished {
-                println!("Tx cache dump terminated. Some unconfirmed txs may not have been saved to the database.");
-            }
             let run_id = run_id
                 .map(|id| format!("run_id: {}", id))
                 .unwrap_or_default();

@@ -38,7 +38,8 @@ pub struct SpamCommandArgs {
     pub disable_reporting: bool,
     pub min_balance: String,
     pub tx_type: TxType,
-    pub gas_price_percent_add: Option<u16>,
+    pub gas_price_percent_add: Option<u64>,
+    pub timeout_secs: u64,
 }
 
 impl SpamCommandArgs {
@@ -82,7 +83,7 @@ pub struct SpamCliArgs {
         long,
         long_help = "Adds given percent increase to the standard gas price of the transactions."
     )]
-    pub gas_price_percent_add: Option<u16>,
+    pub gas_price_percent_add: Option<u64>,
 }
 
 pub struct InitializedScenario<D = SqliteDb, S = RandSeed, P = TestConfig>
@@ -113,6 +114,7 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
         private_keys,
         tx_type,
         gas_price_percent_add,
+        timeout_secs,
         ..
     } = &args;
 
@@ -196,6 +198,7 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
             agent_store: agents.to_owned(),
             tx_type: *tx_type,
             gas_price_percent_add: *gas_price_percent_add,
+            pending_tx_timeout_secs: *timeout_secs,
         },
     )
     .await?;

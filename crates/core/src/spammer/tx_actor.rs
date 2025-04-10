@@ -319,7 +319,15 @@ where
                 } => {
                     Self::handle_message(&mut self.cache, &self.db, &self.rpc, msg).await?;
                 }
-                _ => {}
+                TxActorMessage::RemovedRunTx {
+                    tx_hash: _,
+                    on_remove: _,
+                } => {
+                    Self::handle_message(&mut self.cache, &self.db, &self.rpc, msg).await?;
+                }
+                TxActorMessage::Stop { on_stop: _ } => {
+                    // do nothing here; stop is a signal to interrupt other message handlers
+                }
             }
         }
         Ok(())

@@ -80,4 +80,14 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         long_help = "Duration of the spamming run in seconds or blocks, depending on whether --txs-per-second or --txs-per-block is set."
     )]
     pub duration: u64,
+
+    /// The time to wait for pending transactions to land, in seconds.
+    #[arg(
+        short = 'w',
+        long,
+        default_value = "12",
+        long_help = "The number of seconds to wait for pending transactions to land.",
+        visible_aliases = &["wait"]
+    )]
+    pub timeout: u64,
 }
