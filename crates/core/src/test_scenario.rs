@@ -133,7 +133,7 @@ where
             }
         }
         let block_time_secs = if timestamps.len() == 2 {
-            (timestamps[1] - timestamps[0]).max(1)
+            (timestamps[0] - timestamps[1]).max(1)
         } else {
             1
         };
