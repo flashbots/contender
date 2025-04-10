@@ -744,16 +744,14 @@ where
                                         .contains("replacement transaction underpriced")
                                     {
                                         // send the current gas price / 10 to increase it by 10% for the next batch
-                                        if !gas_sender.is_closed() {
-                                            gas_sender
-                                                .send(
-                                                    req.tx.max_fee_per_gas.unwrap_or(
-                                                        req.tx.gas_price.unwrap_or(1_000_000_000),
-                                                    ) / 10,
-                                                )
-                                                .await
-                                                .expect("failed to send gas update");
-                                        }
+                                        gas_sender
+                                            .send(
+                                                req.tx.max_fee_per_gas.unwrap_or(
+                                                    req.tx.gas_price.unwrap_or(1_000_000_000),
+                                                ) / 10,
+                                            )
+                                            .await
+                                            .expect("failed to send gas update");
                                     }
 
                                     // include errored txs in the cache; user may want to retry them
