@@ -30,15 +30,16 @@ pub struct SpamCommandArgs {
     pub testfile: String,
     pub rpc_url: String,
     pub builder_url: Option<String>,
-    pub txs_per_block: Option<usize>,
-    pub txs_per_second: Option<usize>,
-    pub duration: Option<usize>,
+    pub txs_per_block: Option<u64>,
+    pub txs_per_second: Option<u64>,
+    pub duration: u64,
     pub seed: String,
     pub private_keys: Option<Vec<String>>,
     pub disable_reporting: bool,
     pub min_balance: String,
     pub tx_type: TxType,
-    pub gas_price_percent_add: Option<u16>,
+    pub gas_price_percent_add: Option<u64>,
+    pub timeout_secs: u64,
 }
 
 impl SpamCommandArgs {
@@ -82,7 +83,7 @@ pub struct SpamCliArgs {
         long,
         long_help = "Adds given percent increase to the standard gas price of the transactions."
     )]
-    pub gas_price_percent_add: Option<u16>,
+    pub gas_price_percent_add: Option<u64>,
 }
 
 pub struct InitializedScenario<D = SqliteDb, S = RandSeed, P = TestConfig>
@@ -113,6 +114,7 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
         private_keys,
         tx_type,
         gas_price_percent_add,
+        timeout_secs,
         ..
     } = &args;
 
@@ -125,7 +127,6 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
             .on_http(url.to_owned()),
     );
 
-    let duration = duration.unwrap_or_default();
     let min_balance = parse_ether(min_balance)?;
 
     let user_signers = get_signers_with_defaults(private_keys.to_owned());
@@ -142,12 +143,16 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
     let from_pool_declarations = testconfig.get_spam_pools();
 
     let mut agents = AgentStore::new();
-    let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam.len()));
-    let signers_per_period = txs_per_duration / from_pool_declarations.len().max(1);
-    agents.init(&from_pool_declarations, signers_per_period, &rand_seed);
+    let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam.len() as u64));
+    let signers_per_period = txs_per_duration / from_pool_declarations.len().max(1) as u64;
+    agents.init(
+        &from_pool_declarations,
+        signers_per_period as usize,
+        &rand_seed,
+    );
 
     let all_agents = agents.all_agents().collect::<Vec<_>>();
-    if txs_per_duration < all_agents.len() {
+    if (txs_per_duration as usize) < all_agents.len() {
         return Err(ContenderError::SpamError(
             "Not enough signers to cover all agent pools. Set --tps or --tpb to a higher value.",
             format!(
@@ -193,12 +198,13 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
             agent_store: agents.to_owned(),
             tx_type: *tx_type,
             gas_price_percent_add: *gas_price_percent_add,
+            pending_tx_timeout_secs: *timeout_secs,
         },
     )
     .await?;
 
     // don't multiply by TPS or TPB, because that number scales the number of accounts; this cost is per account
-    let total_cost = U256::from(duration) * scenario.get_max_spam_cost(&user_signers).await?;
+    let total_cost = U256::from(*duration) * scenario.get_max_spam_cost(&user_signers).await?;
     if min_balance < U256::from(total_cost) {
         return Err(ContenderError::SpamError(
             "min_balance is not enough to cover the cost of the spam transactions",
@@ -238,8 +244,6 @@ pub async fn spam<
         ..
     } = args;
 
-    let duration = duration.unwrap_or_default();
-    println!("Duration: {} seconds", duration);
     let mut run_id = None;
     let rpc_client = Arc::new(rpc_client.to_owned());
 
@@ -254,13 +258,16 @@ pub async fn spam<
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("Time went backwards")
                     .as_millis();
-                run_id =
-                    Some(db.insert_run(timestamp as u64, txs_per_block * duration, testfile)?);
+                run_id = Some(db.insert_run(
+                    timestamp as u64,
+                    (txs_per_block * duration) as usize,
+                    testfile,
+                )?);
                 spammer
                     .spam_rpc(
                         test_scenario,
-                        *txs_per_block,
-                        duration,
+                        *txs_per_block as usize,
+                        *duration as usize,
                         run_id,
                         cback.into(),
                     )
@@ -268,7 +275,13 @@ pub async fn spam<
             }
             SpamCallbackType::Nil(cback) => {
                 spammer
-                    .spam_rpc(test_scenario, *txs_per_block, duration, None, cback.into())
+                    .spam_rpc(
+                        test_scenario,
+                        *txs_per_block as usize,
+                        *duration as usize,
+                        None,
+                        cback.into(),
+                    )
                     .await?;
             }
         };
@@ -286,14 +299,26 @@ pub async fn spam<
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_millis();
-            run_id = Some(db.insert_run(timestamp as u64, tps * duration, testfile)?);
+            run_id = Some(db.insert_run(timestamp as u64, (tps * duration) as usize, testfile)?);
             spammer
-                .spam_rpc(test_scenario, tps, duration, run_id, cback.into())
+                .spam_rpc(
+                    test_scenario,
+                    tps as usize,
+                    *duration as usize,
+                    run_id,
+                    cback.into(),
+                )
                 .await?;
         }
         SpamCallbackType::Nil(cback) => {
             spammer
-                .spam_rpc(test_scenario, tps, duration, None, cback.into())
+                .spam_rpc(
+                    test_scenario,
+                    tps as usize,
+                    *duration as usize,
+                    None,
+                    cback.into(),
+                )
                 .await?;
         }
     };

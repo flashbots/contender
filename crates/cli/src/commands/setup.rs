@@ -118,6 +118,7 @@ pub async fn setup(
             agent_store: agents,
             tx_type,
             gas_price_percent_add: None,
+            pending_tx_timeout_secs: 12,
         },
     )
     .await?;

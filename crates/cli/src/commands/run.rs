@@ -80,6 +80,7 @@ pub async fn run(
             agent_store: AgentStore::default(),
             tx_type: args.tx_type,
             gas_price_percent_add: None, // TODO: support this here !!!
+            pending_tx_timeout_secs: 12,
         },
     )
     .await?;

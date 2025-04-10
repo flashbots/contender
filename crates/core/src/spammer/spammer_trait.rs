@@ -71,13 +71,12 @@ where
                     let _ = scenario.msg_handle.stop().await;
                     false
                 },
-                _ = scenario.flush_tx_cache(start_block, run_id) => {
+                _ = scenario.flush_tx_cache(start_block, run_id.unwrap_or(0)) => {
                     true
                 }
             };
             if !flush_finished {
                 println!("Result collection terminated. Some pending txs may not have been saved to the database.");
-                println!("Saving unconfirmed txs to DB. Press CTRL-C again to stop...");
             }
 
             // clear out unconfirmed txs from the cache
@@ -86,13 +85,14 @@ where
                     println!("\nCTRL-C received, stopping tx cache dump...");
                     false
                 },
-                _ = scenario.dump_tx_cache(run_id) => {
+                _ = scenario.dump_tx_cache(run_id.unwrap_or(0)) => {
                     true
                 }
             };
             if !dump_finished {
                 println!("Tx cache dump terminated. Some unconfirmed txs may not have been saved to the database.");
             }
+
             let run_id = run_id
                 .map(|id| format!("run_id: {}", id))
                 .unwrap_or_default();

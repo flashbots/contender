@@ -58,7 +58,9 @@ where
     pub gas_limits: HashMap<FixedBytes<32>, u64>,
     pub msg_handle: Arc<TxActorHandle>,
     pub tx_type: TxType,
-    pub gas_price_percent_add: u128,
+    pub gas_price_percent_add: u64,
+    pub pending_tx_timeout_secs: u64,
+    pub block_time_secs: u64,
 }
 
 pub struct TestScenarioParams {
@@ -67,7 +69,8 @@ pub struct TestScenarioParams {
     pub signers: Vec<PrivateKeySigner>,
     pub agent_store: AgentStore,
     pub tx_type: TxType,
-    pub gas_price_percent_add: Option<u16>,
+    pub gas_price_percent_add: Option<u64>,
+    pub pending_tx_timeout_secs: u64,
 }
 
 impl<D, S, P> TestScenario<D, S, P>
@@ -89,6 +92,7 @@ where
             agent_store,
             tx_type,
             gas_price_percent_add,
+            pending_tx_timeout_secs,
         } = params;
 
         // use custom logging layer to log sendRawTransaction request IDs
@@ -100,6 +104,23 @@ where
                 .network::<AnyNetwork>()
                 .on_client(client),
         );
+
+        // derive block time from last two blocks. if two blocks don't exist, assume block time is 1s
+        let mut timestamps = vec![];
+        for i in [0_u64, 1] {
+            let block = rpc_client
+                .get_block_by_number(i.into())
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to get block"))?;
+            if let Some(block) = block {
+                timestamps.push(block.header.timestamp);
+            }
+        }
+        let block_time_secs = if timestamps.len() == 2 {
+            timestamps[1] - timestamps[0]
+        } else {
+            1
+        };
 
         let mut wallet_map = HashMap::new();
         let wallets = signers.iter().map(|s| {
@@ -152,7 +173,9 @@ where
             gas_limits,
             msg_handle,
             tx_type,
-            gas_price_percent_add: gas_price_percent_add.unwrap_or(0) as u128,
+            gas_price_percent_add: gas_price_percent_add.unwrap_or(0),
+            pending_tx_timeout_secs,
+            block_time_secs,
         })
     }
 
@@ -184,8 +207,9 @@ where
                 builder_rpc_url: None,
                 signers: vec![admin_signer.to_owned()],
                 agent_store: self.agent_store.clone(),
-                tx_type: TxType::Legacy,
-                gas_price_percent_add: None,
+                tx_type: self.tx_type,
+                gas_price_percent_add: Some(self.gas_price_percent_add), // will be 0 if not specified
+                pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             },
         )
         .await?;
@@ -543,7 +567,7 @@ where
             .get_gas_price()
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
-        let gas_price = gas_price + ((gas_price * self.gas_price_percent_add) / 100);
+        let gas_price = gas_price + ((gas_price * self.gas_price_percent_add as u128) / 100);
         let mut payloads = vec![];
         println!("preparing {} spam payloads", tx_requests.len());
         for tx in tx_requests {
@@ -842,7 +866,8 @@ where
                 signers: user_signers.to_owned(),
                 agent_store: self.agent_store.clone(),
                 tx_type: self.tx_type,
-                gas_price_percent_add: Some(self.gas_price_percent_add as u16),
+                gas_price_percent_add: Some(self.gas_price_percent_add),
+                pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             },
         )
         .await?;
@@ -927,39 +952,77 @@ where
             .collect::<_>())
     }
 
-    pub async fn flush_tx_cache(&self, block_start: u64, run_id: Option<u64>) -> Result<()> {
+    pub async fn flush_tx_cache(&self, block_start: u64, run_id: u64) -> Result<()> {
         let mut block_counter = 0;
-        if let Some(run_id) = run_id {
-            loop {
-                let cache_size = self
-                    .msg_handle
-                    .flush_cache(run_id, block_start + block_counter as u64)
-                    .await
-                    .map_err(|e| ContenderError::with_err(e.deref(), "failed to flush cache"))?;
-                if cache_size == 0 {
-                    break;
-                }
+        let mut cache_size_queue = vec![];
+        let block_timeout = self.pending_tx_timeout_secs / self.block_time_secs;
+        cache_size_queue.resize(block_timeout as usize, 1);
+        loop {
+            let pending_txs = self
+                .msg_handle
+                .flush_cache(run_id, block_start + block_counter as u64)
+                .await
+                .map_err(|e| ContenderError::with_err(e.deref(), "failed to flush cache"))?;
+            cache_size_queue.rotate_right(1);
+            cache_size_queue[0] = pending_txs.len();
 
-                block_counter += 1;
+            if pending_txs.is_empty() {
+                break;
+            } else {
+                // if a tx has been sitting in the cache for > T seconds, remove it
+                let current_timestamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("time went backwards")
+                    .as_millis();
+
+                // remove cached txs if the size hasn't changed for the last N blocks
+                if cache_size_queue
+                    .iter()
+                    .all(|&size| size == cache_size_queue[0])
+                {
+                    println!(
+                            "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
+                        );
+                    for tx in &pending_txs {
+                        // only remove txs that have been waiting for > T seconds
+                        if current_timestamp
+                            > (tx.start_timestamp + (self.pending_tx_timeout_secs * 1000)) as u128
+                        {
+                            self.msg_handle
+                                .remove_cached_tx(tx.tx_hash)
+                                .await
+                                .map_err(|e| {
+                                    ContenderError::with_err(
+                                        e.deref(),
+                                        "failed to remove tx from cache",
+                                    )
+                                })?;
+                        }
+                    }
+                }
             }
+
+            block_counter += 1;
         }
+
         Ok(())
     }
 
-    pub async fn dump_tx_cache(&self, run_id: Option<u64>) -> Result<()> {
-        if let Some(run_id) = run_id {
-            let failed_txs = self
-                .msg_handle
-                .dump_cache(run_id)
-                .await
-                .map_err(|e| ContenderError::with_err(e.deref(), "failed to dump cache"))?;
-            if !failed_txs.is_empty() {
-                println!(
-                    "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
-                    failed_txs.len()
-                );
-            }
+    pub async fn dump_tx_cache(&self, run_id: u64) -> Result<()> {
+        println!("dumping tx cache...");
+
+        let failed_txs = self
+            .msg_handle
+            .dump_cache(run_id)
+            .await
+            .map_err(|e| ContenderError::with_err(e.deref(), "failed to dump cache"))?;
+        if !failed_txs.is_empty() {
+            println!(
+                "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
+                failed_txs.len()
+            );
         }
+
         Ok(())
     }
 }
@@ -1292,6 +1355,7 @@ pub mod tests {
                 agent_store: agents,
                 tx_type,
                 gas_price_percent_add: None,
+                pending_tx_timeout_secs: 12,
             },
         )
         .await
