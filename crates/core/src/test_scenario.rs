@@ -58,9 +58,12 @@ where
     pub gas_limits: HashMap<FixedBytes<32>, u64>,
     pub msg_handle: Arc<TxActorHandle>,
     pub tx_type: TxType,
+    /// Fixed percentage provided by user to add to gas price.
     pub gas_price_percent_add: u64,
+    /// Timeout for pending transactions in seconds, provided by user.
     pub pending_tx_timeout_secs: u64,
-    pub block_time_secs: u64,
+    /// Execution context for the test scenario; things about the target chain that affect the txs we send.
+    pub ctx: ExecutionContext,
 }
 
 pub struct TestScenarioParams {
@@ -71,6 +74,15 @@ pub struct TestScenarioParams {
     pub tx_type: TxType,
     pub gas_price_percent_add: Option<u64>,
     pub pending_tx_timeout_secs: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct ExecutionContext {
+    /// Adds this amount of wei per gas to the gas price given to each transaction. May be negative to subtract gas.
+    /// This is not the same as the `gas_price_percent_add`, which is a percentage of the gas price provided by the user.
+    gas_price_adder: i128,
+    /// The amount of time between blocks on the target chain.
+    block_time_secs: u64,
 }
 
 impl<D, S, P> TestScenario<D, S, P>
@@ -175,8 +187,15 @@ where
             tx_type,
             gas_price_percent_add: gas_price_percent_add.unwrap_or(0),
             pending_tx_timeout_secs,
-            block_time_secs,
+            ctx: ExecutionContext {
+                gas_price_adder: 0,
+                block_time_secs,
+            },
         })
+    }
+
+    pub fn add_to_gas_price(&mut self, amount: i128) {
+        self.ctx.gas_price_adder += amount;
     }
 
     pub async fn sync_nonces(&mut self) -> Result<()> {
@@ -550,7 +569,7 @@ where
             &mut full_tx,
             self.tx_type,
             gas_price,
-            (GWEI_TO_WEI as u128).min(gas_price - 1),
+            gas_price / 10,
             gas_limit,
             self.chain_id,
         );
@@ -568,6 +587,11 @@ where
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
         let gas_price = gas_price + ((gas_price * self.gas_price_percent_add as u128) / 100);
+        let gas_price = if self.ctx.gas_price_adder < 0 {
+            gas_price - self.ctx.gas_price_adder.abs() as u128
+        } else {
+            gas_price + self.ctx.gas_price_adder as u128
+        };
         let mut payloads = vec![];
         println!("preparing {} spam payloads", tx_requests.len());
         for tx in tx_requests {
@@ -674,11 +698,14 @@ where
         let mut tasks: Vec<tokio::task::JoinHandle<()>> = vec![];
         // spawn at regular interval
         let micros_per_task = 1_000_000 / payloads.len().max(1) as u64;
+        let (gas_sender, mut gas_receiver) = tokio::sync::mpsc::channel::<u128>(payloads.len());
+        let gas_sender = Arc::new(gas_sender);
         for payload in payloads {
             let rpc_client = self.rpc_client.clone();
             let bundle_client = self.bundle_client.clone();
             let callback_handler = callback_handler.clone();
             let tx_handler = self.msg_handle.clone();
+            let gas_sender = gas_sender.clone();
 
             std::thread::sleep(Duration::from_micros(micros_per_task));
             tasks.push(tokio::task::spawn(async move {
@@ -707,6 +734,23 @@ where
                             }
                             Err(e) => {
                                 if let Some(err) = e.as_error_resp() {
+                                    if err
+                                        .message
+                                        .to_lowercase()
+                                        .contains("replacement transaction underpriced")
+                                    {
+                                        // send the current gas price to increase it for the next batch
+                                        // this will effectively double the gas price we set every time we see this error
+                                        if !gas_sender.is_closed() {
+                                            gas_sender
+                                                .send(req.tx.max_fee_per_gas.unwrap_or(
+                                                    req.tx.gas_price.unwrap_or(1_000_000_000),
+                                                ))
+                                                .await
+                                                .expect("failed to send gas update");
+                                        }
+                                    }
+
                                     // include errored txs in the cache; user may want to retry them
                                     // if they are due to nonce issues, this will fail, but if they do land somehow,
                                     // they will be awaited in the post-spam loop
@@ -788,6 +832,16 @@ where
                     handle.await.expect("msg handle failed");
                 }
             }));
+        }
+
+        gas_receiver.close();
+        let starting_gas_adder = self.ctx.gas_price_adder;
+        while let Some(gas) = gas_receiver.recv().await {
+            if self.ctx.gas_price_adder > gas as i128 + starting_gas_adder {
+                continue;
+            }
+            println!("incrementing gas price by {}", gas);
+            self.add_to_gas_price(gas as i128);
         }
 
         Ok(tasks)
@@ -964,7 +1018,7 @@ where
     pub async fn flush_tx_cache(&self, block_start: u64, run_id: u64) -> Result<()> {
         let mut block_counter = 0;
         let mut cache_size_queue = vec![];
-        let block_timeout = self.pending_tx_timeout_secs / self.block_time_secs;
+        let block_timeout = self.pending_tx_timeout_secs / self.ctx.block_time_secs;
         cache_size_queue.resize(block_timeout as usize, 1);
         loop {
             let pending_txs = self
