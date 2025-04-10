@@ -119,9 +119,13 @@ where
 
         // derive block time from last two blocks. if two blocks don't exist, assume block time is 1s
         let mut timestamps = vec![];
+        let block_num = rpc_client
+            .get_block_number()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
         for i in [0_u64, 1] {
             let block = rpc_client
-                .get_block_by_number(i.into())
+                .get_block_by_number((block_num - i).into())
                 .await
                 .map_err(|e| ContenderError::with_err(e, "failed to get block"))?;
             if let Some(block) = block {
@@ -129,7 +133,7 @@ where
             }
         }
         let block_time_secs = if timestamps.len() == 2 {
-            timestamps[1] - timestamps[0]
+            (timestamps[1] - timestamps[0]).max(1)
         } else {
             1
         };
