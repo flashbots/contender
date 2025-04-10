@@ -210,9 +210,10 @@ where
         let old_tx = cache
             .iter()
             .position(|tx| tx.tx_hash == old_tx_hash)
-            .ok_or_else(|| {
-                ContenderError::SpamError("failed to find tx in cache to replace", None)
-            })?;
+            .ok_or(ContenderError::SpamError(
+                "failed to find tx in cache to replace",
+                None,
+            ))?;
         cache.remove(old_tx);
         Ok(())
     }
