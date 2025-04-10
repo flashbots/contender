@@ -743,13 +743,14 @@ where
                                         .to_lowercase()
                                         .contains("replacement transaction underpriced")
                                     {
-                                        // send the current gas price to increase it for the next batch
-                                        // this will effectively double the gas price we set every time we see this error
+                                        // send the current gas price / 10 to increase it by 10% for the next batch
                                         if !gas_sender.is_closed() {
                                             gas_sender
-                                                .send(req.tx.max_fee_per_gas.unwrap_or(
-                                                    req.tx.gas_price.unwrap_or(1_000_000_000),
-                                                ))
+                                                .send(
+                                                    req.tx.max_fee_per_gas.unwrap_or(
+                                                        req.tx.gas_price.unwrap_or(1_000_000_000),
+                                                    ) / 10,
+                                                )
                                                 .await
                                                 .expect("failed to send gas update");
                                         }
@@ -841,7 +842,7 @@ where
         gas_receiver.close();
         let starting_gas_adder = self.ctx.gas_price_adder;
         while let Some(gas) = gas_receiver.recv().await {
-            if self.ctx.gas_price_adder > gas as i128 + starting_gas_adder {
+            if self.ctx.gas_price_adder >= gas as i128 + starting_gas_adder {
                 continue;
             }
             println!("incrementing gas price by {}", gas);
