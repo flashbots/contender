@@ -1,7 +1,7 @@
 use super::tx_actor::{CacheTx, TxActorHandle};
 use crate::generator::{types::AnyProvider, NamedTxRequest};
 use alloy::providers::PendingTransactionConfig;
-use contender_engine_provider::{AdvanceChain, AuthProvider, DEFAULT_BLOCK_TIME};
+use contender_engine_provider::{AdvanceChain, AuthProviderEth, DEFAULT_BLOCK_TIME};
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
 
@@ -28,14 +28,14 @@ pub struct NilCallback;
 
 pub struct LogCallback {
     pub rpc_provider: Arc<AnyProvider>,
-    pub auth_provider: Option<Arc<AuthProvider>>,
+    pub auth_provider: Option<Arc<AuthProviderEth>>,
     pub send_fcu: bool,
 }
 
 impl LogCallback {
     pub fn new(
         rpc_provider: Arc<AnyProvider>,
-        auth_provider: Option<Arc<AuthProvider>>,
+        auth_provider: Option<Arc<AuthProviderEth>>,
         send_fcu: bool,
     ) -> Self {
         Self {

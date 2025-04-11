@@ -26,3 +26,4 @@ tower = { workspace = true }
 eyre = { workspace = true }
 
 reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.3.4", default-features = false }
+op-rbuilder = { git = "https://github.com/flashbots/rbuilder", branch = "brock/tester-engine-api", default-features = false }
