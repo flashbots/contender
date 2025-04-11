@@ -21,7 +21,6 @@ use contender_core::{
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
 };
-use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
 use std::sync::Arc;
 
@@ -46,7 +45,7 @@ impl SpamCommandArgs {
     pub async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
         &self,
         db: &D,
-    ) -> Result<InitializedScenario<D>, Box<dyn std::error::Error>> {
+    ) -> Result<TestScenario<D, RandSeed, TestConfig>, Box<dyn std::error::Error>> {
         init_scenario(db, self).await
     }
 }
@@ -86,21 +85,11 @@ pub struct SpamCliArgs {
     pub gas_price_percent_add: Option<u64>,
 }
 
-pub struct InitializedScenario<D = SqliteDb, S = RandSeed, P = TestConfig>
-where
-    D: DbOps + Clone + Send + Sync + 'static,
-    S: Seeder,
-    P: PlanConfig<String> + Templater<String> + Send + Sync,
-{
-    pub scenario: TestScenario<D, S, P>,
-    pub rpc_client: AnyProvider,
-}
-
 /// Initializes a TestScenario with the given arguments.
 async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
     db: &D,
     args: &SpamCommandArgs,
-) -> Result<InitializedScenario<D>, Box<dyn std::error::Error>> {
+) -> Result<TestScenario<D, RandSeed, TestConfig>, Box<dyn std::error::Error>> {
     println!("Initializing spammer...");
     let SpamCommandArgs {
         txs_per_block,
@@ -218,10 +207,7 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
         .into());
     }
 
-    Ok(InitializedScenario {
-        scenario,
-        rpc_client,
-    })
+    Ok(scenario)
 }
 
 /// Runs spammer and returns run ID.
