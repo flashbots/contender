@@ -118,22 +118,26 @@ where
         );
 
         // derive block time from last two blocks. if two blocks don't exist, assume block time is 1s
-        let mut timestamps = vec![];
         let block_num = rpc_client
             .get_block_number()
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
-        for i in [0_u64, 1] {
-            let block = rpc_client
-                .get_block_by_number((block_num - i).into())
-                .await
-                .map_err(|e| ContenderError::with_err(e, "failed to get block"))?;
-            if let Some(block) = block {
-                timestamps.push(block.header.timestamp);
+        let block_time_secs = if block_num > 0 {
+            let mut timestamps = vec![];
+            for i in [0_u64, 1] {
+                let block = rpc_client
+                    .get_block_by_number((block_num - i).into())
+                    .await
+                    .map_err(|e| ContenderError::with_err(e, "failed to get block"))?;
+                if let Some(block) = block {
+                    timestamps.push(block.header.timestamp);
+                }
             }
-        }
-        let block_time_secs = if timestamps.len() == 2 {
-            (timestamps[0] - timestamps[1]).max(1)
+            if timestamps.len() == 2 {
+                (timestamps[0] - timestamps[1]).max(1)
+            } else {
+                1
+            }
         } else {
             1
         };
