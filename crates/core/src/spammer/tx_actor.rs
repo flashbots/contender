@@ -174,7 +174,6 @@ where
             })
             .collect::<Vec<_>>();
         db.insert_run_txs(run_id, &run_txs)?;
-        // }
         on_flush
             .send(new_txs.to_owned())
             .map_err(|_| ContenderError::SpamError("failed to join TxActor on_flush", None))?;

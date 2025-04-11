@@ -230,14 +230,6 @@ pub async fn fund_accounts(
                     .await
                     .expect("failed to handle pending tx");
             }
-
-            // TODO: figure out how to handle this error (not type-safe?)
-            // match res.ok() {
-            //     Some(res) => sender.send(res).await.expect("failed to handle pending tx"),
-            //     None => {
-            //         eprintln!("Error funding account {}", address);
-            //     }
-            // }
         }));
     }
 
