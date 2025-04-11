@@ -55,6 +55,8 @@ pub async fn spamd(
             println!("Spam loop finished");
             break;
         }
+        println!("syncing nonces...");
+        scenario.sync_nonces().await?;
         let db = db.clone();
         let spam_res = commands::spam(&db, &args, &mut scenario).await;
         if let Err(e) = spam_res {

@@ -129,6 +129,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             txs_per_block,
                             txs_per_second,
                             builder_url,
+                            timeout,
                         },
                     disable_reporting,
                     gen_report,
@@ -162,6 +163,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 gas_price_percent_add,
                 engine_args,
                 call_forkchoice,
+                timeout_secs: timeout,
             };
             let mut scenario = spam_args.init_scenario(&db).await?;
             let run_id = commands::spam(&db, &spam_args, &mut scenario).await?;
@@ -200,6 +202,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         txs_per_block,
                         txs_per_second,
                         builder_url,
+                        timeout,
                     },
                 disable_reporting,
                 gen_report,
@@ -233,6 +236,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 gas_price_percent_add,
                 engine_args,
                 call_forkchoice,
+                timeout_secs: timeout,
             };
             commands::spamd(&db, spam_args, gen_report, time_limit).await?;
         }

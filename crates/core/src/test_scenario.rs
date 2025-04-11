@@ -58,7 +58,12 @@ where
     pub gas_limits: HashMap<FixedBytes<32>, u64>,
     pub msg_handle: Arc<TxActorHandle>,
     pub tx_type: TxType,
-    pub gas_price_percent_add: u128,
+    /// Fixed percentage provided by user to add to gas price.
+    pub gas_price_percent_add: u64,
+    /// Timeout for pending transactions in seconds, provided by user.
+    pub pending_tx_timeout_secs: u64,
+    /// Execution context for the test scenario; things about the target chain that affect the txs we send.
+    pub ctx: ExecutionContext,
 }
 
 pub struct TestScenarioParams {
@@ -67,7 +72,23 @@ pub struct TestScenarioParams {
     pub signers: Vec<PrivateKeySigner>,
     pub agent_store: AgentStore,
     pub tx_type: TxType,
-    pub gas_price_percent_add: Option<u16>,
+    pub gas_price_percent_add: Option<u64>,
+    pub pending_tx_timeout_secs: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct ExecutionContext {
+    /// Adds this amount of wei per gas to the gas price given to each transaction. May be negative to subtract gas.
+    /// This is not the same as the `gas_price_percent_add`, which is a percentage of the gas price provided by the user.
+    gas_price_adder: i128,
+    /// The amount of time between blocks on the target chain.
+    block_time_secs: u64,
+}
+
+impl ExecutionContext {
+    pub fn add_to_gas_price(&mut self, amount: i128) {
+        self.gas_price_adder += amount;
+    }
 }
 
 impl<D, S, P> TestScenario<D, S, P>
@@ -89,6 +110,7 @@ where
             agent_store,
             tx_type,
             gas_price_percent_add,
+            pending_tx_timeout_secs,
         } = params;
 
         // use custom logging layer to log sendRawTransaction request IDs
@@ -100,6 +122,31 @@ where
                 .network::<AnyNetwork>()
                 .on_client(client),
         );
+
+        // derive block time from last two blocks. if two blocks don't exist, assume block time is 1s
+        let block_num = rpc_client
+            .get_block_number()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
+        let block_time_secs = if block_num > 0 {
+            let mut timestamps = vec![];
+            for i in [0_u64, 1] {
+                let block = rpc_client
+                    .get_block_by_number((block_num - i).into())
+                    .await
+                    .map_err(|e| ContenderError::with_err(e, "failed to get block"))?;
+                if let Some(block) = block {
+                    timestamps.push(block.header.timestamp);
+                }
+            }
+            if timestamps.len() == 2 {
+                (timestamps[0] - timestamps[1]).max(1)
+            } else {
+                1
+            }
+        } else {
+            1
+        };
 
         let mut wallet_map = HashMap::new();
         let wallets = signers.iter().map(|s| {
@@ -152,7 +199,12 @@ where
             gas_limits,
             msg_handle,
             tx_type,
-            gas_price_percent_add: gas_price_percent_add.unwrap_or(0) as u128,
+            gas_price_percent_add: gas_price_percent_add.unwrap_or(0),
+            pending_tx_timeout_secs,
+            ctx: ExecutionContext {
+                gas_price_adder: 0,
+                block_time_secs,
+            },
         })
     }
 
@@ -184,8 +236,9 @@ where
                 builder_rpc_url: None,
                 signers: vec![admin_signer.to_owned()],
                 agent_store: self.agent_store.clone(),
-                tx_type: TxType::Legacy,
-                gas_price_percent_add: None,
+                tx_type: self.tx_type,
+                gas_price_percent_add: Some(self.gas_price_percent_add), // will be 0 if not specified
+                pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             },
         )
         .await?;
@@ -526,7 +579,7 @@ where
             &mut full_tx,
             self.tx_type,
             gas_price,
-            (GWEI_TO_WEI as u128).min(gas_price - 1),
+            gas_price / 10,
             gas_limit,
             self.chain_id,
         );
@@ -543,7 +596,12 @@ where
             .get_gas_price()
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
-        let gas_price = gas_price + ((gas_price * self.gas_price_percent_add) / 100);
+        let gas_price = gas_price + ((gas_price * self.gas_price_percent_add as u128) / 100);
+        let gas_price = if self.ctx.gas_price_adder < 0 {
+            gas_price - self.ctx.gas_price_adder.unsigned_abs()
+        } else {
+            gas_price + self.ctx.gas_price_adder as u128
+        };
         let mut payloads = vec![];
         println!("preparing {} spam payloads", tx_requests.len());
         for tx in tx_requests {
@@ -626,12 +684,13 @@ where
         Ok(payloads)
     }
 
-    /// Send one batch of spam txs.
+    /// Send one batch of spam txs evenly over one second.
     async fn execute_spam(
         &mut self,
         trigger: SpamTrigger,
         payloads: Vec<ExecutionPayload>,
         callback_handler: Arc<impl OnTxSent + OnBatchSent + Send + Sync + 'static>,
+        context_handler: SpamContextHandler,
     ) -> Result<Vec<tokio::task::JoinHandle<()>>> {
         // sort payloads by nonce
         let mut payloads = payloads;
@@ -647,14 +706,24 @@ where
             a_nonce.cmp(&b_nonce)
         });
 
+        let num_payloads = payloads.len();
+
         let mut tasks: Vec<tokio::task::JoinHandle<()>> = vec![];
+
         // spawn at regular interval
-        let micros_per_task = 1_000_000 / payloads.len().max(1) as u64;
+        let micros_per_task = 1_000_000 / num_payloads.max(1) as u64;
+
+        // takes gas to add to the gas price for the next batch (if needed)
+        let gas_sender = Arc::new(context_handler.add_gas);
+        // counts number of txs that were sent successfully
+        let success_sender = Arc::new(context_handler.success_send_tx);
         for payload in payloads {
             let rpc_client = self.rpc_client.clone();
             let bundle_client = self.bundle_client.clone();
             let callback_handler = callback_handler.clone();
             let tx_handler = self.msg_handle.clone();
+            let gas_sender = gas_sender.clone();
+            let success_sender = success_sender.clone();
 
             std::thread::sleep(Duration::from_micros(micros_per_task));
             tasks.push(tokio::task::spawn(async move {
@@ -679,10 +748,30 @@ where
                                     Some(extra),
                                     Some(tx_handler.clone()),
                                 );
+                                success_sender
+                                    .send(())
+                                    .await
+                                    .expect("failed to send success signal");
                                 vec![maybe_handle]
                             }
                             Err(e) => {
                                 if let Some(err) = e.as_error_resp() {
+                                    if err
+                                        .message
+                                        .to_lowercase()
+                                        .contains("replacement transaction underpriced")
+                                    {
+                                        // send the current gas price / 10 to increase it by 10% for the next batch
+                                        gas_sender
+                                            .send(
+                                                req.tx.max_fee_per_gas.unwrap_or(
+                                                    req.tx.gas_price.unwrap_or(1_000_000_000),
+                                                ) / 10,
+                                            )
+                                            .await
+                                            .expect("failed to send gas update signal");
+                                    }
+
                                     // include errored txs in the cache; user may want to retry them
                                     // if they are due to nonce issues, this will fail, but if they do land somehow,
                                     // they will be awaited in the post-spam loop
@@ -779,15 +868,29 @@ where
         let mut tick = 0;
         while let Some(trigger) = cursor.next().await {
             let trigger = trigger.to_owned();
+            // assign from addrs, nonces, and gas prices for this chunk of tx requests
             let payloads = self.prepare_spam(&tx_req_chunks[tick]).await?;
+            let num_payloads = payloads.len();
 
+            // initialize async context handlers
+            let (success_sender, mut success_receiver) = tokio::sync::mpsc::channel(num_payloads);
+            let (add_gas_sender, mut add_gas_receiver) = tokio::sync::mpsc::channel(num_payloads);
+            let context = SpamContextHandler {
+                success_send_tx: success_sender,
+                add_gas: add_gas_sender,
+            };
+
+            // send this batch of spam txs
             let spam_tasks = self
-                .execute_spam(trigger, payloads, sent_tx_callback.clone())
+                .execute_spam(trigger, payloads, sent_tx_callback.clone(), context)
                 .await?;
-            println!("[{}] executing {} spam tasks", tick, spam_tasks.len());
+            let mut num_tasks = spam_tasks.len();
+
+            // wait for spam txs to finish sending
             for task in spam_tasks {
                 if let Err(e) = task.await {
-                    eprintln!("spam task failed: {:?}", e);
+                    println!("spam task failed: {:?}", e);
+                    num_tasks -= 1;
                 }
             }
 
@@ -796,6 +899,40 @@ where
                     .map_err(|e| ContenderError::with_err(e, "on_batch_sent callback failed"))?;
             }
 
+            println!("[{}] executed {} spam tasks", tick, num_tasks);
+
+            // increase gas price if needed
+            add_gas_receiver.close();
+            let starting_gas_adder = self.ctx.gas_price_adder;
+            while let Some(gas) = add_gas_receiver.recv().await {
+                if self.ctx.gas_price_adder >= gas as i128 + starting_gas_adder {
+                    continue;
+                }
+                println!("incrementing gas price by {}", gas);
+                self.ctx.add_to_gas_price(gas as i128);
+            }
+
+            // decrease gas price if all txs were sent successfully
+            success_receiver.close();
+            let mut success_count = 0;
+            while success_receiver.recv().await.is_some() {
+                success_count += 1;
+            }
+            if success_count == num_payloads {
+                println!("all spam txs sent successfully");
+                if self.ctx.gas_price_adder > 0 {
+                    // remove 10% of the gas price adder
+                    self.ctx.add_to_gas_price(self.ctx.gas_price_adder / -10);
+                }
+            } else {
+                println!(
+                    "some spam txs failed to send: {} / {}",
+                    num_payloads - success_count,
+                    num_payloads
+                );
+            }
+
+            // increment tick to get next chunk of txs
             tick += 1;
         }
 
@@ -848,7 +985,8 @@ where
                 signers: user_signers.to_owned(),
                 agent_store: self.agent_store.clone(),
                 tx_type: self.tx_type,
-                gas_price_percent_add: Some(self.gas_price_percent_add as u16),
+                gas_price_percent_add: Some(self.gas_price_percent_add),
+                pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             },
         )
         .await?;
@@ -933,39 +1071,77 @@ where
             .collect::<_>())
     }
 
-    pub async fn flush_tx_cache(&self, block_start: u64, run_id: Option<u64>) -> Result<()> {
+    pub async fn flush_tx_cache(&self, block_start: u64, run_id: u64) -> Result<()> {
         let mut block_counter = 0;
-        if let Some(run_id) = run_id {
-            loop {
-                let cache_size = self
-                    .msg_handle
-                    .flush_cache(run_id, block_start + block_counter as u64)
-                    .await
-                    .map_err(|e| ContenderError::with_err(e.deref(), "failed to flush cache"))?;
-                if cache_size == 0 {
-                    break;
-                }
+        let mut cache_size_queue = vec![];
+        let block_timeout = self.pending_tx_timeout_secs / self.ctx.block_time_secs;
+        cache_size_queue.resize(block_timeout as usize, 1);
+        loop {
+            let pending_txs = self
+                .msg_handle
+                .flush_cache(run_id, block_start + block_counter as u64)
+                .await
+                .map_err(|e| ContenderError::with_err(e.deref(), "failed to flush cache"))?;
+            cache_size_queue.rotate_right(1);
+            cache_size_queue[0] = pending_txs.len();
 
-                block_counter += 1;
+            if pending_txs.is_empty() {
+                break;
+            } else {
+                // if a tx has been sitting in the cache for > T seconds, remove it
+                let current_timestamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("time went backwards")
+                    .as_millis();
+
+                // remove cached txs if the size hasn't changed for the last N blocks
+                if cache_size_queue
+                    .iter()
+                    .all(|&size| size == cache_size_queue[0])
+                {
+                    println!(
+                            "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
+                        );
+                    for tx in &pending_txs {
+                        // only remove txs that have been waiting for > T seconds
+                        if current_timestamp
+                            > (tx.start_timestamp + (self.pending_tx_timeout_secs * 1000)) as u128
+                        {
+                            self.msg_handle
+                                .remove_cached_tx(tx.tx_hash)
+                                .await
+                                .map_err(|e| {
+                                    ContenderError::with_err(
+                                        e.deref(),
+                                        "failed to remove tx from cache",
+                                    )
+                                })?;
+                        }
+                    }
+                }
             }
+
+            block_counter += 1;
         }
+
         Ok(())
     }
 
-    pub async fn dump_tx_cache(&self, run_id: Option<u64>) -> Result<()> {
-        if let Some(run_id) = run_id {
-            let failed_txs = self
-                .msg_handle
-                .dump_cache(run_id)
-                .await
-                .map_err(|e| ContenderError::with_err(e.deref(), "failed to dump cache"))?;
-            if !failed_txs.is_empty() {
-                println!(
-                    "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
-                    failed_txs.len()
-                );
-            }
+    pub async fn dump_tx_cache(&self, run_id: u64) -> Result<()> {
+        println!("dumping tx cache...");
+
+        let failed_txs = self
+            .msg_handle
+            .dump_cache(run_id)
+            .await
+            .map_err(|e| ContenderError::with_err(e.deref(), "failed to dump cache"))?;
+        if !failed_txs.is_empty() {
+            println!(
+                "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
+                failed_txs.len()
+            );
         }
+
         Ok(())
     }
 }
@@ -1037,6 +1213,11 @@ where
     fn get_rpc_url(&self) -> String {
         self.rpc_url.to_string()
     }
+}
+
+struct SpamContextHandler {
+    add_gas: tokio::sync::mpsc::Sender<u128>,
+    success_send_tx: tokio::sync::mpsc::Sender<()>,
 }
 
 #[cfg(test)]
@@ -1298,6 +1479,7 @@ pub mod tests {
                 agent_store: agents,
                 tx_type,
                 gas_price_percent_add: None,
+                pending_tx_timeout_secs: 12,
             },
         )
         .await

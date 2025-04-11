@@ -17,9 +17,13 @@ enum TxActorMessage {
         error: Option<String>,
         on_receive: oneshot::Sender<()>,
     },
+    RemovedRunTx {
+        tx_hash: TxHash,
+        on_remove: oneshot::Sender<()>,
+    },
     FlushCache {
         run_id: u64,
-        on_flush: oneshot::Sender<usize>, // returns the number of txs remaining in cache
+        on_flush: oneshot::Sender<Vec<PendingRunTx>>, // returns the number of txs remaining in cache
         target_block_num: u64,
     },
     DumpCache {
@@ -90,9 +94,9 @@ where
         db: &Arc<D>,
         rpc: &Arc<AnyProvider>,
         run_id: u64,
-        on_flush: oneshot::Sender<usize>, // returns the number of txs remaining in cache
+        on_flush: oneshot::Sender<Vec<PendingRunTx>>, // returns the number of txs remaining in cache
         target_block_num: u64,
-    ) -> Result<Vec<PendingRunTx>, Box<dyn std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         println!("unconfirmed txs: {}", cache.len());
         let mut maybe_block;
         // TODO: replace this garbage mutator thing with a while loop
@@ -129,7 +133,7 @@ where
             .map(|tx| tx.to_owned())
             .collect::<Vec<_>>();
 
-        // refill cache with any txs that were not included in pending_txs
+        // refill cache with any txs that were not included in confirmed_txs
         let new_txs = cache
             .iter()
             .filter(|tx| !confirmed_txs.contains(tx))
@@ -172,9 +176,9 @@ where
         db.insert_run_txs(run_id, &run_txs)?;
         // }
         on_flush
-            .send(new_txs.len())
+            .send(new_txs.to_owned())
             .map_err(|_| ContenderError::SpamError("failed to join TxActor on_flush", None))?;
-        Ok(new_txs)
+        Ok(())
     }
 
     /// Dumps all cached txs into the DB. Does not assign `end_timestamp`, `block_number`, or `gas_used`.
@@ -198,6 +202,21 @@ where
         db.insert_run_txs(run_id, &run_txs)?;
         cache.clear();
         Ok(run_txs)
+    }
+
+    async fn remove_cached_tx(
+        cache: &mut Vec<PendingRunTx>,
+        old_tx_hash: TxHash,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let old_tx = cache
+            .iter()
+            .position(|tx| tx.tx_hash == old_tx_hash)
+            .ok_or(ContenderError::SpamError(
+                "failed to find tx in cache to replace",
+                None,
+            ))?;
+        cache.remove(old_tx);
+        Ok(())
     }
 
     async fn handle_message(
@@ -229,6 +248,15 @@ where
                 cache.push(run_tx.to_owned());
                 on_receive.send(()).map_err(|_| {
                     ContenderError::SpamError("failed to join TxActor on_receive (SentRunTx)", None)
+                })?;
+            }
+            TxActorMessage::RemovedRunTx { tx_hash, on_remove } => {
+                Self::remove_cached_tx(cache, tx_hash).await?;
+                on_remove.send(()).map_err(|_| {
+                    ContenderError::SpamError(
+                        "failed to join TxActor on_replace (ReplacedRunTx)",
+                        None,
+                    )
                 })?;
             }
             TxActorMessage::FlushCache {
@@ -293,7 +321,15 @@ where
                 } => {
                     Self::handle_message(&mut self.cache, &self.db, &self.rpc, msg).await?;
                 }
-                _ => {}
+                TxActorMessage::RemovedRunTx {
+                    tx_hash: _,
+                    on_remove: _,
+                } => {
+                    Self::handle_message(&mut self.cache, &self.db, &self.rpc, msg).await?;
+                }
+                TxActorMessage::Stop { on_stop: _ } => {
+                    // do nothing here; stop is a signal to interrupt other message handlers
+                }
             }
         }
         Ok(())
@@ -303,6 +339,14 @@ where
 #[derive(Debug)]
 pub struct TxActorHandle {
     sender: mpsc::Sender<TxActorMessage>,
+}
+
+#[derive(Debug)]
+pub struct CacheTx {
+    pub tx_hash: TxHash,
+    pub start_timestamp: u64,
+    pub kind: Option<String>,
+    pub error: Option<String>,
 }
 
 impl TxActorHandle {
@@ -320,13 +364,13 @@ impl TxActorHandle {
     }
 
     /// Adds a new tx to the cache.
-    pub async fn cache_run_tx(
-        &self,
-        tx_hash: TxHash,
-        start_timestamp: u64,
-        kind: Option<String>,
-        error: Option<String>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn cache_run_tx(&self, params: CacheTx) -> Result<(), Box<dyn std::error::Error>> {
+        let CacheTx {
+            tx_hash,
+            start_timestamp,
+            kind,
+            error,
+        } = params;
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(TxActorMessage::SentRunTx {
@@ -358,7 +402,7 @@ impl TxActorHandle {
         &self,
         run_id: u64,
         target_block_num: u64,
-    ) -> Result<usize, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<PendingRunTx>, Box<dyn std::error::Error>> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(TxActorMessage::FlushCache {
@@ -367,6 +411,22 @@ impl TxActorHandle {
                 target_block_num,
             })
             .await?;
+        Ok(receiver.await?)
+    }
+
+    /// Removes an existing tx in the cache.
+    pub async fn remove_cached_tx(
+        &self,
+        tx_hash: TxHash,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (sender, receiver) = oneshot::channel();
+        self.sender
+            .send(TxActorMessage::RemovedRunTx {
+                tx_hash,
+                on_remove: sender,
+            })
+            .await?;
+
         Ok(receiver.await?)
     }
 
