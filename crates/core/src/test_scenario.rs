@@ -85,6 +85,12 @@ pub struct ExecutionContext {
     block_time_secs: u64,
 }
 
+impl ExecutionContext {
+    pub fn add_to_gas_price(&mut self, amount: i128) {
+        self.gas_price_adder += amount;
+    }
+}
+
 impl<D, S, P> TestScenario<D, S, P>
 where
     D: DbOps + Send + Sync + 'static,
@@ -200,10 +206,6 @@ where
                 block_time_secs,
             },
         })
-    }
-
-    pub fn add_to_gas_price(&mut self, amount: i128) {
-        self.ctx.gas_price_adder += amount;
     }
 
     pub async fn sync_nonces(&mut self) -> Result<()> {
@@ -682,12 +684,13 @@ where
         Ok(payloads)
     }
 
-    /// Send one batch of spam txs.
+    /// Send one batch of spam txs evenly over one second.
     async fn execute_spam(
         &mut self,
         trigger: SpamTrigger,
         payloads: Vec<ExecutionPayload>,
         callback_handler: Arc<impl OnTxSent + Send + Sync + 'static>,
+        context_handler: SpamContextHandler,
     ) -> Result<Vec<tokio::task::JoinHandle<()>>> {
         // sort payloads by nonce
         let mut payloads = payloads;
@@ -703,17 +706,24 @@ where
             a_nonce.cmp(&b_nonce)
         });
 
+        let num_payloads = payloads.len();
+
         let mut tasks: Vec<tokio::task::JoinHandle<()>> = vec![];
+
         // spawn at regular interval
-        let micros_per_task = 1_000_000 / payloads.len().max(1) as u64;
-        let (gas_sender, mut gas_receiver) = tokio::sync::mpsc::channel::<u128>(payloads.len());
-        let gas_sender = Arc::new(gas_sender);
+        let micros_per_task = 1_000_000 / num_payloads.max(1) as u64;
+
+        // takes gas to add to the gas price for the next batch (if needed)
+        let gas_sender = Arc::new(context_handler.add_gas);
+        // counts number of txs that were sent successfully
+        let success_sender = Arc::new(context_handler.success_send_tx);
         for payload in payloads {
             let rpc_client = self.rpc_client.clone();
             let bundle_client = self.bundle_client.clone();
             let callback_handler = callback_handler.clone();
             let tx_handler = self.msg_handle.clone();
             let gas_sender = gas_sender.clone();
+            let success_sender = success_sender.clone();
 
             std::thread::sleep(Duration::from_micros(micros_per_task));
             tasks.push(tokio::task::spawn(async move {
@@ -738,6 +748,10 @@ where
                                     Some(extra),
                                     Some(tx_handler.clone()),
                                 );
+                                success_sender
+                                    .send(())
+                                    .await
+                                    .expect("failed to send success signal");
                                 vec![maybe_handle]
                             }
                             Err(e) => {
@@ -755,7 +769,7 @@ where
                                                 ) / 10,
                                             )
                                             .await
-                                            .expect("failed to send gas update");
+                                            .expect("failed to send gas update signal");
                                     }
 
                                     // include errored txs in the cache; user may want to retry them
@@ -841,16 +855,6 @@ where
             }));
         }
 
-        gas_receiver.close();
-        let starting_gas_adder = self.ctx.gas_price_adder;
-        while let Some(gas) = gas_receiver.recv().await {
-            if self.ctx.gas_price_adder >= gas as i128 + starting_gas_adder {
-                continue;
-            }
-            println!("incrementing gas price by {}", gas);
-            self.add_to_gas_price(gas as i128);
-        }
-
         Ok(tasks)
     }
 
@@ -866,10 +870,19 @@ where
             let trigger = trigger.to_owned();
             // assign from addrs, nonces, and gas prices for this chunk of tx requests
             let payloads = self.prepare_spam(&tx_req_chunks[tick]).await?;
+            let num_payloads = payloads.len();
+
+            // initialize async context handlers
+            let (success_sender, mut success_receiver) = tokio::sync::mpsc::channel(num_payloads);
+            let (add_gas_sender, mut add_gas_receiver) = tokio::sync::mpsc::channel(num_payloads);
+            let context = SpamContextHandler {
+                success_send_tx: success_sender,
+                add_gas: add_gas_sender,
+            };
 
             // send this batch of spam txs
             let spam_tasks = self
-                .execute_spam(trigger, payloads, sent_tx_callback.clone())
+                .execute_spam(trigger, payloads, sent_tx_callback.clone(), context)
                 .await?;
             let mut num_tasks = spam_tasks.len();
 
@@ -880,8 +893,38 @@ where
                     num_tasks -= 1;
                 }
             }
-
             println!("[{}] executed {} spam tasks", tick, num_tasks);
+
+            // increase gas price if needed
+            add_gas_receiver.close();
+            let starting_gas_adder = self.ctx.gas_price_adder;
+            while let Some(gas) = add_gas_receiver.recv().await {
+                if self.ctx.gas_price_adder >= gas as i128 + starting_gas_adder {
+                    continue;
+                }
+                println!("incrementing gas price by {}", gas);
+                self.ctx.add_to_gas_price(gas as i128);
+            }
+
+            // decrease gas price if all txs were sent successfully
+            success_receiver.close();
+            let mut success_count = 0;
+            while let Some(_) = success_receiver.recv().await {
+                success_count += 1;
+            }
+            if success_count == num_payloads {
+                println!("all spam txs sent successfully");
+                if self.ctx.gas_price_adder > 0 {
+                    // remove 10% of the gas price adder
+                    self.ctx.add_to_gas_price(self.ctx.gas_price_adder / -10);
+                }
+            } else {
+                println!(
+                    "some spam txs failed to send: {} / {}",
+                    num_payloads - success_count,
+                    num_payloads
+                );
+            }
 
             // increment tick to get next chunk of txs
             tick += 1;
@@ -1164,6 +1207,11 @@ where
     fn get_rpc_url(&self) -> String {
         self.rpc_url.to_string()
     }
+}
+
+struct SpamContextHandler {
+    add_gas: tokio::sync::mpsc::Sender<u128>,
+    success_send_tx: tokio::sync::mpsc::Sender<()>,
 }
 
 #[cfg(test)]
