@@ -909,7 +909,7 @@ where
             // decrease gas price if all txs were sent successfully
             success_receiver.close();
             let mut success_count = 0;
-            while let Some(_) = success_receiver.recv().await {
+            while success_receiver.recv().await.is_some() {
                 success_count += 1;
             }
             if success_count == num_payloads {
