@@ -596,7 +596,7 @@ where
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
         let gas_price = gas_price + ((gas_price * self.gas_price_percent_add as u128) / 100);
         let gas_price = if self.ctx.gas_price_adder < 0 {
-            gas_price - self.ctx.gas_price_adder.abs() as u128
+            gas_price - self.ctx.gas_price_adder.unsigned_abs()
         } else {
             gas_price + self.ctx.gas_price_adder as u128
         };
