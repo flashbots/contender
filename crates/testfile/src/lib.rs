@@ -388,6 +388,7 @@ pub mod tests {
                 agent_store: Default::default(),
                 tx_type,
                 gas_price_percent_add: None,
+                pending_tx_timeout_secs: 12,
             },
         )
         .await
@@ -433,6 +434,7 @@ pub mod tests {
                 agent_store: Default::default(),
                 tx_type,
                 gas_price_percent_add: None,
+                pending_tx_timeout_secs: 12,
             },
         )
         .await
@@ -448,6 +450,7 @@ pub mod tests {
                 agent_store: Default::default(),
                 tx_type,
                 gas_price_percent_add: None,
+                pending_tx_timeout_secs: 12,
             },
         )
         .await

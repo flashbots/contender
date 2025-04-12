@@ -107,6 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             txs_per_block,
                             txs_per_second,
                             builder_url,
+                            timeout,
                         },
                     disable_reporting,
                     gen_report,
@@ -127,6 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 min_balance,
                 tx_type: tx_type.into(),
                 gas_price_percent_add,
+                timeout_secs: timeout,
             };
             let InitializedScenario {
                 mut scenario,
@@ -165,6 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         txs_per_block,
                         txs_per_second,
                         builder_url,
+                        timeout,
                     },
                 disable_reporting,
                 gen_report,
@@ -185,6 +188,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 min_balance,
                 tx_type: tx_type.into(),
                 gas_price_percent_add,
+                timeout_secs: timeout,
             };
             commands::spamd(&db, spam_args, gen_report, time_limit).await?;
         }

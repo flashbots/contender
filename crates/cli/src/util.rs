@@ -171,30 +171,45 @@ pub async fn fund_accounts(
     let (sender, mut receiver) = tokio::sync::mpsc::channel::<PendingTransactionConfig>(9000);
     let sendr = Arc::new(sender.clone());
     let rpc_client = Arc::new(rpc_client.to_owned());
-    for (idx, (address, _)) in insufficient_balances.into_iter().enumerate() {
-        let (balance_sufficient, balance) =
-            is_balance_sufficient(&fund_with.address(), min_balance, &rpc_client).await?;
-        if !balance_sufficient {
-            // error early if admin account runs out of funds
-            return Err(format!(
-                "User account {} has insufficient balance to fund account {}. Have {}, needed {}. Chain ID: {}",
+
+    let (balance_sufficient, balance) = is_balance_sufficient(
+        &fund_with.address(),
+        min_balance * U256::from(insufficient_balances.len()),
+        &rpc_client,
+    )
+    .await?;
+    if !balance_sufficient {
+        // error early if admin account runs out of funds
+        return Err(format!(
+                "User account {} has insufficient balance to fund spammer agents. Have {}, needed {}. Chain ID: {}",
                 fund_with.address(),
-                address,
                 format_ether(balance),
                 format_ether(min_balance),
                 chain_id,
             )
             .into());
-        }
+    }
 
+    if !insufficient_balances.is_empty() {
+        let s = if insufficient_balances.len() == 1 {
+            ""
+        } else {
+            "s"
+        };
+        println!(
+            "sending funding txs ({} account{s})...",
+            insufficient_balances.len()
+        );
+    }
+    for (idx, (address, _)) in insufficient_balances.into_iter().enumerate() {
         let fund_amount = min_balance;
         let fund_with = fund_with.to_owned();
         let sender = sendr.clone();
-
         let rpc = rpc_client.clone();
+
         fund_handles.push(tokio::task::spawn(async move {
             let res = fund_account(
-                &fund_with.to_owned(),
+                &fund_with,
                 address,
                 fund_amount,
                 &rpc,
@@ -202,6 +217,8 @@ pub async fn fund_accounts(
                 tx_type,
             )
             .await;
+
+            // TODO: figure out how to handle this error (not type-safe?)
             match res.ok() {
                 Some(res) => sender.send(res).await.expect("failed to handle pending tx"),
                 None => {
@@ -210,8 +227,9 @@ pub async fn fund_accounts(
             }
         }));
     }
+
     if !fund_handles.is_empty() {
-        println!("sending funding txs...");
+        println!("waiting for funding tasks to finish...");
         for handle in fund_handles {
             handle.await?;
         }
