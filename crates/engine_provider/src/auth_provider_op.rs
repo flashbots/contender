@@ -1,4 +1,4 @@
-use crate::{util::read_jwt_file, AdvanceChain, DEFAULT_BLOCK_TIME};
+use crate::{util::read_jwt_file, AdvanceChain};
 use alloy::hex::ToHexExt;
 use op_rbuilder::tester::{EngineApi, EngineApiBuilder};
 use std::path::PathBuf;
@@ -38,8 +38,8 @@ impl AuthProviderOp {
 impl AdvanceChain for AuthProviderOp {
     /// Advance the chain by calling `engine_forkchoiceUpdated` (FCU) and `engine_newPayload` methods.
     async fn advance_chain(&self, block_time_secs: u64) -> Result<(), Box<dyn std::error::Error>> {
-        println!("advancing chain {block_time_secs}s...");
+        println!("[OP] advancing chain {block_time_secs}s...");
         self.engine_client.latest().await?;
-        Ok(())
+        todo!();
     }
 }

@@ -1,6 +1,7 @@
 use super::spam::EngineArgs;
 use crate::util::{
     check_private_keys_fns, find_insufficient_balances, fund_accounts, get_signers_with_defaults,
+    EngineParams,
 };
 use alloy::{
     consensus::TxType,
@@ -17,7 +18,7 @@ use contender_core::{
     generator::RandSeed,
     test_scenario::{TestScenario, TestScenarioParams},
 };
-use contender_engine_provider::{AdvanceChain, AuthProvider, DEFAULT_BLOCK_TIME};
+use contender_engine_provider::{AuthProviderEth, AuthProviderOp, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
 use std::{
     str::FromStr,
@@ -49,6 +50,7 @@ pub async fn setup(
         tx_type,
         engine_args,
         call_fcu,
+        use_op,
     } = args;
 
     let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
@@ -57,11 +59,6 @@ pub async fn setup(
             .network::<AnyNetwork>()
             .on_http(url.to_owned()),
     );
-    let auth_client = if let Some(engine_args) = engine_args {
-        Some(AuthProvider::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret).await?)
-    } else {
-        None
-    };
     let testconfig: TestConfig = TestConfig::from_file(testfile.as_ref())?;
     let min_balance = parse_ether(&min_balance)?;
 
@@ -116,33 +113,79 @@ pub async fn setup(
     }
 
     // user-provided signers must be pre-funded
-    let admin_signer = &user_signers_with_defaults[0];
+    let admin_signer = user_signers_with_defaults[0].to_owned();
 
-    fund_accounts(
-        &agents.all_signer_addresses(),
-        admin_signer,
-        &rpc_client,
-        min_balance,
+    let all_agent_addresses = agents.all_signer_addresses();
+
+    let params = TestScenarioParams {
+        rpc_url: url,
+        builder_rpc_url: None,
+        signers: user_signers_with_defaults,
+        agent_store: agents,
         tx_type,
-        (auth_client.to_owned(), call_fcu),
-    )
-    .await?;
+        gas_price_percent_add: None,
+        pending_tx_timeout_secs: 12,
+    };
 
-    let mut scenario = TestScenario::new(
-        testconfig.to_owned(),
-        db.clone().into(),
-        seed,
-        TestScenarioParams {
-            rpc_url: url,
-            builder_rpc_url: None,
-            signers: user_signers_with_defaults,
-            agent_store: agents,
+    let mut scenario = if let Some(engine_args) = engine_args {
+        if use_op {
+            let auth_provider =
+                AuthProviderOp::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret)
+                    .await?;
+            let auth_client = Arc::new(auth_provider);
+            fund_accounts::<AuthProviderOp>(
+                &all_agent_addresses,
+                &admin_signer,
+                &rpc_client,
+                min_balance,
+                tx_type,
+                &EngineParams::new(auth_client.clone(), call_fcu),
+            )
+            .await?;
+            TestScenario::new(
+                testconfig.to_owned(),
+                db.clone().into(),
+                seed,
+                params,
+                Some(auth_client.clone()),
+            )
+            .await?
+        } else {
+            let auth_provider =
+                AuthProviderEth::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret)
+                    .await?;
+            let auth_client = Arc::new(auth_provider);
+            fund_accounts::<AuthProviderEth>(
+                &all_agent_addresses,
+                &admin_signer,
+                &rpc_client,
+                min_balance,
+                tx_type,
+                &EngineParams::new(auth_client.clone(), call_fcu),
+            )
+            .await?;
+            TestScenario::new(
+                testconfig.to_owned(),
+                db.clone().into(),
+                seed,
+                params,
+                Some(auth_client.clone()),
+            )
+            .await?
+        }
+    } else {
+        fund_accounts::<AuthProviderEth>(
+            &all_agent_addresses,
+            &admin_signer,
+            &rpc_client,
+            min_balance,
             tx_type,
-            gas_price_percent_add: None,
-            pending_tx_timeout_secs: 12,
-        },
-    )
-    .await?;
+            &Default::default(),
+        )
+        .await?;
+
+        TestScenario::new(testconfig.to_owned(), db.clone().into(), seed, params, None).await?
+    };
 
     let total_cost = scenario.estimate_setup_cost().await?;
     if min_balance < total_cost {
@@ -161,8 +204,8 @@ pub async fn setup(
     let done = AtomicBool::new(false);
     let is_done = Arc::new(done);
 
-    if call_fcu && auth_client.is_some() {
-        let auth_client = Arc::new(auth_client.expect("auth_client"));
+    if call_fcu && scenario.auth_provider.is_some() {
+        let auth_client = scenario.auth_provider.clone().expect("auth provider");
         let is_done = is_done.clone();
 
         // spawn a task to advance the chain periodically while setup is running
@@ -202,4 +245,5 @@ pub struct SetupCommandArgs {
     pub tx_type: TxType,
     pub engine_args: Option<EngineArgs>,
     pub call_fcu: bool,
+    pub use_op: bool,
 }

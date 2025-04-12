@@ -20,6 +20,9 @@ pub use spamd::spamd;
 pub struct ContenderCli {
     #[command(subcommand)]
     pub command: ContenderSubcommand,
+
+    #[arg(long = "optimism", long_help = "Use OP client. Default is Ethereum.", visible_aliases = &["op"])]
+    pub use_op: bool,
 }
 
 impl ContenderCli {

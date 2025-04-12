@@ -40,6 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db = DB.clone();
     let data_path = data_dir()?;
     let db_path = db_file()?;
+    let use_op = args.use_op;
 
     let seed_path = format!("{}/seed", &data_path);
     if !std::path::Path::new(&seed_path).exists() {
@@ -103,6 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tx_type: tx_type.into(),
                     engine_args,
                     call_fcu: call_forkchoice,
+                    use_op,
                 },
             )
             .await?
@@ -164,6 +166,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engine_args,
                 call_forkchoice,
                 timeout_secs: timeout,
+                use_op,
             };
             let mut scenario = spam_args.init_scenario(&db).await?;
             let run_id = commands::spam(&db, &spam_args, &mut scenario).await?;
@@ -237,6 +240,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engine_args,
                 call_forkchoice,
                 timeout_secs: timeout,
+                use_op,
             };
             commands::spamd(&db, spam_args, gen_report, time_limit).await?;
         }
@@ -286,6 +290,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tx_type: tx_type.into(),
                     engine_args,
                     call_fcu: call_forkchoice,
+                    use_op,
                 },
             )
             .await?

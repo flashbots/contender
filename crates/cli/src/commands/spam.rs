@@ -1,7 +1,7 @@
 use super::common::{ScenarioSendTxsCliArgs, SendSpamCliArgs};
 use crate::util::{
     check_private_keys, fund_accounts, get_signers_with_defaults, spam_callback_default,
-    SpamCallbackType,
+    EngineParams, SpamCallbackType,
 };
 use alloy::{
     consensus::TxType,
@@ -21,7 +21,9 @@ use contender_core::{
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
 };
-use contender_engine_provider::{AdvanceChain, AuthProvider, DEFAULT_BLOCK_TIME};
+use contender_engine_provider::{
+    AdvanceChain, AuthProviderEth, AuthProviderOp, DEFAULT_BLOCK_TIME,
+};
 use contender_testfile::TestConfig;
 use std::sync::Arc;
 use std::{path::PathBuf, sync::atomic::AtomicBool};
@@ -51,6 +53,8 @@ pub struct SpamCommandArgs {
     pub call_forkchoice: bool,
     pub gas_price_percent_add: Option<u64>,
     pub timeout_secs: u64,
+    /// Use OP RPC provider
+    pub use_op: bool,
 }
 
 impl SpamCommandArgs {
@@ -58,7 +62,11 @@ impl SpamCommandArgs {
         &self,
         db: &D,
     ) -> Result<TestScenario<D, RandSeed, TestConfig>, Box<dyn std::error::Error>> {
-        init_scenario(db, self).await
+        if self.use_op {
+            init_scenario::<D, AuthProviderOp>(db, self).await
+        } else {
+            init_scenario::<D, AuthProviderEth>(db, self).await
+        }
     }
 }
 
@@ -98,7 +106,7 @@ pub struct SpamCliArgs {
 }
 
 /// Initializes a TestScenario with the given arguments.
-async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
+async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static, E: AdvanceChain>(
     db: &D,
     args: &SpamCommandArgs,
 ) -> Result<TestScenario<D, RandSeed, TestConfig>, Box<dyn std::error::Error>> {
@@ -118,6 +126,7 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
         call_forkchoice,
         engine_args,
         timeout_secs,
+        use_op,
         ..
     } = &args;
 
@@ -129,11 +138,6 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
             .network::<AnyNetwork>()
             .on_http(url.to_owned()),
     );
-    let auth_client = if let Some(engine_args) = engine_args {
-        Some(AuthProvider::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret).await?)
-    } else {
-        None
-    };
 
     let min_balance = parse_ether(min_balance)?;
 
@@ -184,33 +188,78 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
 
     let all_signer_addrs = agents.all_signer_addresses();
 
-    fund_accounts(
-        &all_signer_addrs,
-        &user_signers[0],
-        &rpc_client,
-        min_balance,
-        *tx_type,
-        (auth_client.clone(), *call_forkchoice),
-    )
-    .await?;
+    let params = TestScenarioParams {
+        rpc_url: url,
+        builder_rpc_url: builder_url
+            .to_owned()
+            .map(|url| Url::parse(&url).expect("Invalid builder URL")),
+        signers: user_signers.to_owned(),
+        agent_store: agents.to_owned(),
+        tx_type: *tx_type,
+        gas_price_percent_add: *gas_price_percent_add,
+        pending_tx_timeout_secs: *timeout_secs,
+    };
 
-    let scenario = TestScenario::new(
-        testconfig,
-        db.clone().into(),
-        rand_seed,
-        TestScenarioParams {
-            rpc_url: url,
-            builder_rpc_url: builder_url
-                .to_owned()
-                .map(|url| Url::parse(&url).expect("Invalid builder URL")),
-            signers: user_signers.to_owned(),
-            agent_store: agents.to_owned(),
-            tx_type: *tx_type,
-            gas_price_percent_add: *gas_price_percent_add,
-            pending_tx_timeout_secs: *timeout_secs,
-        },
-    )
-    .await?;
+    let scenario = if let Some(engine_args) = engine_args {
+        let EngineArgs {
+            auth_rpc_url,
+            jwt_secret,
+        } = engine_args;
+
+        if *use_op {
+            let auth_client = AuthProviderOp::from_jwt_file(auth_rpc_url, jwt_secret).await?;
+            let auth_client = Arc::new(auth_client);
+
+            fund_accounts::<AuthProviderOp>(
+                &all_signer_addrs,
+                &user_signers[0],
+                &rpc_client,
+                min_balance,
+                *tx_type,
+                &EngineParams::new(auth_client.clone(), *call_forkchoice),
+            )
+            .await?;
+            TestScenario::new(
+                testconfig,
+                db.clone().into(),
+                rand_seed,
+                params,
+                Some(auth_client.clone()),
+            )
+            .await?
+        } else {
+            let auth_client = AuthProviderEth::from_jwt_file(auth_rpc_url, jwt_secret).await?;
+            let auth_client = Arc::new(auth_client);
+            fund_accounts::<AuthProviderEth>(
+                &all_signer_addrs,
+                &user_signers[0],
+                &rpc_client,
+                min_balance,
+                *tx_type,
+                &EngineParams::new(auth_client.clone(), *call_forkchoice),
+            )
+            .await?;
+            TestScenario::new(
+                testconfig,
+                db.clone().into(),
+                rand_seed,
+                params,
+                Some(auth_client.clone()),
+            )
+            .await?
+        }
+    } else {
+        fund_accounts::<AuthProviderEth>(
+            &all_signer_addrs,
+            &user_signers[0],
+            &rpc_client,
+            min_balance,
+            *tx_type,
+            &Default::default(),
+        )
+        .await?;
+        TestScenario::new(testconfig, db.clone().into(), rand_seed, params, None).await?
+    };
 
     // don't multiply by TPS or TPB, because that number scales the number of accounts; this cost is per account
     let total_cost = U256::from(*duration) * scenario.get_max_spam_cost(&user_signers).await?;
@@ -254,12 +303,7 @@ pub async fn spam<
     let mut run_id = None;
 
     let rpc_client = test_scenario.rpc_client.clone();
-
-    let auth_client = if let Some(engine_args) = engine_args {
-        Some(AuthProvider::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret).await?)
-    } else {
-        None
-    };
+    let auth_client = test_scenario.auth_provider.to_owned().map(|p| p.clone());
 
     // thread-safe flag to stop spammer at different stages
     let done_fcu = AtomicBool::new(false);
@@ -268,19 +312,21 @@ pub async fn spam<
     let is_sending_done = Arc::new(done_sending);
 
     // run loop in background to call fcu when spamming is done
-    if let Some(auth_client) = auth_client.to_owned() {
-        let auth_client = Arc::new(auth_client);
+    if engine_args.is_some() {
         let is_fcu_done = is_fcu_done.clone();
         let is_sending_done = is_sending_done.clone();
+        let auth_client = auth_client.clone();
         tokio::spawn(async move {
             loop {
                 if is_fcu_done.load(std::sync::atomic::Ordering::SeqCst) {
                     break;
                 }
                 if is_sending_done.load(std::sync::atomic::Ordering::SeqCst) {
-                    let res = auth_client.advance_chain(DEFAULT_BLOCK_TIME).await;
-                    if let Err(e) = res {
-                        println!("Error advancing chain: {}", e);
+                    if let Some(auth_client) = &auth_client {
+                        let res = auth_client.advance_chain(DEFAULT_BLOCK_TIME).await;
+                        if let Err(e) = res {
+                            println!("Error advancing chain: {}", e);
+                        }
                     }
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
@@ -297,7 +343,7 @@ pub async fn spam<
             !disable_reporting,
             *call_forkchoice,
             Some(rpc_client.clone()),
-            auth_client.map(Arc::new),
+            auth_client,
         )
         .await
         {
@@ -347,7 +393,7 @@ pub async fn spam<
         !disable_reporting,
         *call_forkchoice,
         rpc_client.into(),
-        auth_client.map(Arc::new),
+        auth_client,
     )
     .await
     {

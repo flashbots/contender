@@ -25,6 +25,7 @@ use alloy::signers::local::{LocalSigner, PrivateKeySigner};
 use alloy::transports::http::reqwest::Url;
 use contender_bundle_provider::bundle_provider::new_basic_bundle;
 use contender_bundle_provider::BundleClient;
+use contender_engine_provider::AdvanceChain;
 use futures::{Stream, StreamExt};
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -34,7 +35,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// A test scenario can be used to run a test with a specific configuration, database, and RPC provider.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct TestScenario<D, S, P>
 where
     D: DbOps + Send + Sync + 'static,
@@ -64,6 +65,7 @@ where
     pub pending_tx_timeout_secs: u64,
     /// Execution context for the test scenario; things about the target chain that affect the txs we send.
     pub ctx: ExecutionContext,
+    pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
 }
 
 pub struct TestScenarioParams {
@@ -76,7 +78,7 @@ pub struct TestScenarioParams {
     pub pending_tx_timeout_secs: u64,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ExecutionContext {
     /// Adds this amount of wei per gas to the gas price given to each transaction. May be negative to subtract gas.
     /// This is not the same as the `gas_price_percent_add`, which is a percentage of the gas price provided by the user.
@@ -102,6 +104,7 @@ where
         db: Arc<D>,
         rand_seed: S,
         params: TestScenarioParams,
+        auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
     ) -> Result<Self> {
         let TestScenarioParams {
             rpc_url,
@@ -205,6 +208,7 @@ where
                 gas_price_adder: 0,
                 block_time_secs,
             },
+            auth_provider: auth_provider.map(|a| a.clone()),
         })
     }
 
@@ -240,6 +244,7 @@ where
                 gas_price_percent_add: Some(self.gas_price_percent_add), // will be 0 if not specified
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             },
+            None,
         )
         .await?;
 
@@ -988,26 +993,26 @@ where
                 gas_price_percent_add: Some(self.gas_price_percent_add),
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             },
+            None,
         )
         .await?;
 
         // load a sample of each spam tx from the scenario
+        let txs = scenario
+            .load_txs(PlanType::Spam(
+                scenario
+                    .config
+                    .get_spam_steps()
+                    .map(|s| s.len()) // take the number of spam txs from the testfile
+                    .unwrap_or(0),
+                |_named_req| {
+                    // we can look at the named request here if needed
+                    Ok(None)
+                },
+            ))
+            .await?;
         let sample_txs = scenario
-            .prepare_spam(
-                &scenario
-                    .load_txs(PlanType::Spam(
-                        scenario
-                            .config
-                            .get_spam_steps()
-                            .map(|s| s.len()) // take the number of spam txs from the testfile
-                            .unwrap_or(0),
-                        |_named_req| {
-                            // we can look at the named request here if needed
-                            Ok(None)
-                        },
-                    ))
-                    .await?,
-            )
+            .prepare_spam(&txs)
             .await?
             .iter()
             .map(|ex_payload| match ex_payload {
@@ -1481,6 +1486,7 @@ pub mod tests {
                 gas_price_percent_add: None,
                 pending_tx_timeout_secs: 12,
             },
+            None,
         )
         .await
         .unwrap();

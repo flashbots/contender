@@ -1,7 +1,7 @@
 use super::tx_actor::{CacheTx, TxActorHandle};
 use crate::generator::{types::AnyProvider, NamedTxRequest};
 use alloy::providers::PendingTransactionConfig;
-use contender_engine_provider::{AdvanceChain, AuthProviderEth, DEFAULT_BLOCK_TIME};
+use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
 
@@ -28,14 +28,14 @@ pub struct NilCallback;
 
 pub struct LogCallback {
     pub rpc_provider: Arc<AnyProvider>,
-    pub auth_provider: Option<Arc<AuthProviderEth>>,
+    pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
     pub send_fcu: bool,
 }
 
 impl LogCallback {
     pub fn new(
         rpc_provider: Arc<AnyProvider>,
-        auth_provider: Option<Arc<AuthProviderEth>>,
+        auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
         send_fcu: bool,
     ) -> Self {
         Self {
@@ -97,11 +97,11 @@ impl OnTxSent for LogCallback {
 
 impl OnBatchSent for LogCallback {
     fn on_batch_sent(&self) -> Option<JoinHandle<()>> {
+        if !self.send_fcu {
+            // maybe do something metrics-related here
+            return None;
+        }
         if let Some(provider) = &self.auth_provider {
-            if !self.send_fcu {
-                // maybe do something metrics-related here
-                return None;
-            }
             let provider = provider.clone();
             return Some(tokio::task::spawn(async move {
                 provider

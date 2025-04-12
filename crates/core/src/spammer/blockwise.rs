@@ -129,6 +129,7 @@ mod tests {
                 gas_price_percent_add: None,
                 pending_tx_timeout_secs: 12,
             },
+            None,
         )
         .await
         .unwrap();

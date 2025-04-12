@@ -23,7 +23,7 @@ use contender_core::{
     spammer::{LogCallback, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
 };
-use contender_engine_provider::{AdvanceChain, AuthProvider};
+use contender_engine_provider::{AuthProviderEth, AuthProviderOp};
 use contender_testfile::TestConfig;
 
 use crate::{
@@ -44,6 +44,7 @@ pub struct RunCommandArgs {
     pub tx_type: TxType,
     pub engine_args: Option<EngineArgs>,
     pub call_fcu: bool,
+    pub use_op: bool,
 }
 
 pub async fn run(
@@ -72,11 +73,6 @@ pub async fn run(
         )
         .into());
     }
-    let auth_provider = if let Some(engine_args) = args.engine_args {
-        Some(AuthProvider::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret).await?)
-    } else {
-        None
-    };
 
     let fill_percent = env::var("C_FILL_PERCENT")
         .map(|s| u16::from_str(&s).expect("invalid u16: fill_percent"))
@@ -92,24 +88,48 @@ pub async fn run(
     };
     let scenario_name = scenario_config.to_string();
     let testconfig: TestConfig = scenario_config.into();
+    let rpc_url = Url::parse(&args.rpc_url).expect("Invalid RPC URL");
     check_private_keys(&testconfig, &user_signers);
 
-    let rpc_url = Url::parse(&args.rpc_url).expect("Invalid RPC URL");
-    let mut scenario = TestScenario::new(
-        testconfig,
-        db.clone().into(),
-        rand_seed,
-        TestScenarioParams {
-            rpc_url: rpc_url.to_owned(),
-            builder_rpc_url: None,
-            signers: user_signers,
-            agent_store: AgentStore::default(),
-            tx_type: args.tx_type,
-            gas_price_percent_add: None, // TODO: support this here !!!
-            pending_tx_timeout_secs: 12,
-        },
-    )
-    .await?;
+    let params = TestScenarioParams {
+        rpc_url: rpc_url.to_owned(),
+        builder_rpc_url: None,
+        signers: user_signers,
+        agent_store: AgentStore::default(),
+        tx_type: args.tx_type,
+        gas_price_percent_add: None, // TODO: support this here !!!
+        pending_tx_timeout_secs: 12,
+    };
+
+    let mut scenario = if let Some(engine_args) = args.engine_args {
+        if args.use_op {
+            let auth_provider =
+                AuthProviderOp::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret)
+                    .await?;
+            TestScenario::new(
+                testconfig,
+                db.clone().into(),
+                rand_seed,
+                params,
+                Some(Arc::new(auth_provider)),
+            )
+            .await?
+        } else {
+            let auth_provider =
+                AuthProviderEth::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret)
+                    .await?;
+            TestScenario::new(
+                testconfig,
+                db.clone().into(),
+                rand_seed,
+                params,
+                Some(Arc::new(auth_provider)),
+            )
+            .await?
+        }
+    } else {
+        TestScenario::new(testconfig, db.clone().into(), rand_seed, params, None).await?
+    };
 
     let contract_name = "SpamMe";
     let contract_result = db.get_named_tx(contract_name, rpc_url.as_str())?;
@@ -133,7 +153,7 @@ pub async fn run(
 
     // loop FCU calls in the background
     if args.call_fcu {
-        if let Some(auth_provider) = auth_provider.to_owned() {
+        if let Some(auth_provider) = scenario.auth_provider.to_owned() {
             let is_done = is_done.clone();
             tokio::task::spawn(async move {
                 loop {
@@ -175,7 +195,7 @@ pub async fn run(
     let provider = Arc::new(DynProvider::new(provider));
     let tx_callback = LogCallback::new(
         provider.clone(),
-        auth_provider.map(Arc::new),
+        scenario.auth_provider.clone(),
         false, // don't call in callback bc we're already calling in the loop
     );
 

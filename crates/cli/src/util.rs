@@ -15,7 +15,7 @@ use contender_core::{
     },
     spammer::{LogCallback, NilCallback},
 };
-use contender_engine_provider::{AdvanceChain, AuthProvider, DEFAULT_BLOCK_TIME};
+use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
 use csv::Writer;
 use std::{io::Write, str::FromStr, sync::Arc, time::Duration};
@@ -134,16 +134,48 @@ async fn is_balance_sufficient(
     Ok((balance >= min_balance, balance))
 }
 
+pub struct EngineParams {
+    pub engine_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    pub call_fcu: bool,
+}
+
+impl EngineParams {
+    pub fn new(
+        engine_provider: Arc<dyn AdvanceChain + Send + Sync + 'static>,
+        call_forkchoice: bool,
+    ) -> Self {
+        Self {
+            engine_provider: Some(engine_provider),
+            call_fcu: call_forkchoice,
+        }
+    }
+}
+
+/// default is Eth wrapper with no provider
+impl Default for EngineParams {
+    fn default() -> Self {
+        Self {
+            engine_provider: None,
+            call_fcu: false,
+        }
+    }
+}
+
 /// Funds given accounts if/when their balance is below the minimum balance.
-pub async fn fund_accounts(
+///
+/// TODO: remove this function
+pub async fn fund_accounts<E: AdvanceChain>(
     recipient_addresses: &[Address],
     fund_with: &PrivateKeySigner,
     rpc_client: &AnyProvider,
     min_balance: U256,
     tx_type: TxType,
-    engine_params: (Option<AuthProvider>, bool),
+    engine_params: &EngineParams,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (engine_provider, call_fcu) = engine_params;
+    let EngineParams {
+        engine_provider,
+        call_fcu,
+    } = engine_params;
     let insufficient_balances =
         find_insufficient_balances(recipient_addresses, min_balance, rpc_client).await?;
 
@@ -244,7 +276,7 @@ pub async fn fund_accounts(
     tokio::time::sleep(Duration::from_secs(DEFAULT_BLOCK_TIME)).await;
 
     while let Some(tx) = receiver_pending_tx.recv().await {
-        if call_fcu {
+        if *call_fcu {
             if let Some(engine_provider) = &engine_provider {
                 engine_provider.advance_chain(DEFAULT_BLOCK_TIME).await?;
             } else {
@@ -317,11 +349,12 @@ pub async fn spam_callback_default(
     log_txs: bool,
     send_fcu: bool,
     rpc_client: Option<Arc<AnyProvider>>,
-    auth_client: Option<Arc<AuthProvider>>,
+    auth_client: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
 ) -> SpamCallbackType {
     if let Some(rpc_client) = rpc_client {
         if log_txs {
-            let log_callback = LogCallback::new(rpc_client.clone(), auth_client.clone(), send_fcu);
+            let log_callback =
+                LogCallback::new(rpc_client.clone(), auth_client.map(|c| c.clone()), send_fcu);
             return SpamCallbackType::Log(log_callback);
         }
     }
@@ -392,6 +425,7 @@ mod test {
         providers::{DynProvider, Provider, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
+    use contender_engine_provider::AuthProviderEth;
 
     use super::fund_accounts;
 
@@ -425,13 +459,13 @@ mod test {
         let tx_type = alloy::consensus::TxType::Eip1559;
 
         // send eth to the new signer
-        fund_accounts(
+        fund_accounts::<AuthProviderEth>(
             &recipient_addresses,
             &default_signer,
             &rpc_client,
             min_balance,
             tx_type,
-            (None, false),
+            &Default::default(),
         )
         .await
         .unwrap();
@@ -442,7 +476,7 @@ mod test {
             assert_eq!(balance, U256::from(ETH_TO_WEI));
         }
 
-        let res = fund_accounts(
+        let res = fund_accounts::<AuthProviderEth>(
             &["0x0000000000000000000000000000000000000014"
                 .parse::<Address>()
                 .unwrap()],
@@ -450,7 +484,7 @@ mod test {
             &rpc_client,
             min_balance,
             tx_type,
-            (None, false),
+            &Default::default(),
         )
         .await;
         println!("res: {:?}", res);
