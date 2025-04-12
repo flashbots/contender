@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 
 use alloy::hex;
 use commands::{
+    admin::handle_admin_command,
     common::{ScenarioSendTxsCliArgs, SendSpamCliArgs},
     ContenderCli, ContenderSubcommand, DbCommand, InitializedScenario, RunCommandArgs,
     SetupCliArgs, SpamCliArgs, SpamCommandArgs,
@@ -27,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if DB.table_exists("run_txs")? {
         // check version and exit if DB version is incompatible
         let quit_early = DB.version() < DB_VERSION
-            && !matches!(&args.command, ContenderSubcommand::Db { command: _ });
+            && !matches!(&args.command, ContenderSubcommand::Db { command: _ } | ContenderSubcommand::Admin { command: _ });
         if quit_early {
             println!("Your database is incompatible with this version of contender. To backup your data, run `contender db export`.\nPlease run `contender db drop` before trying again.");
             return Ok(());
@@ -226,6 +227,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .await?
         }
+
+        ContenderSubcommand::Admin { command } => {
+            handle_admin_command(command, db).await?;
+        },
     }
     Ok(())
 }

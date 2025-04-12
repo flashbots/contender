@@ -1,6 +1,7 @@
 use clap::Subcommand;
 use std::path::PathBuf;
 
+use super::admin::AdminCommand;
 use super::setup::SetupCliArgs;
 use super::spam::SpamCliArgs;
 use crate::default_scenarios::BuiltinScenario;
@@ -8,6 +9,12 @@ use crate::util::TxTypeCli;
 
 #[derive(Debug, Subcommand)]
 pub enum ContenderSubcommand {
+    #[command(name = "admin", about = "Admin commands")]
+    Admin {
+        #[command(subcommand)]
+        command: AdminCommand,
+    },
+
     #[command(name = "db", about = "Database management commands")]
     Db {
         #[command(subcommand)]
