@@ -27,6 +27,10 @@ pub enum AdminCommand {
         /// Number of signers to generate
         #[arg(short = 'n', long, default_value = "10")]
         num_signers: usize,
+
+        /// Acknowledge that printing addresses may expose sensitive information
+        #[arg(long)]
+        confirm: bool,
     },
 
     #[command(
@@ -44,7 +48,14 @@ pub enum AdminCommand {
 
 pub async fn handle_admin_command(command: AdminCommand, db: impl DbOps) -> Result<(), Box<dyn std::error::Error>> {
     match command {
-        AdminCommand::Accounts { from_pool, scenario_file, num_signers } => {
+        AdminCommand::Accounts { from_pool, scenario_file, num_signers, confirm } => {
+            if !confirm {
+                println!("WARNING: This command will print addresses derived from seed values.");
+                println!("This operation may expose sensitive information if the output is logged or shared.");
+                println!("To proceed, run the command with --confirm flag.");
+                return Ok(());
+            }
+
             let seed_path = format!("{}/seed", data_dir()?);
             let seed_hex = std::fs::read_to_string(&seed_path)?;
             let seed_bytes = hex::decode(seed_hex.trim())?;
@@ -65,9 +76,7 @@ pub async fn handle_admin_command(command: AdminCommand, db: impl DbOps) -> Resu
                 }
             } else if let Some(scenario_path) = scenario_file {
                 // Parse the scenario file to get from_pool declarations
-                let path_str = scenario_path.to_str()
-                    .ok_or_else(|| format!("Invalid UTF-8 in scenario path: {:?}", scenario_path))?;
-                let test_config = contender_testfile::TestConfig::from_file(path_str)?;
+                let test_config = contender_testfile::TestConfig::from_file(scenario_path.to_str().unwrap())?;
                 
                 // Extract all unique from_pool declarations from the scenario
                 let mut pools = std::collections::HashSet::new();
@@ -113,24 +122,14 @@ pub async fn handle_admin_command(command: AdminCommand, db: impl DbOps) -> Resu
                 // Generate and print accounts for each pool
                 for pool in pools {
                     println!("\nAccounts for pool '{}':", pool);
-// Helper function to generate and print addresses
-fn print_addresses(pool: &str, values: impl Iterator<Item = SeedValue>, num_signers: usize) {
-    println!("Accounts for pool '{}':", pool);
-    for (i, value) in values.enumerate() {
-        let private_key = value.as_u256();
-        let signing_key = k256::ecdsa::SigningKey::from_bytes((&private_key.to_be_bytes()).into())
-            .expect("Failed to create SigningKey from private key");
-        let address = Address::from_private_key(&signing_key);
-        println!("{}: {}", i, address);
-    }
-}
-
-// In the from_pool case:
-print_addresses(&pool, rand_seed.seed_values(num_signers, None, None), num_signers);
-
-// In the scenario file case:
-println!("");
-print_addresses(&pool, rand_seed.seed_values(num_signers, None, None), num_signers);
+                    let values = rand_seed.seed_values(num_signers, None, None);
+                    for (i, value) in values.enumerate() {
+                        let private_key = value.as_u256();
+                        let signing_key = k256::ecdsa::SigningKey::from_bytes((&private_key.to_be_bytes()).into())
+                            .expect("Failed to create SigningKey from private key");
+                        let address = Address::from_private_key(&signing_key);
+                        println!("{}: {}", i, address);
+                    }
                 }
             } else {
                 println!("Either --from-pool or --scenario-file must be provided");
