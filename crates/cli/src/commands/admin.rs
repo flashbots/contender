@@ -65,7 +65,9 @@ pub async fn handle_admin_command(command: AdminCommand, db: impl DbOps) -> Resu
                 }
             } else if let Some(scenario_path) = scenario_file {
                 // Parse the scenario file to get from_pool declarations
-                let test_config = contender_testfile::TestConfig::from_file(scenario_path.to_str().unwrap())?;
+                let path_str = scenario_path.to_str()
+                    .ok_or_else(|| format!("Invalid UTF-8 in scenario path: {:?}", scenario_path))?;
+                let test_config = contender_testfile::TestConfig::from_file(path_str)?;
                 
                 // Extract all unique from_pool declarations from the scenario
                 let mut pools = std::collections::HashSet::new();
