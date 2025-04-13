@@ -7,6 +7,7 @@ use contender_core::db::DbOps;
 use crate::util::data_dir;
 use alloy_primitives::Address;
 use alloy_signer::k256;
+use contender_testfile;
 
 #[derive(Debug, Subcommand)]
 pub enum AdminCommand {
@@ -62,9 +63,63 @@ pub async fn handle_admin_command(command: AdminCommand, db: impl DbOps) -> Resu
                     let address = Address::from_private_key(&signing_key);
                     println!("{}: {}", i, address);
                 }
-            } else if let Some(_scenario_path) = scenario_file {
-                // TODO: Implement scenario file parsing to get from_pool declarations
-                println!("Scenario file parsing not yet implemented");
+            } else if let Some(scenario_path) = scenario_file {
+                // Parse the scenario file to get from_pool declarations
+                let test_config = contender_testfile::TestConfig::from_file(scenario_path.to_str().unwrap())?;
+                
+                // Extract all unique from_pool declarations from the scenario
+                let mut pools = std::collections::HashSet::new();
+                
+                // Check create steps
+                if let Some(create_steps) = &test_config.create {
+                    for step in create_steps {
+                        if let Some(pool) = &step.from_pool {
+                            pools.insert(pool.clone());
+                        }
+                    }
+                }
+                
+                // Check setup steps
+                if let Some(setup_steps) = &test_config.setup {
+                    for step in setup_steps {
+                        if let Some(pool) = &step.from_pool {
+                            pools.insert(pool.clone());
+                        }
+                    }
+                }
+                
+                // Check spam steps
+                if let Some(spam_steps) = &test_config.spam {
+                    for step in spam_steps {
+                        match step {
+                            contender_core::generator::types::SpamRequest::Tx(tx) => {
+                                if let Some(pool) = &tx.from_pool {
+                                    pools.insert(pool.clone());
+                                }
+                            }
+                            contender_core::generator::types::SpamRequest::Bundle(bundle) => {
+                                for tx in &bundle.txs {
+                                    if let Some(pool) = &tx.from_pool {
+                                        pools.insert(pool.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Generate and print accounts for each pool
+                for pool in pools {
+                    println!("\nAccounts for pool '{}':", pool);
+                    let values = rand_seed.seed_values(num_signers, None, None);
+                    for (i, value) in values.enumerate() {
+                        let private_key = value.as_u256();
+                        let signing_key = k256::ecdsa::SigningKey::from_bytes((&private_key.to_be_bytes()).into())
+                            .expect("Failed to create SigningKey from private key");
+                        let address = Address::from_private_key(&signing_key);
+                        println!("{}: {}", i, address);
+                    }
+                }
             } else {
                 println!("Either --from-pool or --scenario-file must be provided");
             }
