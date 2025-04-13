@@ -1,13 +1,15 @@
 use alloy::hex;
 use clap::Subcommand;
-use contender_core::generator::seeder::SeedValue;
+use contender_core::{
+    db::DbOps,
+    error::ContenderError,
+    generator::{seeder::SeedValue, RandSeed, seeder::Seeder},
+};
 use std::path::PathBuf;
-use contender_core::generator::{RandSeed, seeder::Seeder};
-use contender_core::db::DbOps;
-use crate::util::data_dir;
 use alloy_primitives::Address;
 use alloy_signer::k256;
 use contender_testfile;
+use crate::util::data_dir;
 
 #[derive(Debug, Subcommand)]
 pub enum AdminCommand {
@@ -46,104 +48,326 @@ pub enum AdminCommand {
     Seed,
 }
 
+/// Handles the accounts subcommand
+async fn handle_accounts(
+    from_pool: Option<String>,
+    scenario_file: Option<PathBuf>,
+    num_signers: usize,
+    confirm: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if !confirm {
+        println!("WARNING: This command will print addresses derived from seed values.");
+        println!("This operation may expose sensitive information if the output is logged or shared.");
+        println!("To proceed, run the command with --confirm flag.");
+        return Ok(());
+    }
+
+    let seed_path = format!("{}/seed", data_dir()?);
+    let seed_hex = std::fs::read_to_string(&seed_path)
+        .map_err(|e| ContenderError::with_err(e, "Failed to read seed file"))?;
+    let seed_bytes = hex::decode(seed_hex.trim())
+        .map_err(|e| ContenderError::with_err(e, "Failed to decode seed hex"))?;
+    let rand_seed = RandSeed::seed_from_bytes(&seed_bytes);
+
+    if let Some(pool) = from_pool {
+        print_accounts_for_pool(&pool, num_signers, &rand_seed)?;
+    } else if let Some(scenario_path) = scenario_file {
+        let pools = extract_pools_from_scenario(&scenario_path)?;
+        for pool in pools {
+            print_accounts_for_pool(&pool, num_signers, &rand_seed)?;
+        }
+    } else {
+        return Err(ContenderError::with_err(
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "Missing parameters"),
+            "Either --from-pool or --scenario-file must be provided"
+        ).into());
+    }
+
+    Ok(())
+}
+
+/// Prints accounts for a specific pool
+fn print_accounts_for_pool(
+    pool: &str,
+    num_signers: usize,
+    rand_seed: &RandSeed,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("\nAccounts for pool '{}':", pool);
+    let values = rand_seed.seed_values(num_signers, None, None);
+    for (i, value) in values.enumerate() {
+        let private_key = value.as_u256();
+        let signing_key = k256::ecdsa::SigningKey::from_bytes((&private_key.to_be_bytes()).into())
+            .map_err(|e| ContenderError::with_err(e, "Failed to create SigningKey"))?;
+        let address = Address::from_private_key(&signing_key);
+        println!("{}: {}", i, address);
+    }
+    Ok(())
+}
+
+/// Extracts unique pool names from a scenario file
+fn extract_pools_from_scenario(scenario_path: &PathBuf) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let test_config = contender_testfile::TestConfig::from_file(
+        scenario_path.to_str()
+            .ok_or_else(|| ContenderError::with_err(
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid path"),
+                "Invalid scenario file path"
+            ))?
+    )?;
+    let mut pools = std::collections::HashSet::new();
+
+    // Extract pools from create steps
+    if let Some(create_steps) = &test_config.create {
+        for step in create_steps {
+            if let Some(pool) = &step.from_pool {
+                pools.insert(pool.clone());
+            }
+        }
+    }
+
+    // Extract pools from setup steps
+    if let Some(setup_steps) = &test_config.setup {
+        for step in setup_steps {
+            if let Some(pool) = &step.from_pool {
+                pools.insert(pool.clone());
+            }
+        }
+    }
+
+    // Extract pools from spam steps
+    if let Some(spam_steps) = &test_config.spam {
+        for step in spam_steps {
+            match step {
+                contender_core::generator::types::SpamRequest::Tx(tx) => {
+                    if let Some(pool) = &tx.from_pool {
+                        pools.insert(pool.clone());
+                    }
+                }
+                contender_core::generator::types::SpamRequest::Bundle(bundle) => {
+                    for tx in &bundle.txs {
+                        if let Some(pool) = &tx.from_pool {
+                            pools.insert(pool.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(pools.into_iter().collect())
+}
+
+/// Handles the seed subcommand
+async fn handle_seed() -> Result<(), Box<dyn std::error::Error>> {
+    let seed_path = format!("{}/seed", data_dir()?);
+    let seed = std::fs::read_to_string(&seed_path)
+        .map_err(|e| ContenderError::with_err(e, "Failed to read seed file"))?;
+    println!("{}", seed.trim());
+    Ok(())
+}
+
 pub async fn handle_admin_command(command: AdminCommand, db: impl DbOps) -> Result<(), Box<dyn std::error::Error>> {
     match command {
-        AdminCommand::Accounts { from_pool, scenario_file, num_signers, confirm } => {
-            if !confirm {
-                println!("WARNING: This command will print addresses derived from seed values.");
-                println!("This operation may expose sensitive information if the output is logged or shared.");
-                println!("To proceed, run the command with --confirm flag.");
-                return Ok(());
-            }
-
-            let seed_path = format!("{}/seed", data_dir()?);
-            let seed_hex = std::fs::read_to_string(&seed_path)?;
-            let seed_bytes = hex::decode(seed_hex.trim())?;
-            
-            let rand_seed = RandSeed::seed_from_bytes(&seed_bytes);
-            
-            if let Some(pool) = from_pool {
-                println!("Accounts for pool '{}':", pool);
-                // Generate deterministic addresses using the seed values
-                let values = rand_seed.seed_values(num_signers, None, None);
-                for (i, value) in values.enumerate() {
-                    // Convert the seed value to a private key and derive the address
-                    let private_key = value.as_u256();
-                    let signing_key = k256::ecdsa::SigningKey::from_bytes((&private_key.to_be_bytes()).into())
-                        .expect("Failed to create SigningKey from private key");
-                    let address = Address::from_private_key(&signing_key);
-                    println!("{}: {}", i, address);
-                }
-            } else if let Some(scenario_path) = scenario_file {
-                // Parse the scenario file to get from_pool declarations
-                let test_config = contender_testfile::TestConfig::from_file(scenario_path.to_str().unwrap())?;
-                
-                // Extract all unique from_pool declarations from the scenario
-                let mut pools = std::collections::HashSet::new();
-                
-                // Check create steps
-                if let Some(create_steps) = &test_config.create {
-                    for step in create_steps {
-                        if let Some(pool) = &step.from_pool {
-                            pools.insert(pool.clone());
-                        }
-                    }
-                }
-                
-                // Check setup steps
-                if let Some(setup_steps) = &test_config.setup {
-                    for step in setup_steps {
-                        if let Some(pool) = &step.from_pool {
-                            pools.insert(pool.clone());
-                        }
-                    }
-                }
-                
-                // Check spam steps
-                if let Some(spam_steps) = &test_config.spam {
-                    for step in spam_steps {
-                        match step {
-                            contender_core::generator::types::SpamRequest::Tx(tx) => {
-                                if let Some(pool) = &tx.from_pool {
-                                    pools.insert(pool.clone());
-                                }
-                            }
-                            contender_core::generator::types::SpamRequest::Bundle(bundle) => {
-                                for tx in &bundle.txs {
-                                    if let Some(pool) = &tx.from_pool {
-                                        pools.insert(pool.clone());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // Generate and print accounts for each pool
-                for pool in pools {
-                    println!("\nAccounts for pool '{}':", pool);
-                    let values = rand_seed.seed_values(num_signers, None, None);
-                    for (i, value) in values.enumerate() {
-                        let private_key = value.as_u256();
-                        let signing_key = k256::ecdsa::SigningKey::from_bytes((&private_key.to_be_bytes()).into())
-                            .expect("Failed to create SigningKey from private key");
-                        let address = Address::from_private_key(&signing_key);
-                        println!("{}: {}", i, address);
-                    }
-                }
-            } else {
-                println!("Either --from-pool or --scenario-file must be provided");
-            }
-        },
+        AdminCommand::Accounts {
+            from_pool,
+            scenario_file,
+            num_signers,
+            confirm,
+        } => handle_accounts(from_pool, scenario_file, num_signers, confirm).await,
         AdminCommand::LatestRunId => {
             let num_runs = db.num_runs()?;
             println!("Latest run ID: {}", num_runs);
-        },
-        AdminCommand::Seed => {
-            let seed_path = format!("{}/seed", data_dir()?);
-            let seed = std::fs::read_to_string(&seed_path)?;
-            println!("{}", seed.trim());
-        },
+            Ok(())
+        }
+        AdminCommand::Seed => handle_seed().await,
     }
-    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use contender_core::db::DbOps;
+    use tempfile::tempdir;
+    use std::fs;
+    use contender_core::error::ContenderError;
+    use alloy::alloy_primitives::Address as AlloyAddress;
+
+    struct MockDb {
+        num_runs: u64,
+    }
+
+    impl DbOps for MockDb {
+        fn num_runs(&self) -> Result<u64, ContenderError> {
+            Ok(self.num_runs)
+        }
+
+        fn create_tables(&self) -> Result<(), ContenderError> {
+            Ok(())
+        }
+
+        fn insert_run(&self, _run_id: u64, _num_txs: usize, _description: &str) -> Result<u64, ContenderError> {
+            Ok(0)
+        }
+
+        fn version(&self) -> u64 {
+            0
+        }
+
+        fn get_run(&self, _run_id: u64) -> Result<Option<contender_core::db::SpamRun>, ContenderError> {
+            Ok(None)
+        }
+
+        fn insert_named_txs(&self, _txs: &[contender_core::db::NamedTx], _description: &str) -> Result<(), ContenderError> {
+            Ok(())
+        }
+
+        fn get_named_tx(&self, _name: &str, _description: &str) -> Result<Option<contender_core::db::NamedTx>, ContenderError> {
+            Ok(None)
+        }
+
+        fn get_named_tx_by_address(&self, _address: &AlloyAddress) -> Result<Option<contender_core::db::NamedTx>, ContenderError> {
+            Ok(None)
+        }
+
+        fn insert_run_txs(&self, _run_id: u64, _txs: &[contender_core::db::RunTx]) -> Result<(), ContenderError> {
+            Ok(())
+        }
+
+        fn get_run_txs(&self, _run_id: u64) -> Result<Vec<contender_core::db::RunTx>, ContenderError> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_latest_run_id() {
+        let db = MockDb { num_runs: 42 };
+        let result = handle_admin_command(AdminCommand::LatestRunId, db).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_seed_command_missing_file() {
+        let temp_dir = tempdir().unwrap();
+        let db = MockDb { num_runs: 0 };
+        
+        // Override data_dir to use temp directory
+        let seed_path = temp_dir.path().join("seed");
+        std::fs::write(&seed_path, "invalid_hex").unwrap();
+        let result = handle_admin_command(AdminCommand::Seed, db).await;
+        
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_accounts_command_no_confirm() {
+        let db = MockDb { num_runs: 0 };
+        let command = AdminCommand::Accounts {
+            from_pool: Some("test_pool".to_string()),
+            scenario_file: None,
+            num_signers: 10,
+            confirm: false,
+        };
+        
+        let result = handle_admin_command(command, db).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_accounts_command_invalid_scenario() {
+        let temp_dir = tempdir().unwrap();
+        let db = MockDb { num_runs: 0 };
+        let scenario_path = temp_dir.path().join("invalid_scenario.json");
+        std::fs::write(&scenario_path, "invalid json").unwrap();
+        
+        let command = AdminCommand::Accounts {
+            from_pool: None,
+            scenario_file: Some(scenario_path),
+            num_signers: 10,
+            confirm: true,
+        };
+        
+        let result = handle_admin_command(command, db).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_accounts_command_invalid_seed() {
+        let temp_dir = tempdir().unwrap();
+        let db = MockDb { num_runs: 0 };
+        
+        // Create a seed file with invalid hex
+        let seed_path = temp_dir.path().join("seed");
+        fs::write(&seed_path, "invalid_hex").unwrap();
+        
+        let command = AdminCommand::Accounts {
+            from_pool: Some("test_pool".to_string()),
+            scenario_file: None,
+            num_signers: 10,
+            confirm: true,
+        };
+        
+        let result = handle_admin_command(command, db).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_accounts_command_missing_parameters() {
+        let db = MockDb { num_runs: 0 };
+        let command = AdminCommand::Accounts {
+            from_pool: None,
+            scenario_file: None,
+            num_signers: 10,
+            confirm: true,
+        };
+        
+        let result = handle_admin_command(command, db).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_accounts_command_valid_scenario() {
+        let temp_dir = tempdir().unwrap();
+        let db = MockDb { num_runs: 0 };
+        
+        // Create a valid seed file
+        let seed_path = temp_dir.path().join("seed");
+        fs::write(&seed_path, "0123456789abcdef").unwrap();
+        
+        // Create a valid scenario file
+        let scenario_path = temp_dir.path().join("valid_scenario.json");
+        fs::write(&scenario_path, r#"{
+            "create": [{"from_pool": "pool1"}],
+            "setup": [{"from_pool": "pool2"}],
+            "spam": [{"tx": {"from_pool": "pool3"}}]
+        }"#).unwrap();
+        
+        let command = AdminCommand::Accounts {
+            from_pool: None,
+            scenario_file: Some(scenario_path),
+            num_signers: 10,
+            confirm: true,
+        };
+        
+        let result = handle_admin_command(command, db).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_accounts_command_invalid_private_key() {
+        let temp_dir = tempdir().unwrap();
+        let db = MockDb { num_runs: 0 };
+        
+        // Create a seed file with invalid private key
+        let seed_path = temp_dir.path().join("seed");
+        fs::write(&seed_path, "0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        
+        let command = AdminCommand::Accounts {
+            from_pool: Some("test_pool".to_string()),
+            scenario_file: None,
+            num_signers: 10,
+            confirm: true,
+        };
+        
+        let result = handle_admin_command(command, db).await;
+        assert!(result.is_err());
+    }
 } 
