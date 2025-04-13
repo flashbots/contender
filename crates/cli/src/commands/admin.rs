@@ -113,14 +113,24 @@ pub async fn handle_admin_command(command: AdminCommand, db: impl DbOps) -> Resu
                 // Generate and print accounts for each pool
                 for pool in pools {
                     println!("\nAccounts for pool '{}':", pool);
-                    let values = rand_seed.seed_values(num_signers, None, None);
-                    for (i, value) in values.enumerate() {
-                        let private_key = value.as_u256();
-                        let signing_key = k256::ecdsa::SigningKey::from_bytes((&private_key.to_be_bytes()).into())
-                            .expect("Failed to create SigningKey from private key");
-                        let address = Address::from_private_key(&signing_key);
-                        println!("{}: {}", i, address);
-                    }
+// Helper function to generate and print addresses
+fn print_addresses(pool: &str, values: impl Iterator<Item = SeedValue>, num_signers: usize) {
+    println!("Accounts for pool '{}':", pool);
+    for (i, value) in values.enumerate() {
+        let private_key = value.as_u256();
+        let signing_key = k256::ecdsa::SigningKey::from_bytes((&private_key.to_be_bytes()).into())
+            .expect("Failed to create SigningKey from private key");
+        let address = Address::from_private_key(&signing_key);
+        println!("{}: {}", i, address);
+    }
+}
+
+// In the from_pool case:
+print_addresses(&pool, rand_seed.seed_values(num_signers, None, None), num_signers);
+
+// In the scenario file case:
+println!("");
+print_addresses(&pool, rand_seed.seed_values(num_signers, None, None), num_signers);
                 }
             } else {
                 println!("Either --from-pool or --scenario-file must be provided");
