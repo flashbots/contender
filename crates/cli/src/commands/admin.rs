@@ -10,6 +10,11 @@ use alloy_primitives::Address;
 use alloy_signer::k256;
 use contender_testfile;
 use crate::util::data_dir;
+use std::collections::HashSet;
+use alloy_signer::LocalWallet;
+use crate::commands::common::ContenderError;
+use crate::core::testfile::TestConfig;
+use tracing::{info, warn, error};
 
 #[derive(Debug, Subcommand)]
 pub enum AdminCommand {
@@ -48,6 +53,26 @@ pub enum AdminCommand {
     Seed,
 }
 
+/// Reads and validates the seed file
+fn read_seed_file() -> Result<Vec<u8>, ContenderError> {
+    let seed_path = format!("{}/seed", data_dir()?);
+    let seed_hex = std::fs::read_to_string(&seed_path)
+        .map_err(|e| ContenderError::AdminError(format!("Failed to read seed file at {}: {}", seed_path, e)))?;
+    hex::decode(seed_hex.trim())
+        .map_err(|_| ContenderError::AdminError(format!("Invalid hex data in seed file at {}", seed_path)))
+}
+
+/// Prompts for confirmation before displaying sensitive information
+fn confirm_sensitive_operation(operation: &str) -> Result<(), ContenderError> {
+    println!("WARNING: This command will display sensitive information.");
+    println!("This information should not be shared or exposed in CI environments.");
+    println!("Press Enter to continue or Ctrl+C to cancel...");
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)
+        .map_err(|e| ContenderError::AdminError(format!("Failed to read input: {}", e)))?;
+    Ok(())
+}
+
 /// Handles the accounts subcommand
 async fn handle_accounts(
     from_pool: Option<String>,
@@ -55,31 +80,29 @@ async fn handle_accounts(
     num_signers: usize,
     confirm: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if !confirm {
-        println!("WARNING: This command will print addresses derived from seed values.");
-        println!("This operation may expose sensitive information if the output is logged or shared.");
-        println!("To proceed, run the command with --confirm flag.");
-        return Ok(());
+    if from_pool.is_some() && scenario_file.is_some() {
+        return Err(ContenderError::AdminError(
+            "Both --from-pool and --scenario-file were provided. Please specify only one.".to_string()
+        ).into());
     }
 
-    let seed_path = format!("{}/seed", data_dir()?);
-    let seed_hex = std::fs::read_to_string(&seed_path)
-        .map_err(|e| ContenderError::with_err(e, "Failed to read seed file"))?;
-    let seed_bytes = hex::decode(seed_hex.trim())
-        .map_err(|e| ContenderError::with_err(e, "Failed to decode seed hex"))?;
-    let rand_seed = RandSeed::seed_from_bytes(&seed_bytes);
+    if confirm {
+        confirm_sensitive_operation("displaying account addresses")?;
+    }
+
+    let seed_bytes = read_seed_file()?;
+    let seed = RandSeed::seed_from_bytes(&seed_bytes);
 
     if let Some(pool) = from_pool {
-        print_accounts_for_pool(&pool, num_signers, &rand_seed)?;
+        print_accounts_for_pool(&pool, num_signers, &seed)?;
     } else if let Some(scenario_path) = scenario_file {
         let pools = extract_pools_from_scenario(&scenario_path)?;
         for pool in pools {
-            print_accounts_for_pool(&pool, num_signers, &rand_seed)?;
+            print_accounts_for_pool(&pool, num_signers, &seed)?;
         }
     } else {
-        return Err(ContenderError::with_err(
-            std::io::Error::new(std::io::ErrorKind::InvalidInput, "Missing parameters"),
-            "Either --from-pool or --scenario-file must be provided"
+        return Err(ContenderError::AdminError(
+            "Either --from-pool or --scenario-file must be provided".to_string()
         ).into());
     }
 
@@ -87,19 +110,15 @@ async fn handle_accounts(
 }
 
 /// Prints accounts for a specific pool
-fn print_accounts_for_pool(
-    pool: &str,
-    num_signers: usize,
-    rand_seed: &RandSeed,
-) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\nAccounts for pool '{}':", pool);
-    let values = rand_seed.seed_values(num_signers, None, None);
-    for (i, value) in values.enumerate() {
-        let private_key = value.as_u256();
-        let signing_key = k256::ecdsa::SigningKey::from_bytes((&private_key.to_be_bytes()).into())
-            .map_err(|e| ContenderError::with_err(e, "Failed to create SigningKey"))?;
-        let address = Address::from_private_key(&signing_key);
-        println!("{}: {}", i, address);
+fn print_accounts_for_pool(pool: &str, num_signers: usize, seed: &RandSeed) -> Result<(), ContenderError> {
+    info!("Generating addresses for pool: {}", pool);
+    for i in 0..num_signers {
+        let signing_key = seed.derive_signing_key(pool, i)
+            .map_err(|e| ContenderError::AdminError(format!("Failed to derive signing key: {}", e)))?;
+        let wallet = LocalWallet::from_private_key(signing_key)
+            .map_err(|e| ContenderError::AdminError(format!("Failed to create wallet: {}", e)))?;
+        let address: Address = wallet.address();
+        info!("Signer {}: {}", i, address);
     }
     Ok(())
 }
@@ -158,10 +177,9 @@ fn extract_pools_from_scenario(scenario_path: &PathBuf) -> Result<Vec<String>, B
 
 /// Handles the seed subcommand
 async fn handle_seed() -> Result<(), Box<dyn std::error::Error>> {
-    let seed_path = format!("{}/seed", data_dir()?);
-    let seed = std::fs::read_to_string(&seed_path)
-        .map_err(|e| ContenderError::with_err(e, "Failed to read seed file"))?;
-    println!("{}", seed.trim());
+    confirm_sensitive_operation("displaying seed value")?;
+    let seed_bytes = read_seed_file()?;
+    println!("{}", hex::encode(seed_bytes));
     Ok(())
 }
 
@@ -237,6 +255,36 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_conflicting_parameters() {
+        let result = handle_accounts(
+            Some("test_pool".to_string()),
+            Some(PathBuf::from("test.json")),
+            10,
+            true
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Both --from-pool and --scenario-file were provided"));
+    }
+
+    #[test]
+    fn test_missing_parameters() {
+        let result = handle_accounts(None, None, 10, true);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Either --from-pool or --scenario-file must be provided"));
+    }
+
+    #[test]
+    fn test_seed_file_handling() {
+        let temp_dir = tempdir().unwrap();
+        let seed_path = temp_dir.path().join("seed");
+        std::fs::write(&seed_path, "invalid_hex").unwrap();
+
+        let result = read_seed_file();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid hex data"));
+    }
+
     #[tokio::test]
     async fn test_latest_run_id() {
         let db = MockDb { num_runs: 42 };
@@ -300,20 +348,6 @@ mod tests {
         
         let command = AdminCommand::Accounts {
             from_pool: Some("test_pool".to_string()),
-            scenario_file: None,
-            num_signers: 10,
-            confirm: true,
-        };
-        
-        let result = handle_admin_command(command, db).await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_accounts_command_missing_parameters() {
-        let db = MockDb { num_runs: 0 };
-        let command = AdminCommand::Accounts {
-            from_pool: None,
             scenario_file: None,
             num_signers: 10,
             confirm: true,
