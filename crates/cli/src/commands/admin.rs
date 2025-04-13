@@ -293,7 +293,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_seed_command_missing_file() {
+    async fn test_seed_command_invalid_hex() {
         let temp_dir = tempdir().unwrap();
         let db = MockDb { num_runs: 0 };
         
@@ -303,6 +303,7 @@ mod tests {
         let result = handle_admin_command(AdminCommand::Seed, db).await;
         
         assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid hex data"));
     }
 
     #[tokio::test]
