@@ -164,7 +164,7 @@ impl Default for EngineParams {
 /// Funds given accounts if/when their balance is below the minimum balance.
 ///
 /// TODO: remove this function
-pub async fn fund_accounts<E: AdvanceChain>(
+pub async fn fund_accounts(
     recipient_addresses: &[Address],
     fund_with: &PrivateKeySigner,
     rpc_client: &AnyProvider,
@@ -275,7 +275,11 @@ pub async fn fund_accounts<E: AdvanceChain>(
 
     tokio::time::sleep(Duration::from_secs(DEFAULT_BLOCK_TIME)).await;
 
+    let mut pending_txs = vec![];
     while let Some(tx) = receiver_pending_tx.recv().await {
+        pending_txs.push(tx);
+    }
+    for txs_chunk in pending_txs.chunks(100) {
         if *call_fcu {
             if let Some(engine_provider) = &engine_provider {
                 engine_provider.advance_chain(DEFAULT_BLOCK_TIME).await?;
@@ -283,8 +287,10 @@ pub async fn fund_accounts<E: AdvanceChain>(
                 return Err("No engine provider found".into());
             }
         }
-        let pending = rpc_client.watch_pending_transaction(tx).await?;
-        println!("funding tx confirmed ({})", pending.await?);
+        for tx in txs_chunk {
+            let pending = rpc_client.watch_pending_transaction(tx.to_owned()).await?;
+            println!("funding tx confirmed ({})", pending.await?);
+        }
     }
 
     Ok(())
@@ -309,7 +315,14 @@ pub async fn fund_account(
         chain_id: Some(chain_id),
         ..Default::default()
     };
-    complete_tx_request(&mut tx_req, tx_type, gas_price, 1_u128, 21000, chain_id);
+    complete_tx_request(
+        &mut tx_req,
+        tx_type,
+        gas_price,
+        gas_price / 10,
+        21000,
+        chain_id,
+    );
 
     let eth_wallet = EthereumWallet::from(sender.to_owned());
     let tx = tx_req.build(&eth_wallet).await?;
@@ -425,7 +438,6 @@ mod test {
         providers::{DynProvider, Provider, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
-    use contender_engine_provider::AuthProviderEth;
 
     use super::fund_accounts;
 
@@ -459,7 +471,7 @@ mod test {
         let tx_type = alloy::consensus::TxType::Eip1559;
 
         // send eth to the new signer
-        fund_accounts::<AuthProviderEth>(
+        fund_accounts(
             &recipient_addresses,
             &default_signer,
             &rpc_client,
@@ -476,7 +488,7 @@ mod test {
             assert_eq!(balance, U256::from(ETH_TO_WEI));
         }
 
-        let res = fund_accounts::<AuthProviderEth>(
+        let res = fund_accounts(
             &["0x0000000000000000000000000000000000000014"
                 .parse::<Address>()
                 .unwrap()],

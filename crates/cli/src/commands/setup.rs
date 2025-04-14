@@ -18,7 +18,9 @@ use contender_core::{
     generator::RandSeed,
     test_scenario::{TestScenario, TestScenarioParams},
 };
-use contender_engine_provider::{AuthProviderEth, AuthProviderOp, DEFAULT_BLOCK_TIME};
+use contender_engine_provider::{
+    AdvanceChain, AuthProviderEth, AuthProviderOp, DEFAULT_BLOCK_TIME,
+};
 use contender_testfile::TestConfig;
 use std::{
     str::FromStr,
@@ -114,7 +116,6 @@ pub async fn setup(
 
     // user-provided signers must be pre-funded
     let admin_signer = user_signers_with_defaults[0].to_owned();
-
     let all_agent_addresses = agents.all_signer_addresses();
 
     let params = TestScenarioParams {
@@ -127,65 +128,41 @@ pub async fn setup(
         pending_tx_timeout_secs: 12,
     };
 
-    let mut scenario = if let Some(engine_args) = engine_args {
-        if use_op {
+    let engine_params = if let Some(engine_args) = engine_args {
+        let auth_provider: Arc<dyn AdvanceChain + Send + Sync + 'static> = if use_op {
             let auth_provider =
                 AuthProviderOp::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret)
                     .await?;
-            let auth_client = Arc::new(auth_provider);
-            fund_accounts::<AuthProviderOp>(
-                &all_agent_addresses,
-                &admin_signer,
-                &rpc_client,
-                min_balance,
-                tx_type,
-                &EngineParams::new(auth_client.clone(), call_fcu),
-            )
-            .await?;
-            TestScenario::new(
-                testconfig.to_owned(),
-                db.clone().into(),
-                seed,
-                params,
-                Some(auth_client.clone()),
-            )
-            .await?
+            Arc::new(auth_provider)
         } else {
             let auth_provider =
                 AuthProviderEth::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret)
                     .await?;
-            let auth_client = Arc::new(auth_provider);
-            fund_accounts::<AuthProviderEth>(
-                &all_agent_addresses,
-                &admin_signer,
-                &rpc_client,
-                min_balance,
-                tx_type,
-                &EngineParams::new(auth_client.clone(), call_fcu),
-            )
-            .await?;
-            TestScenario::new(
-                testconfig.to_owned(),
-                db.clone().into(),
-                seed,
-                params,
-                Some(auth_client.clone()),
-            )
-            .await?
-        }
+            Arc::new(auth_provider)
+        };
+        EngineParams::new(auth_provider.clone(), call_fcu)
     } else {
-        fund_accounts::<AuthProviderEth>(
-            &all_agent_addresses,
-            &admin_signer,
-            &rpc_client,
-            min_balance,
-            tx_type,
-            &Default::default(),
-        )
-        .await?;
-
-        TestScenario::new(testconfig.to_owned(), db.clone().into(), seed, params, None).await?
+        EngineParams::default()
     };
+
+    fund_accounts(
+        &all_agent_addresses,
+        &admin_signer,
+        &rpc_client,
+        min_balance,
+        tx_type,
+        &engine_params,
+    )
+    .await?;
+
+    let mut scenario = TestScenario::new(
+        testconfig.to_owned(),
+        db.clone().into(),
+        seed,
+        params,
+        engine_params.engine_provider,
+    )
+    .await?;
 
     let total_cost = scenario.estimate_setup_cost().await?;
     if min_balance < total_cost {

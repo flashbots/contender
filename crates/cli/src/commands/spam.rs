@@ -200,66 +200,39 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static, E: AdvanceChain
         pending_tx_timeout_secs: *timeout_secs,
     };
 
-    let scenario = if let Some(engine_args) = engine_args {
+    let engine_params = if let Some(engine_args) = engine_args {
         let EngineArgs {
             auth_rpc_url,
             jwt_secret,
-        } = engine_args;
-
-        if *use_op {
-            let auth_client = AuthProviderOp::from_jwt_file(auth_rpc_url, jwt_secret).await?;
-            let auth_client = Arc::new(auth_client);
-
-            fund_accounts::<AuthProviderOp>(
-                &all_signer_addrs,
-                &user_signers[0],
-                &rpc_client,
-                min_balance,
-                *tx_type,
-                &EngineParams::new(auth_client.clone(), *call_forkchoice),
-            )
-            .await?;
-            TestScenario::new(
-                testconfig,
-                db.clone().into(),
-                rand_seed,
-                params,
-                Some(auth_client.clone()),
-            )
-            .await?
+        } = &engine_args;
+        let auth_provider: Arc<dyn AdvanceChain + Send + Sync + 'static> = if *use_op {
+            Arc::new(AuthProviderOp::from_jwt_file(auth_rpc_url, jwt_secret).await?)
         } else {
-            let auth_client = AuthProviderEth::from_jwt_file(auth_rpc_url, jwt_secret).await?;
-            let auth_client = Arc::new(auth_client);
-            fund_accounts::<AuthProviderEth>(
-                &all_signer_addrs,
-                &user_signers[0],
-                &rpc_client,
-                min_balance,
-                *tx_type,
-                &EngineParams::new(auth_client.clone(), *call_forkchoice),
-            )
-            .await?;
-            TestScenario::new(
-                testconfig,
-                db.clone().into(),
-                rand_seed,
-                params,
-                Some(auth_client.clone()),
-            )
-            .await?
-        }
+            Arc::new(AuthProviderEth::from_jwt_file(auth_rpc_url, jwt_secret).await?)
+        };
+        EngineParams::new(auth_provider, *call_forkchoice)
     } else {
-        fund_accounts::<AuthProviderEth>(
-            &all_signer_addrs,
-            &user_signers[0],
-            &rpc_client,
-            min_balance,
-            *tx_type,
-            &Default::default(),
-        )
-        .await?;
-        TestScenario::new(testconfig, db.clone().into(), rand_seed, params, None).await?
+        EngineParams::default()
     };
+
+    fund_accounts(
+        &all_signer_addrs,
+        &user_signers[0],
+        &rpc_client,
+        min_balance,
+        *tx_type,
+        &engine_params,
+    )
+    .await?;
+
+    let scenario = TestScenario::new(
+        testconfig,
+        db.clone().into(),
+        rand_seed,
+        params,
+        engine_params.engine_provider,
+    )
+    .await?;
 
     // don't multiply by TPS or TPB, because that number scales the number of accounts; this cost is per account
     let total_cost = U256::from(*duration) * scenario.get_max_spam_cost(&user_signers).await?;
