@@ -125,7 +125,7 @@ impl AdvanceChain for AuthProviderOp {
         let payload_id = res.payload_id.ok_or("need payload ID")?;
 
         // wait for builder to build
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(1000)).await;
 
         //
         // getPayload w/ new ID
