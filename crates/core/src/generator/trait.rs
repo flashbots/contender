@@ -322,7 +322,6 @@ where
                 let num_steps = spam_steps.len();
                 // round num_txs up to the nearest multiple of num_steps to prevent missed steps
                 let num_txs = num_txs + (num_txs % num_steps);
-                let mut placeholder_map = HashMap::<K, String>::new();
                 let mut canonical_fuzz_map = HashMap::<String, Vec<U256>>::new();
 
                 // finds fuzzed values for a function call definition and populates `canonical_fuzz_map` with fuzzy values.
