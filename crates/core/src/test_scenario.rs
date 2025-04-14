@@ -3,7 +3,7 @@ use crate::db::{DbOps, NamedTx};
 use crate::error::ContenderError;
 use crate::generator::named_txs::ExecutionRequest;
 use crate::generator::templater::Templater;
-use crate::generator::types::{AnyProvider, EthProvider};
+use crate::generator::types::AnyProvider;
 use crate::generator::util::complete_tx_request;
 use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
@@ -21,6 +21,7 @@ use alloy::primitives::{keccak256, Address, FixedBytes, U256};
 use alloy::providers::{DynProvider, PendingTransactionConfig, Provider, ProviderBuilder};
 use alloy::rpc::client::ClientBuilder;
 use alloy::rpc::types::TransactionRequest;
+use alloy::serde::WithOtherFields;
 use alloy::signers::local::{LocalSigner, PrivateKeySigner};
 use alloy::transports::http::reqwest::Url;
 use contender_bundle_provider::bundle_provider::new_basic_bundle;
@@ -46,7 +47,6 @@ where
     pub db: Arc<D>,
     pub rpc_url: Url,
     pub rpc_client: Arc<AnyProvider>,
-    pub eth_client: Arc<EthProvider>,
     pub bundle_client: Option<Arc<BundleClient>>,
     pub builder_rpc_url: Option<Url>,
     pub rand_seed: S,
@@ -191,7 +191,6 @@ where
             db: db.clone(),
             rpc_url: rpc_url.to_owned(),
             rpc_client: Arc::new(rpc_client),
-            eth_client: Arc::new(DynProvider::new(ProviderBuilder::new().on_http(rpc_url))),
             bundle_client,
             builder_rpc_url,
             rand_seed,
@@ -377,6 +376,7 @@ where
                 .to_owned();
             let wallet = ProviderBuilder::new()
                 .wallet(wallet_conf)
+                .network::<AnyNetwork>()
                 .on_http(self.rpc_url.to_owned());
 
             println!(
@@ -388,7 +388,7 @@ where
             let handle = tokio::task::spawn(async move {
                 // estimate gas limit
                 let gas_limit = wallet
-                    .estimate_gas(tx_req.tx.to_owned())
+                    .estimate_gas(WithOtherFields::new(tx_req.tx.to_owned()))
                     .await
                     .expect("failed to estimate gas");
 
@@ -396,7 +396,7 @@ where
                 let mut tx = tx_req.tx;
                 complete_tx_request(&mut tx, tx_type, gas_price, (GWEI_TO_WEI as u128).min(gas_price - 1), gas_limit, chain_id);
 
-                let res = wallet.send_transaction(tx).await;
+                let res = wallet.send_transaction(WithOtherFields::new(tx)).await;
                 if let Err(err) = res {
                     let err = err.to_string();
                     if err.to_lowercase().contains("already known") {
@@ -555,8 +555,8 @@ where
             let gas_limit = if let Some(gas) = tx_req.gas {
                 gas
             } else {
-                self.eth_client
-                    .estimate_gas(tx_req.to_owned())
+                self.rpc_client
+                    .estimate_gas(WithOtherFields::new(tx_req.to_owned()))
                     .await
                     .map_err(|e| ContenderError::with_err(e, "failed to estimate gas for tx"))?
             };
