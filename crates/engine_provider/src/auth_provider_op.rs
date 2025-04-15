@@ -1,9 +1,10 @@
-use crate::{AdvanceChain, util::read_jwt_file};
+use crate::{util::read_jwt_file, AdvanceChain};
 use alloy::{
     eips::Encodable2718,
     hex as make_hex,
     hex::ToHexExt,
-    primitives::{B256, BlockHash, Bytes, TxKind, U256, address},
+    primitives::address,
+    primitives::{BlockHash, Bytes, TxKind, B256, U256},
 };
 use alloy_rpc_types_engine::{ForkchoiceUpdated, PayloadAttributes};
 use op_alloy_consensus::{OpTypedTransaction, TxDeposit};
