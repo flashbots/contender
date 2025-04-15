@@ -1067,8 +1067,11 @@ where
 
     pub async fn flush_tx_cache(&self, block_start: u64, run_id: u64) -> Result<()> {
         let mut block_counter = 0;
+        // the number of blocks to check for stalled txs
+        let block_timeout = ((self.pending_tx_timeout_secs / self.ctx.block_time_secs) + 1)
+            // must be at least 2 blocks because otherwise we have nothing to compare
+            .max(2);
         let mut cache_size_queue = vec![];
-        let block_timeout = self.pending_tx_timeout_secs / self.ctx.block_time_secs;
         cache_size_queue.resize(block_timeout as usize, 1);
         loop {
             let pending_txs = self
@@ -1081,36 +1084,35 @@ where
 
             if pending_txs.is_empty() {
                 break;
-            } else {
-                // if a tx has been sitting in the cache for > T seconds, remove it
-                let current_timestamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("time went backwards")
-                    .as_millis();
+            }
 
-                // remove cached txs if the size hasn't changed for the last N blocks
-                if cache_size_queue
-                    .iter()
-                    .all(|&size| size == cache_size_queue[0])
-                {
-                    println!(
+            let current_timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time went backwards")
+                .as_millis();
+
+            // remove cached txs if the size hasn't changed for the last N blocks
+            if cache_size_queue
+                .iter()
+                .all(|&size| size == cache_size_queue[0])
+            {
+                println!(
                             "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
                         );
-                    for tx in &pending_txs {
-                        // only remove txs that have been waiting for > T seconds
-                        if current_timestamp
-                            > (tx.start_timestamp + (self.pending_tx_timeout_secs * 1000)) as u128
-                        {
-                            self.msg_handle
-                                .remove_cached_tx(tx.tx_hash)
-                                .await
-                                .map_err(|e| {
-                                    ContenderError::with_err(
-                                        e.deref(),
-                                        "failed to remove tx from cache",
-                                    )
-                                })?;
-                        }
+                for tx in &pending_txs {
+                    // only remove txs that have been waiting for > T seconds
+                    if current_timestamp
+                        > (tx.start_timestamp + (self.pending_tx_timeout_secs * 1000)) as u128
+                    {
+                        self.msg_handle
+                            .remove_cached_tx(tx.tx_hash)
+                            .await
+                            .map_err(|e| {
+                                ContenderError::with_err(
+                                    e.deref(),
+                                    "failed to remove tx from cache",
+                                )
+                            })?;
                     }
                 }
             }
