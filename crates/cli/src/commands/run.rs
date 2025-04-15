@@ -59,7 +59,7 @@ pub async fn run(
     let scenario_config = match args.scenario {
         BuiltinScenario::FillBlock => BuiltinScenarioConfig::fill_block(
             block_gas_limit,
-            args.txs_per_duration as u64,
+            args.txs_per_duration,
             admin_signer.address(),
             fill_percent,
         ),
