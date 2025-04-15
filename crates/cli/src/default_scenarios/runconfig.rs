@@ -69,7 +69,7 @@ impl From<BuiltinScenarioConfig> for TestConfig {
                     fill_percent, gas_per_tx
                 );
                 let spam_txs = (0
-                    ..(num_txs + num_txs / 2/* add 50% to ensure block can get more than full */))
+                    ..(num_txs + num_txs / 10/* add 10% to ensure block can get more than full */))
                     .map(|_| {
                         SpamRequest::Tx(FunctionCallDefinition {
                             to: "{SpamMe}".to_owned(),

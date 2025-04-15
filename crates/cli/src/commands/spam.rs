@@ -244,16 +244,13 @@ pub async fn spam<
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("Time went backwards")
                     .as_millis();
-                run_id = Some(db.insert_run(
-                    timestamp as u64,
-                    (txs_per_block * duration) as usize,
-                    testfile,
-                )?);
+                run_id =
+                    Some(db.insert_run(timestamp as u64, txs_per_block * duration, testfile)?);
                 spammer
                     .spam_rpc(
                         test_scenario,
-                        *txs_per_block as usize,
-                        *duration as usize,
+                        *txs_per_block,
+                        *duration,
                         run_id,
                         cback.into(),
                     )
@@ -261,13 +258,7 @@ pub async fn spam<
             }
             SpamCallbackType::Nil(cback) => {
                 spammer
-                    .spam_rpc(
-                        test_scenario,
-                        *txs_per_block as usize,
-                        *duration as usize,
-                        None,
-                        cback.into(),
-                    )
+                    .spam_rpc(test_scenario, *txs_per_block, *duration, None, cback.into())
                     .await?;
             }
         };
@@ -277,34 +268,21 @@ pub async fn spam<
     // trigger timed spammer
     let tps = txs_per_second.unwrap_or(10);
     println!("Timed spamming with {} txs per second", tps);
-    let interval = std::time::Duration::from_secs(1);
-    let spammer = TimedSpammer::new(interval);
+    let spammer = TimedSpammer::new(std::time::Duration::from_secs(1));
     match spam_callback_default(!disable_reporting, Some(&rpc_client)).await {
         SpamCallbackType::Log(cback) => {
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_millis();
-            run_id = Some(db.insert_run(timestamp as u64, (tps * duration) as usize, testfile)?);
+            run_id = Some(db.insert_run(timestamp as u64, tps * duration, testfile)?);
             spammer
-                .spam_rpc(
-                    test_scenario,
-                    tps as usize,
-                    *duration as usize,
-                    run_id,
-                    cback.into(),
-                )
+                .spam_rpc(test_scenario, tps, *duration, run_id, cback.into())
                 .await?;
         }
         SpamCallbackType::Nil(cback) => {
             spammer
-                .spam_rpc(
-                    test_scenario,
-                    tps as usize,
-                    *duration as usize,
-                    None,
-                    cback.into(),
-                )
+                .spam_rpc(test_scenario, tps, *duration, None, cback.into())
                 .await?;
         }
     };

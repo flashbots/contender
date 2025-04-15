@@ -95,9 +95,9 @@ pub enum ContenderSubcommand {
             short,
             long = "interval",
             long_help = "Interval in seconds between each batch of requests.",
-            default_value = "12"
+            default_value = "1"
         )]
-        interval: usize,
+        interval: f64,
 
         #[arg(
             short,
@@ -105,15 +105,15 @@ pub enum ContenderSubcommand {
             long_help = "The number of batches of requests to send.",
             default_value = "10"
         )]
-        duration: usize,
+        duration: u64,
 
         #[arg(
             short = 'n',
             long = "num-txs",
             long_help = "The number of txs to send on each elapsed interval.",
-            default_value = "100"
+            default_value = "50"
         )]
-        txs_per_duration: usize,
+        txs_per_duration: u64,
 
         #[arg(
             long,
