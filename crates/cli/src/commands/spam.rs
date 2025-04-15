@@ -34,42 +34,6 @@ pub struct EngineArgs {
     pub jwt_secret: PathBuf,
 }
 
-#[derive(Debug)]
-pub struct SpamCommandArgs {
-    pub testfile: String,
-    pub rpc_url: String,
-    pub builder_url: Option<String>,
-    pub txs_per_block: Option<u64>,
-    pub txs_per_second: Option<u64>,
-    pub duration: u64,
-    pub seed: String,
-    pub private_keys: Option<Vec<String>>,
-    pub disable_reporting: bool,
-    pub min_balance: String,
-    pub tx_type: TxType,
-    /// Provide to enable engine calls (required to use `call_forkchoice`)
-    pub engine_args: Option<EngineArgs>,
-    /// Call `engine_forkchoiceUpdated` after each block
-    pub call_forkchoice: bool,
-    pub gas_price_percent_add: Option<u64>,
-    pub timeout_secs: u64,
-    /// Use OP RPC provider
-    pub use_op: bool,
-}
-
-impl SpamCommandArgs {
-    pub async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
-        &self,
-        db: &D,
-    ) -> Result<TestScenario<D, RandSeed, TestConfig>, Box<dyn std::error::Error>> {
-        if self.use_op {
-            init_scenario::<D, AuthProviderOp>(db, self).await
-        } else {
-            init_scenario::<D, AuthProviderEth>(db, self).await
-        }
-    }
-}
-
 #[derive(Debug, clap::Args)]
 pub struct SpamCliArgs {
     #[command(flatten)]
@@ -105,67 +69,90 @@ pub struct SpamCliArgs {
     pub gas_price_percent_add: Option<u64>,
 }
 
-/// Initializes a TestScenario with the given arguments.
-async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static, E: AdvanceChain>(
-    db: &D,
-    args: &SpamCommandArgs,
-) -> Result<TestScenario<D, RandSeed, TestConfig>, Box<dyn std::error::Error>> {
-    println!("Initializing spammer...");
-    let SpamCommandArgs {
-        txs_per_block,
-        txs_per_second,
-        testfile,
-        duration,
-        seed,
-        rpc_url,
-        builder_url,
-        min_balance,
-        private_keys,
-        tx_type,
-        gas_price_percent_add,
-        call_forkchoice,
-        engine_args,
-        timeout_secs,
-        use_op,
-        ..
-    } = &args;
+#[derive(Debug)]
+pub struct SpamCommandArgs {
+    pub testfile: String,
+    pub rpc_url: String,
+    pub builder_url: Option<String>,
+    pub txs_per_block: Option<u64>,
+    pub txs_per_second: Option<u64>,
+    pub duration: u64,
+    pub seed: String,
+    pub private_keys: Option<Vec<String>>,
+    pub disable_reporting: bool,
+    pub min_balance: String,
+    pub tx_type: TxType,
+    /// Provide to enable engine calls (required to use `call_forkchoice`)
+    pub engine_args: Option<EngineArgs>,
+    /// Call `engine_forkchoiceUpdated` after each block
+    pub call_forkchoice: bool,
+    pub gas_price_percent_add: Option<u64>,
+    pub timeout_secs: u64,
+    /// Use OP RPC provider
+    pub use_op: bool,
+}
 
-    let testconfig = TestConfig::from_file(testfile)?;
-    let rand_seed = RandSeed::seed_from_str(seed);
-    let url = Url::parse(rpc_url).expect("Invalid RPC URL");
-    let rpc_client = DynProvider::new(
-        ProviderBuilder::new()
-            .network::<AnyNetwork>()
-            .on_http(url.to_owned()),
-    );
+impl SpamCommandArgs {
+    pub async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
+        &self,
+        db: &D,
+    ) -> Result<TestScenario<D, RandSeed, TestConfig>, Box<dyn std::error::Error>> {
+        println!("Initializing spammer...");
+        let SpamCommandArgs {
+            txs_per_block,
+            txs_per_second,
+            testfile,
+            duration,
+            seed,
+            rpc_url,
+            builder_url,
+            min_balance,
+            private_keys,
+            tx_type,
+            gas_price_percent_add,
+            call_forkchoice,
+            engine_args,
+            timeout_secs,
+            use_op,
+            ..
+        } = &self;
 
-    let min_balance = parse_ether(min_balance)?;
+        let testconfig = TestConfig::from_file(testfile)?;
+        let rand_seed = RandSeed::seed_from_str(seed);
+        let url = Url::parse(rpc_url).expect("Invalid RPC URL");
+        let rpc_client = DynProvider::new(
+            ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .on_http(url.to_owned()),
+        );
 
-    let user_signers = get_signers_with_defaults(private_keys.to_owned());
-    let spam = testconfig
-        .spam
-        .as_ref()
-        .expect("No spam function calls found in testfile");
+        let min_balance = parse_ether(min_balance)?;
 
-    if spam.is_empty() {
-        return Err(ContenderError::SpamError("No spam calls found in testfile", None).into());
-    }
+        let user_signers = get_signers_with_defaults(private_keys.to_owned());
+        let spam = testconfig
+            .spam
+            .as_ref()
+            .expect("No spam function calls found in testfile");
 
-    // distill all from_pool arguments from the spam requests
-    let from_pool_declarations = testconfig.get_spam_pools();
+        if spam.is_empty() {
+            return Err(ContenderError::SpamError("No spam calls found in testfile", None).into());
+        }
 
-    let mut agents = AgentStore::new();
-    let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam.len() as u64));
-    let signers_per_period = txs_per_duration / from_pool_declarations.len().max(1) as u64;
-    agents.init(
-        &from_pool_declarations,
-        signers_per_period as usize,
-        &rand_seed,
-    );
+        // distill all from_pool arguments from the spam requests
+        let from_pool_declarations = testconfig.get_spam_pools();
 
-    let all_agents = agents.all_agents().collect::<Vec<_>>();
-    if (txs_per_duration as usize) < all_agents.len() {
-        return Err(ContenderError::SpamError(
+        let mut agents = AgentStore::new();
+        let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam.len() as u64));
+        let signers_per_period = txs_per_duration / from_pool_declarations.len().max(1) as u64;
+        agents.init(
+            &from_pool_declarations,
+            signers_per_period as usize,
+            &rand_seed,
+        );
+
+        let all_agents = agents.all_agents().collect::<Vec<_>>();
+        if (txs_per_duration as usize) < all_agents.len() {
+            return Err(ContenderError::SpamError(
             "Not enough signers to cover all agent pools. Set --tps or --tpb to a higher value.",
             format!(
                 "signers_per_period: {}, agents: {}",
@@ -175,81 +162,82 @@ async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static, E: AdvanceChain
             .into(),
         )
         .into());
-    }
+        }
 
-    check_private_keys(&testconfig, &user_signers);
+        check_private_keys(&testconfig, &user_signers);
 
-    if txs_per_block.is_some() && txs_per_second.is_some() {
-        panic!("Cannot set both --txs-per-block and --txs-per-second");
-    }
-    if txs_per_block.is_none() && txs_per_second.is_none() {
-        panic!("Must set either --txs-per-block (--tpb) or --txs-per-second (--tps)");
-    }
+        if txs_per_block.is_some() && txs_per_second.is_some() {
+            panic!("Cannot set both --txs-per-block and --txs-per-second");
+        }
+        if txs_per_block.is_none() && txs_per_second.is_none() {
+            panic!("Must set either --txs-per-block (--tpb) or --txs-per-second (--tps)");
+        }
 
-    let all_signer_addrs = agents.all_signer_addresses();
+        let all_signer_addrs = agents.all_signer_addresses();
 
-    let params = TestScenarioParams {
-        rpc_url: url,
-        builder_rpc_url: builder_url
-            .to_owned()
-            .map(|url| Url::parse(&url).expect("Invalid builder URL")),
-        signers: user_signers.to_owned(),
-        agent_store: agents.to_owned(),
-        tx_type: *tx_type,
-        gas_price_percent_add: *gas_price_percent_add,
-        pending_tx_timeout_secs: *timeout_secs,
-    };
-
-    let engine_params = if let Some(engine_args) = engine_args {
-        let EngineArgs {
-            auth_rpc_url,
-            jwt_secret,
-        } = &engine_args;
-        let auth_provider: Arc<dyn AdvanceChain + Send + Sync + 'static> = if *use_op {
-            Arc::new(AuthProviderOp::from_jwt_file(auth_rpc_url, jwt_secret).await?)
-        } else {
-            Arc::new(AuthProviderEth::from_jwt_file(auth_rpc_url, jwt_secret).await?)
+        let params = TestScenarioParams {
+            rpc_url: url,
+            builder_rpc_url: builder_url
+                .to_owned()
+                .map(|url| Url::parse(&url).expect("Invalid builder URL")),
+            signers: user_signers.to_owned(),
+            agent_store: agents.to_owned(),
+            tx_type: *tx_type,
+            gas_price_percent_add: *gas_price_percent_add,
+            pending_tx_timeout_secs: *timeout_secs,
         };
-        EngineParams::new(auth_provider, *call_forkchoice)
-    } else {
-        EngineParams::default()
-    };
 
-    fund_accounts(
-        &all_signer_addrs,
-        &user_signers[0],
-        &rpc_client,
-        min_balance,
-        *tx_type,
-        &engine_params,
-    )
-    .await?;
+        let engine_params = if let Some(engine_args) = engine_args {
+            let EngineArgs {
+                auth_rpc_url,
+                jwt_secret,
+            } = &engine_args;
+            let auth_provider: Arc<dyn AdvanceChain + Send + Sync + 'static> = if *use_op {
+                Arc::new(AuthProviderOp::from_jwt_file(auth_rpc_url, jwt_secret).await?)
+            } else {
+                Arc::new(AuthProviderEth::from_jwt_file(auth_rpc_url, jwt_secret).await?)
+            };
+            EngineParams::new(auth_provider, *call_forkchoice)
+        } else {
+            EngineParams::default()
+        };
 
-    let scenario = TestScenario::new(
-        testconfig,
-        db.clone().into(),
-        rand_seed,
-        params,
-        engine_params.engine_provider,
-    )
-    .await?;
-
-    // don't multiply by TPS or TPB, because that number scales the number of accounts; this cost is per account
-    let total_cost = U256::from(*duration) * scenario.get_max_spam_cost(&user_signers).await?;
-    if min_balance < U256::from(total_cost) {
-        return Err(ContenderError::SpamError(
-            "min_balance is not enough to cover the cost of the spam transactions",
-            format!(
-                "min_balance: {}, total_cost: {}",
-                format_ether(min_balance),
-                format_ether(total_cost)
-            )
-            .into(),
+        fund_accounts(
+            &all_signer_addrs,
+            &user_signers[0],
+            &rpc_client,
+            min_balance,
+            *tx_type,
+            &engine_params,
         )
-        .into());
-    }
+        .await?;
 
-    Ok(scenario)
+        let scenario = TestScenario::new(
+            testconfig,
+            db.clone().into(),
+            rand_seed,
+            params,
+            engine_params.engine_provider,
+        )
+        .await?;
+
+        // don't multiply by TPS or TPB, because that number scales the number of accounts; this cost is per account
+        let total_cost = U256::from(*duration) * scenario.get_max_spam_cost(&user_signers).await?;
+        if min_balance < U256::from(total_cost) {
+            return Err(ContenderError::SpamError(
+                "min_balance is not enough to cover the cost of the spam transactions",
+                format!(
+                    "min_balance: {}, total_cost: {}",
+                    format_ether(min_balance),
+                    format_ether(total_cost)
+                )
+                .into(),
+            )
+            .into());
+        }
+
+        Ok(scenario)
+    }
 }
 
 /// Runs spammer and returns run ID.
@@ -276,7 +264,7 @@ pub async fn spam<
     let mut run_id = None;
 
     let rpc_client = test_scenario.rpc_client.clone();
-    let auth_client = test_scenario.auth_provider.to_owned().map(|p| p.clone());
+    let auth_client = test_scenario.auth_provider.to_owned();
 
     // thread-safe flag to stop spammer at different stages
     let done_fcu = AtomicBool::new(false);
@@ -325,16 +313,13 @@ pub async fn spam<
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("Time went backwards")
                     .as_millis();
-                run_id = Some(db.insert_run(
-                    timestamp as u64,
-                    (txs_per_block * duration) as usize,
-                    testfile,
-                )?);
+                run_id =
+                    Some(db.insert_run(timestamp as u64, txs_per_block * duration, testfile)?);
                 spammer
                     .spam_rpc(
                         test_scenario,
-                        *txs_per_block as usize,
-                        *duration as usize,
+                        *txs_per_block,
+                        *duration,
                         run_id,
                         tx_callback.into(),
                         is_sending_done.clone(),
@@ -345,8 +330,8 @@ pub async fn spam<
                 spammer
                     .spam_rpc(
                         test_scenario,
-                        *txs_per_block as usize,
-                        *duration as usize,
+                        *txs_per_block,
+                        *duration,
                         None,
                         tx_callback.into(),
                         is_sending_done.clone(),
@@ -360,8 +345,7 @@ pub async fn spam<
     // trigger timed spammer
     let tps = txs_per_second.unwrap_or(10);
     println!("Timed spamming with {} txs per second", tps);
-    let interval = std::time::Duration::from_secs(1);
-    let spammer = TimedSpammer::new(interval);
+    let spammer = TimedSpammer::new(std::time::Duration::from_secs(1));
     match spam_callback_default(
         !disable_reporting,
         *call_forkchoice,
@@ -375,12 +359,12 @@ pub async fn spam<
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_millis();
-            run_id = Some(db.insert_run(timestamp as u64, (tps * duration) as usize, testfile)?);
+            run_id = Some(db.insert_run(timestamp as u64, tps * duration, testfile)?);
             spammer
                 .spam_rpc(
                     test_scenario,
-                    tps as usize,
-                    *duration as usize,
+                    tps,
+                    *duration,
                     run_id,
                     tx_callback.into(),
                     is_sending_done.clone(),
@@ -391,8 +375,8 @@ pub async fn spam<
             spammer
                 .spam_rpc(
                     test_scenario,
-                    tps as usize,
-                    *duration as usize,
+                    tps,
+                    *duration,
                     None,
                     tx_callback.into(),
                     is_sending_done.clone(),

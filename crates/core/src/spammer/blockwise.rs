@@ -80,16 +80,17 @@ mod tests {
         println!("anvil url: {}", anvil.endpoint_url());
         let seed = crate::generator::RandSeed::seed_from_str("444444444444");
         let mut agents = AgentStore::new();
-        let txs_per_period = 10;
-        let periods = 3;
+        let txs_per_period = 10u64;
+        let periods = 3u64;
         let tx_type = alloy::consensus::TxType::Legacy;
+        let num_signers = (txs_per_period / periods) as usize;
         agents.add_agent(
             "pool1",
-            SignerStore::new_random(txs_per_period / periods, &seed, "eeeeeeee"),
+            SignerStore::new_random(num_signers, &seed, "eeeeeeee"),
         );
         agents.add_agent(
             "pool2",
-            SignerStore::new_random(txs_per_period / periods, &seed, "11111111"),
+            SignerStore::new_random(num_signers, &seed, "11111111"),
         );
 
         let user_signers = get_test_signers();
@@ -169,7 +170,7 @@ mod tests {
             println!("unique address: {}", addr);
         }
 
-        assert!(unique_addresses.len() >= (txs_per_period / periods));
-        assert!(unique_addresses.len() <= txs_per_period);
+        assert!(unique_addresses.len() >= (txs_per_period / periods) as usize);
+        assert!(unique_addresses.len() <= txs_per_period as usize);
     }
 }

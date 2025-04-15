@@ -366,8 +366,7 @@ pub async fn spam_callback_default(
 ) -> SpamCallbackType {
     if let Some(rpc_client) = rpc_client {
         if log_txs {
-            let log_callback =
-                LogCallback::new(rpc_client.clone(), auth_client.map(|c| c.clone()), send_fcu);
+            let log_callback = LogCallback::new(rpc_client.clone(), auth_client, send_fcu);
             return SpamCallbackType::Log(log_callback);
         }
     }

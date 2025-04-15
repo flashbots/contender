@@ -207,7 +207,7 @@ where
                 gas_price_adder: 0,
                 block_time_secs,
             },
-            auth_provider: auth_provider.map(|a| a.clone()),
+            auth_provider,
         })
     }
 
@@ -1004,7 +1004,7 @@ where
                     .config
                     .get_spam_steps()
                     .map(|s| s.len()) // take the number of spam txs from the testfile
-                    .unwrap_or(0),
+                    .unwrap_or(0) as u64,
                 |_named_req| {
                     // we can look at the named request here if needed
                     Ok(None)
@@ -1061,8 +1061,8 @@ where
 
     pub async fn get_spam_tx_chunks(
         &self,
-        txs_per_period: usize,
-        num_periods: usize,
+        txs_per_period: u64,
+        num_periods: u64,
     ) -> Result<Vec<Vec<ExecutionRequest>>> {
         let tx_requests = self
             .load_txs(crate::generator::PlanType::Spam(
@@ -1071,15 +1071,18 @@ where
             ))
             .await?;
         Ok(tx_requests
-            .chunks(txs_per_period)
+            .chunks(txs_per_period as usize)
             .map(|chunk| chunk.to_vec())
             .collect::<_>())
     }
 
     pub async fn flush_tx_cache(&self, block_start: u64, run_id: u64) -> Result<()> {
         let mut block_counter = 0;
+        // the number of blocks to check for stalled txs
+        let block_timeout = ((self.pending_tx_timeout_secs / self.ctx.block_time_secs) + 1)
+            // must be at least 2 blocks because otherwise we have nothing to compare
+            .max(2);
         let mut cache_size_queue = vec![];
-        let block_timeout = self.pending_tx_timeout_secs / self.ctx.block_time_secs;
         cache_size_queue.resize(block_timeout as usize, 1);
         loop {
             let pending_txs = self
@@ -1092,36 +1095,35 @@ where
 
             if pending_txs.is_empty() {
                 break;
-            } else {
-                // if a tx has been sitting in the cache for > T seconds, remove it
-                let current_timestamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("time went backwards")
-                    .as_millis();
+            }
 
-                // remove cached txs if the size hasn't changed for the last N blocks
-                if cache_size_queue
-                    .iter()
-                    .all(|&size| size == cache_size_queue[0])
-                {
-                    println!(
+            let current_timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time went backwards")
+                .as_millis();
+
+            // remove cached txs if the size hasn't changed for the last N blocks
+            if cache_size_queue
+                .iter()
+                .all(|&size| size == cache_size_queue[0])
+            {
+                println!(
                             "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
                         );
-                    for tx in &pending_txs {
-                        // only remove txs that have been waiting for > T seconds
-                        if current_timestamp
-                            > (tx.start_timestamp + (self.pending_tx_timeout_secs * 1000)) as u128
-                        {
-                            self.msg_handle
-                                .remove_cached_tx(tx.tx_hash)
-                                .await
-                                .map_err(|e| {
-                                    ContenderError::with_err(
-                                        e.deref(),
-                                        "failed to remove tx from cache",
-                                    )
-                                })?;
-                        }
+                for tx in &pending_txs {
+                    // only remove txs that have been waiting for > T seconds
+                    if current_timestamp
+                        > (tx.start_timestamp + (self.pending_tx_timeout_secs * 1000)) as u128
+                    {
+                        self.msg_handle
+                            .remove_cached_tx(tx.tx_hash)
+                            .await
+                            .map_err(|e| {
+                                ContenderError::with_err(
+                                    e.deref(),
+                                    "failed to remove tx from cache",
+                                )
+                            })?;
                     }
                 }
             }
@@ -1455,7 +1457,7 @@ pub mod tests {
 
     pub async fn get_test_scenario(
         anvil: &AnvilInstance,
-        txs_per_duration: usize,
+        txs_per_duration: u64,
         fund_amount_eth: f64,
     ) -> TestScenario<MockDb, RandSeed, MockConfig> {
         let seed = RandSeed::seed_from_bytes(&[0x01; 32]);
@@ -1464,9 +1466,13 @@ pub mod tests {
 
         let mut agents = AgentStore::new();
         let config = MockConfig;
-        let num_pools = config.get_spam_pools().len().max(1);
+        let num_pools = config.get_spam_pools().len().max(1) as u64;
         println!("spam pools: {num_pools}, txs_per_duration: {txs_per_duration}");
-        agents.init(&["pool1", "pool2"], txs_per_duration / num_pools, &seed);
+        agents.init(
+            &["pool1", "pool2"],
+            (txs_per_duration / num_pools) as usize,
+            &seed,
+        );
 
         let admin1_signers = SignerStore::new_random(1, &seed, "admin1");
         let admin2_signers = SignerStore::new_random(1, &seed, "admin2");
@@ -1742,7 +1748,7 @@ pub mod tests {
     async fn all_tx_requests_are_contiguous() -> std::result::Result<(), Box<dyn std::error::Error>>
     {
         let anvil = spawn_anvil();
-        let txs_per_duration: usize = 500;
+        let txs_per_duration = 500u64;
         let duration = 3;
         let mut scenario = get_test_scenario(&anvil, txs_per_duration, 0.01).await;
 
@@ -1752,9 +1758,9 @@ pub mod tests {
             .await?;
 
         // test chunk size & count
-        assert_eq!(tx_req_chunks.len(), duration);
+        assert_eq!(tx_req_chunks.len(), duration as usize);
         for chunk in tx_req_chunks.iter() {
-            assert_eq!(chunk.len(), txs_per_duration);
+            assert_eq!(chunk.len(), txs_per_duration as usize);
         }
 
         // prepare tx requests & collect them all into a single array
