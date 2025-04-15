@@ -48,7 +48,7 @@ pub trait DbOps {
     fn create_tables(&self) -> Result<()>;
 
     /// Insert a new run into the database. Returns run_id.
-    fn insert_run(&self, timestamp: u64, tx_count: usize, scenario_name: &str) -> Result<u64>;
+    fn insert_run(&self, timestamp: u64, tx_count: u64, scenario_name: &str) -> Result<u64>;
 
     fn version(&self) -> u64;
 

@@ -26,9 +26,9 @@ pub struct RunCommandArgs {
     pub scenario: BuiltinScenario,
     pub rpc_url: String,
     pub private_key: Option<String>,
-    pub interval: usize,
-    pub duration: usize,
-    pub txs_per_duration: usize,
+    pub interval: f64,
+    pub duration: u64,
+    pub txs_per_duration: u64,
     pub skip_deploy_prompt: bool,
     pub tx_type: TxType,
 }
@@ -59,7 +59,7 @@ pub async fn run(
     let scenario_config = match args.scenario {
         BuiltinScenario::FillBlock => BuiltinScenarioConfig::fill_block(
             block_gas_limit,
-            args.txs_per_duration as u64,
+            args.txs_per_duration,
             admin_signer.address(),
             fill_percent,
         ),
@@ -110,7 +110,7 @@ pub async fn run(
     println!("running setup...");
     scenario.run_setup().await?;
 
-    let wait_duration = std::time::Duration::from_secs(args.interval as u64);
+    let wait_duration = std::time::Duration::from_millis((args.interval * 1000.0) as u64);
     let spammer = TimedSpammer::new(wait_duration);
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

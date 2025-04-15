@@ -34,8 +34,8 @@ where
     fn spam_rpc(
         &self,
         scenario: &mut TestScenario<D, S, P>,
-        txs_per_period: usize,
-        num_periods: usize,
+        txs_per_period: u64,
+        num_periods: u64,
         run_id: Option<u64>,
         sent_tx_callback: Arc<F>,
     ) -> impl std::future::Future<Output = Result<()>> {
@@ -48,7 +48,7 @@ where
                 .get_block_number()
                 .await
                 .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
-            let mut cursor = self.on_spam(scenario).await?.take(num_periods);
+            let mut cursor = self.on_spam(scenario).await?.take(num_periods as usize);
 
             // run spammer within tokio::select! to allow for graceful shutdown
             let spam_finished: bool = tokio::select! {

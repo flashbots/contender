@@ -59,23 +59,28 @@ impl From<BuiltinScenarioConfig> for TestConfig {
                 sender,
                 fill_percent,
             } => {
-                let gas_per_tx = ((max_gas_per_block / num_txs) / 100) * fill_percent as u64;
+                let gas_per_tx = if fill_percent < 100 {
+                    ((max_gas_per_block / num_txs) / 100) * fill_percent as u64
+                } else {
+                    max_gas_per_block / num_txs
+                };
                 println!(
                     "Filling blocks to {}% with {} gas per tx",
                     fill_percent, gas_per_tx
                 );
-                let spam_txs = (0..num_txs)
+                let spam_txs = (0
+                    ..(num_txs + num_txs / 10/* add 10% to ensure block can get more than full */))
                     .map(|_| {
                         SpamRequest::Tx(FunctionCallDefinition {
                             to: "{SpamMe}".to_owned(),
                             from: Some(sender.to_string()),
-                            signature: "consumeGas(uint256 gas)".to_owned(),
+                            signature: "consumeGas()".to_owned(),
                             from_pool: None,
-                            args: Some(vec![gas_per_tx.to_string()]),
+                            args: None,
                             value: None,
                             fuzz: None,
                             kind: Some("fill-block".to_owned()),
-                            gas_limit: None,
+                            gas_limit: Some(gas_per_tx),
                         })
                     })
                     .collect::<Vec<_>>();
