@@ -8,14 +8,14 @@ name = "contender"
 path = "src/main.rs"
 
 [dependencies]
-contender_core = {workspace = true}
+contender_core = { path = "../core" }
+contender_testfile = { path = "../testfile" }
 contender_sqlite = {workspace = true}
-contender_testfile = {workspace = true}
 serde = {workspace = true}
 tokio = {workspace = true, features = ["rt-multi-thread"]}
 
 alloy = {workspace = true, features = ["full", "node-bindings", "rpc-types-debug", "rpc-types-trace"]}
-alloy-signer = "0.14.0"
+k256 = { version = "0.13.3", features = ["ecdsa"] }
 alloy-primitives = { version = "1.0.0" }
 chrono = "0.4.39"
 clap = {workspace = true, features = ["derive"]}
@@ -28,6 +28,7 @@ regex = "1.11.1"
 serde_json = {workspace = true}
 termcolor = "1.4.1"
 webbrowser = {workspace = true}
+tracing = "0.1.41"
 
 [dev-dependencies]
 tempfile = "3.15.0"

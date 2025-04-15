@@ -3,18 +3,14 @@ use clap::Subcommand;
 use contender_core::{
     db::DbOps,
     error::ContenderError,
-    generator::{seeder::SeedValue, RandSeed, seeder::Seeder},
+    generator::RandSeed,
 };
 use std::path::PathBuf;
-use alloy_primitives::Address;
-use alloy_signer::k256;
+use alloy_primitives::{Address, keccak256};
 use contender_testfile;
 use crate::util::data_dir;
-use std::collections::HashSet;
-use alloy_signer::LocalWallet;
-use crate::commands::common::ContenderError;
-use crate::core::testfile::TestConfig;
-use tracing::{info, warn, error};
+use k256::ecdsa::SigningKey;
+use tracing::{info};
 
 #[derive(Debug, Subcommand)]
 pub enum AdminCommand {
@@ -55,21 +51,36 @@ pub enum AdminCommand {
 
 /// Reads and validates the seed file
 fn read_seed_file() -> Result<Vec<u8>, ContenderError> {
-    let seed_path = format!("{}/seed", data_dir()?);
+    let data_dir = data_dir().map_err(|e| {
+        ContenderError::GenericError(
+            "Failed to get data dir",
+            e.to_string()
+        )
+    })?;
+    let seed_path = format!("{}/seed", data_dir);
     let seed_hex = std::fs::read_to_string(&seed_path)
-        .map_err(|e| ContenderError::AdminError(format!("Failed to read seed file at {}: {}", seed_path, e)))?;
+        .map_err(|e| ContenderError::AdminError(
+            "Failed to read seed file",
+            format!("at {}: {}", seed_path, e)
+        ))?;
     hex::decode(seed_hex.trim())
-        .map_err(|_| ContenderError::AdminError(format!("Invalid hex data in seed file at {}", seed_path)))
+        .map_err(|_| ContenderError::AdminError(
+            "Invalid hex data in seed file",
+            format!("at {}", seed_path)
+        ))
 }
 
 /// Prompts for confirmation before displaying sensitive information
-fn confirm_sensitive_operation(operation: &str) -> Result<(), ContenderError> {
+fn confirm_sensitive_operation(_operation: &str) -> Result<(), ContenderError> {
     println!("WARNING: This command will display sensitive information.");
     println!("This information should not be shared or exposed in CI environments.");
     println!("Press Enter to continue or Ctrl+C to cancel...");
     let mut input = String::new();
     std::io::stdin().read_line(&mut input)
-        .map_err(|e| ContenderError::AdminError(format!("Failed to read input: {}", e)))?;
+        .map_err(|e| ContenderError::AdminError(
+            "Failed to read input",
+            format!("{}", e)
+        ))?;
     Ok(())
 }
 
@@ -82,6 +93,7 @@ async fn handle_accounts(
 ) -> Result<(), Box<dyn std::error::Error>> {
     if from_pool.is_some() && scenario_file.is_some() {
         return Err(ContenderError::AdminError(
+            "Conflicting parameters",
             "Both --from-pool and --scenario-file were provided. Please specify only one.".to_string()
         ).into());
     }
@@ -102,6 +114,7 @@ async fn handle_accounts(
         }
     } else {
         return Err(ContenderError::AdminError(
+            "Missing parameters",
             "Either --from-pool or --scenario-file must be provided".to_string()
         ).into());
     }
@@ -113,11 +126,23 @@ async fn handle_accounts(
 fn print_accounts_for_pool(pool: &str, num_signers: usize, seed: &RandSeed) -> Result<(), ContenderError> {
     info!("Generating addresses for pool: {}", pool);
     for i in 0..num_signers {
-        let signing_key = seed.derive_signing_key(pool, i)
-            .map_err(|e| ContenderError::AdminError(format!("Failed to derive signing key: {}", e)))?;
-        let wallet = LocalWallet::from_private_key(signing_key)
-            .map_err(|e| ContenderError::AdminError(format!("Failed to create wallet: {}", e)))?;
-        let address: Address = wallet.address();
+        let key_bytes = seed.derive_signing_key(pool, i)
+            .map_err(|e| ContenderError::AdminError(
+                "Failed to derive signing key",
+                format!("{}", e)
+            ))?;
+        let signing_key = SigningKey::from_bytes(&key_bytes.into())
+            .map_err(|e| ContenderError::AdminError(
+                "Failed to create signing key",
+                format!("{}", e)
+            ))?;
+        let verifying_key = signing_key.verifying_key();
+        let public_key = verifying_key.to_encoded_point(false);
+        let public_key_bytes = public_key.as_bytes();
+        let hash = keccak256(&public_key_bytes[1..]);
+        let mut address_bytes = [0u8; 20];
+        address_bytes.copy_from_slice(&hash[12..]);
+        let address = Address::from(address_bytes);
         info!("Signer {}: {}", i, address);
     }
     Ok(())
@@ -207,7 +232,8 @@ mod tests {
     use tempfile::tempdir;
     use std::fs;
     use contender_core::error::ContenderError;
-    use alloy::alloy_primitives::Address as AlloyAddress;
+    use alloy::primitives::Address as AlloyAddress;
+    use k256::ecdsa::SigningKey;
 
     struct MockDb {
         num_runs: u64,
@@ -255,21 +281,21 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_conflicting_parameters() {
+    #[tokio::test]
+    async fn test_conflicting_parameters() {
         let result = handle_accounts(
-            Some("test_pool".to_string()),
-            Some(PathBuf::from("test.json")),
+            Some("pool1".to_string()),
+            Some(PathBuf::from("scenario.toml")),
             10,
             true
-        );
+        ).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Both --from-pool and --scenario-file were provided"));
     }
 
-    #[test]
-    fn test_missing_parameters() {
-        let result = handle_accounts(None, None, 10, true);
+    #[tokio::test]
+    async fn test_missing_parameters() {
+        let result = handle_accounts(None, None, 10, true).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Either --from-pool or --scenario-file must be provided"));
     }
@@ -296,12 +322,12 @@ mod tests {
     async fn test_seed_command_invalid_hex() {
         let temp_dir = tempdir().unwrap();
         let db = MockDb { num_runs: 0 };
-        
+
         // Override data_dir to use temp directory
         let seed_path = temp_dir.path().join("seed");
         std::fs::write(&seed_path, "invalid_hex").unwrap();
         let result = handle_admin_command(AdminCommand::Seed, db).await;
-        
+
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid hex data"));
     }
@@ -315,7 +341,7 @@ mod tests {
             num_signers: 10,
             confirm: false,
         };
-        
+
         let result = handle_admin_command(command, db).await;
         assert!(result.is_ok());
     }
@@ -326,14 +352,14 @@ mod tests {
         let db = MockDb { num_runs: 0 };
         let scenario_path = temp_dir.path().join("invalid_scenario.json");
         std::fs::write(&scenario_path, "invalid json").unwrap();
-        
+
         let command = AdminCommand::Accounts {
             from_pool: None,
             scenario_file: Some(scenario_path),
             num_signers: 10,
             confirm: true,
         };
-        
+
         let result = handle_admin_command(command, db).await;
         assert!(result.is_err());
     }
@@ -342,18 +368,18 @@ mod tests {
     async fn test_accounts_command_invalid_seed() {
         let temp_dir = tempdir().unwrap();
         let db = MockDb { num_runs: 0 };
-        
+
         // Create a seed file with invalid hex
         let seed_path = temp_dir.path().join("seed");
         fs::write(&seed_path, "invalid_hex").unwrap();
-        
+
         let command = AdminCommand::Accounts {
             from_pool: Some("test_pool".to_string()),
             scenario_file: None,
             num_signers: 10,
             confirm: true,
         };
-        
+
         let result = handle_admin_command(command, db).await;
         assert!(result.is_err());
     }
@@ -362,11 +388,11 @@ mod tests {
     async fn test_accounts_command_valid_scenario() {
         let temp_dir = tempdir().unwrap();
         let db = MockDb { num_runs: 0 };
-        
+
         // Create a valid seed file
         let seed_path = temp_dir.path().join("seed");
         fs::write(&seed_path, "0123456789abcdef").unwrap();
-        
+
         // Create a valid scenario file
         let scenario_path = temp_dir.path().join("valid_scenario.json");
         fs::write(&scenario_path, r#"{
@@ -374,14 +400,14 @@ mod tests {
             "setup": [{"from_pool": "pool2"}],
             "spam": [{"tx": {"from_pool": "pool3"}}]
         }"#).unwrap();
-        
+
         let command = AdminCommand::Accounts {
             from_pool: None,
             scenario_file: Some(scenario_path),
             num_signers: 10,
             confirm: true,
         };
-        
+
         let result = handle_admin_command(command, db).await;
         assert!(result.is_ok());
     }
@@ -390,19 +416,20 @@ mod tests {
     async fn test_accounts_command_invalid_private_key() {
         let temp_dir = tempdir().unwrap();
         let db = MockDb { num_runs: 0 };
-        
-        // Create a seed file with invalid private key
+
+        // Create a seed file with invalid private key (all zeros)
         let seed_path = temp_dir.path().join("seed");
         fs::write(&seed_path, "0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-        
+
         let command = AdminCommand::Accounts {
             from_pool: Some("test_pool".to_string()),
             scenario_file: None,
-            num_signers: 10,
+            num_signers: 1, // Reduced to 1 to avoid multiple errors
             confirm: true,
         };
-        
+
         let result = handle_admin_command(command, db).await;
         assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Failed to derive signing key"));
     }
-} 
+}

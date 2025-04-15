@@ -63,7 +63,7 @@ dependencies = [
  "alloy-rpc-client",
  "alloy-rpc-types",
  "alloy-serde",
- "alloy-signer 0.12.6",
+ "alloy-signer",
  "alloy-signer-local",
  "alloy-transport",
  "alloy-transport-http",
@@ -296,7 +296,7 @@ dependencies = [
  "alloy-rpc-types-any",
  "alloy-rpc-types-eth",
  "alloy-serde",
- "alloy-signer 0.12.6",
+ "alloy-signer",
  "alloy-sol-types",
  "async-trait",
  "auto_impl",
@@ -330,7 +330,7 @@ dependencies = [
  "alloy-hardforks",
  "alloy-network",
  "alloy-primitives 0.8.25",
- "alloy-signer 0.12.6",
+ "alloy-signer",
  "alloy-signer-local",
  "k256",
  "rand 0.8.5",
@@ -663,21 +663,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "alloy-signer"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c580da7f00f3999e44e327223044d6732358627f93043e22d92c583f6583556"
-dependencies = [
- "alloy-primitives 1.0.0",
- "async-trait",
- "auto_impl",
- "either",
- "elliptic-curve",
- "k256",
- "thiserror 2.0.11",
-]
-
-[[package]]
 name = "alloy-signer-local"
 version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -686,7 +671,7 @@ dependencies = [
  "alloy-consensus",
  "alloy-network",
  "alloy-primitives 0.8.25",
- "alloy-signer 0.12.6",
+ "alloy-signer",
  "async-trait",
  "k256",
  "rand 0.8.5",
@@ -1423,7 +1408,6 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "alloy-primitives 1.0.0",
- "alloy-signer 0.14.0",
  "chrono",
  "clap",
  "contender_core",
@@ -1432,6 +1416,7 @@ dependencies = [
  "csv",
  "futures",
  "handlebars",
+ "k256",
  "plotters",
  "rand 0.8.5",
  "regex",
@@ -1440,6 +1425,7 @@ dependencies = [
  "tempfile",
  "termcolor",
  "tokio",
+ "tracing",
  "webbrowser",
 ]
 
@@ -2822,6 +2808,7 @@ dependencies = [
  "once_cell",
  "serdect",
  "sha2",
+ "signature",
 ]
 
 [[package]]

@@ -48,10 +48,23 @@ impl RandSeed {
         Self::seed_from_u256(n)
     }
 
+    /// Interprets seed as a U256.
     pub fn seed_from_u256(seed: U256) -> Self {
-        Self {
-            seed: seed.to_be_bytes(),
+        Self { seed: seed.to_be_bytes() }
+    }
+
+    /// Derives a signing key from the seed, pool name, and index.
+    pub fn derive_signing_key(&self, pool: &str, idx: usize) -> Result<[u8; 32], String> {
+        let mut seed = self.seed;
+        let pool_hash = keccak256(pool.as_bytes());
+        for i in 0..32 {
+            seed[i] ^= pool_hash[i];
         }
+        let idx_bytes = idx.to_be_bytes();
+        for i in 0..8 {
+            seed[i] ^= idx_bytes[i];
+        }
+        Ok(seed)
     }
 }
 
