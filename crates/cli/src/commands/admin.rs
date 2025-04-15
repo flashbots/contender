@@ -63,11 +63,18 @@ fn read_seed_file() -> Result<Vec<u8>, ContenderError> {
             "Failed to read seed file",
             format!("at {}: {}", seed_path, e)
         ))?;
-    hex::decode(seed_hex.trim())
+    let decoded = hex::decode(seed_hex.trim())
         .map_err(|_| ContenderError::AdminError(
             "Invalid hex data in seed file",
             format!("at {}", seed_path)
-        ))
+        ))?;
+    if decoded.is_empty() {
+        return Err(ContenderError::AdminError(
+            "Empty seed file",
+            format!("at {}", seed_path)
+        ));
+    }
+    Ok(decoded)
 }
 
 /// Prompts for confirmation before displaying sensitive information
