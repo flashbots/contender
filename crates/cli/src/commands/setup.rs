@@ -14,7 +14,7 @@ use contender_core::{
     test_scenario::{TestScenario, TestScenarioParams},
 };
 use contender_testfile::TestConfig;
-use std::str::FromStr;
+use std::{str::FromStr, time::Duration};
 
 use super::common::ScenarioSendTxsCliArgs;
 use crate::util::{
@@ -137,7 +137,13 @@ pub async fn setup(
         .into());
     }
 
+    let timekeeper_handle = tokio::spawn(async {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        println!("Contract deployment is taking more than 10 seconds...");
+    });
+
     scenario.deploy_contracts().await?;
+    timekeeper_handle.abort();
     println!("Finished deploying contracts. Running setup txs...");
     scenario.run_setup().await?;
     println!("Setup complete. To run the scenario, use the `spam` command.");
