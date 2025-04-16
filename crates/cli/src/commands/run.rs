@@ -23,15 +23,12 @@ use contender_core::{
     spammer::{LogCallback, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
 };
-use contender_engine_provider::{AuthProviderEth, AuthProviderOp};
 use contender_testfile::TestConfig;
 
 use crate::{
     default_scenarios::{BuiltinScenario, BuiltinScenarioConfig},
-    util::{check_private_keys, get_signers_with_defaults, prompt_cli},
+    util::{check_private_keys, get_signers_with_defaults, prompt_cli, EngineParams},
 };
-
-use super::spam::EngineArgs;
 
 pub struct RunCommandArgs {
     pub scenario: BuiltinScenario,
@@ -42,9 +39,7 @@ pub struct RunCommandArgs {
     pub txs_per_duration: u64,
     pub skip_deploy_prompt: bool,
     pub tx_type: TxType,
-    pub engine_args: Option<EngineArgs>,
-    pub call_fcu: bool,
-    pub use_op: bool,
+    pub engine_params: EngineParams,
 }
 
 pub async fn run(
@@ -65,14 +60,6 @@ pub async fn run(
             "failed getting gas limit from block",
             None,
         ))?;
-
-    if args.call_fcu && args.engine_args.is_none() {
-        return Err(ContenderError::GenericError(
-            "auth-rpc-url and jwt-secret are required to use forkchoice",
-            Default::default(),
-        )
-        .into());
-    }
 
     let fill_percent = env::var("C_FILL_PERCENT")
         .map(|s| u16::from_str(&s).expect("invalid u16: fill_percent"))
@@ -101,35 +88,14 @@ pub async fn run(
         pending_tx_timeout_secs: 12,
     };
 
-    let mut scenario = if let Some(engine_args) = args.engine_args {
-        if args.use_op {
-            let auth_provider =
-                AuthProviderOp::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret)
-                    .await?;
-            TestScenario::new(
-                testconfig,
-                db.clone().into(),
-                rand_seed,
-                params,
-                Some(Arc::new(auth_provider)),
-            )
-            .await?
-        } else {
-            let auth_provider =
-                AuthProviderEth::from_jwt_file(&engine_args.auth_rpc_url, &engine_args.jwt_secret)
-                    .await?;
-            TestScenario::new(
-                testconfig,
-                db.clone().into(),
-                rand_seed,
-                params,
-                Some(Arc::new(auth_provider)),
-            )
-            .await?
-        }
-    } else {
-        TestScenario::new(testconfig, db.clone().into(), rand_seed, params, None).await?
-    };
+    let mut scenario = TestScenario::new(
+        testconfig,
+        db.clone().into(),
+        rand_seed,
+        params,
+        args.engine_params.engine_provider,
+    )
+    .await?;
 
     let contract_name = "SpamMe";
     let contract_result = db.get_named_tx(contract_name, rpc_url.as_str())?;
@@ -152,7 +118,7 @@ pub async fn run(
     let is_done = Arc::new(done);
 
     // loop FCU calls in the background
-    if args.call_fcu {
+    if args.engine_params.call_fcu {
         if let Some(auth_provider) = scenario.auth_provider.to_owned() {
             let is_done = is_done.clone();
             tokio::task::spawn(async move {

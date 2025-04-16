@@ -34,6 +34,24 @@ pub struct EngineArgs {
     pub jwt_secret: PathBuf,
 }
 
+impl EngineArgs {
+    pub async fn new_provider(
+        &self,
+        use_op: bool,
+    ) -> Result<Arc<dyn AdvanceChain + Send + Sync + 'static>, Box<dyn std::error::Error>> {
+        if use_op {
+            Ok(Arc::new(AuthProviderOp::from_jwt_file(
+                &self.auth_rpc_url,
+                &self.jwt_secret,
+            )?))
+        } else {
+            Ok(Arc::new(
+                AuthProviderEth::from_jwt_file(&self.auth_rpc_url, &self.jwt_secret).await?,
+            ))
+        }
+    }
+}
+
 #[derive(Debug, clap::Args)]
 pub struct SpamCliArgs {
     #[command(flatten)]
@@ -69,7 +87,6 @@ pub struct SpamCliArgs {
     pub gas_price_percent_add: Option<u64>,
 }
 
-#[derive(Debug)]
 pub struct SpamCommandArgs {
     pub testfile: String,
     pub rpc_url: String,
@@ -83,13 +100,9 @@ pub struct SpamCommandArgs {
     pub min_balance: String,
     pub tx_type: TxType,
     /// Provide to enable engine calls (required to use `call_forkchoice`)
-    pub engine_args: Option<EngineArgs>,
-    /// Call `engine_forkchoiceUpdated` after each block
-    pub call_forkchoice: bool,
+    pub engine_params: EngineParams,
     pub gas_price_percent_add: Option<u64>,
     pub timeout_secs: u64,
-    /// Use OP RPC provider
-    pub use_op: bool,
 }
 
 impl SpamCommandArgs {
@@ -110,10 +123,8 @@ impl SpamCommandArgs {
             private_keys,
             tx_type,
             gas_price_percent_add,
-            call_forkchoice,
-            engine_args,
             timeout_secs,
-            use_op,
+            engine_params,
             ..
         } = &self;
 
@@ -187,28 +198,13 @@ impl SpamCommandArgs {
             pending_tx_timeout_secs: *timeout_secs,
         };
 
-        let engine_params = if let Some(engine_args) = engine_args {
-            let EngineArgs {
-                auth_rpc_url,
-                jwt_secret,
-            } = &engine_args;
-            let auth_provider: Arc<dyn AdvanceChain + Send + Sync + 'static> = if *use_op {
-                Arc::new(AuthProviderOp::from_jwt_file(auth_rpc_url, jwt_secret).await?)
-            } else {
-                Arc::new(AuthProviderEth::from_jwt_file(auth_rpc_url, jwt_secret).await?)
-            };
-            EngineParams::new(auth_provider, *call_forkchoice)
-        } else {
-            EngineParams::default()
-        };
-
         fund_accounts(
             &all_signer_addrs,
             &user_signers[0],
             &rpc_client,
             min_balance,
             *tx_type,
-            &engine_params,
+            engine_params,
         )
         .await?;
 
@@ -217,7 +213,7 @@ impl SpamCommandArgs {
             db.clone().into(),
             rand_seed,
             params,
-            engine_params.engine_provider,
+            engine_params.engine_provider.to_owned(),
         )
         .await?;
 
@@ -256,8 +252,7 @@ pub async fn spam<
         testfile,
         duration,
         disable_reporting,
-        call_forkchoice,
-        engine_args,
+        engine_params,
         ..
     } = args;
 
@@ -273,7 +268,7 @@ pub async fn spam<
     let is_sending_done = Arc::new(done_sending);
 
     // run loop in background to call fcu when spamming is done
-    if engine_args.is_some() {
+    if engine_params.call_fcu {
         let is_fcu_done = is_fcu_done.clone();
         let is_sending_done = is_sending_done.clone();
         let auth_client = auth_client.clone();
@@ -302,7 +297,7 @@ pub async fn spam<
 
         match spam_callback_default(
             !disable_reporting,
-            *call_forkchoice,
+            engine_params.call_fcu,
             Some(rpc_client.clone()),
             auth_client,
         )
@@ -348,7 +343,7 @@ pub async fn spam<
     let spammer = TimedSpammer::new(std::time::Duration::from_secs(1));
     match spam_callback_default(
         !disable_reporting,
-        *call_forkchoice,
+        engine_params.call_fcu,
         rpc_client.into(),
         auth_client,
     )

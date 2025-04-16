@@ -2,8 +2,6 @@ mod commands;
 mod default_scenarios;
 mod util;
 
-use std::sync::LazyLock;
-
 use alloy::hex;
 use commands::{
     common::{ScenarioSendTxsCliArgs, SendSpamCliArgs},
@@ -14,7 +12,8 @@ use commands::{
 use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::{SqliteDb, DB_VERSION};
 use rand::Rng;
-use util::{data_dir, db_file};
+use std::sync::LazyLock;
+use util::{data_dir, db_file, EngineParams};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     let path = db_file().expect("failed to get DB file path");
@@ -85,13 +84,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if call_forkchoice && (auth_rpc_url.is_none() || jwt_secret.is_none()) {
                 return Err("auth-rpc-url and jwt-secret required for forkchoice".into());
             }
-            let engine_args = if auth_rpc_url.is_some() && jwt_secret.is_some() {
-                Some(EngineArgs {
+            let engine_params = if auth_rpc_url.is_some() && jwt_secret.is_some() {
+                let args = EngineArgs {
                     auth_rpc_url: auth_rpc_url.expect("auth_rpc_url"),
                     jwt_secret: jwt_secret.expect("jwt_secret").into(),
-                })
+                };
+                EngineParams::new(args.new_provider(use_op).await?, call_forkchoice)
             } else {
-                None
+                EngineParams::default()
             };
             commands::setup(
                 &db,
@@ -102,9 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     min_balance,
                     seed: RandSeed::seed_from_str(&seed),
                     tx_type: tx_type.into(),
-                    engine_args,
-                    call_fcu: call_forkchoice,
-                    use_op,
+                    engine_params,
                 },
             )
             .await?
@@ -139,17 +137,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
         } => {
             let seed = seed.unwrap_or(stored_seed);
-            let engine_args = if auth_rpc_url.is_some() && jwt_secret.is_some() {
-                Some(EngineArgs {
-                    auth_rpc_url: auth_rpc_url.expect("auth_rpc_url"),
-                    jwt_secret: jwt_secret.expect("jwt_secret").into(),
-                })
-            } else {
-                None
-            };
-            if call_forkchoice && engine_args.is_none() {
+            if call_forkchoice && (auth_rpc_url.is_none() || jwt_secret.is_none()) {
                 return Err("engine args required for forkchoice".into());
             }
+            let engine_params = if auth_rpc_url.is_some() && jwt_secret.is_some() {
+                let args = EngineArgs {
+                    auth_rpc_url: auth_rpc_url.expect("auth_rpc_url"),
+                    jwt_secret: jwt_secret.expect("jwt_secret").into(),
+                };
+                EngineParams::new(args.new_provider(use_op).await?, call_forkchoice)
+            } else {
+                EngineParams::default()
+            };
+
             let spam_args = SpamCommandArgs {
                 testfile,
                 rpc_url: rpc_url.to_owned(),
@@ -163,10 +163,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 min_balance,
                 tx_type: tx_type.into(),
                 gas_price_percent_add,
-                engine_args,
-                call_forkchoice,
+                engine_params,
                 timeout_secs: timeout,
-                use_op,
             };
             let mut scenario = spam_args.init_scenario(&db).await?;
             let run_id = commands::spam(&db, &spam_args, &mut scenario).await?;
@@ -213,17 +211,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             } = spam_inner_args;
 
             let seed = seed.unwrap_or(stored_seed);
-            let engine_args = if auth_rpc_url.is_some() && jwt_secret.is_some() {
-                Some(EngineArgs {
-                    auth_rpc_url: auth_rpc_url.expect("auth_rpc_url"),
-                    jwt_secret: jwt_secret.expect("jwt_secret").into(),
-                })
-            } else {
-                None
-            };
-            if call_forkchoice && engine_args.is_none() {
+            if call_forkchoice && (auth_rpc_url.is_none() || jwt_secret.is_none()) {
                 return Err("engine args required for forkchoice".into());
             }
+
+            let engine_params = if auth_rpc_url.is_some() && jwt_secret.is_some() {
+                let args = EngineArgs {
+                    auth_rpc_url: auth_rpc_url.expect("auth_rpc_url"),
+                    jwt_secret: jwt_secret.expect("jwt_secret").into(),
+                };
+                EngineParams::new(args.new_provider(use_op).await?, call_forkchoice)
+            } else {
+                EngineParams::default()
+            };
+
             let spam_args = SpamCommandArgs {
                 testfile,
                 rpc_url: rpc_url.to_owned(),
@@ -237,10 +238,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 min_balance,
                 tx_type: tx_type.into(),
                 gas_price_percent_add,
-                engine_args,
-                call_forkchoice,
+                engine_params,
                 timeout_secs: timeout,
-                use_op,
             };
             commands::spamd(&db, spam_args, gen_report, time_limit).await?;
         }
@@ -269,14 +268,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if call_forkchoice && (auth_rpc_url.is_none() || jwt_secret.is_none()) {
                 return Err("auth-rpc-url and jwt-secret required for forkchoice".into());
             }
-            let engine_args = if auth_rpc_url.is_some() && jwt_secret.is_some() {
-                Some(EngineArgs {
+            let engine_params = if auth_rpc_url.is_some() && jwt_secret.is_some() {
+                let args = EngineArgs {
                     auth_rpc_url: auth_rpc_url.expect("auth_rpc_url"),
                     jwt_secret: jwt_secret.expect("jwt_secret").into(),
-                })
+                };
+                EngineParams::new(args.new_provider(use_op).await?, call_forkchoice)
             } else {
-                None
+                EngineParams::default()
             };
+
             commands::run(
                 &db,
                 RunCommandArgs {
@@ -288,9 +289,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     txs_per_duration,
                     skip_deploy_prompt,
                     tx_type: tx_type.into(),
-                    engine_args,
-                    call_fcu: call_forkchoice,
-                    use_op,
+                    engine_params,
                 },
             )
             .await?
