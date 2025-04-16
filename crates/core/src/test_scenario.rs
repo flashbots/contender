@@ -118,13 +118,13 @@ where
 
         // use custom logging layer to log sendRawTransaction request IDs
         let client = ClientBuilder::default()
-            .layer(LoggingLayer)
+            .layer(LoggingLayer::new())
             .http(rpc_url.to_owned());
-        let rpc_client = DynProvider::new(
+        let rpc_client = Arc::new(DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
                 .on_client(client),
-        );
+        ));
 
         // derive block time from last two blocks. if two blocks don't exist, assume block time is 1s
         let block_num = rpc_client
@@ -180,17 +180,13 @@ where
             .as_ref()
             .map(|url| Arc::new(BundleClient::new(url.clone())));
 
-        let msg_handle = Arc::new(TxActorHandle::new(
-            12,
-            db.clone(),
-            Arc::new(rpc_client.clone()),
-        ));
+        let msg_handle = Arc::new(TxActorHandle::new(120, db.clone(), rpc_client.clone()));
 
         Ok(Self {
             config,
             db: db.clone(),
             rpc_url: rpc_url.to_owned(),
-            rpc_client: Arc::new(rpc_client),
+            rpc_client,
             bundle_client,
             builder_rpc_url,
             rand_seed,

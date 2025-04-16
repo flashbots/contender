@@ -15,6 +15,13 @@ use tower::{Layer, Service};
 /// A layer to be used with `ClientBuilder::layer` that logs request id with tx hash when calling eth_sendRawTransaction.
 pub struct LoggingLayer;
 
+impl LoggingLayer {
+    /// Creates a new `LoggingLayer`.
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
 // Implement tower::Layer for LoggingLayer.
 impl<S> Layer<S> for LoggingLayer {
     type Service = LoggingService<S>;
@@ -56,12 +63,16 @@ where
             RequestPacket::Batch(_) => {}
         }
 
+        let start_time = tokio::time::Instant::now();
         let fut = self.inner.call(req);
 
         Box::pin(async move {
             let res = fut.await;
             if id != 0 {
                 if let Ok(res) = &res {
+                    let elapsed = start_time.elapsed().as_millis() as u64;
+                    // TODO: get this data out somehow
+                    println!("latency: {elapsed}ms");
                     match res {
                         ResponsePacket::Single(inner_res) => {
                             if let Some(payload) = inner_res.payload.as_success() {
