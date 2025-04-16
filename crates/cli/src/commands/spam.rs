@@ -74,7 +74,7 @@ pub struct SpamCliArgs {
     #[arg(
         short = 'r',
         long,
-        long_help = "Filename of the saved report. May be a fully-qualified path. If not provided, the report can be generated with the `report` subcommand. '.csv' extension is added automatically."
+        long_help = "Set this to generate a report for the spam run(s) after spamming."
     )]
     pub gen_report: bool,
 

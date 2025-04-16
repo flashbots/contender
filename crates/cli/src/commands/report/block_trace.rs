@@ -1,6 +1,3 @@
-use std::sync::Arc;
-
-use crate::commands::report::cache::CacheFile;
 use alloy::network::{AnyRpcBlock, AnyTransactionReceipt};
 use alloy::providers::ext::DebugApi;
 use alloy::{
@@ -14,6 +11,7 @@ use contender_core::db::RunTx;
 use contender_core::error::ContenderError;
 use contender_core::generator::types::AnyProvider;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TxTraceReceipt {
@@ -27,17 +25,10 @@ impl TxTraceReceipt {
     }
 }
 
-pub async fn get_block_trace_data(
+pub async fn get_block_data(
     txs: &[RunTx],
     rpc_client: &AnyProvider,
-) -> Result<(Vec<TxTraceReceipt>, Vec<AnyRpcBlock>), Box<dyn std::error::Error>> {
-    if std::env::var("DEBUG_USEFILE").is_ok() {
-        println!("DEBUG_USEFILE detected: using cached data");
-        // load trace data from file
-        let cache_data = CacheFile::load()?;
-        return Ok((cache_data.traces, cache_data.blocks));
-    }
-
+) -> Result<Vec<AnyRpcBlock>, Box<dyn std::error::Error>> {
     // filter out txs with no block number
     let txs: Vec<RunTx> = txs
         .iter()
@@ -83,17 +74,25 @@ pub async fn get_block_trace_data(
     }
     futures::future::join_all(handles).await;
     receiver.close();
+
     while let Some(res) = receiver.recv().await {
         all_blocks.push(res);
     }
 
+    Ok(all_blocks)
+}
+
+pub async fn get_block_traces(
+    full_blocks: &[AnyRpcBlock],
+    rpc_client: &AnyProvider,
+) -> Result<Vec<TxTraceReceipt>, Box<dyn std::error::Error>> {
     // get tx traces for all txs in all_blocks
     let mut all_traces = vec![];
     let (sender, mut receiver) = tokio::sync::mpsc::channel::<TxTraceReceipt>(
-        all_blocks.iter().map(|b| b.transactions.len()).sum(),
+        full_blocks.iter().map(|b| b.transactions.len()).sum(),
     );
 
-    for block in &all_blocks {
+    for block in full_blocks {
         let mut tx_tasks = vec![];
         for tx_hash in block.transactions.hashes() {
             let rpc_client = rpc_client.clone();
@@ -151,5 +150,5 @@ pub async fn get_block_trace_data(
         all_traces.push(res);
     }
 
-    Ok((all_traces, all_blocks))
+    Ok(all_traces)
 }

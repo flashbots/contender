@@ -1,4 +1,4 @@
-use super::block_trace::get_block_trace_data;
+use super::block_trace::{get_block_data, get_block_traces};
 use super::cache::CacheFile;
 use super::chart::{GasPerBlockChart, HeatMapChart, TimeToInclusionChart, TxGasUsedChart};
 use super::chart::{PendingTxsChart, ReportChartId};
@@ -10,6 +10,7 @@ use alloy::providers::DynProvider;
 use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
 use contender_core::db::{DbOps, RunTx};
 use csv::WriterBuilder;
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 pub async fn report(
@@ -75,7 +76,45 @@ pub async fn report(
     // get trace data for reports
     let url = Url::from_str(rpc_url).expect("Invalid URL");
     let rpc_client = DynProvider::new(ProviderBuilder::new().network::<AnyNetwork>().on_http(url));
-    let (trace_data, blocks) = get_block_trace_data(&all_txs, &rpc_client).await?;
+    let (trace_data, blocks) = if std::env::var("DEBUG_USEFILE").is_ok() {
+        println!("DEBUG_USEFILE detected: using cached data");
+        // load trace data from file
+        let cache_data = CacheFile::load()?;
+        (cache_data.traces, cache_data.blocks)
+    } else {
+        // run traces on RPC
+        let block_data = get_block_data(&all_txs, &rpc_client).await?;
+        let trace_data = get_block_traces(&block_data, &rpc_client).await?;
+        (trace_data, block_data)
+    };
+
+    // find peak gas usage
+    let peak_gas = blocks.iter().map(|b| b.header.gas_used).max().unwrap_or(0);
+
+    // find peak tx count
+    let peak_tx_count = blocks
+        .iter()
+        .map(|b| b.transactions.len())
+        .max()
+        .unwrap_or(0) as u64;
+
+    // find average block time
+    let mut block_timestamps = blocks
+        .iter()
+        .map(|b| b.header.timestamp)
+        .collect::<Vec<_>>();
+    block_timestamps.sort();
+    let average_block_time = block_timestamps
+        .windows(2)
+        .map(|w| w[1] - w[0])
+        .fold(0, |acc, diff| acc + diff) as f64
+        / (blocks.len() - 1).max(1) as f64;
+
+    let metrics = SpamRunMetrics {
+        peak_gas,
+        peak_tx_count,
+        average_block_time_secs: average_block_time,
+    };
 
     // cache data to file
     let cache_data = CacheFile::new(trace_data, blocks);
@@ -109,6 +148,7 @@ pub async fn report(
         start_block: cache_data.blocks.first().unwrap().header.number,
         end_block: cache_data.blocks.last().unwrap().header.number,
         rpc_url: rpc_url.to_string(),
+        metrics,
     })?;
 
     // Open the report in the default web browser
@@ -127,4 +167,11 @@ fn save_csv_report(id: u64, txs: &[RunTx]) -> Result<(), Box<dyn std::error::Err
     write_run_txs(&mut writer, txs)?;
 
     Ok(())
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SpamRunMetrics {
+    pub peak_gas: u64,
+    pub peak_tx_count: u64,
+    pub average_block_time_secs: f64,
 }

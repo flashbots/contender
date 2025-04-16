@@ -2,6 +2,8 @@ use crate::{commands::report::chart::ReportChartId, util::report_dir};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use super::command::SpamRunMetrics;
+
 pub struct ReportMetadata {
     pub scenario_name: String,
     pub start_run_id: u64,
@@ -9,6 +11,7 @@ pub struct ReportMetadata {
     pub start_block: u64,
     pub end_block: u64,
     pub rpc_url: String,
+    pub metrics: SpamRunMetrics,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -18,6 +21,7 @@ struct TemplateData {
     rpc_url: String,
     start_block: String,
     end_block: String,
+    metrics: SpamRunMetrics,
     charts: Vec<(String, String)>,
 }
 
@@ -29,6 +33,7 @@ impl TemplateData {
             rpc_url: meta.rpc_url.clone(),
             start_block: meta.start_block.to_string(),
             end_block: meta.end_block.to_string(),
+            metrics: meta.metrics.to_owned(),
             charts,
         }
     }
