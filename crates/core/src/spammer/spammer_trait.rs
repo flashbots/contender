@@ -1,3 +1,4 @@
+use std::sync::atomic::AtomicBool;
 use std::{pin::Pin, sync::Arc};
 
 use alloy::providers::Provider;
@@ -12,12 +13,13 @@ use crate::{
     Result,
 };
 
+use super::tx_callback::OnBatchSent;
 use super::SpamTrigger;
 use super::{tx_actor::TxActorHandle, OnTxSent};
 
 pub trait Spammer<F, D, S, P>
 where
-    F: OnTxSent + Send + Sync + 'static,
+    F: OnTxSent + OnBatchSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
@@ -38,6 +40,7 @@ where
         num_periods: u64,
         run_id: Option<u64>,
         sent_tx_callback: Arc<F>,
+        done_sending: Arc<AtomicBool>,
     ) -> impl std::future::Future<Output = Result<()>> {
         async move {
             let tx_req_chunks = scenario
@@ -63,6 +66,7 @@ where
             if !spam_finished {
                 println!("Spammer terminated. Press CTRL-C again to stop result collection...");
             }
+            done_sending.store(true, std::sync::atomic::Ordering::SeqCst);
 
             // collect results from cached pending txs
             let flush_finished: bool = tokio::select! {

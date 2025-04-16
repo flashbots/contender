@@ -14,7 +14,7 @@ pub mod test {
 
     use crate::{
         generator::{types::AnyProvider, util::complete_tx_request, NamedTxRequest},
-        spammer::{tx_actor::TxActorHandle, OnTxSent},
+        spammer::{tx_actor::TxActorHandle, tx_callback::OnBatchSent, OnTxSent},
     };
 
     pub struct MockCallback;
@@ -27,6 +27,13 @@ pub mod test {
             _tx_handler: Option<Arc<TxActorHandle>>,
         ) -> Option<JoinHandle<()>> {
             println!("MockCallback::on_tx_sent: tx_hash={}", _tx_res.tx_hash());
+            None
+        }
+    }
+
+    impl OnBatchSent for MockCallback {
+        fn on_batch_sent(&self) -> Option<JoinHandle<()>> {
+            println!("MockCallback::on_batch_sent");
             None
         }
     }
