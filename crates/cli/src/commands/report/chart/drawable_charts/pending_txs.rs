@@ -21,17 +21,15 @@ pub struct PendingTxsChart {
 impl PendingTxsChart {
     pub fn new(run_txs: &[RunTx]) -> Self {
         let mut pending_txs_per_second = BTreeMap::new();
-        // get min/max timestamps from run_txs; evaluate max of start_timestamp and end_timestamp
+        // get min/max timestamps from run_txs; evaluate min start_timestamp and max end_timestamp
         let (min_timestamp, max_timestamp) =
             run_txs.iter().fold((u64::MAX, 0), |(min, max), tx| {
                 let start_timestamp = tx.start_timestamp;
                 let end_timestamp = tx.end_timestamp.unwrap_or_default();
-                (
-                    min.min(start_timestamp).min(end_timestamp),
-                    max.max(start_timestamp).max(end_timestamp),
-                )
+                (min.min(start_timestamp), max.max(end_timestamp))
             });
 
+        // find pending txs for each second, with 1s padding
         for t in min_timestamp - 1..max_timestamp + 1 {
             let pending_txs = run_txs
                 .iter()
