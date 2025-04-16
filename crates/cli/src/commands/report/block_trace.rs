@@ -60,7 +60,8 @@ pub async fn get_block_trace_data(
 
     // get block data
     let mut all_blocks: Vec<AnyRpcBlock> = vec![];
-    let (sender, mut receiver) = tokio::sync::mpsc::channel::<AnyRpcBlock>(9001);
+    let (sender, mut receiver) =
+        tokio::sync::mpsc::channel::<AnyRpcBlock>((max_block - min_block) as usize + 1);
 
     let mut handles = vec![];
     for block_num in min_block..=max_block {
@@ -88,7 +89,9 @@ pub async fn get_block_trace_data(
 
     // get tx traces for all txs in all_blocks
     let mut all_traces = vec![];
-    let (sender, mut receiver) = tokio::sync::mpsc::channel::<TxTraceReceipt>(90001);
+    let (sender, mut receiver) = tokio::sync::mpsc::channel::<TxTraceReceipt>(
+        all_blocks.iter().map(|b| b.transactions.len()).sum(),
+    );
 
     for block in &all_blocks {
         let mut tx_tasks = vec![];
