@@ -20,9 +20,6 @@ pub use spamd::spamd;
 pub struct ContenderCli {
     #[command(subcommand)]
     pub command: ContenderSubcommand,
-
-    #[arg(long = "optimism", long_help = "Set this flag when targeting an OP node.", visible_aliases = &["op"])]
-    pub use_op: bool,
 }
 
 impl ContenderCli {

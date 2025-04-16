@@ -1,6 +1,7 @@
 use clap::Subcommand;
 use std::path::PathBuf;
 
+use super::common::AuthCliArgs;
 use super::setup::SetupCliArgs;
 use super::spam::SpamCliArgs;
 use crate::default_scenarios::BuiltinScenario;
@@ -132,32 +133,8 @@ pub enum ContenderSubcommand {
         )]
         tx_type: TxTypeCli,
 
-        /// Auth RPC URL for `engine_` calls
-        #[arg(
-                    long,
-                    long_help = "Provide this URL to enable use of engine_ calls.",
-                    visible_aliases = &["auth"]
-                )]
-        auth_rpc_url: Option<String>,
-
-        /// JWT secret used for `engine_` calls
-        #[arg(
-                    long,
-                    long_help = "JWT secret.
-        Required if --auth-rpc-url is set.",
-                    visible_aliases = &["jwt"]
-                )]
-        jwt_secret: Option<String>,
-
-        /// Call `engine_forkchoiceUpdated` after each block
-        #[arg(
-                    long,
-                    long_help = "Call engine_forkchoiceUpdated on Auth RPC after each block.
-        Requires --auth-rpc-url and --jwt-secret to be set.",
-                    visible_aliases = &["fcu"]
-                )]
-        call_forkchoice: bool,
-        // TODO: DRY duplicate args
+        #[command(flatten)]
+        auth_args: AuthCliArgs,
     },
 }
 

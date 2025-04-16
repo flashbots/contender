@@ -32,14 +32,14 @@ use std::{path::PathBuf, sync::atomic::AtomicBool};
 pub struct EngineArgs {
     pub auth_rpc_url: String,
     pub jwt_secret: PathBuf,
+    pub use_op: bool,
 }
 
 impl EngineArgs {
     pub async fn new_provider(
         &self,
-        use_op: bool,
     ) -> Result<Arc<dyn AdvanceChain + Send + Sync + 'static>, Box<dyn std::error::Error>> {
-        if use_op {
+        if self.use_op {
             Ok(Arc::new(AuthProviderOp::from_jwt_file(
                 &self.auth_rpc_url,
                 &self.jwt_secret,
