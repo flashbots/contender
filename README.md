@@ -143,6 +143,35 @@ contender report $RPC_URL -i 203 -p 3
 
 ---
 
+**Spamming with the `engine_` API**
+
+Add the following flags to `setup`, `spam`, or `spamd` to trigger block building manually via the authenticated `engine_` API:
+
+- `--jwt <jwt secret file>` the path to your node's secret JWT file
+- `--auth <auth RPC URL>` the node's the auth API URL
+- `--fcu` set this to trigger block building
+
+If targeting an Optimism node, you'll also need to add the `--op` flag.
+
+```bash
+# default
+cargo run -- spamd ./scenarios/stress.toml $RPC \
+--auth http://localhost:8551 \
+--jwt $JWT_FILE \
+--fcu \
+--tps 200 -d 2 -w 3
+
+# example targeting local op-rbuilder
+cargo run -- spamd ./scenarios/stress.toml http://localhost:1111 \
+--auth http://localhost:4444 \
+--jwt $CODE/rbuilder/crates/op-rbuilder/src/tester/fixtures/test-jwt-secret.txt \
+--fcu \
+--op \
+--tps 200 -d 2 -w 3
+```
+
+---
+
 Backup the SQLite DB used by contender:
 
 ```bash
