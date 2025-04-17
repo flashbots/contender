@@ -2,7 +2,7 @@ use alloy::{
     consensus::TxType,
     network::AnyNetwork,
     primitives::utils::{format_ether, parse_ether},
-    providers::{DynProvider, ProviderBuilder},
+    providers::{DynProvider, Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
     transports::http::reqwest::Url,
 };
@@ -137,8 +137,35 @@ pub async fn setup(
         .into());
     }
 
-    let timekeeper_handle = tokio::spawn(async {
-        tokio::time::sleep(Duration::from_secs(10)).await;
+    // derive block time from last two blocks. if two blocks don't exist, assume block time is 1s
+    let block_num = rpc_client
+        .get_block_number()
+        .await
+        .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
+
+    let block_time_secs = if block_num > 0 {
+        let mut timestamps = vec![];
+        for i in [0_u64, 1] {
+            let block = rpc_client
+                .get_block_by_number((block_num - i).into())
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to get block"))?;
+            if let Some(block) = block {
+                timestamps.push(block.header.timestamp);
+            }
+        }
+        if timestamps.len() == 2 {
+            (timestamps[0] - timestamps[1]).max(1)
+        } else {
+            1
+        }
+    } else {
+        1
+    };
+
+    let timekeeper_handle = tokio::spawn(async move {
+        let safe_time = (testconfig.create.iter().len() + 10) as u64 * block_time_secs;
+        tokio::time::sleep(Duration::from_secs(safe_time)).await;
         println!("Contract deployment is taking more than 10 seconds...");
     });
 
