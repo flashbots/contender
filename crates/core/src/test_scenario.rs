@@ -28,8 +28,7 @@ use contender_bundle_provider::bundle_provider::new_basic_bundle;
 use contender_bundle_provider::BundleClient;
 use contender_engine_provider::AdvanceChain;
 use futures::{Stream, StreamExt};
-use prometheus::{Encoder, TextEncoder};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::Deref;
 use std::pin::Pin;
 use std::str::FromStr;
@@ -1167,22 +1166,33 @@ where
         Ok(())
     }
 
-    pub fn print_latency_metrics(&self) -> Result<()> {
+    /// Collects latency metrics from the prometheus registry.
+    /// Returns a map of latency buckets (in milliseconds) to cumulative counts.
+    pub fn collect_latency_metrics(&self) -> BTreeMap<u64, u64> {
+        let mut latency_map = BTreeMap::<u64, u64>::new();
         let registry = self.prometheus.0.get();
         if let Some(registry) = registry {
-            let encoder = TextEncoder::new();
             let metric_families = registry.gather();
 
-            let mut buffer = Vec::new();
-            encoder
-                .encode(&metric_families, &mut buffer)
-                .map_err(|e| ContenderError::with_err(e, "failed to encode prometheus metrics"))?;
-            let s = String::from_utf8(buffer).map_err(|e| {
-                ContenderError::with_err(e, "failed to decode prometheus metrics buffer")
-            })?;
-            println!("Prometheus metrics:\n{}", s);
+            for mf in &metric_families {
+                if mf.name() == "request_latency_milliseconds" {
+                    for m in mf.get_metric() {
+                        let hist = m.get_histogram();
+                        for bucket in &hist.bucket {
+                            if bucket.cumulative_count.is_none() {
+                                continue;
+                            }
+                            let upper_bound = bucket.upper_bound();
+                            let cumulative_count =
+                                bucket.cumulative_count.expect("cumulative_count");
+
+                            latency_map.insert(upper_bound as u64, cumulative_count);
+                        }
+                    }
+                }
+            }
         }
-        Ok(())
+        latency_map
     }
 }
 

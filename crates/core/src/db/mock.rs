@@ -53,4 +53,12 @@ impl DbOps for MockDb {
     fn get_run_txs(&self, _run_id: u64) -> Result<Vec<RunTx>> {
         Ok(vec![])
     }
+
+    fn insert_latency_metrics(
+        &self,
+        _run_id: u64,
+        _latency_metrics: &std::collections::BTreeMap<u64, u64>,
+    ) -> Result<()> {
+        Ok(())
+    }
 }

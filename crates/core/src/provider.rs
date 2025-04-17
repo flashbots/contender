@@ -14,27 +14,6 @@ use prometheus::{Histogram, HistogramOpts, Registry};
 use tokio::sync::OnceCell;
 use tower::{Layer, Service};
 
-pub async fn init_metrics(registry: &OnceCell<Registry>, hist: &OnceCell<Histogram>) {
-    let reg = Registry::new();
-    let histogram_opts = HistogramOpts::new(
-        "request_latency_milliseconds",
-        "Latency of requests in milliseconds",
-    )
-    .buckets(
-        vec![0, 1, 2, 5, 10, 25, 50, 100, 200, 500, 1000, 2000]
-            .into_iter()
-            .map(f64::from)
-            .collect(),
-    );
-
-    let histogram = Histogram::with_opts(histogram_opts).expect("histogram_opts");
-    reg.register(Box::new(histogram.clone()))
-        .expect("histogram registered");
-
-    registry.set(reg).expect("registry set");
-    hist.set(histogram).expect("histogram set");
-}
-
 /// A layer to be used with `ClientBuilder::layer` that logs request id with tx hash when calling eth_sendRawTransaction.
 pub struct LoggingLayer {
     latency_histogram: &'static OnceCell<Histogram>,
@@ -121,4 +100,25 @@ where
             res
         })
     }
+}
+
+async fn init_metrics(registry: &OnceCell<Registry>, hist: &OnceCell<Histogram>) {
+    let reg = Registry::new();
+    let histogram_opts = HistogramOpts::new(
+        "request_latency_milliseconds",
+        "Latency of requests in milliseconds",
+    )
+    .buckets(
+        vec![1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000]
+            .into_iter()
+            .map(f64::from)
+            .collect(),
+    );
+
+    let histogram = Histogram::with_opts(histogram_opts).expect("histogram_opts");
+    reg.register(Box::new(histogram.clone()))
+        .expect("histogram registered");
+
+    registry.set(reg).expect("registry set");
+    hist.set(histogram).expect("histogram set");
 }

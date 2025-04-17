@@ -338,7 +338,6 @@ where
                     let res =
                         templater.find_fncall_placeholders(tx, db, &mut placeholder_map, &rpc_url);
                     if let Err(e) = res {
-                        eprintln!("error finding placeholders: {}", e);
                         return Err(ContenderError::SpamError(
                             "failed to find placeholder value",
                             Some(e.to_string()),
