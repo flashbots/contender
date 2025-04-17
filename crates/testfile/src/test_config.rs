@@ -1,5 +1,3 @@
-use alloy::hex::ToHexExt;
-use alloy::primitives::Address;
 use contender_core::{
     error::ContenderError,
     generator::{
@@ -104,9 +102,5 @@ impl Templater<String> for TestConfig {
             }
         }
         None
-    }
-
-    fn encode_hex(&self, input: &Address) -> String {
-        input.encode_hex()
     }
 }

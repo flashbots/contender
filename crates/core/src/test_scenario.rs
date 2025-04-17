@@ -1497,9 +1497,6 @@ pub mod tests {
         fn find_key(&self, _input: &str) -> Option<(String, usize)> {
             None
         }
-        fn encode_hex(&self, input: &Address) -> String {
-            input.encode_hex()
-        }
     }
 
     pub async fn get_test_scenario(
