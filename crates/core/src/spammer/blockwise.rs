@@ -56,6 +56,7 @@ mod tests {
         primitives::U256,
         providers::{DynProvider, ProviderBuilder},
     };
+    use tokio::sync::OnceCell;
 
     use crate::{
         agent_controller::{AgentStore, SignerStore},
@@ -68,6 +69,10 @@ mod tests {
     use std::{collections::HashSet, sync::atomic::AtomicBool};
 
     use super::*;
+
+    // separate prometheus registry for simulations; anvil doesn't count!
+    static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
+    static HIST: OnceCell<prometheus::Histogram> = OnceCell::const_new();
 
     #[tokio::test]
     async fn watches_blocks_and_spams_them() {
@@ -131,6 +136,7 @@ mod tests {
                 pending_tx_timeout_secs: 12,
             },
             None,
+            (&PROM, &HIST),
         )
         .await
         .unwrap();

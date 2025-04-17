@@ -10,15 +10,44 @@ use alloy::{
     transports::TransportError,
 };
 use eyre::Result;
+use prometheus::{Histogram, HistogramOpts, Registry};
+use tokio::sync::OnceCell;
 use tower::{Layer, Service};
 
+pub async fn init_metrics(registry: &OnceCell<Registry>, hist: &OnceCell<Histogram>) {
+    let reg = Registry::new();
+    let histogram_opts = HistogramOpts::new(
+        "request_latency_milliseconds",
+        "Latency of requests in milliseconds",
+    )
+    .buckets(
+        vec![0, 1, 2, 5, 10, 25, 50, 100, 200, 500, 1000, 2000]
+            .into_iter()
+            .map(f64::from)
+            .collect(),
+    );
+
+    let histogram = Histogram::with_opts(histogram_opts).expect("histogram_opts");
+    reg.register(Box::new(histogram.clone()))
+        .expect("histogram registered");
+
+    registry.set(reg).expect("registry set");
+    hist.set(histogram).expect("histogram set");
+}
+
 /// A layer to be used with `ClientBuilder::layer` that logs request id with tx hash when calling eth_sendRawTransaction.
-pub struct LoggingLayer;
+pub struct LoggingLayer {
+    latency_histogram: &'static OnceCell<Histogram>,
+}
 
 impl LoggingLayer {
-    /// Creates a new `LoggingLayer`.
-    pub fn new() -> Self {
-        Self {}
+    /// Creates a new `LoggingLayer` and initialize metrics.
+    pub async fn new(
+        registry: &OnceCell<Registry>,
+        latency_histogram: &'static OnceCell<Histogram>,
+    ) -> Self {
+        init_metrics(registry, latency_histogram).await;
+        Self { latency_histogram }
     }
 }
 
@@ -27,13 +56,17 @@ impl<S> Layer<S> for LoggingLayer {
     type Service = LoggingService<S>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        LoggingService { inner }
+        LoggingService {
+            inner,
+            latency_histogram: self.latency_histogram,
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct LoggingService<S> {
     inner: S,
+    latency_histogram: &'static OnceCell<Histogram>,
 }
 
 impl<S> Service<RequestPacket> for LoggingService<S>
@@ -65,14 +98,16 @@ where
 
         let start_time = tokio::time::Instant::now();
         let fut = self.inner.call(req);
+        let latency_histogram = self.latency_histogram.get();
 
         Box::pin(async move {
             let res = fut.await;
             if id != 0 {
                 if let Ok(res) = &res {
-                    let elapsed = start_time.elapsed().as_millis() as u64;
-                    // TODO: get this data out somehow
-                    println!("latency: {elapsed}ms");
+                    let elapsed = start_time.elapsed().as_millis();
+                    if let Some(h) = latency_histogram {
+                        h.observe(elapsed as f64);
+                    }
                     match res {
                         ResponsePacket::Single(inner_res) => {
                             if let Some(payload) = inner_res.payload.as_success() {

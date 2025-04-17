@@ -13,6 +13,7 @@ use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::{SqliteDb, DB_VERSION};
 use rand::Rng;
 use std::sync::LazyLock;
+use tokio::sync::OnceCell;
 use util::{data_dir, db_file};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
@@ -20,6 +21,9 @@ static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     println!("opening DB at {}", path);
     SqliteDb::from_file(&path).expect("failed to open contender DB file")
 });
+// prometheus
+static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
+static LATENCY_HIST: OnceCell<prometheus::Histogram> = OnceCell::const_new();
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

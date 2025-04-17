@@ -119,6 +119,11 @@ pub mod tests {
         test_scenario::{TestScenario, TestScenarioParams},
     };
     use std::{collections::HashMap, fs, str::FromStr};
+    use tokio::sync::OnceCell;
+
+    // prometheus
+    static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
+    static HIST: OnceCell<prometheus::Histogram> = OnceCell::const_new();
 
     pub fn spawn_anvil() -> AnvilInstance {
         Anvil::new().block_time(1).try_spawn().unwrap()
@@ -391,6 +396,7 @@ pub mod tests {
                 pending_tx_timeout_secs: 12,
             },
             None,
+            (&PROM, &HIST),
         )
         .await
         .unwrap();
@@ -438,6 +444,7 @@ pub mod tests {
                 pending_tx_timeout_secs: 12,
             },
             None,
+            (&PROM, &HIST),
         )
         .await
         .unwrap();
@@ -455,6 +462,7 @@ pub mod tests {
                 pending_tx_timeout_secs: 12,
             },
             None,
+            (&PROM, &HIST),
         )
         .await
         .unwrap();

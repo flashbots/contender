@@ -25,3 +25,4 @@ tokio = { workspace = true, features = ["signal"]}
 serde_json = { workspace = true }
 tower = { workspace = true }
 eyre = { workspace = true }
+prometheus = { workspace = true }

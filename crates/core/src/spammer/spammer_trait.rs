@@ -100,7 +100,11 @@ where
             let run_id = run_id
                 .map(|id| format!("run_id: {}", id))
                 .unwrap_or_default();
+
             println!("done. {run_id}");
+
+            scenario.print_latency_metrics()?;
+
             Ok(())
         }
     }

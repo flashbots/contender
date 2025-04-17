@@ -28,12 +28,14 @@ use contender_bundle_provider::bundle_provider::new_basic_bundle;
 use contender_bundle_provider::BundleClient;
 use contender_engine_provider::AdvanceChain;
 use futures::{Stream, StreamExt};
+use prometheus::{Encoder, TextEncoder};
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::OnceCell;
 
 /// A test scenario can be used to run a test with a specific configuration, database, and RPC provider.
 #[derive(Clone)]
@@ -66,6 +68,10 @@ where
     /// Execution context for the test scenario; things about the target chain that affect the txs we send.
     pub ctx: ExecutionContext,
     pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    prometheus: (
+        &'static OnceCell<prometheus::Registry>,
+        &'static OnceCell<prometheus::Histogram>,
+    ),
 }
 
 pub struct TestScenarioParams {
@@ -105,6 +111,10 @@ where
         rand_seed: S,
         params: TestScenarioParams,
         auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+        prometheus: (
+            &'static OnceCell<prometheus::Registry>,
+            &'static OnceCell<prometheus::Histogram>,
+        ),
     ) -> Result<Self> {
         let TestScenarioParams {
             rpc_url,
@@ -118,7 +128,7 @@ where
 
         // use custom logging layer to log sendRawTransaction request IDs
         let client = ClientBuilder::default()
-            .layer(LoggingLayer::new())
+            .layer(LoggingLayer::new(prometheus.0, prometheus.1).await)
             .http(rpc_url.to_owned());
         let rpc_client = Arc::new(DynProvider::new(
             ProviderBuilder::new()
@@ -204,6 +214,7 @@ where
                 block_time_secs,
             },
             auth_provider,
+            prometheus,
         })
     }
 
@@ -226,6 +237,9 @@ where
         )
         .expect("invalid signer");
         let admin_wallet = EthereumWallet::new(admin_signer.clone());
+        // separate prometheus registry for simulations; anvil doesn't count!
+        static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
+        static HIST: OnceCell<prometheus::Histogram> = OnceCell::const_new();
         let mut scenario = Self::new(
             self.config.to_owned(),
             self.db.clone(),
@@ -240,6 +254,7 @@ where
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             },
             None,
+            (&PROM, &HIST),
         )
         .await?;
 
@@ -976,6 +991,9 @@ where
     /// Returns the maximum cost of a single spam transaction by creating a new scenario
     /// and running estimateGas calls to estimate the cost of the spam transactions.
     pub async fn get_max_spam_cost(&self, user_signers: &[PrivateKeySigner]) -> Result<U256> {
+        // separate prometheus registry for simulations; anvil doesn't count!
+        static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
+        static HIST: OnceCell<prometheus::Histogram> = OnceCell::const_new();
         let mut scenario = TestScenario::new(
             self.config.to_owned(),
             self.db.clone(),
@@ -990,6 +1008,7 @@ where
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             },
             None,
+            (&PROM, &HIST),
         )
         .await?;
 
@@ -1147,6 +1166,24 @@ where
 
         Ok(())
     }
+
+    pub fn print_latency_metrics(&self) -> Result<()> {
+        let registry = self.prometheus.0.get();
+        if let Some(registry) = registry {
+            let encoder = TextEncoder::new();
+            let metric_families = registry.gather();
+
+            let mut buffer = Vec::new();
+            encoder
+                .encode(&metric_families, &mut buffer)
+                .map_err(|e| ContenderError::with_err(e, "failed to encode prometheus metrics"))?;
+            let s = String::from_utf8(buffer).map_err(|e| {
+                ContenderError::with_err(e, "failed to decode prometheus metrics buffer")
+            })?;
+            println!("Prometheus metrics:\n{}", s);
+        }
+        Ok(())
+    }
 }
 
 async fn sync_nonces(
@@ -1242,8 +1279,12 @@ pub mod tests {
     use alloy::node_bindings::AnvilInstance;
     use alloy::primitives::{Address, U256};
     use std::collections::HashMap;
+    use tokio::sync::OnceCell;
 
     use super::TestScenarioParams;
+    // separate prometheus registry for simulations; anvil doesn't count!
+    static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
+    static HIST: OnceCell<prometheus::Histogram> = OnceCell::const_new();
 
     #[derive(Clone)]
     pub struct MockConfig;
@@ -1489,6 +1530,7 @@ pub mod tests {
                 pending_tx_timeout_secs: 12,
             },
             None,
+            (&PROM, &HIST),
         )
         .await
         .unwrap();

@@ -1,7 +1,10 @@
 use super::common::{ScenarioSendTxsCliArgs, SendSpamCliArgs};
-use crate::util::{
-    check_private_keys, fund_accounts, get_signers_with_defaults, spam_callback_default,
-    EngineParams, SpamCallbackType,
+use crate::{
+    util::{
+        check_private_keys, fund_accounts, get_signers_with_defaults, spam_callback_default,
+        EngineParams, SpamCallbackType,
+    },
+    LATENCY_HIST as HIST, PROM,
 };
 use alloy::{
     consensus::TxType,
@@ -214,6 +217,7 @@ impl SpamCommandArgs {
             rand_seed,
             params,
             engine_params.engine_provider.to_owned(),
+            (&PROM, &HIST),
         )
         .await?;
 

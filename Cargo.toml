@@ -30,6 +30,7 @@ alloy = { version = "0.12.5" }
 serde = "1.0.209"
 rand = "0.8.5"
 tracing = "0.1.41"
+prometheus = "0.14"
 
 ## cli
 clap = { version = "4.5.16" }
