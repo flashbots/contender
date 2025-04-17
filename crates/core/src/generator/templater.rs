@@ -23,7 +23,7 @@ where
     fn copy_end(&self, input: &str, last_end: usize) -> String;
     fn num_placeholders(&self, input: &str) -> usize;
     fn find_key(&self, input: &str) -> Option<(K, usize)>;
-    fn encode_contract_address(&self, input: &Address) -> String;
+    fn encode_hex(&self, input: &Address) -> String;
 
     /// Looks for {placeholders} in `arg` and updates `env` with the values found by querying the DB.
     fn find_placeholder_values(
@@ -71,7 +71,7 @@ where
                     template_key,
                     template_value
                         .address
-                        .map(|a| self.encode_contract_address(&a))
+                        .map(|a| self.encode_hex(&a))
                         .unwrap_or_default(),
                 );
             } else {

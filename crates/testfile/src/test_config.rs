@@ -106,7 +106,7 @@ impl Templater<String> for TestConfig {
         None
     }
 
-    fn encode_contract_address(&self, input: &Address) -> String {
+    fn encode_hex(&self, input: &Address) -> String {
         input.encode_hex()
     }
 }
