@@ -24,14 +24,8 @@ impl DrawableChart for LatencyChart {
         &self,
         root: &plotters::prelude::DrawingArea<BitMapBackend, plotters::coord::Shift>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let quantiles = [0.5, 0.9, 0.99];
-        let estimates: Vec<(f64, f64)> = quantiles
-            .iter()
-            .map(|&q| (q, self.buckets.estimate_quantile(q)))
-            .collect();
-
         let max_x = self.buckets.last().unwrap().upper_bound;
-        let max_y = self.buckets.last().unwrap().cumulative_count;
+        let max_y = self.buckets.last().unwrap().cumulative_count + 1;
 
         let mut chart = ChartBuilder::on(root)
             .margin(20)
@@ -70,14 +64,22 @@ impl DrawableChart for LatencyChart {
             ));
             step_points.push((b.upper_bound, b.cumulative_count));
         }
-        chart.draw_series(std::iter::once(PathElement::new(step_points, &BLUE)))?;
+        chart.draw_series(std::iter::once(PathElement::new(
+            step_points,
+            BLUE.stroke_width(2),
+        )))?;
 
         // draw the quantile lines
+        let quantiles = [0.5, 0.9, 0.99];
+        let estimates: Vec<(f64, f64)> = quantiles
+            .iter()
+            .map(|&q| (q, self.buckets.estimate_quantile(q)))
+            .collect();
         for (q, val) in estimates {
             chart
                 .draw_series(std::iter::once(PathElement::new(
                     vec![(val, 0), (val, max_y)],
-                    &RED.mix(0.5),
+                    RED.mix(0.5).stroke_width(2),
                 )))?
                 .label(format!("p{} ≈ {:.3}", (q * 100.0) as u32, val))
                 .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
