@@ -166,7 +166,7 @@ pub async fn setup(
     let timekeeper_handle = tokio::spawn(async move {
         let safe_time = (testconfig.create.iter().len() + 10) as u64 * block_time_secs;
         tokio::time::sleep(Duration::from_secs(safe_time)).await;
-        println!("Contract deployment is taking more than 10 seconds...");
+        println!("Contract deployment has been waiting for more than 10 blocks... Press Ctrl+C to cancel.");
     });
 
     scenario.deploy_contracts().await?;
