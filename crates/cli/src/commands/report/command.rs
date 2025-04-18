@@ -158,6 +158,8 @@ pub async fn report(
         ReportChartId::RpcLatency("eth_sendRawTransaction"),
     ];
 
+    let to_ms = |latency: f64| (latency * 1000.0).round_ties_even() as u64; // convert to ms
+
     let metrics = SpamRunMetrics {
         peak_gas,
         peak_tx_count,
@@ -165,9 +167,9 @@ pub async fn report(
         latency_quantiles: canonical_latency_map
             .iter()
             .map(|(method, latencies)| RpcLatencyQuantiles {
-                p50: latencies.estimate_quantile(0.5),
-                p90: latencies.estimate_quantile(0.9),
-                p99: latencies.estimate_quantile(0.99),
+                p50: to_ms(latencies.estimate_quantile(0.5)),
+                p90: to_ms(latencies.estimate_quantile(0.9)),
+                p99: to_ms(latencies.estimate_quantile(0.99)),
                 method: method.to_owned(),
             })
             .collect(),
@@ -223,10 +225,11 @@ fn save_csv_report(id: u64, txs: &[RunTx]) -> Result<(), Box<dyn std::error::Err
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+/// For display purposes only. Values are in milliseconds.
 pub struct RpcLatencyQuantiles {
-    pub p50: f64,
-    pub p90: f64,
-    pub p99: f64,
+    pub p50: u64,
+    pub p90: u64,
+    pub p99: u64,
     pub method: String,
 }
 
