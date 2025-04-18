@@ -1,11 +1,13 @@
 use crate::util::report_dir;
 
+#[derive(Debug, Clone)]
 pub enum ReportChartId {
     Heatmap,
     GasPerBlock,
     TimeToInclusion,
     TxGasUsed,
     PendingTxs,
+    RpcLatency(&'static str),
 }
 
 impl std::fmt::Display for ReportChartId {
@@ -16,6 +18,7 @@ impl std::fmt::Display for ReportChartId {
             ReportChartId::TimeToInclusion => "time_to_inclusion",
             ReportChartId::TxGasUsed => "tx_gas_used",
             ReportChartId::PendingTxs => "pending_txs",
+            ReportChartId::RpcLatency(method) => &format!("{method}_latency"),
         };
         write!(f, "{}", s)
     }
@@ -38,12 +41,12 @@ impl ReportChartId {
 
     pub fn proper_name(&self) -> String {
         match self {
-            ReportChartId::Heatmap => "Storage Slot Heatmap",
-            ReportChartId::GasPerBlock => "Gas Per Block",
-            ReportChartId::TimeToInclusion => "Time To Inclusion",
-            ReportChartId::TxGasUsed => "Tx Gas Used",
-            ReportChartId::PendingTxs => "Pending Transactions",
+            ReportChartId::Heatmap => "Storage Slot Heatmap".to_owned(),
+            ReportChartId::GasPerBlock => "Gas Per Block".to_owned(),
+            ReportChartId::TimeToInclusion => "Time To Inclusion".to_owned(),
+            ReportChartId::TxGasUsed => "Tx Gas Used".to_owned(),
+            ReportChartId::PendingTxs => "Pending Transactions".to_owned(),
+            ReportChartId::RpcLatency(method) => format!("{method} Latency"),
         }
-        .to_string()
     }
 }

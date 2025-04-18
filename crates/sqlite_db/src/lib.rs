@@ -1,8 +1,13 @@
+use std::collections::BTreeMap;
+
 use alloy::{
     hex::{FromHex, ToHexExt},
     primitives::{Address, TxHash},
 };
-use contender_core::db::{DbOps, NamedTx, RunTx, SpamRun};
+use contender_core::{
+    buckets::Bucket,
+    db::{DbOps, NamedTx, RunTx, SpamRun},
+};
 use contender_core::{error::ContenderError, Result};
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
@@ -10,7 +15,7 @@ use rusqlite::{params, types::FromSql, Row};
 use serde::{Deserialize, Serialize};
 
 /// Increment this whenever making changes to the DB schema.
-pub static DB_VERSION: u64 = 1;
+pub static DB_VERSION: u64 = 2;
 
 #[derive(Clone)]
 pub struct SqliteDb {
@@ -170,64 +175,53 @@ impl DbOps for SqliteDb {
     }
 
     fn create_tables(&self) -> Result<()> {
-        let ignore_already_exists = |e: ContenderError| {
-            let err_str = format!("{:?}", e);
-            if err_str.contains("already exists") || err_str.contains("duplicate column name") {
-                Ok(())
-            } else {
-                Err(e)
-            }
-        };
-
         let queries = [
-            self.execute("PRAGMA foreign_keys = ON;", params![]),
-            self.execute(&format!("PRAGMA user_version = {DB_VERSION};"), params![]),
-            self.execute(
-                "CREATE TABLE runs (
-                    id INTEGER PRIMARY KEY,
-                    timestamp TEXT NOT NULL,
-                    tx_count INTEGER NOT NULL,
-                    scenario_name TEXT NOT NULL DEFAULT ''
-                )",
-                params![],
-            ),
-            self.execute(
-                "CREATE TABLE rpc_urls (
-                    id INTEGER PRIMARY KEY,
-                    url TEXT NOT NULL UNIQUE
-                )",
-                params![],
-            ),
-            self.execute(
-                "CREATE TABLE named_txs (
-                    id INTEGER PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    tx_hash TEXT NOT NULL,
-                    contract_address TEXT,
-                    rpc_url_id INTEGER NOT NULL,
-                    FOREIGN KEY (rpc_url_id) REFERENCES rpc_urls(id)
-                )",
-                params![],
-            ),
-            self.execute(
-                "CREATE TABLE run_txs (
-                    id INTEGER PRIMARY KEY,
-                    run_id INTEGER NOT NULL,
-                    tx_hash TEXT NOT NULL,
-                    start_timestamp INTEGER NOT NULL,
-                    end_timestamp INTEGER,
-                    block_number INTEGER,
-                    gas_used INTEGER,
-                    kind TEXT,
-                    error TEXT,
-                    FOREIGN KEY(run_id) REFERENCES runs(id)
-                )",
-                params![],
-            ),
+            "PRAGMA foreign_keys = ON;",
+            &format!("PRAGMA user_version = {DB_VERSION};"),
+            "CREATE TABLE runs (
+                id INTEGER PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                tx_count INTEGER NOT NULL,
+                scenario_name TEXT NOT NULL DEFAULT ''
+            )",
+            "CREATE TABLE rpc_urls (
+                id INTEGER PRIMARY KEY,
+                url TEXT NOT NULL UNIQUE
+            )",
+            "CREATE TABLE named_txs (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                tx_hash TEXT NOT NULL,
+                contract_address TEXT,
+                rpc_url_id INTEGER NOT NULL,
+                FOREIGN KEY (rpc_url_id) REFERENCES rpc_urls(id)
+            )",
+            "CREATE TABLE run_txs (
+                id INTEGER PRIMARY KEY,
+                run_id INTEGER NOT NULL,
+                tx_hash TEXT NOT NULL,
+                start_timestamp INTEGER NOT NULL,
+                end_timestamp INTEGER,
+                block_number INTEGER,
+                gas_used INTEGER,
+                kind TEXT,
+                error TEXT,
+                FOREIGN KEY(run_id) REFERENCES runs(id)
+            )",
+            "CREATE TABLE latency (
+                id INTEGER PRIMARY KEY,
+                run_id INTEGER NOT NULL,
+                upper_bound_secs FLOAT NOT NULL,
+                count INTEGER NOT NULL,
+                method TEXT NOT NULL,
+                FOREIGN KEY(run_id) REFERENCES runs(id)
+            )",
         ];
+
         for query in queries {
-            query.or_else(ignore_already_exists)?;
+            self.execute(query, params![])?;
         }
+
         Ok(())
     }
 
@@ -368,6 +362,28 @@ impl DbOps for SqliteDb {
         Ok(res)
     }
 
+    fn get_latency_metrics(&self, run_id: u64, method: &str) -> Result<Vec<Bucket>> {
+        let pool = self.get_pool()?;
+        let mut stmt = pool
+            .prepare(
+                "SELECT upper_bound_secs, count FROM latency WHERE run_id = ?1 AND method = ?2",
+            )
+            .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
+
+        let rows = stmt
+            .query_map(params![run_id, method], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
+        let res = rows
+            .map(|r| r.map_err(|e| ContenderError::with_err(e, "failed to convert row")))
+            .collect::<Result<Vec<(f64, u64)>>>()?
+            .into_iter()
+            .map(|buckett| buckett.into())
+            .collect::<Vec<Bucket>>();
+        Ok(res)
+    }
+
     fn insert_run_txs(&self, run_id: u64, run_txs: &[RunTx]) -> Result<()> {
         let pool = self.get_pool()?;
 
@@ -403,6 +419,34 @@ impl DbOps for SqliteDb {
                 .unwrap_or_default(),
         ))
         .map_err(|e| ContenderError::with_err(e, "failed to execute batch"))?;
+        Ok(())
+    }
+
+    fn insert_latency_metrics(
+        &self,
+        run_id: u64,
+        latency_metrics: &BTreeMap<String, Vec<Bucket>>,
+    ) -> Result<()> {
+        let pool = self.get_pool()?;
+        let stmts = latency_metrics.iter().map(|(method, buckets)| {
+            buckets.iter().map(move |bucket| {
+                format!(
+                    "INSERT INTO latency (run_id, upper_bound_secs, count, method) VALUES ({}, {}, {}, '{}');",
+                    run_id, bucket.upper_bound, bucket.cumulative_count, method
+                )
+            })
+        });
+        for method_stmt in stmts {
+            pool.execute_batch(&format!(
+                "BEGIN;
+                {}
+                COMMIT;",
+                method_stmt
+                    .reduce(|acc, curr| format!("{}\n{}", acc, curr))
+                    .unwrap_or_default(),
+            ))
+            .map_err(|e| ContenderError::with_err(e, "failed to execute batch"))?;
+        }
         Ok(())
     }
 }

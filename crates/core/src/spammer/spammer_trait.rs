@@ -97,10 +97,19 @@ where
                 println!("Tx cache dump terminated. Some unconfirmed txs may not have been saved to the database.");
             }
 
-            let run_id = run_id
-                .map(|id| format!("run_id: {}", id))
-                .unwrap_or_default();
-            println!("done. {run_id}");
+            if let Some(run_id) = run_id {
+                let latency_metrics = scenario.collect_latency_metrics();
+                scenario
+                    .db
+                    .insert_latency_metrics(run_id, &latency_metrics)?;
+            }
+
+            println!(
+                "done. {}",
+                run_id
+                    .map(|id| format!("run_id: {}", id))
+                    .unwrap_or_default()
+            );
             Ok(())
         }
     }

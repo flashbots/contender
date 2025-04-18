@@ -27,6 +27,7 @@ csv = {workspace = true}
 futures.workspace = true
 handlebars = {workspace = true}
 plotters = {workspace = true}
+prometheus = { workspace = true }
 rand.workspace = true
 regex = "1.11.1"
 serde_json = {workspace = true}

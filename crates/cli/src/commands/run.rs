@@ -28,6 +28,7 @@ use contender_testfile::TestConfig;
 use crate::{
     default_scenarios::{BuiltinScenario, BuiltinScenarioConfig},
     util::{check_private_keys, get_signers_with_defaults, prompt_cli, EngineParams},
+    LATENCY_HIST as HIST, PROM,
 };
 
 pub struct RunCommandArgs {
@@ -94,6 +95,7 @@ pub async fn run(
         rand_seed,
         params,
         args.engine_params.engine_provider,
+        (&PROM, &HIST),
     )
     .await?;
 
