@@ -46,10 +46,8 @@ impl DbOps for MockDb {
         )))
     }
 
-    fn get_sendtx_latency(&self, _run_id: u64) -> Result<std::collections::BTreeMap<u64, u64>> {
-        let mut latency_metrics = std::collections::BTreeMap::new();
-        latency_metrics.insert(0, 0);
-        Ok(latency_metrics)
+    fn get_sendtx_latency(&self, _run_id: u64) -> Result<Vec<(f64, u64)>> {
+        Ok(vec![(0.0, 1)])
     }
 
     fn insert_run_txs(&self, _run_id: u64, _run_txs: &[RunTx]) -> Result<()> {
@@ -60,11 +58,7 @@ impl DbOps for MockDb {
         Ok(vec![])
     }
 
-    fn insert_latency_metrics(
-        &self,
-        _run_id: u64,
-        _latency_metrics: &std::collections::BTreeMap<u64, u64>,
-    ) -> Result<()> {
+    fn insert_latency_metrics(&self, _run_id: u64, _latency_metrics: &[(f64, u64)]) -> Result<()> {
         Ok(())
     }
 }

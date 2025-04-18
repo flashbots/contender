@@ -7,7 +7,7 @@ use crate::generator::types::AnyProvider;
 use crate::generator::util::complete_tx_request;
 use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
-use crate::provider::LoggingLayer;
+use crate::provider::{LoggingLayer, RPC_REQUEST_LATENCY_MS_ID};
 use crate::spammer::tx_actor::TxActorHandle;
 use crate::spammer::{ExecutionPayload, OnBatchSent, OnTxSent, SpamTrigger};
 use crate::Result;
@@ -28,13 +28,18 @@ use contender_bundle_provider::bundle_provider::new_basic_bundle;
 use contender_bundle_provider::BundleClient;
 use contender_engine_provider::AdvanceChain;
 use futures::{Stream, StreamExt};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::ops::Deref;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::OnceCell;
+
+type PrometheusCollector = (
+    &'static OnceCell<prometheus::Registry>,
+    &'static OnceCell<prometheus::HistogramVec>,
+);
 
 /// A test scenario can be used to run a test with a specific configuration, database, and RPC provider.
 #[derive(Clone)]
@@ -67,10 +72,7 @@ where
     /// Execution context for the test scenario; things about the target chain that affect the txs we send.
     pub ctx: ExecutionContext,
     pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
-    prometheus: (
-        &'static OnceCell<prometheus::Registry>,
-        &'static OnceCell<prometheus::Histogram>,
-    ),
+    prometheus: PrometheusCollector,
 }
 
 pub struct TestScenarioParams {
@@ -110,10 +112,7 @@ where
         rand_seed: S,
         params: TestScenarioParams,
         auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
-        prometheus: (
-            &'static OnceCell<prometheus::Registry>,
-            &'static OnceCell<prometheus::Histogram>,
-        ),
+        prometheus: PrometheusCollector,
     ) -> Result<Self> {
         let TestScenarioParams {
             rpc_url,
@@ -238,7 +237,7 @@ where
         let admin_wallet = EthereumWallet::new(admin_signer.clone());
         // separate prometheus registry for simulations; anvil doesn't count!
         static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
-        static HIST: OnceCell<prometheus::Histogram> = OnceCell::const_new();
+        static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
         let mut scenario = Self::new(
             self.config.to_owned(),
             self.db.clone(),
@@ -992,7 +991,7 @@ where
     pub async fn get_max_spam_cost(&self, user_signers: &[PrivateKeySigner]) -> Result<U256> {
         // separate prometheus registry for simulations; anvil doesn't count!
         static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
-        static HIST: OnceCell<prometheus::Histogram> = OnceCell::const_new();
+        static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
         let mut scenario = TestScenario::new(
             self.config.to_owned(),
             self.db.clone(),
@@ -1168,14 +1167,14 @@ where
 
     /// Collects latency metrics from the prometheus registry.
     /// Returns a map of latency buckets (in milliseconds) to cumulative counts.
-    pub fn collect_latency_metrics(&self) -> BTreeMap<u64, u64> {
-        let mut latency_map = BTreeMap::<u64, u64>::new();
+    pub fn collect_latency_metrics(&self) -> Vec<(f64, u64)> {
+        let mut latencies = vec![];
         let registry = self.prometheus.0.get();
         if let Some(registry) = registry {
             let metric_families = registry.gather();
 
             for mf in &metric_families {
-                if mf.name() == "request_latency_milliseconds" {
+                if mf.name() == RPC_REQUEST_LATENCY_MS_ID {
                     for m in mf.get_metric() {
                         let hist = m.get_histogram();
                         for bucket in &hist.bucket {
@@ -1186,13 +1185,13 @@ where
                             let cumulative_count =
                                 bucket.cumulative_count.expect("cumulative_count");
 
-                            latency_map.insert(upper_bound as u64, cumulative_count);
+                            latencies.push((upper_bound, cumulative_count));
                         }
                     }
                 }
             }
         }
-        latency_map
+        latencies
     }
 }
 
@@ -1294,7 +1293,7 @@ pub mod tests {
     use super::TestScenarioParams;
     // separate prometheus registry for simulations; anvil doesn't count!
     static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
-    static HIST: OnceCell<prometheus::Histogram> = OnceCell::const_new();
+    static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
 
     #[derive(Clone)]
     pub struct MockConfig;

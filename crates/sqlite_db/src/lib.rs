@@ -206,7 +206,7 @@ impl DbOps for SqliteDb {
             "CREATE TABLE latency (
                 id INTEGER PRIMARY KEY,
                 run_id INTEGER NOT NULL,
-                upper_bound_ms INTEGER NOT NULL,
+                upper_bound_secs FLOAT NOT NULL,
                 count INTEGER NOT NULL,
                 FOREIGN KEY(run_id) REFERENCES runs(id)
             )",
@@ -356,10 +356,10 @@ impl DbOps for SqliteDb {
         Ok(res)
     }
 
-    fn get_sendtx_latency(&self, run_id: u64) -> Result<std::collections::BTreeMap<u64, u64>> {
+    fn get_sendtx_latency(&self, run_id: u64) -> Result<Vec<(f64, u64)>> {
         let pool = self.get_pool()?;
         let mut stmt = pool
-            .prepare("SELECT upper_bound_ms, count FROM latency WHERE run_id = ?1")
+            .prepare("SELECT upper_bound_secs, count FROM latency WHERE run_id = ?1")
             .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
 
         let rows = stmt
@@ -367,7 +367,7 @@ impl DbOps for SqliteDb {
             .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
         let res = rows
             .map(|r| r.map_err(|e| ContenderError::with_err(e, "failed to convert row")))
-            .collect::<Result<std::collections::BTreeMap<u64, u64>>>()?;
+            .collect::<Result<Vec<(f64, u64)>>>()?;
         Ok(res)
     }
 
@@ -409,15 +409,11 @@ impl DbOps for SqliteDb {
         Ok(())
     }
 
-    fn insert_latency_metrics(
-        &self,
-        run_id: u64,
-        latency_metrics: &std::collections::BTreeMap<u64, u64>,
-    ) -> Result<()> {
+    fn insert_latency_metrics(&self, run_id: u64, latency_metrics: &[(f64, u64)]) -> Result<()> {
         let pool = self.get_pool()?;
         let stmts = latency_metrics.iter().map(|(upper_bound, count)| {
             format!(
-                "INSERT INTO latency (run_id, upper_bound_ms, count) VALUES ({}, {}, {});",
+                "INSERT INTO latency (run_id, upper_bound_secs, count) VALUES ({}, {}, {});",
                 run_id, upper_bound, count,
             )
         });

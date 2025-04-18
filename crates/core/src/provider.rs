@@ -10,20 +10,22 @@ use alloy::{
     transports::TransportError,
 };
 use eyre::Result;
-use prometheus::{Histogram, HistogramOpts, Registry};
+use prometheus::{HistogramOpts, HistogramVec, Registry};
 use tokio::sync::OnceCell;
 use tower::{Layer, Service};
 
+pub const RPC_REQUEST_LATENCY_MS_ID: &str = "rpc_request_latency_milliseconds";
+
 /// A layer to be used with `ClientBuilder::layer` that logs request id with tx hash when calling eth_sendRawTransaction.
 pub struct LoggingLayer {
-    latency_histogram: &'static OnceCell<Histogram>,
+    latency_histogram: &'static OnceCell<HistogramVec>,
 }
 
 impl LoggingLayer {
     /// Creates a new `LoggingLayer` and initialize metrics.
     pub async fn new(
         registry: &OnceCell<Registry>,
-        latency_histogram: &'static OnceCell<Histogram>,
+        latency_histogram: &'static OnceCell<HistogramVec>,
     ) -> Self {
         init_metrics(registry, latency_histogram).await;
         Self { latency_histogram }
@@ -45,7 +47,7 @@ impl<S> Layer<S> for LoggingLayer {
 #[derive(Debug, Clone)]
 pub struct LoggingService<S> {
     inner: S,
-    latency_histogram: &'static OnceCell<Histogram>,
+    latency_histogram: &'static OnceCell<HistogramVec>,
 }
 
 impl<S> Service<RequestPacket> for LoggingService<S>
@@ -85,7 +87,8 @@ where
                 if let Ok(res) = &res {
                     let elapsed = start_time.elapsed().as_millis();
                     if let Some(h) = latency_histogram {
-                        h.observe(elapsed as f64);
+                        h.with_label_values(&["eth_sendRawTransaction"])
+                            .observe(elapsed as f64);
                     }
                     match res {
                         ResponsePacket::Single(inner_res) => {
@@ -102,23 +105,20 @@ where
     }
 }
 
-async fn init_metrics(registry: &OnceCell<Registry>, hist: &OnceCell<Histogram>) {
+async fn init_metrics(registry: &OnceCell<Registry>, latency_hist: &OnceCell<HistogramVec>) {
     let reg = Registry::new();
-    let histogram_opts = HistogramOpts::new(
-        "request_latency_milliseconds",
-        "Latency of requests in milliseconds",
-    )
-    .buckets(
-        vec![1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000]
-            .into_iter()
-            .map(f64::from)
-            .collect(),
-    );
 
-    let histogram = Histogram::with_opts(histogram_opts).expect("histogram_opts");
-    reg.register(Box::new(histogram.clone()))
+    let histogram_vec = HistogramVec::new(
+        HistogramOpts::new(
+            RPC_REQUEST_LATENCY_MS_ID,
+            "Latency of requests in milliseconds",
+        ),
+        &["rpc_method"],
+    )
+    .expect("histogram_vec");
+    reg.register(Box::new(histogram_vec.clone()))
         .expect("histogram registered");
 
     registry.set(reg).expect("registry set");
-    hist.set(histogram).expect("histogram set");
+    latency_hist.set(histogram_vec).expect("histogram_vec set");
 }

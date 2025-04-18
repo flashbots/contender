@@ -23,7 +23,7 @@ static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
 });
 // prometheus
 static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
-static LATENCY_HIST: OnceCell<prometheus::Histogram> = OnceCell::const_new();
+static LATENCY_HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

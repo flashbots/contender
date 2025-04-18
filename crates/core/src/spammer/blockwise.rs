@@ -72,7 +72,7 @@ mod tests {
 
     // separate prometheus registry for simulations; anvil doesn't count!
     static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
-    static HIST: OnceCell<prometheus::Histogram> = OnceCell::const_new();
+    static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
 
     #[tokio::test]
     async fn watches_blocks_and_spams_them() {

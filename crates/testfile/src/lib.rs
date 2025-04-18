@@ -30,7 +30,7 @@ pub mod tests {
 
     // prometheus
     static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
-    static HIST: OnceCell<prometheus::Histogram> = OnceCell::const_new();
+    static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
 
     pub fn spawn_anvil() -> AnvilInstance {
         Anvil::new().block_time(1).try_spawn().unwrap()
