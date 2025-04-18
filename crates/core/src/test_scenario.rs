@@ -3,13 +3,13 @@ use crate::db::{DbOps, NamedTx};
 use crate::error::ContenderError;
 use crate::generator::named_txs::ExecutionRequest;
 use crate::generator::templater::Templater;
-use crate::generator::types::{AnyProvider, EthProvider};
+use crate::generator::types::AnyProvider;
 use crate::generator::util::complete_tx_request;
 use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use crate::provider::LoggingLayer;
 use crate::spammer::tx_actor::TxActorHandle;
-use crate::spammer::{ExecutionPayload, OnTxSent, SpamTrigger};
+use crate::spammer::{ExecutionPayload, OnBatchSent, OnTxSent, SpamTrigger};
 use crate::Result;
 use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
 use alloy::consensus::{Transaction, TxType};
@@ -21,10 +21,12 @@ use alloy::primitives::{keccak256, Address, FixedBytes, U256};
 use alloy::providers::{DynProvider, PendingTransactionConfig, Provider, ProviderBuilder};
 use alloy::rpc::client::ClientBuilder;
 use alloy::rpc::types::TransactionRequest;
+use alloy::serde::WithOtherFields;
 use alloy::signers::local::{LocalSigner, PrivateKeySigner};
 use alloy::transports::http::reqwest::Url;
 use contender_bundle_provider::bundle_provider::new_basic_bundle;
 use contender_bundle_provider::BundleClient;
+use contender_engine_provider::AdvanceChain;
 use futures::{Stream, StreamExt};
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -34,7 +36,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// A test scenario can be used to run a test with a specific configuration, database, and RPC provider.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct TestScenario<D, S, P>
 where
     D: DbOps + Send + Sync + 'static,
@@ -45,7 +47,6 @@ where
     pub db: Arc<D>,
     pub rpc_url: Url,
     pub rpc_client: Arc<AnyProvider>,
-    pub eth_client: Arc<EthProvider>,
     pub bundle_client: Option<Arc<BundleClient>>,
     pub builder_rpc_url: Option<Url>,
     pub rand_seed: S,
@@ -64,6 +65,7 @@ where
     pub pending_tx_timeout_secs: u64,
     /// Execution context for the test scenario; things about the target chain that affect the txs we send.
     pub ctx: ExecutionContext,
+    pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
 }
 
 pub struct TestScenarioParams {
@@ -76,7 +78,7 @@ pub struct TestScenarioParams {
     pub pending_tx_timeout_secs: u64,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ExecutionContext {
     /// Adds this amount of wei per gas to the gas price given to each transaction. May be negative to subtract gas.
     /// This is not the same as the `gas_price_percent_add`, which is a percentage of the gas price provided by the user.
@@ -102,6 +104,7 @@ where
         db: Arc<D>,
         rand_seed: S,
         params: TestScenarioParams,
+        auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
     ) -> Result<Self> {
         let TestScenarioParams {
             rpc_url,
@@ -188,7 +191,6 @@ where
             db: db.clone(),
             rpc_url: rpc_url.to_owned(),
             rpc_client: Arc::new(rpc_client),
-            eth_client: Arc::new(DynProvider::new(ProviderBuilder::new().on_http(rpc_url))),
             bundle_client,
             builder_rpc_url,
             rand_seed,
@@ -205,6 +207,7 @@ where
                 gas_price_adder: 0,
                 block_time_secs,
             },
+            auth_provider,
         })
     }
 
@@ -240,6 +243,7 @@ where
                 gas_price_percent_add: Some(self.gas_price_percent_add), // will be 0 if not specified
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             },
+            None,
         )
         .await?;
 
@@ -372,6 +376,7 @@ where
                 .to_owned();
             let wallet = ProviderBuilder::new()
                 .wallet(wallet_conf)
+                .network::<AnyNetwork>()
                 .on_http(self.rpc_url.to_owned());
 
             println!(
@@ -383,7 +388,7 @@ where
             let handle = tokio::task::spawn(async move {
                 // estimate gas limit
                 let gas_limit = wallet
-                    .estimate_gas(tx_req.tx.to_owned())
+                    .estimate_gas(WithOtherFields::new(tx_req.tx.to_owned()))
                     .await
                     .expect("failed to estimate gas");
 
@@ -391,7 +396,7 @@ where
                 let mut tx = tx_req.tx;
                 complete_tx_request(&mut tx, tx_type, gas_price, (GWEI_TO_WEI as u128).min(gas_price - 1), gas_limit, chain_id);
 
-                let res = wallet.send_transaction(tx).await;
+                let res = wallet.send_transaction(WithOtherFields::new(tx)).await;
                 if let Err(err) = res {
                     let err = err.to_string();
                     if err.to_lowercase().contains("already known") {
@@ -550,8 +555,8 @@ where
             let gas_limit = if let Some(gas) = tx_req.gas {
                 gas
             } else {
-                self.eth_client
-                    .estimate_gas(tx_req.to_owned())
+                self.rpc_client
+                    .estimate_gas(WithOtherFields::new(tx_req.to_owned()))
                     .await
                     .map_err(|e| ContenderError::with_err(e, "failed to estimate gas for tx"))?
             };
@@ -689,7 +694,7 @@ where
         &mut self,
         trigger: SpamTrigger,
         payloads: Vec<ExecutionPayload>,
-        callback_handler: Arc<impl OnTxSent + Send + Sync + 'static>,
+        callback_handler: Arc<impl OnTxSent + OnBatchSent + Send + Sync + 'static>,
         context_handler: SpamContextHandler,
     ) -> Result<Vec<tokio::task::JoinHandle<()>>> {
         // sort payloads by nonce
@@ -859,7 +864,7 @@ where
     }
 
     /// Send spam batches until the cursor is depleted.
-    pub async fn execute_spammer<F: OnTxSent + Send + Sync + 'static>(
+    pub async fn execute_spammer<F: OnTxSent + OnBatchSent + Send + Sync + 'static>(
         &mut self,
         cursor: &mut futures::stream::Take<Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>>,
         tx_req_chunks: &[Vec<ExecutionRequest>],
@@ -893,6 +898,12 @@ where
                     num_tasks -= 1;
                 }
             }
+
+            if let Some(task) = sent_tx_callback.on_batch_sent() {
+                task.await
+                    .map_err(|e| ContenderError::with_err(e, "on_batch_sent callback failed"))?;
+            }
+
             println!("[{}] executed {} spam tasks", tick, num_tasks);
 
             // increase gas price if needed
@@ -982,26 +993,26 @@ where
                 gas_price_percent_add: Some(self.gas_price_percent_add),
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             },
+            None,
         )
         .await?;
 
         // load a sample of each spam tx from the scenario
+        let txs = scenario
+            .load_txs(PlanType::Spam(
+                scenario
+                    .config
+                    .get_spam_steps()
+                    .map(|s| s.len()) // take the number of spam txs from the testfile
+                    .unwrap_or(0) as u64,
+                |_named_req| {
+                    // we can look at the named request here if needed
+                    Ok(None)
+                },
+            ))
+            .await?;
         let sample_txs = scenario
-            .prepare_spam(
-                &scenario
-                    .load_txs(PlanType::Spam(
-                        scenario
-                            .config
-                            .get_spam_steps()
-                            .map(|s| s.len()) // take the number of spam txs from the testfile
-                            .unwrap_or(0) as u64,
-                        |_named_req| {
-                            // we can look at the named request here if needed
-                            Ok(None)
-                        },
-                    ))
-                    .await?,
-            )
+            .prepare_spam(&txs)
             .await?
             .iter()
             .map(|ex_payload| match ex_payload {
@@ -1481,6 +1492,7 @@ pub mod tests {
                 gas_price_percent_add: None,
                 pending_tx_timeout_secs: 12,
             },
+            None,
         )
         .await
         .unwrap();

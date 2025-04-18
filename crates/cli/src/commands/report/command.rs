@@ -1,10 +1,9 @@
 use super::block_trace::get_block_trace_data;
 use super::cache::CacheFile;
-use super::chart::{
-    DrawableChart, GasPerBlockChart, HeatMapChart, PendingTxsChart, ReportChartId,
-    TimeToInclusionChart, TxGasUsedChart,
-};
+use super::chart::{GasPerBlockChart, HeatMapChart, TimeToInclusionChart, TxGasUsedChart};
+use super::chart::{PendingTxsChart, ReportChartId};
 use super::gen_html::{build_html_report, ReportMetadata};
+use crate::commands::report::chart::DrawableChart;
 use crate::util::{report_dir, write_run_txs};
 use alloy::network::AnyNetwork;
 use alloy::providers::DynProvider;

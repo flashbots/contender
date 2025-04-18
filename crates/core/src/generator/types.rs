@@ -1,6 +1,6 @@
 use super::named_txs::ExecutionRequest;
 use alloy::{
-    network::{AnyNetwork, Ethereum},
+    network::AnyNetwork,
     primitives::{Address, U256},
     providers::DynProvider,
 };
@@ -12,7 +12,6 @@ use tokio::task::JoinHandle;
 pub use crate::generator::named_txs::NamedTxRequest;
 
 // -- convenience
-pub type EthProvider = DynProvider<Ethereum>;
 pub type AnyProvider = DynProvider<AnyNetwork>;
 
 // -- core types for test scenarios

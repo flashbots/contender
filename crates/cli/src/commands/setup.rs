@@ -1,3 +1,7 @@
+use crate::util::{
+    check_private_keys_fns, find_insufficient_balances, fund_accounts, get_signers_with_defaults,
+    EngineParams,
+};
 use alloy::{
     consensus::TxType,
     network::AnyNetwork,
@@ -13,13 +17,18 @@ use contender_core::{
     generator::RandSeed,
     test_scenario::{TestScenario, TestScenarioParams},
 };
+use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use contender_testfile::TestConfig;
-use std::{str::FromStr, time::Duration};
+use std::{
+    str::FromStr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use super::common::ScenarioSendTxsCliArgs;
-use crate::util::{
-    check_private_keys_fns, find_insufficient_balances, fund_accounts, get_signers_with_defaults,
-};
 
 #[derive(Debug, clap::Args)]
 pub struct SetupCliArgs {
@@ -29,13 +38,18 @@ pub struct SetupCliArgs {
 
 pub async fn setup(
     db: &(impl contender_core::db::DbOps + Clone + Send + Sync + 'static),
-    testfile: impl AsRef<str>,
-    rpc_url: impl AsRef<str>,
-    private_keys: Option<Vec<String>>,
-    min_balance: String,
-    seed: RandSeed,
-    tx_type: TxType,
+    args: SetupCommandArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let SetupCommandArgs {
+        testfile,
+        rpc_url,
+        private_keys,
+        min_balance,
+        seed,
+        tx_type,
+        engine_params,
+    } = args;
+
     let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
     let rpc_client = DynProvider::new(
         ProviderBuilder::new()
@@ -96,14 +110,26 @@ pub async fn setup(
     }
 
     // user-provided signers must be pre-funded
-    let admin_signer = &user_signers_with_defaults[0];
+    let admin_signer = user_signers_with_defaults[0].to_owned();
+    let all_agent_addresses = agents.all_signer_addresses();
+
+    let params = TestScenarioParams {
+        rpc_url: url,
+        builder_rpc_url: None,
+        signers: user_signers_with_defaults,
+        agent_store: agents,
+        tx_type,
+        gas_price_percent_add: None,
+        pending_tx_timeout_secs: 12,
+    };
 
     fund_accounts(
-        &agents.all_signer_addresses(),
-        admin_signer,
+        &all_agent_addresses,
+        &admin_signer,
         &rpc_client,
         min_balance,
         tx_type,
+        &engine_params,
     )
     .await?;
 
@@ -111,15 +137,8 @@ pub async fn setup(
         testconfig.to_owned(),
         db.clone().into(),
         seed,
-        TestScenarioParams {
-            rpc_url: url,
-            builder_rpc_url: None,
-            signers: user_signers_with_defaults,
-            agent_store: agents,
-            tx_type,
-            gas_price_percent_add: None,
-            pending_tx_timeout_secs: 12,
-        },
+        params,
+        engine_params.engine_provider,
     )
     .await?;
 
@@ -168,6 +187,29 @@ pub async fn setup(
         tokio::time::sleep(Duration::from_secs(safe_time)).await;
         println!("Contract deployment has been waiting for more than 10 blocks... Press Ctrl+C to cancel.");
     });
+    let done = AtomicBool::new(false);
+    let is_done = Arc::new(done);
+
+    if engine_params.call_fcu && scenario.auth_provider.is_some() {
+        let auth_client = scenario.auth_provider.clone().expect("auth provider");
+        let is_done = is_done.clone();
+
+        // spawn a task to advance the chain periodically while setup is running
+        tokio::task::spawn(async move {
+            loop {
+                if is_done.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                auth_client
+                    .advance_chain(DEFAULT_BLOCK_TIME)
+                    .await
+                    .expect("failed to advance chain");
+
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        });
+    }
 
     scenario.deploy_contracts().await?;
     timekeeper_handle.abort();
@@ -175,5 +217,18 @@ pub async fn setup(
     scenario.run_setup().await?;
     println!("Setup complete. To run the scenario, use the `spam` command.");
 
+    // stop advancing the chain
+    is_done.store(true, Ordering::SeqCst);
+
     Ok(())
+}
+
+pub struct SetupCommandArgs {
+    pub testfile: String,
+    pub rpc_url: String,
+    pub private_keys: Option<Vec<String>>,
+    pub min_balance: String,
+    pub seed: RandSeed,
+    pub tx_type: TxType,
+    pub engine_params: EngineParams,
 }

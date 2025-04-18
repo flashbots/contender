@@ -1,11 +1,9 @@
-use std::{collections::HashMap, sync::Arc};
-
-use alloy::providers::PendingTransactionConfig;
-use tokio::task::JoinHandle;
-
-use crate::generator::{types::AnyProvider, NamedTxRequest};
-
 use super::tx_actor::{CacheTx, TxActorHandle};
+use crate::generator::{types::AnyProvider, NamedTxRequest};
+use alloy::providers::PendingTransactionConfig;
+use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
+use std::{collections::HashMap, sync::Arc};
+use tokio::task::JoinHandle;
 
 pub trait OnTxSent<K = String, V = String>
 where
@@ -21,16 +19,29 @@ where
     ) -> Option<JoinHandle<()>>;
 }
 
+pub trait OnBatchSent {
+    fn on_batch_sent(&self) -> Option<JoinHandle<()>>;
+}
+
+#[derive(Clone)]
 pub struct NilCallback;
 
 pub struct LogCallback {
     pub rpc_provider: Arc<AnyProvider>,
+    pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    pub send_fcu: bool,
 }
 
 impl LogCallback {
-    pub fn new(rpc_provider: &Arc<AnyProvider>) -> Self {
+    pub fn new(
+        rpc_provider: Arc<AnyProvider>,
+        auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+        send_fcu: bool,
+    ) -> Self {
         Self {
-            rpc_provider: rpc_provider.clone(),
+            rpc_provider,
+            auth_provider,
+            send_fcu,
         }
     }
 }
@@ -81,5 +92,31 @@ impl OnTxSent for LogCallback {
             }
         });
         Some(handle)
+    }
+}
+
+impl OnBatchSent for LogCallback {
+    fn on_batch_sent(&self) -> Option<JoinHandle<()>> {
+        if !self.send_fcu {
+            // maybe do something metrics-related here
+            return None;
+        }
+        if let Some(provider) = &self.auth_provider {
+            let provider = provider.clone();
+            return Some(tokio::task::spawn(async move {
+                provider
+                    .advance_chain(DEFAULT_BLOCK_TIME)
+                    .await
+                    .expect("failed to advance chain");
+            }));
+        }
+        None
+    }
+}
+
+impl OnBatchSent for NilCallback {
+    fn on_batch_sent(&self) -> Option<JoinHandle<()>> {
+        // do nothing
+        None
     }
 }

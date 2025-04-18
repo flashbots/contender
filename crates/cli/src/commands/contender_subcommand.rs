@@ -1,6 +1,7 @@
 use clap::Subcommand;
 use std::path::PathBuf;
 
+use super::common::AuthCliArgs;
 use super::setup::SetupCliArgs;
 use super::spam::SpamCliArgs;
 use crate::default_scenarios::BuiltinScenario;
@@ -131,7 +132,9 @@ pub enum ContenderSubcommand {
             default_value_t = TxTypeCli::Eip1559,
         )]
         tx_type: TxTypeCli,
-        // TODO: DRY duplicate args
+
+        #[command(flatten)]
+        auth_args: AuthCliArgs,
     },
 }
 
