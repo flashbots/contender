@@ -9,11 +9,11 @@ use plotters::{
     },
 };
 
-pub struct SendTxLatencyChart {
+pub struct LatencyChart {
     buckets: Vec<Bucket>,
 }
 
-impl SendTxLatencyChart {
+impl LatencyChart {
     pub fn new(buckets: Vec<(f64, u64)>) -> Self {
         Self {
             buckets: buckets.into_iter().map(|b| b.into()).collect(),
@@ -21,7 +21,7 @@ impl SendTxLatencyChart {
     }
 }
 
-impl DrawableChart for SendTxLatencyChart {
+impl DrawableChart for LatencyChart {
     fn define_chart(
         &self,
         root: &plotters::prelude::DrawingArea<BitMapBackend, plotters::coord::Shift>,

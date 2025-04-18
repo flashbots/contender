@@ -12,6 +12,7 @@ pub struct ReportMetadata {
     pub end_block: u64,
     pub rpc_url: String,
     pub metrics: SpamRunMetrics,
+    pub chart_ids: Vec<ReportChartId>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -43,14 +44,7 @@ impl TemplateData {
 pub fn build_html_report(meta: ReportMetadata) -> Result<String, Box<dyn std::error::Error>> {
     let report_dir = report_dir()?;
     let mut charts = Vec::new();
-    for chart_id in &[
-        ReportChartId::Heatmap,
-        ReportChartId::GasPerBlock,
-        ReportChartId::TimeToInclusion,
-        ReportChartId::TxGasUsed,
-        ReportChartId::PendingTxs,
-        ReportChartId::SendTxLatency,
-    ] {
+    for chart_id in &meta.chart_ids {
         let filename = chart_id.filename(meta.start_run_id, meta.end_run_id)?;
         charts.push((chart_id.proper_name(), filename));
     }

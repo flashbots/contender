@@ -1,7 +1,7 @@
 use super::block_trace::{get_block_data, get_block_traces};
 use super::cache::CacheFile;
 use super::chart::{
-    GasPerBlockChart, HeatMapChart, PendingTxsChart, ReportChartId, SendTxLatencyChart,
+    GasPerBlockChart, HeatMapChart, LatencyChart, PendingTxsChart, ReportChartId,
     TimeToInclusionChart, TxGasUsedChart,
 };
 use super::gen_html::{build_html_report, ReportMetadata};
@@ -13,6 +13,7 @@ use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
 use contender_core::db::{DbOps, RunTx};
 use csv::WriterBuilder;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
 pub async fn report(
@@ -112,22 +113,6 @@ pub async fn report(
         .fold(0, |acc, diff| acc + diff) as f64
         / (blocks.len() - 1).max(1) as f64;
 
-    // load latency data from DB
-    let mut canonical_sendtx_latency: Vec<(f64, u64)> = vec![];
-    for run_id in start_run_id..=end_run_id {
-        let tx_latency = db.get_latency_metrics(run_id, "eth_sendRawTransaction")?;
-        for (latency, count) in tx_latency {
-            if let Some(entry) = canonical_sendtx_latency
-                .iter_mut()
-                .find(|(l, _)| *l == latency)
-            {
-                entry.1 += count;
-            } else {
-                canonical_sendtx_latency.push((latency, count));
-            }
-        }
-    }
-
     let metrics = SpamRunMetrics {
         peak_gas,
         peak_tx_count,
@@ -138,29 +123,61 @@ pub async fn report(
     let cache_data = CacheFile::new(trace_data, blocks);
     cache_data.save()?;
 
-    // make heatmap
-    let heatmap = HeatMapChart::new(&cache_data.traces)?;
-    heatmap.draw(&ReportChartId::Heatmap.filename(start_run_id, end_run_id)?)?;
+    // collect latency data for all relevant methods
+    let latency_methods = [
+        "eth_sendRawTransaction",
+        "eth_blockNumber",
+        "eth_chainId",
+        "eth_estimateGas",
+        "eth_gasPrice",
+        "eth_getBlockByNumber",
+        "eth_getBlockReceipts",
+        "eth_getTransactionCount",
+    ];
+    let mut canonical_latency_map = BTreeMap::<String, Vec<(f64, u64)>>::new();
+    for method in latency_methods {
+        // collect latency data from DB for each relevant run
+        let mut canonical_latency: Vec<(f64, u64)> = vec![];
+        for run_id in start_run_id..=end_run_id {
+            let latencies = db.get_latency_metrics(run_id, method)?;
+            for (latency, count) in latencies {
+                if let Some(entry) = canonical_latency.iter_mut().find(|(l, _)| *l == latency) {
+                    entry.1 += count;
+                } else {
+                    canonical_latency.push((latency, count));
+                }
+            }
+        }
+        canonical_latency_map.insert(method.to_string(), canonical_latency.to_owned());
+    }
 
-    // make gasPerBlock chart
-    let gas_per_block = GasPerBlockChart::new(&cache_data.blocks);
-    gas_per_block.draw(&ReportChartId::GasPerBlock.filename(start_run_id, end_run_id)?)?;
+    let chart_ids = vec![
+        ReportChartId::Heatmap,
+        ReportChartId::GasPerBlock,
+        ReportChartId::TimeToInclusion,
+        ReportChartId::TxGasUsed,
+        ReportChartId::PendingTxs,
+        ReportChartId::RpcLatency("eth_sendRawTransaction"),
+    ];
 
-    // make timeToInclusion chart
-    let time_to_inclusion = TimeToInclusionChart::new(&all_txs);
-    time_to_inclusion.draw(&ReportChartId::TimeToInclusion.filename(start_run_id, end_run_id)?)?;
-
-    // make txGasUsed chart
-    let tx_gas_used = TxGasUsedChart::new(&cache_data.traces);
-    tx_gas_used.draw(&ReportChartId::TxGasUsed.filename(start_run_id, end_run_id)?)?;
-
-    // make pendingTxs chart
-    let pending_txs = PendingTxsChart::new(&all_txs);
-    pending_txs.draw(&ReportChartId::PendingTxs.filename(start_run_id, end_run_id)?)?;
-
-    // make sendTxLatency chart
-    let send_tx_latency = SendTxLatencyChart::new(canonical_sendtx_latency);
-    send_tx_latency.draw(&ReportChartId::SendTxLatency.filename(start_run_id, end_run_id)?)?;
+    // make relevant chart for each report_id
+    for chart_id in &chart_ids {
+        let filename = chart_id.filename(start_run_id, end_run_id)?;
+        let chart: Box<dyn DrawableChart> = match *chart_id {
+            ReportChartId::Heatmap => Box::new(HeatMapChart::new(&cache_data.traces)?),
+            ReportChartId::GasPerBlock => Box::new(GasPerBlockChart::new(&cache_data.blocks)),
+            ReportChartId::TimeToInclusion => Box::new(TimeToInclusionChart::new(&all_txs)),
+            ReportChartId::TxGasUsed => Box::new(TxGasUsedChart::new(&cache_data.traces)),
+            ReportChartId::PendingTxs => Box::new(PendingTxsChart::new(&all_txs)),
+            ReportChartId::RpcLatency(method) => Box::new(LatencyChart::new(
+                canonical_latency_map
+                    .get(method)
+                    .expect("no latency metrics for method")
+                    .to_owned(),
+            )),
+        };
+        chart.draw(&filename)?;
+    }
 
     // compile report
     let report_path = build_html_report(ReportMetadata {
@@ -171,6 +188,7 @@ pub async fn report(
         end_block: cache_data.blocks.last().unwrap().header.number,
         rpc_url: rpc_url.to_string(),
         metrics,
+        chart_ids,
     })?;
 
     // Open the report in the default web browser
