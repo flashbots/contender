@@ -183,9 +183,10 @@ pub async fn setup(
     };
 
     let timekeeper_handle = tokio::spawn(async move {
-        let safe_time = (testconfig.create.iter().len() + 10) as u64 * block_time_secs;
+        let timeout_blocks = 10;
+        let safe_time = (testconfig.create.iter().len() + timeout_blocks) as u64 * block_time_secs;
         tokio::time::sleep(Duration::from_secs(safe_time)).await;
-        println!("Contract deployment has been waiting for more than 10 blocks... Press Ctrl+C to cancel.");
+        println!("Contract deployment has been waiting for more than {timeout_blocks} blocks... Press Ctrl+C to cancel.");
     });
     let done = AtomicBool::new(false);
     let is_done = Arc::new(done);
