@@ -47,11 +47,13 @@ pub struct SpamRun {
 pub trait DbOps {
     fn create_tables(&self) -> Result<()>;
 
-    fn get_run(&self, run_id: u64) -> Result<Option<SpamRun>>;
+    fn get_sendtx_latency(&self, run_id: u64) -> Result<BTreeMap<u64, u64>>;
 
     fn get_named_tx(&self, name: &str, rpc_url: &str) -> Result<Option<NamedTx>>;
 
     fn get_named_tx_by_address(&self, address: &Address) -> Result<Option<NamedTx>>;
+
+    fn get_run(&self, run_id: u64) -> Result<Option<SpamRun>>;
 
     fn get_run_txs(&self, run_id: u64) -> Result<Vec<RunTx>>;
 

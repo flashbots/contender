@@ -1,7 +1,9 @@
 use super::block_trace::{get_block_data, get_block_traces};
 use super::cache::CacheFile;
-use super::chart::{GasPerBlockChart, HeatMapChart, TimeToInclusionChart, TxGasUsedChart};
-use super::chart::{PendingTxsChart, ReportChartId};
+use super::chart::{
+    GasPerBlockChart, HeatMapChart, PendingTxsChart, ReportChartId, SendTxLatencyChart,
+    TimeToInclusionChart, TxGasUsedChart,
+};
 use super::gen_html::{build_html_report, ReportMetadata};
 use crate::commands::report::chart::DrawableChart;
 use crate::util::{report_dir, write_run_txs};
@@ -11,6 +13,7 @@ use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
 use contender_core::db::{DbOps, RunTx};
 use csv::WriterBuilder;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
 pub async fn report(
@@ -110,6 +113,18 @@ pub async fn report(
         .fold(0, |acc, diff| acc + diff) as f64
         / (blocks.len() - 1).max(1) as f64;
 
+    // load latency data from DB
+    let mut canonical_sendtx_latency: BTreeMap<u32, u32> = BTreeMap::new();
+    for run_id in start_run_id..=end_run_id {
+        let tx_latency = db.get_sendtx_latency(run_id)?;
+        for (latency, count) in tx_latency {
+            canonical_sendtx_latency
+                .entry(latency as u32)
+                .and_modify(|e| *e += count as u32)
+                .or_insert(count as u32);
+        }
+    }
+
     let metrics = SpamRunMetrics {
         peak_gas,
         peak_tx_count,
@@ -139,6 +154,15 @@ pub async fn report(
     // make pendingTxs chart
     let pending_txs = PendingTxsChart::new(&all_txs);
     pending_txs.draw(&ReportChartId::PendingTxs.filename(start_run_id, end_run_id)?)?;
+
+    // make sendTxLatency chart
+    let send_tx_latency = SendTxLatencyChart::new(
+        canonical_sendtx_latency
+            .iter()
+            .map(|(x, y)| (*x, *y))
+            .collect::<Vec<_>>(),
+    );
+    send_tx_latency.draw(&ReportChartId::SendTxLatency.filename(start_run_id, end_run_id)?)?;
 
     // compile report
     let report_path = build_html_report(ReportMetadata {

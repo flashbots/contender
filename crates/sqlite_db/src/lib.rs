@@ -356,6 +356,21 @@ impl DbOps for SqliteDb {
         Ok(res)
     }
 
+    fn get_sendtx_latency(&self, run_id: u64) -> Result<std::collections::BTreeMap<u64, u64>> {
+        let pool = self.get_pool()?;
+        let mut stmt = pool
+            .prepare("SELECT upper_bound_ms, count FROM latency WHERE run_id = ?1")
+            .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
+
+        let rows = stmt
+            .query_map(params![run_id], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
+        let res = rows
+            .map(|r| r.map_err(|e| ContenderError::with_err(e, "failed to convert row")))
+            .collect::<Result<std::collections::BTreeMap<u64, u64>>>()?;
+        Ok(res)
+    }
+
     fn insert_run_txs(&self, run_id: u64, run_txs: &[RunTx]) -> Result<()> {
         let pool = self.get_pool()?;
 

@@ -6,6 +6,7 @@ pub enum ReportChartId {
     TimeToInclusion,
     TxGasUsed,
     PendingTxs,
+    SendTxLatency,
 }
 
 impl std::fmt::Display for ReportChartId {
@@ -16,6 +17,7 @@ impl std::fmt::Display for ReportChartId {
             ReportChartId::TimeToInclusion => "time_to_inclusion",
             ReportChartId::TxGasUsed => "tx_gas_used",
             ReportChartId::PendingTxs => "pending_txs",
+            ReportChartId::SendTxLatency => "send_tx_latency",
         };
         write!(f, "{}", s)
     }
@@ -43,6 +45,7 @@ impl ReportChartId {
             ReportChartId::TimeToInclusion => "Time To Inclusion",
             ReportChartId::TxGasUsed => "Tx Gas Used",
             ReportChartId::PendingTxs => "Pending Transactions",
+            ReportChartId::SendTxLatency => "Send Transaction Latency",
         }
         .to_string()
     }

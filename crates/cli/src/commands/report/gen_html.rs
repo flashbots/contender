@@ -49,6 +49,7 @@ pub fn build_html_report(meta: ReportMetadata) -> Result<String, Box<dyn std::er
         ReportChartId::TimeToInclusion,
         ReportChartId::TxGasUsed,
         ReportChartId::PendingTxs,
+        ReportChartId::SendTxLatency,
     ] {
         let filename = chart_id.filename(meta.start_run_id, meta.end_run_id)?;
         charts.push((chart_id.proper_name(), filename));
