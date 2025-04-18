@@ -1,8 +1,13 @@
+use std::collections::BTreeMap;
+
 use alloy::{
     hex::{FromHex, ToHexExt},
     primitives::{Address, TxHash},
 };
-use contender_core::db::{DbOps, NamedTx, RunTx, SpamRun};
+use contender_core::{
+    buckets::Bucket,
+    db::{DbOps, NamedTx, RunTx, SpamRun},
+};
 use contender_core::{error::ContenderError, Result};
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
@@ -208,6 +213,7 @@ impl DbOps for SqliteDb {
                 run_id INTEGER NOT NULL,
                 upper_bound_secs FLOAT NOT NULL,
                 count INTEGER NOT NULL,
+                method TEXT NOT NULL,
                 FOREIGN KEY(run_id) REFERENCES runs(id)
             )",
         ];
@@ -356,14 +362,18 @@ impl DbOps for SqliteDb {
         Ok(res)
     }
 
-    fn get_sendtx_latency(&self, run_id: u64) -> Result<Vec<(f64, u64)>> {
+    fn get_latency_metrics(&self, run_id: u64, method: &str) -> Result<Vec<(f64, u64)>> {
         let pool = self.get_pool()?;
         let mut stmt = pool
-            .prepare("SELECT upper_bound_secs, count FROM latency WHERE run_id = ?1")
+            .prepare(
+                "SELECT upper_bound_secs, count FROM latency WHERE run_id = ?1 AND method = ?2",
+            )
             .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
 
         let rows = stmt
-            .query_map(params![run_id], |row| Ok((row.get(0)?, row.get(1)?)))
+            .query_map(params![run_id, method], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
             .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
         let res = rows
             .map(|r| r.map_err(|e| ContenderError::with_err(e, "failed to convert row")))
@@ -409,23 +419,31 @@ impl DbOps for SqliteDb {
         Ok(())
     }
 
-    fn insert_latency_metrics(&self, run_id: u64, latency_metrics: &[(f64, u64)]) -> Result<()> {
+    fn insert_latency_metrics(
+        &self,
+        run_id: u64,
+        latency_metrics: &BTreeMap<String, Vec<Bucket>>,
+    ) -> Result<()> {
         let pool = self.get_pool()?;
-        let stmts = latency_metrics.iter().map(|(upper_bound, count)| {
-            format!(
-                "INSERT INTO latency (run_id, upper_bound_secs, count) VALUES ({}, {}, {});",
-                run_id, upper_bound, count,
-            )
+        let stmts = latency_metrics.iter().map(|(method, buckets)| {
+            buckets.iter().map(move |bucket| {
+                format!(
+                    "INSERT INTO latency (run_id, upper_bound_secs, count, method) VALUES ({}, {}, {}, '{}');",
+                    run_id, bucket.upper_bound, bucket.cumulative_count, method
+                )
+            })
         });
-        pool.execute_batch(&format!(
-            "BEGIN;
-            {}
-            COMMIT;",
-            stmts
-                .reduce(|acc, curr| format!("{}\n{}", acc, curr))
-                .unwrap_or_default(),
-        ))
-        .map_err(|e| ContenderError::with_err(e, "failed to execute batch"))?;
+        for method_stmt in stmts {
+            pool.execute_batch(&format!(
+                "BEGIN;
+                {}
+                COMMIT;",
+                method_stmt
+                    .reduce(|acc, curr| format!("{}\n{}", acc, curr))
+                    .unwrap_or_default(),
+            ))
+            .map_err(|e| ContenderError::with_err(e, "failed to execute batch"))?;
+        }
         Ok(())
     }
 }

@@ -1,4 +1,5 @@
 mod block_trace;
+mod buckets;
 mod cache;
 mod chart;
 mod command;

@@ -1,7 +1,9 @@
 mod mock;
+use std::collections::BTreeMap;
+
 pub use mock::MockDb;
 
-use crate::Result;
+use crate::{buckets::Bucket, Result};
 use alloy::primitives::{Address, TxHash};
 use serde::Serialize;
 
@@ -45,7 +47,7 @@ pub struct SpamRun {
 pub trait DbOps {
     fn create_tables(&self) -> Result<()>;
 
-    fn get_sendtx_latency(&self, run_id: u64) -> Result<Vec<(f64, u64)>>;
+    fn get_latency_metrics(&self, run_id: u64, method: &str) -> Result<Vec<(f64, u64)>>;
 
     fn get_named_tx(&self, name: &str, rpc_url: &str) -> Result<Option<NamedTx>>;
 
@@ -68,7 +70,11 @@ pub trait DbOps {
     ///
     /// `latency_metrics` maps upper_bound latency (in ms) to the number of txs that received a response within that duration.
     /// Meant to be used as input to a histogram.
-    fn insert_latency_metrics(&self, run_id: u64, latency_metrics: &[(f64, u64)]) -> Result<()>;
+    fn insert_latency_metrics(
+        &self,
+        run_id: u64,
+        latency_metrics: &BTreeMap<String, Vec<Bucket>>,
+    ) -> Result<()>;
 
     fn num_runs(&self) -> Result<u64>;
 

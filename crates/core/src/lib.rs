@@ -1,4 +1,5 @@
 pub mod agent_controller;
+pub mod buckets;
 pub mod db;
 pub mod error;
 pub mod generator;

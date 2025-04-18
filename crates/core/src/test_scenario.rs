@@ -1,4 +1,5 @@
 use crate::agent_controller::AgentStore;
+use crate::buckets::Bucket;
 use crate::db::{DbOps, NamedTx};
 use crate::error::ContenderError;
 use crate::generator::named_txs::ExecutionRequest;
@@ -28,7 +29,7 @@ use contender_bundle_provider::bundle_provider::new_basic_bundle;
 use contender_bundle_provider::BundleClient;
 use contender_engine_provider::AdvanceChain;
 use futures::{Stream, StreamExt};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::Deref;
 use std::pin::Pin;
 use std::str::FromStr;
@@ -1166,16 +1167,25 @@ where
     }
 
     /// Collects latency metrics from the prometheus registry.
-    /// Returns a map of latency buckets (in milliseconds) to cumulative counts.
-    pub fn collect_latency_metrics(&self) -> Vec<(f64, u64)> {
-        let mut latencies = vec![];
+    /// Returns a map of RPC method names to a vector of latency buckets which represent (upper_bound_secs, cumulative_count).
+    pub fn collect_latency_metrics(&self) -> BTreeMap<String, Vec<Bucket>> {
         let registry = self.prometheus.0.get();
+        let mut latency_map = BTreeMap::new();
         if let Some(registry) = registry {
             let metric_families = registry.gather();
 
             for mf in &metric_families {
                 if mf.name() == RPC_REQUEST_LATENCY_MS_ID {
                     for m in mf.get_metric() {
+                        let mut latencies: Vec<Bucket> = vec![];
+                        if m.label.is_empty() {
+                            continue;
+                        }
+                        let label = m.label.get(0).expect("label");
+                        if label.name() != "rpc_method" {
+                            continue;
+                        }
+                        println!("** collecting metric: {:#?}", m);
                         let hist = m.get_histogram();
                         for bucket in &hist.bucket {
                             if bucket.cumulative_count.is_none() {
@@ -1185,13 +1195,14 @@ where
                             let cumulative_count =
                                 bucket.cumulative_count.expect("cumulative_count");
 
-                            latencies.push((upper_bound, cumulative_count));
+                            latencies.push((upper_bound, cumulative_count).into());
                         }
+                        latency_map.insert(label.value().to_string(), latencies);
                     }
                 }
             }
         }
-        latencies
+        latency_map
     }
 }
 

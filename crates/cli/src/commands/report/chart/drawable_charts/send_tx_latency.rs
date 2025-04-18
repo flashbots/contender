@@ -1,18 +1,23 @@
+use super::DrawableChart;
+use crate::commands::report::buckets::{Bucket, BucketsExt};
 use plotters::{
     chart::ChartBuilder,
-    prelude::BitMapBackend,
-    series::Histogram,
-    style::{full_palette::BLUE, Color},
+    prelude::{BitMapBackend, PathElement, Rectangle},
+    style::{
+        full_palette::{BLACK, BLUE, RED, WHITE},
+        Color,
+    },
 };
 
-use super::DrawableChart;
-
 pub struct SendTxLatencyChart {
-    pub send_tx_latency: Vec<(u32, u32)>,
+    buckets: Vec<Bucket>,
 }
+
 impl SendTxLatencyChart {
-    pub fn new(send_tx_latency: Vec<(u32, u32)>) -> Self {
-        Self { send_tx_latency }
+    pub fn new(buckets: Vec<(f64, u64)>) -> Self {
+        Self {
+            buckets: buckets.into_iter().map(|b| b.into()).collect(),
+        }
     }
 }
 
@@ -21,38 +26,70 @@ impl DrawableChart for SendTxLatencyChart {
         &self,
         root: &plotters::prelude::DrawingArea<BitMapBackend, plotters::coord::Shift>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let buckets = self.send_tx_latency.iter().map(|b| b.0).collect::<Vec<_>>();
-        let max_occurrences = self
-            .send_tx_latency
+        let quantiles = [0.5, 0.9, 0.99];
+        let estimates: Vec<(f64, f64)> = quantiles
             .iter()
-            .map(|b| b.1)
-            .max()
-            .expect("no time-to-inclusion data found");
+            .map(|&q| (q, self.buckets.estimate_quantile(q)))
+            .collect();
+
+        let max_x = self.buckets.last().unwrap().upper_bound;
+        let max_y = self.buckets.last().unwrap().cumulative_count;
 
         let mut chart = ChartBuilder::on(root)
-            .margin(25)
-            .x_label_area_size(60)
-            .y_label_area_size(60)
-            .build_cartesian_2d(0..buckets.len() as u32 - 1, 0..max_occurrences as u32)?;
+            .margin(20)
+            .x_label_area_size(40)
+            .y_label_area_size(40)
+            .build_cartesian_2d(0.0..max_x, 0..max_y)?;
 
         chart
             .configure_mesh()
-            .label_style(("sans-serif", 15))
-            .x_label_offset(0)
-            .x_labels(buckets.len())
-            .x_desc("Latency (milliseconds)")
-            .x_label_formatter(&|v| {
-                let bucket = buckets[*v as usize];
-                format!("<= {}", bucket)
-            })
-            .y_desc("# Transactions")
+            .x_desc("Observed Latency (seconds)")
+            .y_desc("Cumulative Count")
             .draw()?;
 
-        chart.draw_series(
-            Histogram::vertical(&chart)
-                .style(BLUE.filled())
-                .data(self.send_tx_latency.to_owned()),
-        )?;
+        // draw the histogram bars
+        for (i, b) in self.buckets.iter().enumerate() {
+            let left = if i == 0 {
+                0.0
+            } else {
+                self.buckets[i - 1].upper_bound
+            };
+            let right = b.upper_bound;
+            let height = b.cumulative_count;
+
+            chart.draw_series(std::iter::once(Rectangle::new(
+                [(left, 0), (right, height)],
+                BLUE.mix(0.75).filled(),
+            )))?;
+        }
+
+        // draw the step lines
+        let mut step_points = vec![(0.0, 0)];
+        for b in &self.buckets {
+            step_points.push((
+                b.upper_bound,
+                step_points.last().expect("empty step_points").1,
+            ));
+            step_points.push((b.upper_bound, b.cumulative_count));
+        }
+        chart.draw_series(std::iter::once(PathElement::new(step_points, &BLUE)))?;
+
+        // draw the quantile lines
+        for (q, val) in estimates {
+            chart
+                .draw_series(std::iter::once(PathElement::new(
+                    vec![(val, 0), (val, max_y)],
+                    &RED.mix(0.5),
+                )))?
+                .label(format!("p{} ≈ {:.3}", (q * 100.0) as u32, val))
+                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
+        }
+
+        chart
+            .configure_series_labels()
+            .border_style(&BLACK)
+            .background_style(&WHITE.mix(0.8))
+            .draw()?;
 
         Ok(())
     }

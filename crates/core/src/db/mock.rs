@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
+
 use alloy::primitives::{Address, TxHash};
 
 use super::{DbOps, NamedTx, RunTx};
-use crate::Result;
+use crate::{buckets::Bucket, Result};
 
 pub struct MockDb;
 
@@ -46,7 +48,7 @@ impl DbOps for MockDb {
         )))
     }
 
-    fn get_sendtx_latency(&self, _run_id: u64) -> Result<Vec<(f64, u64)>> {
+    fn get_latency_metrics(&self, _run_id: u64, _method: &str) -> Result<Vec<(f64, u64)>> {
         Ok(vec![(0.0, 1)])
     }
 
@@ -58,7 +60,11 @@ impl DbOps for MockDb {
         Ok(vec![])
     }
 
-    fn insert_latency_metrics(&self, _run_id: u64, _latency_metrics: &[(f64, u64)]) -> Result<()> {
+    fn insert_latency_metrics(
+        &self,
+        _run_id: u64,
+        _latency_metrics: &BTreeMap<String, Vec<Bucket>>,
+    ) -> Result<()> {
         Ok(())
     }
 }

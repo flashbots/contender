@@ -68,8 +68,10 @@ where
 
     fn call(&mut self, req: RequestPacket) -> Self::Future {
         let mut id = 0;
+        let mut method: Option<String> = None;
         match &req {
             RequestPacket::Single(inner_req) => {
+                method = Some(inner_req.method().to_string());
                 if inner_req.method() == "eth_sendRawTransaction" {
                     id = inner_req.id().as_number().unwrap_or_default();
                 }
@@ -83,13 +85,14 @@ where
 
         Box::pin(async move {
             let res = fut.await;
-            if id != 0 {
-                if let Ok(res) = &res {
-                    let elapsed = start_time.elapsed().as_millis();
-                    if let Some(h) = latency_histogram {
-                        h.with_label_values(&["eth_sendRawTransaction"])
-                            .observe(elapsed as f64);
+            if let Ok(res) = &res {
+                let elapsed = start_time.elapsed().as_secs_f64();
+                if let Some(h) = latency_histogram {
+                    if let Some(method) = method {
+                        h.with_label_values(&[method.as_str()]).observe(elapsed);
                     }
+                }
+                if id != 0 {
                     match res {
                         ResponsePacket::Single(inner_res) => {
                             if let Some(payload) = inner_res.payload.as_success() {
@@ -112,7 +115,8 @@ async fn init_metrics(registry: &OnceCell<Registry>, latency_hist: &OnceCell<His
         HistogramOpts::new(
             RPC_REQUEST_LATENCY_MS_ID,
             "Latency of requests in milliseconds",
-        ),
+        )
+        .buckets(vec![0.0001, 0.001, 0.01, 0.05, 0.1, 0.25, 0.5]),
         &["rpc_method"],
     )
     .expect("histogram_vec");

@@ -13,7 +13,6 @@ use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
 use contender_core::db::{DbOps, RunTx};
 use csv::WriterBuilder;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::str::FromStr;
 
 pub async fn report(
@@ -114,14 +113,18 @@ pub async fn report(
         / (blocks.len() - 1).max(1) as f64;
 
     // load latency data from DB
-    let mut canonical_sendtx_latency: BTreeMap<u32, u32> = BTreeMap::new();
+    let mut canonical_sendtx_latency: Vec<(f64, u64)> = vec![];
     for run_id in start_run_id..=end_run_id {
-        let tx_latency = db.get_sendtx_latency(run_id)?;
+        let tx_latency = db.get_latency_metrics(run_id, "eth_sendRawTransaction")?;
         for (latency, count) in tx_latency {
-            canonical_sendtx_latency
-                .entry(latency as u32)
-                .and_modify(|e| *e += count as u32)
-                .or_insert(count as u32);
+            if let Some(entry) = canonical_sendtx_latency
+                .iter_mut()
+                .find(|(l, _)| *l == latency)
+            {
+                entry.1 += count;
+            } else {
+                canonical_sendtx_latency.push((latency, count));
+            }
         }
     }
 
@@ -156,12 +159,7 @@ pub async fn report(
     pending_txs.draw(&ReportChartId::PendingTxs.filename(start_run_id, end_run_id)?)?;
 
     // make sendTxLatency chart
-    let send_tx_latency = SendTxLatencyChart::new(
-        canonical_sendtx_latency
-            .iter()
-            .map(|(x, y)| (*x, *y))
-            .collect::<Vec<_>>(),
-    );
+    let send_tx_latency = SendTxLatencyChart::new(canonical_sendtx_latency);
     send_tx_latency.draw(&ReportChartId::SendTxLatency.filename(start_run_id, end_run_id)?)?;
 
     // compile report
@@ -198,4 +196,5 @@ pub struct SpamRunMetrics {
     pub peak_gas: u64,
     pub peak_tx_count: u64,
     pub average_block_time_secs: f64,
+    // pub latency // TODO: labelled latency histograms
 }
