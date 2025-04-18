@@ -47,7 +47,7 @@ pub struct SpamRun {
 pub trait DbOps {
     fn create_tables(&self) -> Result<()>;
 
-    fn get_latency_metrics(&self, run_id: u64, method: &str) -> Result<Vec<(f64, u64)>>;
+    fn get_latency_metrics(&self, run_id: u64, method: &str) -> Result<Vec<Bucket>>;
 
     fn get_named_tx(&self, name: &str, rpc_url: &str) -> Result<Option<NamedTx>>;
 

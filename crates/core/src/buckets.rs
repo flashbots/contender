@@ -2,6 +2,7 @@
 //! It includes a `Bucket` struct representing a single bucket with an upper bound and cumulative count,
 //! and a `BucketsExt` trait that provides an extension method for estimating quantiles from a vector of buckets.
 
+#[derive(Debug, Clone)]
 pub struct Bucket {
     pub upper_bound: f64,
     pub cumulative_count: u64,

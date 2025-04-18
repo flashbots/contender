@@ -10,6 +10,7 @@ use crate::util::{report_dir, write_run_txs};
 use alloy::network::AnyNetwork;
 use alloy::providers::DynProvider;
 use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
+use contender_core::buckets::{Bucket, BucketsExt};
 use contender_core::db::{DbOps, RunTx};
 use csv::WriterBuilder;
 use serde::{Deserialize, Serialize};
@@ -113,12 +114,6 @@ pub async fn report(
         .fold(0, |acc, diff| acc + diff) as f64
         / (blocks.len() - 1).max(1) as f64;
 
-    let metrics = SpamRunMetrics {
-        peak_gas,
-        peak_tx_count,
-        average_block_time_secs: average_block_time,
-    };
-
     // cache data to file
     let cache_data = CacheFile::new(trace_data, blocks);
     cache_data.save()?;
@@ -134,21 +129,24 @@ pub async fn report(
         "eth_getBlockReceipts",
         "eth_getTransactionCount",
     ];
-    let mut canonical_latency_map = BTreeMap::<String, Vec<(f64, u64)>>::new();
+    let mut canonical_latency_map = BTreeMap::<String, Vec<Bucket>>::new();
     for method in latency_methods {
         // collect latency data from DB for each relevant run
-        let mut canonical_latency: Vec<(f64, u64)> = vec![];
+        let mut canonical_latency: Vec<Bucket> = vec![];
         for run_id in start_run_id..=end_run_id {
             let latencies = db.get_latency_metrics(run_id, method)?;
-            for (latency, count) in latencies {
-                if let Some(entry) = canonical_latency.iter_mut().find(|(l, _)| *l == latency) {
-                    entry.1 += count;
+            for bucket in latencies {
+                if let Some(entry) = canonical_latency
+                    .iter_mut()
+                    .find(|b| b.upper_bound == bucket.upper_bound)
+                {
+                    entry.cumulative_count += bucket.cumulative_count;
                 } else {
-                    canonical_latency.push((latency, count));
+                    canonical_latency.push(bucket);
                 }
             }
         }
-        canonical_latency_map.insert(method.to_string(), canonical_latency.to_owned());
+        canonical_latency_map.insert(method.to_string(), canonical_latency);
     }
 
     let chart_ids = vec![
@@ -159,6 +157,21 @@ pub async fn report(
         ReportChartId::PendingTxs,
         ReportChartId::RpcLatency("eth_sendRawTransaction"),
     ];
+
+    let metrics = SpamRunMetrics {
+        peak_gas,
+        peak_tx_count,
+        average_block_time_secs: average_block_time,
+        latency_quantiles: canonical_latency_map
+            .iter()
+            .map(|(method, latencies)| RpcLatencyQuantiles {
+                p50: latencies.estimate_quantile(0.5),
+                p90: latencies.estimate_quantile(0.9),
+                p99: latencies.estimate_quantile(0.99),
+                method: method.to_owned(),
+            })
+            .collect(),
+    };
 
     // make relevant chart for each report_id
     for chart_id in &chart_ids {
@@ -210,9 +223,18 @@ fn save_csv_report(id: u64, txs: &[RunTx]) -> Result<(), Box<dyn std::error::Err
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RpcLatencyQuantiles {
+    pub p50: f64,
+    pub p90: f64,
+    pub p99: f64,
+    pub method: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+/// Metrics for a spam run. Must be readable by handlebars.
 pub struct SpamRunMetrics {
     pub peak_gas: u64,
     pub peak_tx_count: u64,
     pub average_block_time_secs: f64,
-    // pub latency // TODO: labelled latency histograms
+    pub latency_quantiles: Vec<RpcLatencyQuantiles>,
 }

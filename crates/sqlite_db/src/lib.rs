@@ -362,7 +362,7 @@ impl DbOps for SqliteDb {
         Ok(res)
     }
 
-    fn get_latency_metrics(&self, run_id: u64, method: &str) -> Result<Vec<(f64, u64)>> {
+    fn get_latency_metrics(&self, run_id: u64, method: &str) -> Result<Vec<Bucket>> {
         let pool = self.get_pool()?;
         let mut stmt = pool
             .prepare(
@@ -377,7 +377,10 @@ impl DbOps for SqliteDb {
             .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
         let res = rows
             .map(|r| r.map_err(|e| ContenderError::with_err(e, "failed to convert row")))
-            .collect::<Result<Vec<(f64, u64)>>>()?;
+            .collect::<Result<Vec<(f64, u64)>>>()?
+            .into_iter()
+            .map(|buckett| buckett.into())
+            .collect::<Vec<Bucket>>();
         Ok(res)
     }
 

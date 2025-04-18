@@ -1,5 +1,5 @@
 use super::DrawableChart;
-use crate::commands::report::buckets::{Bucket, BucketsExt};
+use contender_core::buckets::{Bucket, BucketsExt};
 use plotters::{
     chart::ChartBuilder,
     prelude::{BitMapBackend, PathElement, Rectangle},
@@ -14,10 +14,8 @@ pub struct LatencyChart {
 }
 
 impl LatencyChart {
-    pub fn new(buckets: Vec<(f64, u64)>) -> Self {
-        Self {
-            buckets: buckets.into_iter().map(|b| b.into()).collect(),
-        }
+    pub fn new(buckets: Vec<Bucket>) -> Self {
+        Self { buckets }
     }
 }
 

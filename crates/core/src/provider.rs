@@ -14,7 +14,7 @@ use prometheus::{HistogramOpts, HistogramVec, Registry};
 use tokio::sync::OnceCell;
 use tower::{Layer, Service};
 
-pub const RPC_REQUEST_LATENCY_MS_ID: &str = "rpc_request_latency_milliseconds";
+pub const RPC_REQUEST_LATENCY_ID: &str = "rpc_request_latency_seconds";
 
 /// A layer to be used with `ClientBuilder::layer` that logs request id with tx hash when calling eth_sendRawTransaction.
 pub struct LoggingLayer {
@@ -112,11 +112,8 @@ async fn init_metrics(registry: &OnceCell<Registry>, latency_hist: &OnceCell<His
     let reg = Registry::new();
 
     let histogram_vec = HistogramVec::new(
-        HistogramOpts::new(
-            RPC_REQUEST_LATENCY_MS_ID,
-            "Latency of requests in milliseconds",
-        )
-        .buckets(vec![0.0001, 0.001, 0.01, 0.05, 0.1, 0.25, 0.5]),
+        HistogramOpts::new(RPC_REQUEST_LATENCY_ID, "Latency of requests in seconds")
+            .buckets(vec![0.0001, 0.001, 0.01, 0.05, 0.1, 0.25, 0.5]),
         &["rpc_method"],
     )
     .expect("histogram_vec");

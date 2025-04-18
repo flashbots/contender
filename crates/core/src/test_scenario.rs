@@ -8,7 +8,7 @@ use crate::generator::types::AnyProvider;
 use crate::generator::util::complete_tx_request;
 use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
-use crate::provider::{LoggingLayer, RPC_REQUEST_LATENCY_MS_ID};
+use crate::provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID};
 use crate::spammer::tx_actor::TxActorHandle;
 use crate::spammer::{ExecutionPayload, OnBatchSent, OnTxSent, SpamTrigger};
 use crate::Result;
@@ -1175,7 +1175,7 @@ where
             let metric_families = registry.gather();
 
             for mf in &metric_families {
-                if mf.name() == RPC_REQUEST_LATENCY_MS_ID {
+                if mf.name() == RPC_REQUEST_LATENCY_ID {
                     for m in mf.get_metric() {
                         let mut latencies: Vec<Bucket> = vec![];
                         if m.label.is_empty() {
@@ -1185,7 +1185,6 @@ where
                         if label.name() != "rpc_method" {
                             continue;
                         }
-                        println!("** collecting metric: {:#?}", m);
                         let hist = m.get_histogram();
                         for bucket in &hist.bucket {
                             if bucket.cumulative_count.is_none() {

@@ -48,8 +48,8 @@ impl DbOps for MockDb {
         )))
     }
 
-    fn get_latency_metrics(&self, _run_id: u64, _method: &str) -> Result<Vec<(f64, u64)>> {
-        Ok(vec![(0.0, 1)])
+    fn get_latency_metrics(&self, _run_id: u64, _method: &str) -> Result<Vec<Bucket>> {
+        Ok(vec![(0.0, 1).into()])
     }
 
     fn insert_run_txs(&self, _run_id: u64, _run_txs: &[RunTx]) -> Result<()> {
