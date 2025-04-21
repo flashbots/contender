@@ -312,8 +312,12 @@ pub async fn spam<
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("Time went backwards")
                     .as_millis();
-                run_id =
-                    Some(db.insert_run(timestamp as u64, txs_per_block * duration, testfile)?);
+                run_id = Some(db.insert_run(
+                    timestamp as u64,
+                    txs_per_block * duration,
+                    testfile,
+                    test_scenario.rpc_url.as_str(),
+                )?);
                 spammer
                     .spam_rpc(
                         test_scenario,
@@ -358,7 +362,12 @@ pub async fn spam<
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_millis();
-            run_id = Some(db.insert_run(timestamp as u64, tps * duration, testfile)?);
+            run_id = Some(db.insert_run(
+                timestamp as u64,
+                tps * duration,
+                testfile,
+                test_scenario.rpc_url.as_str(),
+            )?);
             spammer
                 .spam_rpc(
                     test_scenario,

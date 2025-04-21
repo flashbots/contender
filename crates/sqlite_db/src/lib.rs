@@ -182,7 +182,8 @@ impl DbOps for SqliteDb {
                 id INTEGER PRIMARY KEY,
                 timestamp TEXT NOT NULL,
                 tx_count INTEGER NOT NULL,
-                scenario_name TEXT NOT NULL DEFAULT ''
+                scenario_name TEXT NOT NULL DEFAULT '',
+                rpc_url TEXT NOT NULL DEFAULT ''
             )",
             "CREATE TABLE rpc_urls (
                 id INTEGER PRIMARY KEY,
@@ -226,10 +227,16 @@ impl DbOps for SqliteDb {
     }
 
     /// Inserts a new run into the database and returns the ID of the new row.
-    fn insert_run(&self, timestamp: u64, tx_count: u64, scenario_name: &str) -> Result<u64> {
+    fn insert_run(
+        &self,
+        timestamp: u64,
+        tx_count: u64,
+        scenario_name: &str,
+        rpc_url: &str,
+    ) -> Result<u64> {
         self.execute(
-            "INSERT INTO runs (timestamp, tx_count, scenario_name) VALUES (?, ?, ?)",
-            params![timestamp, tx_count, scenario_name],
+            "INSERT INTO runs (timestamp, tx_count, scenario_name, rpc_url) VALUES (?, ?, ?, ?)",
+            params![timestamp, tx_count, scenario_name, rpc_url],
         )?;
         // get ID from newly inserted row
         let id: u64 = self.query_row("SELECT last_insert_rowid()", params![], |row| row.get(0))?;
@@ -466,7 +473,10 @@ mod tests {
     fn inserts_runs() {
         let db = SqliteDb::new_memory();
         db.create_tables().unwrap();
-        let do_it = |num| db.insert_run(100000, num, "test").unwrap();
+        let do_it = |num| {
+            db.insert_run(100000, num, "test", "http://test:8545")
+                .unwrap()
+        };
 
         println!("id: {}", do_it(100));
         println!("id: {}", do_it(101));
@@ -512,7 +522,9 @@ mod tests {
     fn inserts_and_gets_run_txs() {
         let db = SqliteDb::new_memory();
         db.create_tables().unwrap();
-        let run_id = db.insert_run(100000, 100, "test").unwrap();
+        let run_id = db
+            .insert_run(100000, 100, "test", "http://test:8545")
+            .unwrap();
         let run_txs = vec![
             RunTx {
                 tx_hash: TxHash::from_slice(&[0u8; 32]),

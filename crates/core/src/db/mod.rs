@@ -61,7 +61,13 @@ pub trait DbOps {
     fn insert_named_txs(&self, named_txs: &[NamedTx], rpc_url: &str) -> Result<()>;
 
     /// Insert a new run into the database. Returns run_id.
-    fn insert_run(&self, timestamp: u64, tx_count: u64, scenario_name: &str) -> Result<u64>;
+    fn insert_run(
+        &self,
+        timestamp: u64,
+        tx_count: u64,
+        scenario_name: &str,
+        rpc_url: &str,
+    ) -> Result<u64>;
 
     /// Insert txs from a spam run into the database.
     fn insert_run_txs(&self, run_id: u64, run_txs: &[RunTx]) -> Result<()>;

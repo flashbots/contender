@@ -16,7 +16,13 @@ impl DbOps for MockDb {
         Ok(())
     }
 
-    fn insert_run(&self, _timestamp: u64, _tx_count: u64, _scenario_name: &str) -> Result<u64> {
+    fn insert_run(
+        &self,
+        _timestamp: u64,
+        _tx_count: u64,
+        _scenario_name: &str,
+        _rpc_url: &str,
+    ) -> Result<u64> {
         Ok(0)
     }
 
