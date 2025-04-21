@@ -21,7 +21,6 @@ pub async fn report(
     last_run_id: Option<u64>,
     preceding_runs: u64,
     db: &(impl DbOps + Clone + Send + Sync + 'static),
-    rpc_url: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let num_runs = db.num_runs()?;
 
@@ -43,6 +42,11 @@ pub async fn report(
         num_runs
     };
 
+    let rpc_url = db
+        .get_run(end_run_id)?
+        .ok_or_else(|| format!("No run found with ID: {}", end_run_id))?
+        .rpc_url;
+
     // collect CSV report for each run_id
     let start_run_id = end_run_id - preceding_runs;
     let mut all_txs = vec![];
@@ -52,11 +56,14 @@ pub async fn report(
         save_csv_report(id, &txs)?;
     }
 
-    // get run data
+    // get run data, filter by rpc_url
     let mut run_data = vec![];
     for id in start_run_id..=end_run_id {
         let run = db.get_run(id)?;
         if let Some(run) = run {
+            if run.rpc_url != rpc_url {
+                continue;
+            }
             run_data.push(run);
         }
     }
@@ -78,7 +85,7 @@ pub async fn report(
         .unwrap_or_default();
 
     // get trace data for reports
-    let url = Url::from_str(rpc_url).expect("Invalid URL");
+    let url = Url::from_str(&rpc_url).expect("Invalid URL");
     let rpc_client = DynProvider::new(ProviderBuilder::new().network::<AnyNetwork>().on_http(url));
     let (trace_data, blocks) = if std::env::var("DEBUG_USEFILE").is_ok() {
         println!("DEBUG_USEFILE detected: using cached data");

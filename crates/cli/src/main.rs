@@ -168,7 +168,7 @@ Remote DB version = {}, contender expected version {}.
                     _ = tokio::signal::ctrl_c() => {
                         println!("CTRL-C received, discarding report...");
                     }
-                    _ = commands::report(run_id, 0, &db, &rpc_url) => {
+                    _ = commands::report(run_id, 0, &db) => {
                         println!("Report generated successfully");
                     }
                 }
@@ -226,11 +226,10 @@ Remote DB version = {}, contender expected version {}.
         }
 
         ContenderSubcommand::Report {
-            rpc_url,
             last_run_id,
             preceding_runs,
         } => {
-            commands::report(last_run_id, preceding_runs, &db, &rpc_url).await?;
+            commands::report(last_run_id, preceding_runs, &db).await?;
         }
 
         ContenderSubcommand::Run {

@@ -155,6 +155,7 @@ struct SpamRunRow {
     pub timestamp: String,
     pub tx_count: usize,
     pub scenario_name: String,
+    pub rpc_url: String,
 }
 
 impl From<SpamRunRow> for SpamRun {
@@ -164,6 +165,7 @@ impl From<SpamRunRow> for SpamRun {
             timestamp: row.timestamp.parse::<usize>().expect("invalid timestamp"),
             tx_count: row.tx_count,
             scenario_name: row.scenario_name,
+            rpc_url: row.rpc_url,
         }
     }
 }
@@ -269,7 +271,9 @@ impl DbOps for SqliteDb {
     fn get_run(&self, run_id: u64) -> Result<Option<SpamRun>> {
         let pool = self.get_pool()?;
         let mut stmt = pool
-            .prepare("SELECT id, timestamp, tx_count, scenario_name FROM runs WHERE id = ?1")
+            .prepare(
+                "SELECT id, timestamp, tx_count, scenario_name, rpc_url FROM runs WHERE id = ?1",
+            )
             .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
 
         let row = stmt
@@ -279,6 +283,7 @@ impl DbOps for SqliteDb {
                     timestamp: row.get(1)?,
                     tx_count: row.get(2)?,
                     scenario_name: row.get(3)?,
+                    rpc_url: row.get(4)?,
                 })
             })
             .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;

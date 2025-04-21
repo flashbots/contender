@@ -79,16 +79,11 @@ pub async fn spamd(
             }
             let first_run_id = run_ids.iter().min().expect("no run IDs found");
             let last_run_id = *run_ids.iter().max().expect("no run IDs found");
-            commands::report(
-                Some(last_run_id),
-                last_run_id - first_run_id,
-                db,
-                &args.rpc_url,
-            )
-            .await
-            .map_err(|e| {
-                ContenderError::GenericError("failed to generate report", e.to_string())
-            })?;
+            commands::report(Some(last_run_id), last_run_id - first_run_id, db)
+                .await
+                .map_err(|e| {
+                    ContenderError::GenericError("failed to generate report", e.to_string())
+                })?;
         }
         Ok(())
     };

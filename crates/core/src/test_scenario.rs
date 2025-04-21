@@ -404,7 +404,7 @@ where
 
                 // inject missing fields into tx_req.tx
                 let mut tx = tx_req.tx;
-                complete_tx_request(&mut tx, tx_type, gas_price, (GWEI_TO_WEI as u128).min(gas_price - 1), gas_limit, chain_id);
+                complete_tx_request(&mut tx, tx_type, gas_price, gas_price / 10, gas_limit, chain_id);
 
                 let res = wallet.send_transaction(WithOtherFields::new(tx)).await;
                 if let Err(err) = res {
@@ -502,7 +502,7 @@ where
                     &mut tx,
                     tx_type,
                     gas_price,
-                    (GWEI_TO_WEI as u128).min(gas_price - 1),
+                    gas_price / 10,
                     gas_limit,
                     chain_id,
                 );

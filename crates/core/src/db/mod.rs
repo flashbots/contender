@@ -42,6 +42,7 @@ pub struct SpamRun {
     pub timestamp: usize,
     pub tx_count: usize,
     pub scenario_name: String,
+    pub rpc_url: String,
 }
 
 pub trait DbOps {
