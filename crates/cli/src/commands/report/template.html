@@ -141,21 +141,33 @@
   </section>
   {{/each}}
 
-  <div style="page-break-after: always;"></div>
-
   <section>
-    <h2>Metrics</h2>
+    <h2>Chain Metrics</h2>
     <p>Peak Gas Usage Per Block: {{data.metrics.peak_gas}} gas</p>
     <p>Peak Txs Per Block: {{data.metrics.peak_tx_count}} txs</p>
     <p>Average Block Time: {{data.metrics.average_block_time_secs}} seconds</p>
 
-    <h3>Latency Quantiles Per Method</h3>
-    {{#each data.metrics.latency_quantiles}}
-    <h4>{{this.method}}</h4>
-    <p>p50: {{this.p50}} ms</p>
-    <p>p90: {{this.p90}} ms</p>
-    <p>p99: {{this.p99}} ms</p>
-    {{/each}}
+    <h2>RPC Response Latency</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>p50 (ms)</th>
+          <th>p90 (ms)</th>
+          <th>p99 (ms)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each data.metrics.latency_quantiles}}
+        <tr>
+          <td>{{this.method}}</td>
+          <td>{{this.p50}}</td>
+          <td>{{this.p90}}</td>
+          <td>{{this.p99}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
   </section>
 
   <footer>
