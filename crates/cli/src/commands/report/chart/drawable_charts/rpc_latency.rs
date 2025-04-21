@@ -5,7 +5,7 @@ use plotters::{
     prelude::{BitMapBackend, PathElement, Rectangle},
     style::{
         full_palette::{BLACK, BLUE, RED, WHITE},
-        Color,
+        Color, GREEN,
     },
 };
 
@@ -39,7 +39,7 @@ impl DrawableChart for LatencyChart {
             .y_desc("Cumulative Count")
             .draw()?;
 
-        // draw the histogram bars
+        // draw the histogram bars and their edge lines
         for (i, b) in self.buckets.iter().enumerate() {
             let left = if i == 0 {
                 0.0
@@ -49,25 +49,18 @@ impl DrawableChart for LatencyChart {
             let right = b.upper_bound;
             let height = b.cumulative_count;
 
+            // Draw the filled bar
             chart.draw_series(std::iter::once(Rectangle::new(
                 [(left, 0), (right, height)],
                 BLUE.mix(0.75).filled(),
             )))?;
-        }
 
-        // draw the step lines
-        let mut step_points = vec![(0.0, 0)];
-        for b in &self.buckets {
-            step_points.push((
-                b.upper_bound,
-                step_points.last().expect("empty step_points").1,
-            ));
-            step_points.push((b.upper_bound, b.cumulative_count));
+            // Draw left vertical line and top horizontal line
+            chart.draw_series([
+                PathElement::new(vec![(left, 0), (left, height)], &GREEN),
+                PathElement::new(vec![(left, height), (right, height)], &GREEN),
+            ])?;
         }
-        chart.draw_series(std::iter::once(PathElement::new(
-            step_points,
-            BLUE.stroke_width(2),
-        )))?;
 
         // draw the quantile lines
         let quantiles = [0.5, 0.9, 0.99];
