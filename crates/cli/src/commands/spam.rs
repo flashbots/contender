@@ -1,7 +1,10 @@
 use super::common::{ScenarioSendTxsCliArgs, SendSpamCliArgs};
-use crate::util::{
-    check_private_keys, fund_accounts, get_signers_with_defaults, spam_callback_default,
-    EngineParams, SpamCallbackType,
+use crate::{
+    util::{
+        check_private_keys, fund_accounts, get_signers_with_defaults, spam_callback_default,
+        EngineParams, SpamCallbackType,
+    },
+    LATENCY_HIST as HIST, PROM,
 };
 use alloy::{
     consensus::TxType,
@@ -74,7 +77,7 @@ pub struct SpamCliArgs {
     #[arg(
         short = 'r',
         long,
-        long_help = "Filename of the saved report. May be a fully-qualified path. If not provided, the report can be generated with the `report` subcommand. '.csv' extension is added automatically."
+        long_help = "Set this to generate a report for the spam run(s) after spamming."
     )]
     pub gen_report: bool,
 
@@ -214,6 +217,7 @@ impl SpamCommandArgs {
             rand_seed,
             params,
             engine_params.engine_provider.to_owned(),
+            (&PROM, &HIST),
         )
         .await?;
 
@@ -308,8 +312,12 @@ pub async fn spam<
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("Time went backwards")
                     .as_millis();
-                run_id =
-                    Some(db.insert_run(timestamp as u64, txs_per_block * duration, testfile)?);
+                run_id = Some(db.insert_run(
+                    timestamp as u64,
+                    txs_per_block * duration,
+                    testfile,
+                    test_scenario.rpc_url.as_str(),
+                )?);
                 spammer
                     .spam_rpc(
                         test_scenario,
@@ -354,7 +362,12 @@ pub async fn spam<
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_millis();
-            run_id = Some(db.insert_run(timestamp as u64, tps * duration, testfile)?);
+            run_id = Some(db.insert_run(
+                timestamp as u64,
+                tps * duration,
+                testfile,
+                test_scenario.rpc_url.as_str(),
+            )?);
             spammer
                 .spam_rpc(
                     test_scenario,

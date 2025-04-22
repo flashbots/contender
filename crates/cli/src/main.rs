@@ -13,6 +13,7 @@ use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::{SqliteDb, DB_VERSION};
 use rand::Rng;
 use std::sync::LazyLock;
+use tokio::sync::OnceCell;
 use util::{data_dir, db_file};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
@@ -20,17 +21,38 @@ static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     println!("opening DB at {}", path);
     SqliteDb::from_file(&path).expect("failed to open contender DB file")
 });
+// prometheus
+static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
+static LATENCY_HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = ContenderCli::parse_args();
     if DB.table_exists("run_txs")? {
         // check version and exit if DB version is incompatible
-        let quit_early = DB.version() < DB_VERSION
+        let quit_early = DB.version() != DB_VERSION
             && !matches!(&args.command, ContenderSubcommand::Db { command: _ });
         if quit_early {
-            println!("Your database is incompatible with this version of contender. To backup your data, run `contender db export`.\nPlease run `contender db drop` before trying again.");
-            return Ok(());
+            let recommendation = format!(
+                "To backup your data, run `contender db export`.\n{}",
+                if DB.version() < DB_VERSION {
+                    // contender version is newer than DB version, so user needs to upgrade DB
+                    "Please run `contender db drop` or `contender db reset` to update your DB."
+                } else {
+                    // DB version is newer than contender version, so user needs to downgrade DB or upgrade contender
+                    "Please upgrade contender or run `contender db drop` to delete your DB."
+                }
+            );
+            println!(
+                "Your database is incompatible with this version of contender.
+Remote DB version = {}, contender expected version {}.
+
+{recommendation}
+",
+                DB.version(),
+                DB_VERSION
+            );
+            return Err("Incompatible DB detected".into());
         }
     } else {
         println!("no DB found, creating new DB");
@@ -146,7 +168,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     _ = tokio::signal::ctrl_c() => {
                         println!("CTRL-C received, discarding report...");
                     }
-                    _ = commands::report(run_id, 0, &db, &rpc_url) => {
+                    _ = commands::report(run_id, 0, &db) => {
                         println!("Report generated successfully");
                     }
                 }
@@ -204,11 +226,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         ContenderSubcommand::Report {
-            rpc_url,
             last_run_id,
             preceding_runs,
         } => {
-            commands::report(last_run_id, preceding_runs, &db, &rpc_url).await?;
+            commands::report(last_run_id, preceding_runs, &db).await?;
         }
 
         ContenderSubcommand::Run {

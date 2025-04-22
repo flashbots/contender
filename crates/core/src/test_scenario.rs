@@ -1,4 +1,5 @@
 use crate::agent_controller::AgentStore;
+use crate::buckets::Bucket;
 use crate::db::{DbOps, NamedTx};
 use crate::error::ContenderError;
 use crate::generator::named_txs::ExecutionRequest;
@@ -7,7 +8,7 @@ use crate::generator::types::AnyProvider;
 use crate::generator::util::complete_tx_request;
 use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
-use crate::provider::LoggingLayer;
+use crate::provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID};
 use crate::spammer::tx_actor::TxActorHandle;
 use crate::spammer::{ExecutionPayload, OnBatchSent, OnTxSent, SpamTrigger};
 use crate::Result;
@@ -28,12 +29,18 @@ use contender_bundle_provider::bundle_provider::new_basic_bundle;
 use contender_bundle_provider::BundleClient;
 use contender_engine_provider::AdvanceChain;
 use futures::{Stream, StreamExt};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::Deref;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::OnceCell;
+
+type PrometheusCollector = (
+    &'static OnceCell<prometheus::Registry>,
+    &'static OnceCell<prometheus::HistogramVec>,
+);
 
 /// A test scenario can be used to run a test with a specific configuration, database, and RPC provider.
 #[derive(Clone)]
@@ -66,6 +73,7 @@ where
     /// Execution context for the test scenario; things about the target chain that affect the txs we send.
     pub ctx: ExecutionContext,
     pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    prometheus: PrometheusCollector,
 }
 
 pub struct TestScenarioParams {
@@ -105,6 +113,7 @@ where
         rand_seed: S,
         params: TestScenarioParams,
         auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+        prometheus: PrometheusCollector,
     ) -> Result<Self> {
         let TestScenarioParams {
             rpc_url,
@@ -118,13 +127,13 @@ where
 
         // use custom logging layer to log sendRawTransaction request IDs
         let client = ClientBuilder::default()
-            .layer(LoggingLayer)
+            .layer(LoggingLayer::new(prometheus.0, prometheus.1).await)
             .http(rpc_url.to_owned());
-        let rpc_client = DynProvider::new(
+        let rpc_client = Arc::new(DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
                 .on_client(client),
-        );
+        ));
 
         // derive block time from last two blocks. if two blocks don't exist, assume block time is 1s
         let block_num = rpc_client
@@ -180,17 +189,13 @@ where
             .as_ref()
             .map(|url| Arc::new(BundleClient::new(url.clone())));
 
-        let msg_handle = Arc::new(TxActorHandle::new(
-            12,
-            db.clone(),
-            Arc::new(rpc_client.clone()),
-        ));
+        let msg_handle = Arc::new(TxActorHandle::new(120, db.clone(), rpc_client.clone()));
 
         Ok(Self {
             config,
             db: db.clone(),
             rpc_url: rpc_url.to_owned(),
-            rpc_client: Arc::new(rpc_client),
+            rpc_client,
             bundle_client,
             builder_rpc_url,
             rand_seed,
@@ -208,6 +213,7 @@ where
                 block_time_secs,
             },
             auth_provider,
+            prometheus,
         })
     }
 
@@ -230,6 +236,9 @@ where
         )
         .expect("invalid signer");
         let admin_wallet = EthereumWallet::new(admin_signer.clone());
+        // separate prometheus registry for simulations; anvil doesn't count!
+        static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
+        static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
         let mut scenario = Self::new(
             self.config.to_owned(),
             self.db.clone(),
@@ -244,6 +253,7 @@ where
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             },
             None,
+            (&PROM, &HIST),
         )
         .await?;
 
@@ -394,7 +404,7 @@ where
 
                 // inject missing fields into tx_req.tx
                 let mut tx = tx_req.tx;
-                complete_tx_request(&mut tx, tx_type, gas_price, (GWEI_TO_WEI as u128).min(gas_price - 1), gas_limit, chain_id);
+                complete_tx_request(&mut tx, tx_type, gas_price, gas_price / 10, gas_limit, chain_id);
 
                 let res = wallet.send_transaction(WithOtherFields::new(tx)).await;
                 if let Err(err) = res {
@@ -492,7 +502,7 @@ where
                     &mut tx,
                     tx_type,
                     gas_price,
-                    (GWEI_TO_WEI as u128).min(gas_price - 1),
+                    gas_price / 10,
                     gas_limit,
                     chain_id,
                 );
@@ -980,6 +990,9 @@ where
     /// Returns the maximum cost of a single spam transaction by creating a new scenario
     /// and running estimateGas calls to estimate the cost of the spam transactions.
     pub async fn get_max_spam_cost(&self, user_signers: &[PrivateKeySigner]) -> Result<U256> {
+        // separate prometheus registry for simulations; anvil doesn't count!
+        static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
+        static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
         let mut scenario = TestScenario::new(
             self.config.to_owned(),
             self.db.clone(),
@@ -994,6 +1007,7 @@ where
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             },
             None,
+            (&PROM, &HIST),
         )
         .await?;
 
@@ -1151,6 +1165,44 @@ where
 
         Ok(())
     }
+
+    /// Collects latency metrics from the prometheus registry.
+    /// Returns a map of RPC method names to a vector of latency buckets which represent (upper_bound_secs, cumulative_count).
+    pub fn collect_latency_metrics(&self) -> BTreeMap<String, Vec<Bucket>> {
+        let registry = self.prometheus.0.get();
+        let mut latency_map = BTreeMap::new();
+        if let Some(registry) = registry {
+            let metric_families = registry.gather();
+
+            for mf in &metric_families {
+                if mf.name() == RPC_REQUEST_LATENCY_ID {
+                    for m in mf.get_metric() {
+                        let mut latencies: Vec<Bucket> = vec![];
+                        if m.label.is_empty() {
+                            continue;
+                        }
+                        let label = m.label.get(0).expect("label");
+                        if label.name() != "rpc_method" {
+                            continue;
+                        }
+                        let hist = m.get_histogram();
+                        for bucket in &hist.bucket {
+                            if bucket.cumulative_count.is_none() {
+                                continue;
+                            }
+                            let upper_bound = bucket.upper_bound();
+                            let cumulative_count =
+                                bucket.cumulative_count.expect("cumulative_count");
+
+                            latencies.push((upper_bound, cumulative_count).into());
+                        }
+                        latency_map.insert(label.value().to_string(), latencies);
+                    }
+                }
+            }
+        }
+        latency_map
+    }
 }
 
 async fn sync_nonces(
@@ -1246,8 +1298,12 @@ pub mod tests {
     use alloy::node_bindings::AnvilInstance;
     use alloy::primitives::{Address, U256};
     use std::collections::HashMap;
+    use tokio::sync::OnceCell;
 
     use super::TestScenarioParams;
+    // separate prometheus registry for simulations; anvil doesn't count!
+    static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
+    static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
 
     #[derive(Clone)]
     pub struct MockConfig;
@@ -1450,9 +1506,6 @@ pub mod tests {
         fn find_key(&self, _input: &str) -> Option<(String, usize)> {
             None
         }
-        fn encode_contract_address(&self, input: &Address) -> String {
-            input.encode_hex()
-        }
     }
 
     pub async fn get_test_scenario(
@@ -1493,6 +1546,7 @@ pub mod tests {
                 pending_tx_timeout_secs: 12,
             },
             None,
+            (&PROM, &HIST),
         )
         .await
         .unwrap();

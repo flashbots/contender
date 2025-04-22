@@ -1,10 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Contender Report</title>
-    <!--
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contender Report</title>
+  <!--
 
     (¯`·¯`·.¸¸.·´¯`·.¸¸.·´¯`··´¯)
     ( \                       / )
@@ -13,149 +14,183 @@
        (.·´¯`·.¸¸.·´¯`·.¸¸.·´)
 
     -->
+  
+  <style>
+    @font-face {
+      font-family: 'CMU-Serif';
+      src: url('https://fonts.cdnfonts.com/s/19926/cmunbx.woff') format('woff');
+      style: bold;
+      weight: bold;
+      stretch: 100;
+    }
 
-<style>
+    @font-face {
+      font-family: 'CMU-Serif';
+      src: url('https://fonts.cdnfonts.com/s/19926/cmunci.woff') format('woff');
+      style: italic;
+      weight: 400;
+      stretch: 100;
+    }
 
-@font-face {
-  font-family: 'CMU-Serif';
-  src: url('https://fonts.cdnfonts.com/s/19926/cmunbx.woff') format('woff');
-  style: bold;
-  weight: bold; 
-  stretch: 100;
-}
-@font-face {
-  font-family: 'CMU-Serif';
-  src: url('https://fonts.cdnfonts.com/s/19926/cmunci.woff') format('woff');
-  style: italic;
-  weight: 400; 
-  stretch: 100;
-}
-@font-face {
-  font-family: 'CMU-Serif';
-  src: url('https://fonts.cdnfonts.com/s/19926/cmunrm.woff') format('woff');
-  style: normal;
-  weight: 400; 
-  stretch: 100;
-}
+    @font-face {
+      font-family: 'CMU-Serif';
+      src: url('https://fonts.cdnfonts.com/s/19926/cmunrm.woff') format('woff');
+      style: normal;
+      weight: 400;
+      stretch: 100;
+    }
 
-* {
-  box-sizing: border-box;
-}
+    * {
+      box-sizing: border-box;
+    }
 
-body,
-html {
-  padding: 0;
-  margin: 0;
-}
+    body,
+    html {
+      padding: 0;
+      margin: 0;
+    }
 
-body {
-  font-family: 'CMU-Serif', serif;
-  overflow-x: hidden;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  color: #0D0D0D;
-}
+    body {
+      font-family: 'CMU-Serif', serif;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      color: #0D0D0D;
+    }
 
-header {
-  padding: 4rem 1rem 2rem;
-  text-align: center;
-}
+    header {
+      padding: 4rem 1rem 2rem;
+      text-align: center;
+    }
 
-header p {
-  margin: 0;
-  line-height: 1.6;
-}
+    header p {
+      margin: 0;
+      line-height: 1.6;
+    }
 
-section {
-  width: 100%;
-  max-width: 39rem;
-  padding: 2rem 1rem;
-}
+    section {
+      width: 100%;
+      max-width: 39rem;
+      padding: 2rem 1rem;
+    }
 
-h1 {
-  color: #0D0D0D;
-  text-align: center;
-  font-size: 2.5rem;
-  font-style: normal;
-  font-weight: 500;
-  line-height: 1.2;
-}
+    h1 {
+      color: #0D0D0D;
+      text-align: center;
+      font-size: 2.5rem;
+      font-style: normal;
+      font-weight: 500;
+      line-height: 1.2;
+    }
 
-h2 {
-  font-size: 1.1rem;
-  text-align: center;
-  text-transform: uppercase;
-  padding: 1rem 0 .5rem;
-}
+    h2 {
+      font-size: 1.1rem;
+      text-align: center;
+      text-transform: uppercase;
+      padding: 1rem 0 .5rem;
+    }
 
-a {
-  color: blue;
-  text-decoration: none;
-}
+    a {
+      color: blue;
+      text-decoration: none;
+    }
 
-a:hover {
-  text-decoration: underline;
-}
+    a:hover {
+      text-decoration: underline;
+    }
 
-.source {
-  display: block;
-  width: 100%;
-  padding: .5rem;
-  text-align: center;
-  font-style: italic;
-}
+    .source {
+      display: block;
+      width: 100%;
+      padding: .5rem;
+      text-align: center;
+      font-style: italic;
+    }
 
-img {
-  max-width: 100%;
-}
+    img {
+      max-width: 100%;
+    }
+    
+    table {
+      width: 100%;
+    }
 
-table {
-  width: 100%;
-}
+    th {
+      text-align: left;
+      font-weight: bold;
+      line-height: 1.8;
+      border-bottom: solid 1px #d7d7d7;
+    }
 
-th {
-  text-align: left;
-  font-weight: bold;
-  line-height: 1.8;
-  border-bottom: solid 1px #d7d7d7;
-}
+    td {
+      line-height: 1.5;
+    }
 
-td {
-  line-height: 1.5;
-}
+    footer p {
+      text-align: center;
+      font-size: .9rem;
+      padding: 1rem;
+    }
+  </style>
 
-footer p {
-  text-align: center;
-  font-size: .9rem;
-  padding: 1rem;
-}
-</style>
 </head>
 
 <body>
-    <header>
-        <h1>Flashbots <br/> Chain Performance Report</h1>
-        <p><i>{{data.date}}</i></p>
-        <br/>
-        <p>Scenario: {{data.scenario_name}}</p>
-        <p>Block Range: {{data.start_block}} - {{data.end_block}}</p>
-        <a href="{{data.rpc_url}}" target="_blank"><p>Target Chain</p></a>
-    </header>
+  <header>
+    <h1>Flashbots <br /> Chain Performance Report</h1>
+    <p><i>{{data.date}}</i></p>
+    <br />
+    <p>Scenario: {{data.scenario_name}}</p>
+    <p>Block Range: {{data.start_block}} - {{data.end_block}}</p>
+    <a href="{{data.rpc_url}}" target="_blank">
+      <p>Target Chain</p>
+    </a>
+  </header>
 
-    {{#each data.charts}}
-    <section>
-        <h2>
-            {{this.0}}
-        </h2>
-        <img src="{{this.1}}" alt="{{this.0}}">
-        <div style="page-break-after: always;"></div>
-    </section>
-    {{/each}}
+  {{#each data.charts}}
+  <section>
+    <h2>
+      {{this.0}}
+    </h2>
+    <img src="{{this.1}}" alt="{{this.0}}">
+    <div style="page-break-after: always;"></div>
+  </section>
+  {{/each}}
 
-    <footer>
-        <p>Flashbots 2025 ©</p>
-    </footer>
+  <section>
+    <h2>Chain Metrics</h2>
+    <p>Peak Gas Usage Per Block: {{data.metrics.peak_gas}} gas</p>
+    <p>Peak Txs Per Block: {{data.metrics.peak_tx_count}} txs</p>
+    <p>Average Block Time: {{data.metrics.average_block_time_secs}} seconds</p>
+
+    <h2>RPC Response Latency</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>p50 (ms)</th>
+          <th>p90 (ms)</th>
+          <th>p99 (ms)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each data.metrics.latency_quantiles}}
+        <tr>
+          <td>{{this.method}}</td>
+          <td>{{this.p50}}</td>
+          <td>{{this.p90}}</td>
+          <td>{{this.p99}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  </section>
+
+  <footer>
+    <p>Flashbots 2025 ©</p>
+  </footer>
 
 </body>
+
 </html>

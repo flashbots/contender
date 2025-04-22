@@ -55,9 +55,6 @@ pub enum ContenderSubcommand {
         long_about = "Export chain performance report for a spam run."
     )]
     Report {
-        /// The HTTP JSON-RPC URL to use for setup.
-        rpc_url: String,
-
         /// The run ID to include in the report.
         #[arg(
             short = 'i',
@@ -67,11 +64,11 @@ pub enum ContenderSubcommand {
         last_run_id: Option<u64>,
 
         /// The number of runs preceding `last_run_id` to include in the report.
-        /// If not provided, only the run with ID `last_run_id` is included.
+        /// Only runs with rpc_url matching the one in the last run are included.
         #[arg(
             short,
             long,
-            long_help = "The number of runs preceding `last_run_id` to include in the report. If not provided, only the run with ID `end_run_id` is included.",
+            long_help = "The number of runs preceding `last_run_id` to include in the report. Only runs with a RPC URL matching the last run will be included.",
             default_value = "0"
         )]
         preceding_runs: u64,
