@@ -150,16 +150,6 @@
     </a>
   </header>
 
-  {{#each data.charts}}
-  <section>
-    <h2>
-      {{this.0}}
-    </h2>
-    <img src="{{this.1}}" alt="{{this.0}}">
-    <div style="page-break-after: always;"></div>
-  </section>
-  {{/each}}
-
   <section>
     <h2>Chain Metrics</h2>
     <p>Peak Gas Usage Per Block: {{data.metrics.peak_gas}} gas</p>
@@ -190,6 +180,16 @@
       </tbody>
     </table>
   </section>
+
+  {{#each data.charts}}
+  <section>
+    <h2>
+      {{this.0}}
+    </h2>
+    <img src="{{this.1}}" alt="{{this.0}}">
+    <div style="page-break-after: always;"></div>
+  </section>
+  {{/each}}
 
   <footer>
     <p>Flashbots 2025 ©</p>
