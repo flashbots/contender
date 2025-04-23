@@ -21,8 +21,8 @@ jobs:
 
     - name: Copy example data
       run: |
-        mkdir -p /root/.contender
-        cp -r ./test_fixtures/* /root/.contender
+        mkdir -p /home/runner/.contender/reports
+        cp -r ./test_fixtures/* /home/runner/.contender
 
     - name: Generate report
       run: cargo run -- report http://localhost:8545
@@ -30,14 +30,14 @@ jobs:
     - name: Prepare report
       id: prepare-report
       run: |
-        sed -i 's|/root/.contender/reports|/github/workspace/reports|g' /root/.contender/reports/report-2-2.html
+        sed -i 's|/home/runner/.contender/reports|/github/workspace/reports|g' /home/runner/.contender/reports/report-2-2.html
         echo "report_path=/github/workspace/reports/report-2-2.html" >> $GITHUB_OUTPUT
 
     - name: Upload report
       uses: actions/upload-artifact@v4
       with:
         name: workspace_artifacts
-        path: /root/.contender/reports/*
+        path: /root/.contender/reports
 
     - name: HTML preview
       id: html-preview
