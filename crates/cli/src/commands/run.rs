@@ -28,6 +28,7 @@ use contender_testfile::TestConfig;
 use crate::{
     default_scenarios::{BuiltinScenario, BuiltinScenarioConfig},
     util::{check_private_keys, get_signers_with_defaults, prompt_cli, EngineParams},
+    LATENCY_HIST as HIST, PROM,
 };
 
 pub struct RunCommandArgs {
@@ -94,6 +95,7 @@ pub async fn run(
         rand_seed,
         params,
         args.engine_params.engine_provider,
+        (&PROM, &HIST),
     )
     .await?;
 
@@ -105,10 +107,9 @@ pub async fn run(
             false
         } else {
             let input = prompt_cli(format!(
-                "{} deployment already detected. Re-deploy? [y/N]",
-                contract_name
+                "{contract_name} deployment already detected. Re-deploy? [y/N]"
             ));
-            input.to_lowercase() == "y"
+            input.to_lowercase().starts_with("y")
         }
     } else {
         true
@@ -157,6 +158,7 @@ pub async fn run(
         timestamp as u64,
         args.duration * args.txs_per_duration,
         &format!("{} ({})", contract_name, scenario_name),
+        scenario.rpc_url.as_str(),
     )?;
     let provider = Arc::new(DynProvider::new(provider));
     let tx_callback = LogCallback::new(

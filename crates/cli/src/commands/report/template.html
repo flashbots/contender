@@ -1,10 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Contender Report</title>
-    <!--
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contender Report</title>
+  <!--
 
     (¯`·¯`·.¸¸.·´¯`·.¸¸.·´¯`··´¯)
     ( \                       / )
@@ -13,133 +14,223 @@
        (.·´¯`·.¸¸.·´¯`·.¸¸.·´)
 
     -->
+  
+  <style>
+    @font-face {
+      font-family: 'CMU-Serif';
+      src: url('https://fonts.cdnfonts.com/s/19926/cmunbx.woff') format('woff');
+      font-style: normal;
+      font-weight: bold;
+      font-stretch: normal;
+    }
+    @font-face {
+      font-family: 'CMU-Serif';
+      src: url('https://fonts.cdnfonts.com/s/19926/cmunci.woff') format('woff');
+      font-style: italic;
+      font-weight: 400; 
+      font-stretch: normal;
+    }
+    @font-face {
+      font-family: 'CMU-Serif';
+      src: url('https://fonts.cdnfonts.com/s/19926/cmunrm.woff') format('woff');
+      font-style: normal;
+      font-weight: 400; 
+      font-stretch: normal;
+    }
 
-<style>
+    * {
+      box-sizing: border-box;
+    }
 
-@font-face {
-  font-family: 'CMU-Serif';
-  src: url('https://fonts.cdnfonts.com/s/19926/cmunbx.woff') format('woff');
-  style: bold;
-  weight: bold; 
-  stretch: 100;
-}
-@font-face {
-  font-family: 'CMU-Serif';
-  src: url('https://fonts.cdnfonts.com/s/19926/cmunci.woff') format('woff');
-  style: italic;
-  weight: 400; 
-  stretch: 100;
-}
-@font-face {
-  font-family: 'CMU-Serif';
-  src: url('https://fonts.cdnfonts.com/s/19926/cmunrm.woff') format('woff');
-  style: normal;
-  weight: 400; 
-  stretch: 100;
-}
+    body,
+    html {
+      padding: 0;
+      margin: 0;
+    }
 
-* {
-  box-sizing: border-box;
-}
+    body {
+      font-family: 'CMU-Serif', serif;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      color: #0D0D0D;
+    }
 
-body,
-html {
-  padding: 0;
-  margin: 0;
-}
+    header {
+      padding: 4rem 1rem 2rem;
+      text-align: center;
+    }
 
-body {
-  font-family: 'CMU-Serif', serif;
-  overflow-x: hidden;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  color: #0D0D0D;
-}
+    header p {
+      margin: 0;
+      line-height: 1.6;
+    }
 
-header {
-  padding: 4rem 1rem 2rem;
-  text-align: center;
-}
+    header p:first-of-type {
+      margin-bottom: 1rem;
+    }
+    
+    section {
+      width: 100%;
+      max-width: 40rem;
+      padding: 2rem 1rem;
+    }
 
-header p {
-  margin: 0;
-  line-height: 1.6;
-}
+    h1 {
+      color: #0D0D0D;
+      text-align: center;
+      font-size: 2.5rem;
+      font-style: normal;
+      font-weight: 500;
+      line-height: 1.2;
+    }
 
-section {
-  max-width: 39rem;
-  padding: 2rem 1rem;
-}
+    h2 {
+      font-size: 1.1rem;
+      text-align: center;
+      text-transform: uppercase;
+      padding: 1rem 0 .5rem;
+    }
 
-h1 {
-  color: #0D0D0D;
-  text-align: center;
-  font-size: 2.5rem;
-  font-style: normal;
-  font-weight: 500;
-  line-height: 1.2;
-}
+    a {
+      color: blue;
+      text-decoration: none;
+    }
 
-h2 {
-  font-size: 1.1rem;
-  text-align: center;
-  text-transform: uppercase;
-  padding: 1rem 0 .5rem;
-}
+    a:hover {
+      text-decoration: underline;
+    }
 
-a {
-  color: blue;
-  text-decoration: none;
-}
+    .source {
+      display: block;
+      width: 100%;
+      padding: .5rem;
+      text-align: center;
+      font-style: italic;
+    }
 
-a:hover {
-  text-decoration: underline;
-}
+    img {
+      max-width: 100%;
+    }
 
-.source {
-  display: block;
-  width: 100%;
-  padding: .5rem;
-  text-align: center;
-  font-style: italic;
-}
+    .metrics {
+      display: flex; 
+      justify-content: space-between;
+      margin-top: 2rem;
+    }
 
-img {
-  max-width: 100%;
-}
+    .metrics p b {
+      font-size: 1.1rem;
+    }
 
-footer p {
-  text-align: center;
-  font-size: .9rem;
-  padding: 1rem;
-}
-</style>
+    .label {
+      font-size: .9rem;
+      font-style: italic;
+      color: #3c3c3c;
+    }
+    
+    table {
+      width: 100%;
+    }
+
+    th {
+      text-align: left;
+      font-weight: bold;
+      line-height: 1.8;
+      border-bottom: solid 1px #d7d7d7;
+    }
+
+    td {
+      line-height: 1.5;
+    }
+
+    footer p {
+      text-align: center;
+      font-size: .9rem;
+      padding: 1rem;
+    }
+  </style>
+
 </head>
 
 <body>
-    <header>
-        <h1>Flashbots <br/> Chain Performance Report</h1>
-        <p><i>{{data.date}}</i></p>
-        <br/>
-        <p>Scenario: {{data.scenario_name}}</p>
-        <p>Block Range: {{data.start_block}} - {{data.end_block}}</p>
-        <a href="{{data.rpc_url}}" target="_blank"><p>Target Chain</p></a>
-    </header>
+  <header>
+    <h1>Flashbots <br /> Chain Performance Report</h1>
+    <p><i>{{data.date}}</i></p>
+    <br />
+    <p>Scenario: {{data.scenario_name}}</p>
+    <p>Block Range: {{data.start_block}} - {{data.end_block}}</p>
+    <a href="{{data.rpc_url}}" target="_blank">
+      <p>Target Chain</p>
+    </a>
+  </header>
 
-    {{#each data.charts}}
-    <section>
-        <h2>
-            {{this.0}}
-        </h2>
-        <img src="{{this.1}}" alt="{{this.0}}">
-        <div style="page-break-after: always;"></div>
-    </section>
-    {{/each}}
+  <section>
+    <h2>Chain Metrics</h2>
+      <div style="display: flex; justify-content: space-between;">
+        <div>
+          <h4>⛽</h4>
+          <p>Peak Gas Usage Per Block:</p>
+          <p><b>{{data.metrics.peak_gas.value}} gas</b>
+            - <span class="label">{{data.metrics.peak_gas.description}}</span>
+          </p>
+        </div>
+        <div>
+          <h4>🗃️</h4>
+          <p>Peak Txs Per Block:</p>
+          <p><b>{{data.metrics.peak_tx_count.value}} txs</b>
+            <!-- - <span class="label">medium</span> -->
+          </p>
+        </div>
+        <div>
+          <h4>⏳</h4>
+          <p>Average Block Time:</p>
+          <p><b>{{data.metrics.average_block_time_secs.value}} seconds</b>
+            - <span class="label">{{data.metrics.average_block_time_secs.description}}</span>
+          </p>
+        </div>
+      </div>
+  </section>
 
-    <footer>
-        <p>Flashbots 2025 ©</p>
-    </footer>
+  <section>
+    <h2>RPC Response Latency</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>p50 (ms)</th>
+          <th>p90 (ms)</th>
+          <th>p99 (ms)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each data.metrics.latency_quantiles}}
+        <tr>
+          <td>{{this.method}}</td>
+          <td>{{this.p50}}</td>
+          <td>{{this.p90}}</td>
+          <td>{{this.p99}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  </section>
+
+  {{#each data.charts}}
+  <section>
+    <h2>
+      {{this.0}}
+    </h2>
+    <img src="{{this.1}}" alt="{{this.0}}">
+    <div style="page-break-after: always;"></div>
+  </section>
+  {{/each}}
+
+  <footer>
+    <p>Flashbots 2025 ©</p>
+  </footer>
 
 </body>
+
 </html>
