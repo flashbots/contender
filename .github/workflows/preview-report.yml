@@ -31,8 +31,8 @@ jobs:
         cp -r ./test_fixtures/* $C_HOME_PATH
 
     - name: Generate report
-      run: cargo run -- report http://localhost:8545
-    
+      run: cargo run -- report
+
     - name: Prepare report
       id: prepare-report
       run: |
