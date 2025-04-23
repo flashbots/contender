@@ -107,10 +107,9 @@ pub async fn run(
             false
         } else {
             let input = prompt_cli(format!(
-                "{} deployment already detected. Re-deploy? [y/N]",
-                contract_name
+                "{contract_name} deployment already detected. Re-deploy? [y/N]"
             ));
-            input.to_lowercase() == "y"
+            input.to_lowercase().starts_with("y")
         }
     } else {
         true
