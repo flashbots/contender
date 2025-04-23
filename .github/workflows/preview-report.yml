@@ -1,4 +1,4 @@
-on: [push]
+on: [pull_request]
 
 jobs:
   preview-report:
@@ -57,3 +57,4 @@ jobs:
         message: |
           ### Preview Report
           An example contender report preview is available [here](https://github.com/flashbots/contender/actions/runs/${{github.run_id}}/artifacts/${{steps.artifact-upload-step.outputs.artifact-id}})
+        comment-tag: 'preview-report'
