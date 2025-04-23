@@ -18,8 +18,4 @@ docker run -v "$CONTEXT:/home/appuser/.contender/reports" \
     contender report $URL
 
 sed -i "s|/home/appuser/.contender/reports|$CONTEXT|g" "$CONTEXT/report-2-2.html"
-xdg-open "$CONTEXT/report-2-2.html"
-if [[ $? -ne 0 ]]; then
-  echo "Failed to open report in browser."
-  exit 1
-fi
+echo "Report available at file://$CONTEXT/report-2-2.html"
