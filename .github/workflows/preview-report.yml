@@ -36,25 +36,12 @@ jobs:
     - name: Prepare report
       id: prepare-report
       run: |
-        # Fix the report path in the generated HTML file
-        # TODO: fix report path; I think we actually need https://htmlpreview.github.io/?https://github.com/${owner}/${repo}/blob/${sha}/${htmlFile}
-        sed -i "s|$C_HOME_PATH|/github/workspace|g" $C_HOME_PATH/reports/report-*.html
-        echo "report_path=/github/workspace/reports/$C_REPORT_NAME" >> "$GITHUB_OUTPUT"
+        sed -i "s|$C_HOME_PATH|./|g" $C_HOME_PATH/reports/report-*.html
 
     - name: Upload report
       uses: actions/upload-artifact@v4
       with:
-        name: html-report
-        path: /home/runner/.contender/reports/report-2-2.html
+        name: example-report
+        path: /home/runner/.contender/reports
         retention-days: 10
-    - name: Upload heatmap
-      uses: actions/upload-artifact@v4
-      with:
-        name: heatmap-png
-        path: "$C_HOME_PATH/reports/heatmap-2-2.png"
 
-    - name: HTML preview
-      id: html-preview
-      uses: pavi2410/html-preview-action@v4
-      with:
-        html_file: ${{ steps.prepare-report.outputs.report_path }}
