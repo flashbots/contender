@@ -7,6 +7,10 @@ jobs:
       matrix:
         configs:
         - runner: warp-ubuntu-latest-x64-32x
+    
+    env:
+      DEBUG_USEFILE: true
+      BROWSER: none
 
     steps:
     - uses: actions/checkout@v4
