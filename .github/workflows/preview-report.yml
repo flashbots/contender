@@ -2,31 +2,43 @@ on: [push]
 
 jobs:
   preview-report:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.configs.runner }}
+    strategy:
+      matrix:
+        configs:
+        - runner: warp-ubuntu-latest-x64-32x
+        - runner: warp-ubuntu-latest-arm64-32x
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
+    - name: Install deps
+      run: sudo apt-get install -y libsqlite3-dev fontconfig libfontconfig1-dev libfontconfig
+    - name: Build
+      run: cargo build --verbose --workspace
 
-      - name: Build contender image
-        id: build-contender
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          file: Dockerfile
-          tags: contender:latest
+    - name: Generate report
+      run: cargo run -- report http://localhost:8545
+    
+    - name: Prepare report
+      id: prepare-report
+      run: |
+        mkdir -p /github/workspace/reports
+        mv /root/.contender/reports/* /github/workspace/reports
+        sed -i 's|/root/.contender/reports|/github/workspace/reports|g'
+        echo "report_path=/github/workspace/reports/report-2-2.html" >> $GITHUB_ENV
 
-      - name: Generate report
-        id: gen-report
-        uses: ./.github/actions/preview-report
+    - name: Upload report
+      uses: actions/upload-artifact@v4
+      with:
+        name: workspace_artifacts
+        path: ${{ github.workspace }}
 
-      - name: Upload report
-        uses: actions/upload-artifact@v4
-        with:
-          name: workspace_artifacts
-          path: ${{ github.workspace }}
-
-      - name: HTML preview
-        id: html-preview
-        uses: pavi2410/html-preview-action@v4
-        with:
-          html_file: ${{ steps.gen-report.outputs.report_path }}
+    - name: HTML preview
+      id: html-preview
+      uses: pavi2410/html-preview-action@v4
+      with:
+        html_file: ${{ steps.prepare-report.outputs.report_path }}
