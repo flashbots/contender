@@ -120,6 +120,6 @@ async fn init_metrics(registry: &OnceCell<Registry>, latency_hist: &OnceCell<His
     reg.register(Box::new(histogram_vec.clone()))
         .expect("histogram registered");
 
-    registry.set(reg).expect("registry set");
-    latency_hist.set(histogram_vec).expect("histogram_vec set");
+    registry.set(reg).unwrap_or(());
+    latency_hist.set(histogram_vec).unwrap_or(());
 }

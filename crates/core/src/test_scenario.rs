@@ -1301,6 +1301,7 @@ pub mod tests {
     use tokio::sync::OnceCell;
 
     use super::TestScenarioParams;
+
     // separate prometheus registry for simulations; anvil doesn't count!
     static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
     static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
