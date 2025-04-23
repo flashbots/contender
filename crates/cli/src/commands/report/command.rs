@@ -185,14 +185,11 @@ pub async fn report(
         peak_tx_count: MetricDescriptor::new(peak_tx_count, None),
         average_block_time_secs: MetricDescriptor::new(
             average_block_time,
-            Some(&format!(
-                "{}",
-                if block_time_delta_std_dev == 0.0 {
-                    "stable".to_owned()
-                } else {
-                    format!("unstable (\u{F3}={:.2})", block_time_delta_std_dev)
-                }
-            )),
+            Some(&if block_time_delta_std_dev == 0.0 {
+                "stable".to_owned()
+            } else {
+                format!("unstable (\u{F3}={:.2})", block_time_delta_std_dev)
+            }),
         ),
         latency_quantiles: canonical_latency_map
             .iter()

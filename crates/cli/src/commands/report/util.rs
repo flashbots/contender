@@ -10,7 +10,7 @@ pub fn abbreviate_num(num: u64) -> String {
 }
 
 pub fn mean(data: &[u64]) -> Option<f64> {
-    let sum: f64 = data.into_iter().map(|d| *d as f64).sum();
+    let sum: f64 = data.iter().map(|d| *d as f64).sum();
     let count = data.len();
 
     match count {
