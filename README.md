@@ -124,7 +124,7 @@ contender spamd ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRV_KEY --tl 
 Generate a chain performance report for the most recent run.
 
 ```bash
-contender report $RPC_URL
+contender report
 ```
 
 > The compiled report will open in your web browser.
@@ -132,13 +132,13 @@ contender report $RPC_URL
 Generate a report that spans the last 3 runs (the most recent run + 2 preceding it):
 
 ```bash
-contender report $RPC_URL -p 2
+contender report -p 2
 ```
 
 Generate a report spanning run 200 - 203 (inclusively):
 
 ```bash
-contender report $RPC_URL -i 203 -p 3
+contender report -i 203 -p 3
 ```
 
 ---
