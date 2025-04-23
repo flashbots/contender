@@ -15,6 +15,7 @@ use contender_core::db::{DbOps, RunTx};
 use csv::WriterBuilder;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::env;
 use std::str::FromStr;
 
 pub async fn report(
@@ -118,7 +119,7 @@ pub async fn report(
     let average_block_time = block_timestamps
         .windows(2)
         .map(|w| w[1] - w[0])
-        .fold(0, |acc, diff| acc + diff) as f64
+        .sum::<u64>() as f64
         / (blocks.len() - 1).max(1) as f64;
 
     // cache data to file
@@ -213,7 +214,12 @@ pub async fn report(
         chart_ids,
     })?;
 
-    // Open the report in the default web browser
+    // Open the report in the default web browser, skipping if "none" is set
+    // in the BROWSER environment variable.
+    // This is useful for CI environments where we don't want to open a browser.
+    if env::var("BROWSER").unwrap_or_default() == "none" {
+        return Ok(());
+    }
     webbrowser::open(&report_path)?;
 
     Ok(())

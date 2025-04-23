@@ -1181,7 +1181,7 @@ where
                         if m.label.is_empty() {
                             continue;
                         }
-                        let label = m.label.get(0).expect("label");
+                        let label = m.label.first().expect("label");
                         if label.name() != "rpc_method" {
                             continue;
                         }

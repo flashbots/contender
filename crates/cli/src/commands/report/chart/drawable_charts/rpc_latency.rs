@@ -57,8 +57,8 @@ impl DrawableChart for LatencyChart {
 
             // Draw left vertical line and top horizontal line
             chart.draw_series([
-                PathElement::new(vec![(left, 0), (left, height)], &GREEN),
-                PathElement::new(vec![(left, height), (right, height)], &GREEN),
+                PathElement::new(vec![(left, 0), (left, height)], GREEN),
+                PathElement::new(vec![(left, height), (right, height)], GREEN),
             ])?;
         }
 
@@ -75,13 +75,13 @@ impl DrawableChart for LatencyChart {
                     RED.mix(0.5).stroke_width(2),
                 )))?
                 .label(format!("p{} ≈ {:.3}", (q * 100.0) as u32, val))
-                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
+                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], RED));
         }
 
         chart
             .configure_series_labels()
-            .border_style(&BLACK)
-            .background_style(&WHITE.mix(0.8))
+            .border_style(BLACK)
+            .background_style(WHITE.mix(0.8))
             .draw()?;
 
         Ok(())
