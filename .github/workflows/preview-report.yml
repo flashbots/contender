@@ -39,9 +39,14 @@ jobs:
         sed -i "s|$C_HOME_PATH/reports|.|g" $C_HOME_PATH/reports/report-*.html
 
     - name: Upload report
+      id: artifact-upload-step
       uses: actions/upload-artifact@v4
       with:
         name: example-report
         path: /home/runner/.contender/reports
         retention-days: 10
 
+    - name: Print summary
+      run: |
+        echo '### Preview Report' >> $GITHUB_STEP_SUMMARY
+        echo "An example contender report preview is available [here](https://github.com/flashbots/contender/actions/runs/${{github.run_id}}/artifacts/${{steps.artifact-upload-step.outputs.artifact-id}})" >> $GITHUB_STEP_SUMMARY
