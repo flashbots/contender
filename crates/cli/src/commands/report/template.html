@@ -113,6 +113,22 @@
     img {
       max-width: 100%;
     }
+
+    .metrics {
+      display: flex; 
+      justify-content: space-between;
+      margin-top: 2rem;
+    }
+
+    .metrics p b {
+      font-size: 1.1rem;
+    }
+
+    .label {
+      font-size: .9rem;
+      font-style: italic;
+      color: #3c3c3c;
+    }
     
     table {
       width: 100%;
@@ -152,9 +168,29 @@
 
   <section>
     <h2>Chain Metrics</h2>
-    <p>Peak Gas Usage Per Block: {{data.metrics.peak_gas}} gas</p>
-    <p>Peak Txs Per Block: {{data.metrics.peak_tx_count}} txs</p>
-    <p>Average Block Time: {{data.metrics.average_block_time_secs}} seconds</p>
+      <div style="display: flex; justify-content: space-between;">
+        <div>
+          <h4>⛽</h4>
+          <p>Peak Gas Usage Per Block:</p>
+          <p><b>{{data.metrics.peak_gas}}  gas</b> 
+            <!-- - <span class="label">80%</span> -->
+          </p>
+        </div>
+        <div>
+          <h4>🗃️</h4>
+          <p>Peak Txs Per Block:</p>
+          <p><b>{{data.metrics.peak_tx_count}} txs</b> 
+            <!-- - <span class="label">medium</span> -->
+          </p>
+        </div>
+        <div>
+          <h4>⏳</h4>
+          <p>Average Block Time:</p>
+          <p><b>{data.metrics.average_block_time_secs}} seconds</b> 
+            <!-- - <span class="label">fast</span> -->
+          </p>
+        </div>
+      </div>
   </section>
 
   <section>
