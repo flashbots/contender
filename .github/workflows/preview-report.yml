@@ -45,7 +45,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: html-report
-        path: "$C_HOME_PATH/reports/$C_REPORT_NAME"
+        path: /home/runner/.contender/reports/report-2-2.html
         retention-days: 10
     - name: Upload heatmap
       uses: actions/upload-artifact@v4
