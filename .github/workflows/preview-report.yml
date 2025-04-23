@@ -4,6 +4,9 @@ jobs:
   preview-report:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Build contender image
         id: build-contender
         uses: docker/build-push-action@v4
