@@ -19,6 +19,11 @@ jobs:
     - name: Build
       run: cargo build --verbose --workspace
 
+    - name: Copy example data
+      run: |
+        mkdir -p /root/.contender
+        cp -r ./test_fixtures/* /root/.contender
+
     - name: Generate report
       run: cargo run -- report http://localhost:8545
     
