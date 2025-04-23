@@ -46,11 +46,6 @@ jobs:
         path: /home/runner/.contender/reports
         retention-days: 10
 
-    - name: Print summary
-      run: |
-        echo '### Preview Report' >> $GITHUB_STEP_SUMMARY
-        echo "An example contender report preview is available [here](https://github.com/flashbots/contender/actions/runs/${{github.run_id}}/artifacts/${{steps.artifact-upload-step.outputs.artifact-id}})" >> $GITHUB_STEP_SUMMARY
-
     - name: Comment summary on PR
       uses: thollander/actions-comment-pull-request@v3
       with:
