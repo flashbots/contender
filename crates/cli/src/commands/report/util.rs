@@ -9,6 +9,35 @@ pub fn abbreviate_num(num: u64) -> String {
     }
 }
 
+pub fn mean(data: &[u64]) -> Option<f64> {
+    let sum: f64 = data.into_iter().map(|d| *d as f64).sum();
+    let count = data.len();
+
+    match count {
+        positive if positive > 0 => Some(sum / count as f64),
+        _ => None,
+    }
+}
+
+pub fn std_deviation(data: &[u64]) -> Option<f64> {
+    match (mean(data), data.len()) {
+        (Some(data_mean), count) if count > 0 => {
+            let variance = data
+                .iter()
+                .map(|value| {
+                    let diff = data_mean - *value as f64;
+
+                    diff * diff
+                })
+                .sum::<f64>()
+                / count as f64;
+
+            Some(variance.sqrt())
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

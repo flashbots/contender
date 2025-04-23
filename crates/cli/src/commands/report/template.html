@@ -172,22 +172,22 @@
         <div>
           <h4>⛽</h4>
           <p>Peak Gas Usage Per Block:</p>
-          <p><b>{{data.metrics.peak_gas}}  gas</b> 
-            <!-- - <span class="label">80%</span> -->
+          <p><b>{{data.metrics.peak_gas.value}} gas</b>
+            - <span class="label">{{data.metrics.peak_gas.description}}</span>
           </p>
         </div>
         <div>
           <h4>🗃️</h4>
           <p>Peak Txs Per Block:</p>
-          <p><b>{{data.metrics.peak_tx_count}} txs</b> 
+          <p><b>{{data.metrics.peak_tx_count.value}} txs</b>
             <!-- - <span class="label">medium</span> -->
           </p>
         </div>
         <div>
           <h4>⏳</h4>
           <p>Average Block Time:</p>
-          <p><b>{{data.metrics.average_block_time_secs}} seconds</b>
-            <!-- - <span class="label">fast</span> -->
+          <p><b>{{data.metrics.average_block_time_secs.value}} seconds</b>
+            - <span class="label">{{data.metrics.average_block_time_secs.description}}</span>
           </p>
         </div>
       </div>

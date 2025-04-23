@@ -5,6 +5,7 @@ use super::chart::{
     TimeToInclusionChart, TxGasUsedChart,
 };
 use super::gen_html::{build_html_report, ReportMetadata};
+use super::util::std_deviation;
 use crate::commands::report::chart::DrawableChart;
 use crate::util::{report_dir, write_run_txs};
 use alloy::network::AnyNetwork;
@@ -102,6 +103,7 @@ pub async fn report(
 
     // find peak gas usage
     let peak_gas = blocks.iter().map(|b| b.header.gas_used).max().unwrap_or(0);
+    let block_gas_limit = blocks[0].header.gas_limit;
 
     // find peak tx count
     let peak_tx_count = blocks
@@ -121,6 +123,12 @@ pub async fn report(
         .map(|w| w[1] - w[0])
         .sum::<u64>() as f64
         / (blocks.len() - 1).max(1) as f64;
+    let block_time_delta_std_dev = std_deviation(
+        &block_timestamps
+            .windows(2)
+            .map(|w| w[1] - w[0])
+            .collect::<Vec<_>>(),
+    );
 
     // cache data to file
     let cache_data = CacheFile::new(trace_data, blocks);
@@ -168,10 +176,24 @@ pub async fn report(
 
     let to_ms = |latency: f64| (latency * 1000.0).round_ties_even() as u64; // convert to ms
 
+    let block_time_delta_std_dev = block_time_delta_std_dev.unwrap_or(0.0);
     let metrics = SpamRunMetrics {
-        peak_gas,
-        peak_tx_count,
-        average_block_time_secs: average_block_time,
+        peak_gas: MetricDescriptor::new(
+            peak_gas,
+            Some(&format!("{}%", (peak_gas * 100) / block_gas_limit)),
+        ),
+        peak_tx_count: MetricDescriptor::new(peak_tx_count, None),
+        average_block_time_secs: MetricDescriptor::new(
+            average_block_time,
+            Some(&format!(
+                "{}",
+                if block_time_delta_std_dev == 0.0 {
+                    "stable".to_owned()
+                } else {
+                    format!("unstable (\u{F3}={:.2})", block_time_delta_std_dev)
+                }
+            )),
+        ),
         latency_quantiles: canonical_latency_map
             .iter()
             .map(|(method, latencies)| RpcLatencyQuantiles {
@@ -249,8 +271,23 @@ pub struct RpcLatencyQuantiles {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 /// Metrics for a spam run. Must be readable by handlebars.
 pub struct SpamRunMetrics {
-    pub peak_gas: u64,
-    pub peak_tx_count: u64,
-    pub average_block_time_secs: f64,
+    pub peak_gas: MetricDescriptor<u64>,
+    pub peak_tx_count: MetricDescriptor<u64>,
+    pub average_block_time_secs: MetricDescriptor<f64>,
     pub latency_quantiles: Vec<RpcLatencyQuantiles>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MetricDescriptor<T> {
+    pub description: Option<String>,
+    pub value: T,
+}
+
+impl<T> MetricDescriptor<T> {
+    pub fn new(value: T, description: Option<&str>) -> Self {
+        Self {
+            description: description.map(String::from),
+            value,
+        }
+    }
 }
