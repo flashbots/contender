@@ -14,30 +14,28 @@
        (.·´¯`·.¸¸.·´¯`·.¸¸.·´)
 
     -->
-
+  
   <style>
     @font-face {
       font-family: 'CMU-Serif';
       src: url('https://fonts.cdnfonts.com/s/19926/cmunbx.woff') format('woff');
-      style: bold;
-      weight: bold;
-      stretch: 100;
+      font-style: normal;
+      font-weight: bold;
+      font-stretch: normal;
     }
-
     @font-face {
       font-family: 'CMU-Serif';
       src: url('https://fonts.cdnfonts.com/s/19926/cmunci.woff') format('woff');
-      style: italic;
-      weight: 400;
-      stretch: 100;
+      font-style: italic;
+      font-weight: 400; 
+      font-stretch: normal;
     }
-
     @font-face {
       font-family: 'CMU-Serif';
       src: url('https://fonts.cdnfonts.com/s/19926/cmunrm.woff') format('woff');
-      style: normal;
-      weight: 400;
-      stretch: 100;
+      font-style: normal;
+      font-weight: 400; 
+      font-stretch: normal;
     }
 
     * {
@@ -69,8 +67,13 @@
       line-height: 1.6;
     }
 
+    header p:first-of-type {
+      margin-bottom: 1rem;
+    }
+    
     section {
-      max-width: 39rem;
+      width: 100%;
+      max-width: 40rem;
       padding: 2rem 1rem;
     }
 
@@ -111,12 +114,44 @@
       max-width: 100%;
     }
 
+    .metrics {
+      display: flex; 
+      justify-content: space-between;
+      margin-top: 2rem;
+    }
+
+    .metrics p b {
+      font-size: 1.1rem;
+    }
+
+    .label {
+      font-size: .9rem;
+      font-style: italic;
+      color: #3c3c3c;
+    }
+    
+    table {
+      width: 100%;
+    }
+
+    th {
+      text-align: left;
+      font-weight: bold;
+      line-height: 1.8;
+      border-bottom: solid 1px #d7d7d7;
+    }
+
+    td {
+      line-height: 1.5;
+    }
+
     footer p {
       text-align: center;
       font-size: .9rem;
       padding: 1rem;
     }
   </style>
+
 </head>
 
 <body>
@@ -131,22 +166,34 @@
     </a>
   </header>
 
-  {{#each data.charts}}
-  <section>
-    <h2>
-      {{this.0}}
-    </h2>
-    <img src="{{this.1}}" alt="{{this.0}}">
-    <div style="page-break-after: always;"></div>
-  </section>
-  {{/each}}
-
   <section>
     <h2>Chain Metrics</h2>
-    <p>Peak Gas Usage Per Block: {{data.metrics.peak_gas}} gas</p>
-    <p>Peak Txs Per Block: {{data.metrics.peak_tx_count}} txs</p>
-    <p>Average Block Time: {{data.metrics.average_block_time_secs}} seconds</p>
+      <div style="display: flex; justify-content: space-between;">
+        <div>
+          <h4>⛽</h4>
+          <p>Peak Gas Usage Per Block:</p>
+          <p><b>{{data.metrics.peak_gas}}  gas</b> 
+            <!-- - <span class="label">80%</span> -->
+          </p>
+        </div>
+        <div>
+          <h4>🗃️</h4>
+          <p>Peak Txs Per Block:</p>
+          <p><b>{{data.metrics.peak_tx_count}} txs</b> 
+            <!-- - <span class="label">medium</span> -->
+          </p>
+        </div>
+        <div>
+          <h4>⏳</h4>
+          <p>Average Block Time:</p>
+          <p><b>{data.metrics.average_block_time_secs}} seconds</b> 
+            <!-- - <span class="label">fast</span> -->
+          </p>
+        </div>
+      </div>
+  </section>
 
+  <section>
     <h2>RPC Response Latency</h2>
     <table>
       <thead>
@@ -169,6 +216,16 @@
       </tbody>
     </table>
   </section>
+
+  {{#each data.charts}}
+  <section>
+    <h2>
+      {{this.0}}
+    </h2>
+    <img src="{{this.1}}" alt="{{this.0}}">
+    <div style="page-break-after: always;"></div>
+  </section>
+  {{/each}}
 
   <footer>
     <p>Flashbots 2025 ©</p>
