@@ -1,8 +1,0 @@
-name: 'Preview Report'
-description: 'Generate a contender report using example data'
-outputs:
-  report_path:
-    description: 'Path to the generated HTML report'
-runs:
-  using: 'docker'
-  image: 'Dockerfile'
