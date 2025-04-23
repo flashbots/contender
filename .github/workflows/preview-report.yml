@@ -7,7 +7,6 @@ jobs:
       matrix:
         configs:
         - runner: warp-ubuntu-latest-x64-32x
-        - runner: warp-ubuntu-latest-arm64-32x
 
     steps:
     - uses: actions/checkout@v4
