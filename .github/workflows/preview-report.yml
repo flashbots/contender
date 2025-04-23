@@ -11,6 +11,7 @@ jobs:
     env:
       DEBUG_USEFILE: true
       BROWSER: none
+      C_HOME_PATH: /home/runner/.contender
 
     steps:
     - uses: actions/checkout@v4
@@ -25,8 +26,8 @@ jobs:
 
     - name: Copy example data
       run: |
-        mkdir -p /home/runner/.contender/reports
-        cp -r ./test_fixtures/* /home/runner/.contender
+        mkdir -p $C_HOME_PATH/reports
+        cp -r ./test_fixtures/* $C_HOME_PATH
 
     - name: Generate report
       run: cargo run -- report http://localhost:8545
@@ -36,14 +37,14 @@ jobs:
       run: |
         # Fix the report path in the generated HTML file
         # TODO: fix report path; I think we actually need https://htmlpreview.github.io/?https://github.com/${owner}/${repo}/blob/${sha}/${htmlFile}
-        sed -i 's|/home/runner/.contender/reports|/github/workspace/reports|g' /home/runner/.contender/reports/report-2-2.html
+        sed -i "s|$C_HOME_PATH|/github/workspace|g" $C_HOME_PATH/reports/report-*.html
         echo "report_path=/github/workspace/reports/report-2-2.html" >> $GITHUB_OUTPUT
 
     - name: Upload report
       uses: actions/upload-artifact@v4
       with:
         name: workspace_artifacts
-        path: /home/runner/.contender/reports/*
+        path: $C_HOME_PATH/reports/*
 
     - name: HTML preview
       id: html-preview
