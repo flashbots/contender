@@ -772,7 +772,6 @@ where
 
                                 tokio::select! {
                                     _ = cancel_token.cancelled() => {
-                                        println!("cancelled spammer task");
                                         return;
                                     }
                                     _ = success_sender

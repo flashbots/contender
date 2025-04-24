@@ -90,13 +90,8 @@ impl OnTxSent for LogCallback {
                     error,
                 };
                 tokio::select! {
-                    _ = cancel_token.cancelled() => {
-                        // exit gracefully
-                        return;
-                    }
-                    _ = tx_actor.cache_run_tx(tx) => {
-                        // do nothing
-                    }
+                    _ = cancel_token.cancelled() => {}
+                    _ = tx_actor.cache_run_tx(tx) => {}
                 };
             }
         });
