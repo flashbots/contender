@@ -168,7 +168,6 @@ pub async fn run(
     );
 
     println!("starting spammer...");
-    let done_sending = Arc::new(AtomicBool::new(false));
     spammer
         .spam_rpc(
             &mut scenario,
@@ -176,7 +175,6 @@ pub async fn run(
             args.duration,
             Some(run_id),
             tx_callback.into(),
-            done_sending,
         )
         .await?;
 

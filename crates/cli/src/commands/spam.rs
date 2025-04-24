@@ -297,7 +297,7 @@ pub async fn spam<
     // trigger blockwise spammer
     if let Some(txs_per_block) = txs_per_block {
         println!("Blockwise spamming with {} txs per block", txs_per_block);
-        let spammer = BlockwiseSpammer {};
+        let spammer = BlockwiseSpammer::new();
 
         match spam_callback_default(
             !disable_reporting,
@@ -325,7 +325,6 @@ pub async fn spam<
                         *duration,
                         run_id,
                         tx_callback.into(),
-                        is_sending_done.clone(),
                     )
                     .await?;
             }
@@ -337,7 +336,6 @@ pub async fn spam<
                         *duration,
                         None,
                         tx_callback.into(),
-                        is_sending_done.clone(),
                     )
                     .await?;
             }
@@ -369,26 +367,12 @@ pub async fn spam<
                 test_scenario.rpc_url.as_str(),
             )?);
             spammer
-                .spam_rpc(
-                    test_scenario,
-                    tps,
-                    *duration,
-                    run_id,
-                    tx_callback.into(),
-                    is_sending_done.clone(),
-                )
+                .spam_rpc(test_scenario, tps, *duration, run_id, tx_callback.into())
                 .await?;
         }
         SpamCallbackType::Nil(tx_callback) => {
             spammer
-                .spam_rpc(
-                    test_scenario,
-                    tps,
-                    *duration,
-                    None,
-                    tx_callback.into(),
-                    is_sending_done.clone(),
-                )
+                .spam_rpc(test_scenario, tps, *duration, None, tx_callback.into())
                 .await?;
         }
     };
