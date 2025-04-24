@@ -363,10 +363,12 @@ pub async fn spam_callback_default(
     send_fcu: bool,
     rpc_client: Option<Arc<AnyProvider>>,
     auth_client: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    cancel_token: tokio_util::sync::CancellationToken,
 ) -> SpamCallbackType {
     if let Some(rpc_client) = rpc_client {
         if log_txs {
-            let log_callback = LogCallback::new(rpc_client.clone(), auth_client, send_fcu);
+            let log_callback =
+                LogCallback::new(rpc_client.clone(), auth_client, send_fcu, cancel_token);
             return SpamCallbackType::Log(log_callback);
         }
     }

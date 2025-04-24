@@ -304,6 +304,7 @@ pub async fn spam<
             engine_params.call_fcu,
             Some(rpc_client.clone()),
             auth_client,
+            test_scenario.ctx.cancel_token.clone(),
         )
         .await
         {
@@ -352,6 +353,7 @@ pub async fn spam<
         engine_params.call_fcu,
         rpc_client.into(),
         auth_client,
+        test_scenario.ctx.cancel_token.clone(),
     )
     .await
     {

@@ -118,6 +118,7 @@ where
             let dump_finished: bool = tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
                     println!("\nCTRL-C received, stopping tx cache dump...");
+                    cancel_token.cancel();
                     false
                 },
                 _ = scenario.dump_tx_cache(run_id.unwrap_or(0)) => {

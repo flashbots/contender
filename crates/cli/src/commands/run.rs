@@ -165,6 +165,7 @@ pub async fn run(
         provider.clone(),
         scenario.auth_provider.clone(),
         false, // don't call in callback bc we're already calling in the loop
+        scenario.ctx.cancel_token.clone(),
     );
 
     println!("starting spammer...");

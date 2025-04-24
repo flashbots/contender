@@ -36,6 +36,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::OnceCell;
+use tokio_util::sync::CancellationToken;
 
 type PrometheusCollector = (
     &'static OnceCell<prometheus::Registry>,
@@ -92,7 +93,9 @@ pub struct ExecutionContext {
     /// This is not the same as the `gas_price_percent_add`, which is a percentage of the gas price provided by the user.
     gas_price_adder: i128,
     /// The amount of time between blocks on the target chain.
-    block_time_secs: u64,
+    pub block_time_secs: u64,
+    /// Tells us when to terminate async tasks.
+    pub cancel_token: CancellationToken,
 }
 
 impl ExecutionContext {
@@ -190,6 +193,7 @@ where
             .map(|url| Arc::new(BundleClient::new(url.clone())));
 
         let msg_handle = Arc::new(TxActorHandle::new(120, db.clone(), rpc_client.clone()));
+        let cancel_token = CancellationToken::new();
 
         Ok(Self {
             config,
@@ -211,6 +215,7 @@ where
             ctx: ExecutionContext {
                 gas_price_adder: 0,
                 block_time_secs,
+                cancel_token,
             },
             auth_provider,
             prometheus,
@@ -739,6 +744,7 @@ where
             let tx_handler = self.msg_handle.clone();
             let gas_sender = gas_sender.clone();
             let success_sender = success_sender.clone();
+            let cancel_token = self.ctx.cancel_token.clone();
 
             std::thread::sleep(Duration::from_micros(micros_per_task));
             tasks.push(tokio::task::spawn(async move {
@@ -763,10 +769,18 @@ where
                                     Some(extra),
                                     Some(tx_handler.clone()),
                                 );
-                                success_sender
-                                    .send(())
-                                    .await
-                                    .expect("failed to send success signal");
+
+                                tokio::select! {
+                                    _ = cancel_token.cancelled() => {
+                                        println!("cancelled spammer task");
+                                        return;
+                                    }
+                                    _ = success_sender
+                                    .send(()) => {
+                                        // wait for the task to finish
+                                    }
+                                };
+
                                 vec![maybe_handle]
                             }
                             Err(e) => {
@@ -865,7 +879,15 @@ where
                 };
 
                 for handle in handles.into_iter().flatten() {
-                    handle.await.expect("msg handle failed");
+                    tokio::select! {
+                        _ = cancel_token.cancelled() => {
+                            println!("cancelled spammer task");
+                            return;
+                        }
+                        _ = handle => {
+                            // wait for the task to finish
+                        }
+                    }
                 }
             }));
         }
@@ -903,12 +925,20 @@ where
 
             // wait for spam txs to finish sending
             for task in spam_tasks {
-                if let Err(e) = task.await {
-                    println!("spam task failed: {:?}", e);
-                    num_tasks -= 1;
+                tokio::select! {
+                    res = task => {
+                        if let Err(e) = res {
+                            println!("spam task failed: {:?}", e);
+                            num_tasks -= 1;
+                        }
+                    },
+                    _ = self.ctx.cancel_token.cancelled() => {
+                        break;
+                    }
                 }
             }
 
+            // wait for the on_batch_sent callback to finish
             if let Some(task) = sent_tx_callback.on_batch_sent() {
                 task.await
                     .map_err(|e| ContenderError::with_err(e, "on_batch_sent callback failed"))?;

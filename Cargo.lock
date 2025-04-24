@@ -2185,6 +2185,7 @@ dependencies = [
  "tempfile",
  "termcolor",
  "tokio",
+ "tokio-util",
  "webbrowser",
 ]
 
