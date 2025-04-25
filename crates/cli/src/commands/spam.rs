@@ -221,7 +221,6 @@ impl SpamCommandArgs {
         )
         .await?;
 
-        // don't multiply by TPS or TPB, because that number scales the number of accounts; this cost is per account
         let total_cost = U256::from(*duration * txs_per_duration)
             * scenario.get_max_spam_cost(&user_signers).await?;
         if min_balance < U256::from(total_cost) {
