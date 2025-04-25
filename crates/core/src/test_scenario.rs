@@ -172,7 +172,7 @@ where
             wallet_map.insert(addr, wallet);
         }
         for (name, signers) in agent_store.all_agents() {
-            println!("adding '{}' signers to wallet map", name);
+            println!("adding '{name}' signers to wallet map");
             for signer in signers.signers.iter() {
                 wallet_map.insert(signer.address(), EthereumWallet::new(signer.clone()));
             }
@@ -387,7 +387,7 @@ where
             let wallet_conf = self
                 .wallet_map
                 .get(&from)
-                .unwrap_or_else(|| panic!("couldn't find wallet for 'from' address {}", from))
+                .unwrap_or_else(|| panic!("couldn't find wallet for 'from' address {from}"))
                 .to_owned();
             let wallet = ProviderBuilder::new()
                 .wallet(wallet_conf)
@@ -415,17 +415,15 @@ where
                 if let Err(err) = res {
                     let err = err.to_string();
                     if err.to_lowercase().contains("already known") {
-                        eprintln!("Transaction already known. You may be using the same seed (or private key) as another spammer. Try modifying seed with `-s`, or waiting if you set `-p`. JSON-RPC Error: {:?}", err);
+                        eprintln!("Transaction already known. You may be using the same seed (or private key) as another spammer. Try modifying seed with `-s`, or waiting if you set `-p`. JSON-RPC Error: {err:?}");
                     } else if err.to_lowercase().contains("insufficient funds") {
                         eprintln!(
-                            "Insufficient funds for transaction (account: {}). Try passing a funded private key with `-p`. JSON-RPC Error: {:?}",
-                            from,
-                            err
+                            "Insufficient funds for transaction (account: {from}). Try passing a funded private key with `-p`. JSON-RPC Error: {err:?}"
                         );
                     } else if err.to_lowercase().contains("replacement transaction underpriced") {
-                        eprintln!("Replacement transaction underpriced. You may have to wait, or replace the currently-pending transactions manually. JSON-RPC Error: {:?}", err);
+                        eprintln!("Replacement transaction underpriced. You may have to wait, or replace the currently-pending transactions manually. JSON-RPC Error: {err:?}");
                     } else {
-                        eprintln!("failed to send tx: {:?}", err);
+                        eprintln!("failed to send tx: {err:?}");
                     }
                     return;
                 }
@@ -490,7 +488,7 @@ where
                     .unwrap_or("")
                     .to_string();
                 let gas_price = wallet.get_gas_price().await.unwrap_or_else(|_| {
-                    panic!("failed to get gas price for setup step '{}'", tx_label)
+                    panic!("failed to get gas price for setup step '{tx_label}'")
                 });
                 let gas_limit = if let Some(gas) = tx_req.tx.gas {
                     gas
@@ -499,7 +497,7 @@ where
                         .estimate_gas(tx_req.tx.to_owned())
                         .await
                         .unwrap_or_else(|_| {
-                            panic!("failed to estimate gas for setup step '{}'", tx_label)
+                            panic!("failed to estimate gas for setup step '{tx_label}'")
                         })
                 };
                 let mut tx = tx_req.tx;
@@ -516,13 +514,13 @@ where
                 let res = wallet
                     .send_transaction(tx)
                     .await
-                    .unwrap_or_else(|_| panic!("failed to send setup tx '{}'", tx_label));
+                    .unwrap_or_else(|_| panic!("failed to send setup tx '{tx_label}'"));
 
                 // get receipt using provider (not wallet) to allow any receipt type (support non-eth chains)
                 let receipt = res
                     .get_receipt()
                     .await
-                    .unwrap_or_else(|_| panic!("failed to get receipt for tx '{}'", tx_label));
+                    .unwrap_or_else(|_| panic!("failed to get receipt for tx '{tx_label}'"));
 
                 if let Some(name) = tx_req.name {
                     db.insert_named_txs(
@@ -670,7 +668,7 @@ where
                     let priority_fee = new_req
                         .tx
                         .max_priority_fee_per_gas
-                        .map(|f| format!(" priority_fee: {},", f))
+                        .map(|f| format!(" priority_fee: {f},"))
                         .unwrap_or_default();
                     println!(
                         "prepared tx: {}, from: {}, to: {:?}, input: {}, value={}, gas_limit: {}, gas_price: {},{priority_fee} nonce={}",
@@ -803,7 +801,7 @@ where
                                     // include errored txs in the cache; user may want to retry them
                                     // if they are due to nonce issues, this will fail, but if they do land somehow,
                                     // they will be awaited in the post-spam loop
-                                    println!("error from tx {}: {:?}", tx_hash, err);
+                                    println!("error from tx {tx_hash}: {err:?}");
                                     extra.insert("error".to_owned(), err.to_string());
                                     vec![callback_handler.on_tx_sent(
                                         PendingTransactionConfig::new(tx_hash),
@@ -814,8 +812,7 @@ where
                                 } else {
                                     // ignore errors that can't be decoded
                                     println!(
-                                        "ignoring tx response, could not decode error: {:?}",
-                                        e
+                                        "ignoring tx response, could not decode error: {e:?}"
                                     );
                                     vec![]
                                 }
@@ -849,14 +846,14 @@ where
                             block_num,
                         );
                         if let Some(bundle_client) = bundle_client {
-                            println!("spamming bundle: {:?}", rpc_bundle);
+                            println!("spamming bundle: {rpc_bundle:?}");
                             for i in 1..4 {
                                 let mut rpc_bundle = rpc_bundle.clone();
                                 rpc_bundle.block_number = block_num + i as u64;
 
                                 let res = bundle_client.send_bundle(rpc_bundle).await;
                                 if let Err(e) = res {
-                                    println!("failed to send bundle: {:?}", e);
+                                    println!("failed to send bundle: {e:?}");
                                 }
                             }
                         } else {
@@ -927,7 +924,7 @@ where
                 tokio::select! {
                     res = task => {
                         if let Err(e) = res {
-                            println!("spam task failed: {:?}", e);
+                            println!("spam task failed: {e:?}");
                             num_tasks -= 1;
                         }
                     },
@@ -943,7 +940,7 @@ where
                     .map_err(|e| ContenderError::with_err(e, "on_batch_sent callback failed"))?;
             }
 
-            println!("[{}] executed {} spam tasks", tick, num_tasks);
+            println!("[{tick}] executed {num_tasks} spam tasks");
 
             // increase gas price if needed
             add_gas_receiver.close();
@@ -952,7 +949,7 @@ where
                 if self.ctx.gas_price_adder >= gas as i128 + starting_gas_adder {
                     continue;
                 }
-                println!("incrementing gas price by {}", gas);
+                println!("incrementing gas price by {gas}");
                 self.ctx.add_to_gas_price(gas as i128);
             }
 
@@ -1009,7 +1006,7 @@ where
                 to_address.map(|a| a.encode_hex()).unwrap_or_default()
             },
             if let Some(kind) = &tx_req.kind {
-                format!("kind={}", kind)
+                format!("kind={kind}")
             } else {
                 "".to_string()
             },
@@ -1259,7 +1256,7 @@ async fn sync_nonces(
 
     for task in tasks {
         if let Err(e) = task.await {
-            eprintln!("failed to sync nonce: {:?}", e);
+            eprintln!("failed to sync nonce: {e:?}");
         }
     }
     receiver.close();
@@ -1582,8 +1579,8 @@ pub mod tests {
         .unwrap();
 
         let fund_amount_wei = U256::from(fund_amount_eth * 1e18);
-        println!("fund_amount_wei: {}", fund_amount_wei);
-        println!("fund_amount_eth: {}", fund_amount_eth);
+        println!("fund_amount_wei: {fund_amount_wei}");
+        println!("fund_amount_eth: {fund_amount_eth}");
 
         let all_agent_names = scenario
             .agent_store
@@ -1616,7 +1613,7 @@ pub mod tests {
 
         let create_txs = scenario
             .load_txs(PlanType::Create(|tx| {
-                println!("create tx callback triggered! {:?}\n", tx);
+                println!("create tx callback triggered! {tx:?}\n");
                 Ok(None)
             }))
             .await?;
@@ -1624,7 +1621,7 @@ pub mod tests {
 
         let setup_txs = scenario
             .load_txs(PlanType::Setup(|tx| {
-                println!("setup tx callback triggered! {:?}\n", tx);
+                println!("setup tx callback triggered! {tx:?}\n");
                 Ok(None)
             }))
             .await?;
@@ -1632,7 +1629,7 @@ pub mod tests {
 
         let spam_txs = scenario
             .load_txs(PlanType::Spam(20, |tx| {
-                println!("spam tx callback triggered! {:?}\n", tx);
+                println!("spam tx callback triggered! {tx:?}\n");
                 Ok(None)
             }))
             .await?;
@@ -1648,7 +1645,7 @@ pub mod tests {
         let scenario = get_test_scenario(&anvil, 10, 10.0).await;
         let spam_txs = scenario
             .load_txs(PlanType::Spam(20, |tx| {
-                println!("spam tx callback triggered! {:?}\n", tx);
+                println!("spam tx callback triggered! {tx:?}\n");
                 Ok(None)
             }))
             .await
@@ -1680,7 +1677,7 @@ pub mod tests {
 
         let spam_txs = scenario
             .load_txs(PlanType::Spam(10, |tx| {
-                println!("spam tx callback triggered! {:?}\n", tx);
+                println!("spam tx callback triggered! {tx:?}\n");
                 Ok(None)
             }))
             .await
@@ -1692,7 +1689,7 @@ pub mod tests {
         };
         let from = tx.tx.from.unwrap();
         let input = tx.tx.input.input.as_ref().unwrap();
-        println!("input: {}", input);
+        println!("input: {input}");
         println!("from: {}", from.encode_hex());
         assert!(input.encode_hex().contains(&from.encode_hex()));
     }
@@ -1704,7 +1701,7 @@ pub mod tests {
 
         let txs = scenario
             .load_txs(PlanType::Create(|tx| {
-                println!("create tx callback triggered! {:?}\n", tx);
+                println!("create tx callback triggered! {tx:?}\n");
                 Ok(None)
             }))
             .await
@@ -1716,7 +1713,7 @@ pub mod tests {
             };
             let from = tx.tx.from.unwrap();
             let input = tx.tx.input.input.as_ref().unwrap();
-            println!("input: {}", input);
+            println!("input: {input}");
             println!("from: {}", from.encode_hex());
             assert!(input.encode_hex().contains(&from.encode_hex()));
         }
@@ -1811,7 +1808,7 @@ pub mod tests {
         let mut scenario = get_test_scenario(&anvil, 10, 10.0).await;
         scenario.deploy_contracts().await.unwrap();
         let res = scenario.run_setup().await;
-        println!("{:?}", res);
+        println!("{res:?}");
         assert!(res.is_ok());
     }
 
@@ -1885,8 +1882,7 @@ pub mod tests {
                 }
             }
             println!(
-                "({from}) min_nonce: {}, max_nonce: {}",
-                min_nonce, max_nonce
+                "({from}) min_nonce: {min_nonce}, max_nonce: {max_nonce}"
             );
         }
 

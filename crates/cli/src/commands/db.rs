@@ -9,9 +9,9 @@ pub async fn drop_db(db_path: &str) -> Result<()> {
         fs::remove_file(db_path).map_err(|e| {
             ContenderError::DbError("Failed to delete database file", Some(e.to_string()))
         })?;
-        println!("Database file '{}' has been deleted.", db_path);
+        println!("Database file '{db_path}' has been deleted.");
     } else {
-        println!("Database file '{}' does not exist.", db_path);
+        println!("Database file '{db_path}' does not exist.");
     }
     Ok(())
 }
@@ -59,12 +59,11 @@ pub async fn import_db(src_path: PathBuf, target_path: &str) -> Result<()> {
 
     // If target exists, create a backup
     if fs::metadata(target_path).is_ok() {
-        let backup_path = format!("{}.backup", target_path);
+        let backup_path = format!("{target_path}.backup");
         fs::copy(target_path, &backup_path)
             .map_err(|e| ContenderError::DbError("Failed to create backup", Some(e.to_string())))?;
         println!(
-            "Created backup of existing database at '{}.backup'",
-            target_path
+            "Created backup of existing database at '{target_path}.backup'"
         );
     }
 
@@ -87,7 +86,7 @@ mod tests {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let db_path = temp_dir
             .path()
-            .join(format!("test_{}.db", name))
+            .join(format!("test_{name}.db"))
             .to_str()
             .unwrap()
             .to_string();

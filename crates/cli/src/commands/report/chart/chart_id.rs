@@ -20,7 +20,7 @@ impl std::fmt::Display for ReportChartId {
             ReportChartId::PendingTxs => "pending_txs",
             ReportChartId::RpcLatency(method) => &format!("{method}_latency"),
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 

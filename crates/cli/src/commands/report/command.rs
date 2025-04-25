@@ -35,18 +35,18 @@ pub async fn report(
     let end_run_id = if let Some(id) = last_run_id {
         if id == 0 || id > num_runs {
             // panic!("Invalid run ID: {}", id);
-            return Err(format!("Invalid run ID: {}", id).into());
+            return Err(format!("Invalid run ID: {id}").into());
         }
         id
     } else {
         // get latest run
-        println!("No run ID provided. Using latest run ID: {}", num_runs);
+        println!("No run ID provided. Using latest run ID: {num_runs}");
         num_runs
     };
 
     let rpc_url = db
         .get_run(end_run_id)?
-        .ok_or_else(|| format!("No run found with ID: {}", end_run_id))?
+        .ok_or_else(|| format!("No run found with ID: {end_run_id}"))?
         .rpc_url;
 
     // collect CSV report for each run_id
@@ -83,7 +83,7 @@ pub async fn report(
         .collect();
     let scenario_title = scenario_names
         .into_iter()
-        .reduce(|acc, v| format!("{}, {}", acc, v))
+        .reduce(|acc, v| format!("{acc}, {v}"))
         .unwrap_or_default();
 
     // get trace data for reports
@@ -188,7 +188,7 @@ pub async fn report(
             Some(&if block_time_delta_std_dev == 0.0 {
                 "stable".to_owned()
             } else {
-                format!("unstable (\u{F3}={:.2})", block_time_delta_std_dev)
+                format!("unstable (\u{F3}={block_time_delta_std_dev:.2})")
             }),
         ),
         latency_quantiles: canonical_latency_map
@@ -249,7 +249,7 @@ fn save_csv_report(id: u64, txs: &[RunTx]) -> Result<(), Box<dyn std::error::Err
     let report_dir = report_dir()?;
     let out_path = format!("{report_dir}/{id}.csv");
 
-    println!("Exporting report for run #{:?} to {:?}", id, out_path);
+    println!("Exporting report for run #{id:?} to {out_path:?}");
     let mut writer = WriterBuilder::new().has_headers(true).from_path(out_path)?;
     write_run_txs(&mut writer, txs)?;
 

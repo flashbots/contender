@@ -62,7 +62,7 @@ where
                 .map_err(|e| {
                     ContenderError::SpamError(
                         "Failed to get named tx from DB. There may be an issue with your database.",
-                        Some(format!("value={:?} ({})", template_key, e)),
+                        Some(format!("value={template_key:?} ({e})")),
                     )
                 })?;
             if let Some(template_value) = template_value {

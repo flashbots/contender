@@ -18,7 +18,7 @@ use util::{data_dir, db_file};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     let path = db_file().expect("failed to get DB file path");
-    println!("opening DB at {}", path);
+    println!("opening DB at {path}");
     SqliteDb::from_file(&path).expect("failed to open contender DB file")
 });
 // prometheus

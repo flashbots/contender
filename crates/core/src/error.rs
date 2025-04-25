@@ -9,19 +9,19 @@ pub enum ContenderError {
 
 impl ContenderError {
     pub fn with_err(err: impl Error, msg: &'static str) -> Self {
-        ContenderError::GenericError(msg, format!("{:?}", err))
+        ContenderError::GenericError(msg, format!("{err:?}"))
     }
 }
 
 impl std::fmt::Display for ContenderError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            ContenderError::SpamError(msg, _) => write!(f, "SpamError: {}", msg),
-            ContenderError::DbError(msg, _) => write!(f, "DatabaseError: {}", msg),
+            ContenderError::SpamError(msg, _) => write!(f, "SpamError: {msg}"),
+            ContenderError::DbError(msg, _) => write!(f, "DatabaseError: {msg}"),
             ContenderError::GenericError(msg, e) => {
                 write!(f, "{} {}", msg, e.to_owned())
             }
-            ContenderError::SetupError(msg, _) => write!(f, "SetupError: {}", msg),
+            ContenderError::SetupError(msg, _) => write!(f, "SetupError: {msg}"),
         }
     }
 }

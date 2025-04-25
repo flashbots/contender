@@ -47,7 +47,7 @@ where
             .into_stream()
             .flat_map(futures::stream::iter)
             .map(|b| {
-                println!("new block detected: {:?}", b);
+                println!("new block detected: {b:?}");
                 SpamTrigger::BlockHash(b)
             })
             .boxed())
@@ -126,7 +126,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-                println!("funded signer: {:?}", res);
+                println!("funded signer: {res:?}");
                 provider.watch_pending_transaction(res).await.unwrap();
                 nonce += 1;
             }
@@ -182,7 +182,7 @@ mod tests {
         }
 
         for addr in unique_addresses.iter() {
-            println!("unique address: {}", addr);
+            println!("unique address: {addr}");
         }
 
         assert!(unique_addresses.len() >= (txs_per_period / periods) as usize);

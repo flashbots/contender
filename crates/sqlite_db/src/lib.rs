@@ -325,7 +325,7 @@ impl DbOps for SqliteDb {
             {}
             COMMIT;",
             stmts
-                .reduce(|ac, c| format!("{}\n{}", ac, c))
+                .reduce(|ac, c| format!("{ac}\n{c}"))
                 .unwrap_or_default(),
         ))
         .map_err(|e| ContenderError::with_err(e, "failed to execute batch"))?;
@@ -427,7 +427,7 @@ impl DbOps for SqliteDb {
             {}
             COMMIT;",
             stmts
-                .reduce(|ac, c| format!("{}\n{}", ac, c))
+                .reduce(|ac, c| format!("{ac}\n{c}"))
                 .unwrap_or_default(),
         ))
         .map_err(|e| ContenderError::with_err(e, "failed to execute batch"))?;
@@ -454,7 +454,7 @@ impl DbOps for SqliteDb {
                 {}
                 COMMIT;",
                 method_stmt
-                    .reduce(|acc, curr| format!("{}\n{}", acc, curr))
+                    .reduce(|acc, curr| format!("{acc}\n{curr}"))
                     .unwrap_or_default(),
             ))
             .map_err(|e| ContenderError::with_err(e, "failed to execute batch"))?;

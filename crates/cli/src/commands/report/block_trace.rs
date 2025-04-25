@@ -59,7 +59,7 @@ pub async fn get_block_data(
         let rpc_client = rpc_client.clone();
         let sender = sender.clone();
         let handle = tokio::task::spawn(async move {
-            println!("getting block {}...", block_num);
+            println!("getting block {block_num}...");
             let block = rpc_client
                 .get_block_by_number(block_num.into())
                 .full()
@@ -98,7 +98,7 @@ pub async fn get_block_traces(
             let rpc_client = rpc_client.clone();
             let sender = sender.clone();
             let task = tokio::task::spawn(async move {
-                println!("tracing tx {:?}", tx_hash);
+                println!("tracing tx {tx_hash:?}");
                 let trace = rpc_client
                     .debug_trace_transaction(
                         tx_hash,
@@ -124,16 +124,16 @@ pub async fn get_block_traces(
                 let receipt = rpc_client.get_transaction_receipt(tx_hash).await;
                 if let Ok(receipt) = receipt {
                     if let Some(receipt) = receipt {
-                        println!("got receipt for tx {:?}", tx_hash);
+                        println!("got receipt for tx {tx_hash:?}");
                         sender
                             .send(TxTraceReceipt::new(trace, receipt))
                             .await
                             .unwrap();
                     } else {
-                        println!("no receipt for tx {:?}", tx_hash);
+                        println!("no receipt for tx {tx_hash:?}");
                     }
                 } else {
-                    println!("ignored receipt for tx {:?} (failed to decode)", tx_hash);
+                    println!("ignored receipt for tx {tx_hash:?} (failed to decode)");
                 }
             });
             tx_tasks.push(task);

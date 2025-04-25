@@ -5,7 +5,7 @@ pub fn abbreviate_num(num: u64) -> String {
     } else if num >= 1_000 {
         format!("{}k", num / 1_000)
     } else {
-        format!("{}", num)
+        format!("{num}")
     }
 }
 

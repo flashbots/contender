@@ -157,7 +157,7 @@ pub async fn run(
     let run_id = db.insert_run(
         timestamp as u64,
         args.duration * args.txs_per_duration,
-        &format!("{} ({})", contract_name, scenario_name),
+        &format!("{contract_name} ({scenario_name})"),
         scenario.rpc_url.as_str(),
     )?;
     let provider = Arc::new(DynProvider::new(provider));

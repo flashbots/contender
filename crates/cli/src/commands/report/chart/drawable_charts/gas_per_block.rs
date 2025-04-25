@@ -63,7 +63,7 @@ impl DrawableChart for GasPerBlockChart {
             .disable_x_mesh()
             .x_desc("Block")
             .x_labels(20)
-            .x_label_formatter(&|block| format!("            {}", block))
+            .x_label_formatter(&|block| format!("            {block}"))
             .x_label_style(
                 ("sans-serif", 15)
                     .into_text_style(root)

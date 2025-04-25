@@ -60,7 +60,7 @@ pub async fn spamd(
         let db = db.clone();
         let spam_res = commands::spam(&db, &args, &mut scenario).await;
         if let Err(e) = spam_res {
-            println!("spam failed: {:?}", e);
+            println!("spam failed: {e:?}");
         } else {
             println!("spam batch completed");
             let run_id = spam_res.expect("spam");

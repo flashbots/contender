@@ -88,7 +88,7 @@ impl DrawableChart for PendingTxsChart {
             .configure_mesh()
             .disable_x_mesh()
             .x_desc("Timestamp          ")
-            .x_label_formatter(&|timestamp| format!("                 {}", timestamp))
+            .x_label_formatter(&|timestamp| format!("                 {timestamp}"))
             .x_label_style(
                 ("sans-serif", 15)
                     .into_text_style(root)

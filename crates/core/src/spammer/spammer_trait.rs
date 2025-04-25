@@ -139,7 +139,7 @@ where
             println!(
                 "done. {}",
                 run_id
-                    .map(|id| format!("run_id: {}", id))
+                    .map(|id| format!("run_id: {id}"))
                     .unwrap_or_default()
             );
             Ok(())

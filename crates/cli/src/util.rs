@@ -119,7 +119,7 @@ pub fn check_private_keys_fns(fn_calls: &[FunctionCallDefinition], prv_keys: &[P
         if let Some(from) = &fn_call.from {
             let address = from.parse::<Address>().expect("invalid 'from' address");
             if prv_keys.iter().all(|k| k.address() != address) {
-                panic!("No private key found for address: {}", address);
+                panic!("No private key found for address: {address}");
             }
         }
     }
@@ -255,7 +255,7 @@ pub async fn fund_accounts(
             .await;
             if let Err(e) = res {
                 let err = e.to_string();
-                println!("error funding account {}: {}", address, err);
+                println!("error funding account {address}: {err}");
             } else {
                 sender
                     .send(res.expect("fund result not sent"))
@@ -350,7 +350,7 @@ pub async fn find_insufficient_balances(
     for address in addresses {
         let (balance_sufficient, balance) = is_balance_sufficient(address, min_balance, rpc_client)
             .await
-            .map_err(|e| format!("Error checking balance for address {}: {}", address, e))?;
+            .map_err(|e| format!("Error checking balance for address {address}: {e}"))?;
         if !balance_sufficient {
             insufficient_balances.push((*address, balance));
         }
@@ -424,7 +424,7 @@ pub fn report_dir() -> Result<String, Box<dyn std::error::Error>> {
 /// Returns path to default contender DB file.
 pub fn db_file() -> Result<String, Box<dyn std::error::Error>> {
     let data_path = data_dir()?;
-    Ok(format!("{}/contender.db", data_path))
+    Ok(format!("{data_path}/contender.db"))
 }
 
 #[cfg(test)]
@@ -485,7 +485,7 @@ mod test {
 
         for addr in &recipient_addresses {
             let balance = rpc_client.get_balance(*addr).await.unwrap();
-            println!("balance of {}: {}", addr, balance);
+            println!("balance of {addr}: {balance}");
             assert_eq!(balance, U256::from(ETH_TO_WEI));
         }
 
@@ -500,7 +500,7 @@ mod test {
             &Default::default(),
         )
         .await;
-        println!("res: {:?}", res);
+        println!("res: {res:?}");
         assert!(res.is_err());
     }
 }

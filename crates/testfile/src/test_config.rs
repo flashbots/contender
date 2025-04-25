@@ -71,7 +71,7 @@ impl Templater<String> for TestConfig {
     fn replace_placeholders(&self, input: &str, template_map: &HashMap<String, String>) -> String {
         let mut output = input.to_owned();
         for (key, value) in template_map.iter() {
-            let template = format!("{{{}}}", key);
+            let template = format!("{{{key}}}");
             output = output.replace(&template, value);
         }
         output
