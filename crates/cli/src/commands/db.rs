@@ -62,9 +62,7 @@ pub async fn import_db(src_path: PathBuf, target_path: &str) -> Result<()> {
         let backup_path = format!("{target_path}.backup");
         fs::copy(target_path, &backup_path)
             .map_err(|e| ContenderError::DbError("Failed to create backup", Some(e.to_string())))?;
-        println!(
-            "Created backup of existing database at '{target_path}.backup'"
-        );
+        println!("Created backup of existing database at '{target_path}.backup'");
     }
 
     // Copy the source database to the target location

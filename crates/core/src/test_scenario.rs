@@ -811,9 +811,7 @@ where
                                     )]
                                 } else {
                                     // ignore errors that can't be decoded
-                                    println!(
-                                        "ignoring tx response, could not decode error: {e:?}"
-                                    );
+                                    println!("ignoring tx response, could not decode error: {e:?}");
                                     vec![]
                                 }
                             }
@@ -1881,9 +1879,7 @@ pub mod tests {
                     max_nonce = *nonce;
                 }
             }
-            println!(
-                "({from}) min_nonce: {min_nonce}, max_nonce: {max_nonce}"
-            );
+            println!("({from}) min_nonce: {min_nonce}, max_nonce: {max_nonce}");
         }
 
         Ok(())
