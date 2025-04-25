@@ -22,7 +22,7 @@ impl HeatMapChart {
 
             let trace_frame = t.trace.to_owned().try_into_pre_state_frame();
             if let Err(e) = trace_frame {
-                println!("failed to decode frame (preState mode): {:?}", e);
+                println!("failed to decode frame (preState mode): {e:?}");
                 continue;
             }
             let trace_frame = trace_frame.expect("failed to decode frame (preState mode)");
@@ -123,7 +123,7 @@ impl HeatMapChart {
             .into_iter()
             .collect::<Vec<_>>();
         slots.sort();
-        slots.iter().map(|s| format!("{:?}", s)).collect()
+        slots.iter().map(|s| format!("{s:?}")).collect()
     }
 }
 
@@ -161,7 +161,7 @@ impl DrawableChart for HeatMapChart {
                     return String::default();
                 }
                 let block_num = block_nums.get(*i).unwrap();
-                format!("            {}", block_num)
+                format!("            {block_num}")
             })
             .y_desc("Storage Slot")
             .y_label_formatter(&|i| {

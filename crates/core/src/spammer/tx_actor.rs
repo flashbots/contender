@@ -107,7 +107,7 @@ where
                     break;
                 }
             }
-            println!("waiting for block {}", target_block_num);
+            println!("waiting for block {target_block_num}");
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
         let target_block = maybe_block

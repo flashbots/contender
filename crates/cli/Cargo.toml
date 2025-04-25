@@ -13,26 +13,32 @@ name = "contender"
 path = "src/main.rs"
 
 [dependencies]
-contender_core = {workspace = true}
-contender_sqlite = {workspace = true}
-contender_testfile = {workspace = true}
+contender_core = { workspace = true }
+contender_sqlite = { workspace = true }
+contender_testfile = { workspace = true }
 contender_engine_provider = { workspace = true }
 
-serde = {workspace = true}
-tokio = {workspace = true, features = ["rt-multi-thread"]}
-alloy = {workspace = true, features = ["full", "node-bindings", "rpc-types-debug", "rpc-types-trace"]}
+serde = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio-util = { workspace = true }
+alloy = { workspace = true, features = [
+    "full",
+    "node-bindings",
+    "rpc-types-debug",
+    "rpc-types-trace",
+] }
 chrono = "0.4.39"
-clap = {workspace = true, features = ["derive"]}
-csv = {workspace = true}
+clap = { workspace = true, features = ["derive"] }
+csv = { workspace = true }
 futures.workspace = true
-handlebars = {workspace = true}
-plotters = {workspace = true}
+handlebars = { workspace = true }
+plotters = { workspace = true }
 prometheus = { workspace = true }
 rand.workspace = true
 regex = "1.11.1"
-serde_json = {workspace = true}
+serde_json = { workspace = true }
 termcolor = "1.4.1"
-webbrowser = {workspace = true}
+webbrowser = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.15.0"

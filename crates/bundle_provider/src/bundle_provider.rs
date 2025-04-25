@@ -25,7 +25,7 @@ impl BundleClient {
         self.client
             .raw_request::<_, Option<EthBundleHash>>("eth_sendBundle".into(), [bundle])
             .await
-            .map_err(|e| format!("Failed to send bundle: {:?}", e))?;
+            .map_err(|e| format!("Failed to send bundle: {e:?}"))?;
 
         Ok(())
     }

@@ -248,7 +248,7 @@ pub mod tests {
 
     fn print_testconfig(cfg: &str) {
         println!("{}", "-".repeat(80));
-        println!("{}", cfg);
+        println!("{cfg}");
         println!("{}", "-".repeat(80));
     }
 

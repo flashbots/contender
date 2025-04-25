@@ -10,14 +10,20 @@ use crate::{
     test_scenario::TestScenario,
 };
 
-use super::{tx_callback::OnBatchSent, OnTxSent, SpamTrigger, Spammer};
+use super::{
+    spammer_trait::SpamRunContext, tx_callback::OnBatchSent, OnTxSent, SpamTrigger, Spammer,
+};
 
 #[derive(Default)]
-pub struct BlockwiseSpammer;
+pub struct BlockwiseSpammer {
+    context: SpamRunContext,
+}
 
 impl BlockwiseSpammer {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            context: SpamRunContext::new(),
+        }
     }
 }
 
@@ -41,10 +47,14 @@ where
             .into_stream()
             .flat_map(futures::stream::iter)
             .map(|b| {
-                println!("new block detected: {:?}", b);
+                println!("new block detected: {b:?}");
                 SpamTrigger::BlockHash(b)
             })
             .boxed())
+    }
+
+    fn context(&self) -> &SpamRunContext {
+        &self.context
     }
 }
 
@@ -65,8 +75,8 @@ mod tests {
         spammer::util::test::{fund_account, get_test_signers, MockCallback},
         test_scenario::{tests::MockConfig, TestScenarioParams},
     };
+    use std::collections::HashSet;
     use std::sync::Arc;
-    use std::{collections::HashSet, sync::atomic::AtomicBool};
 
     use super::*;
 
@@ -116,7 +126,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-                println!("funded signer: {:?}", res);
+                println!("funded signer: {res:?}");
                 provider.watch_pending_transaction(res).await.unwrap();
                 nonce += 1;
             }
@@ -141,7 +151,7 @@ mod tests {
         .await
         .unwrap();
         let callback_handler = MockCallback;
-        let spammer = BlockwiseSpammer {};
+        let spammer = BlockwiseSpammer::new();
 
         let start_block = provider.get_block_number().await.unwrap();
         let callback = Arc::new(callback_handler);
@@ -153,7 +163,6 @@ mod tests {
                 periods,
                 None,
                 callback.clone(),
-                Arc::new(AtomicBool::new(false)),
             )
             .await;
         assert!(result.is_ok());
@@ -173,7 +182,7 @@ mod tests {
         }
 
         for addr in unique_addresses.iter() {
-            println!("unique address: {}", addr);
+            println!("unique address: {addr}");
         }
 
         assert!(unique_addresses.len() >= (txs_per_period / periods) as usize);

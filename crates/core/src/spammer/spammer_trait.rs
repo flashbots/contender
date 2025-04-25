@@ -17,6 +17,27 @@ use super::tx_callback::OnBatchSent;
 use super::SpamTrigger;
 use super::{tx_actor::TxActorHandle, OnTxSent};
 
+#[derive(Clone)]
+pub struct SpamRunContext {
+    done_sending: Arc<AtomicBool>,
+    do_quit: tokio_util::sync::CancellationToken,
+}
+
+impl SpamRunContext {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Default for SpamRunContext {
+    fn default() -> Self {
+        Self {
+            done_sending: Arc::new(AtomicBool::new(false)),
+            do_quit: tokio_util::sync::CancellationToken::new(),
+        }
+    }
+}
+
 pub trait Spammer<F, D, S, P>
 where
     F: OnTxSent + OnBatchSent + Send + Sync + 'static,
@@ -27,6 +48,8 @@ where
     fn get_msg_handler(&self, db: Arc<D>, rpc_client: Arc<AnyProvider>) -> TxActorHandle {
         TxActorHandle::new(12, db.clone(), rpc_client.clone())
     }
+
+    fn context(&self) -> &SpamRunContext;
 
     fn on_spam(
         &self,
@@ -40,7 +63,6 @@ where
         num_periods: u64,
         run_id: Option<u64>,
         sent_tx_callback: Arc<F>,
-        done_sending: Arc<AtomicBool>,
     ) -> impl std::future::Future<Output = Result<()>> {
         async move {
             let tx_req_chunks = scenario
@@ -53,10 +75,16 @@ where
                 .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
             let mut cursor = self.on_spam(scenario).await?.take(num_periods as usize);
 
+            // calling cancel() on cancel_token should stop all running tasks
+            // (as long as each task checks for it)
+            let cancel_token = self.context().do_quit.clone();
+
             // run spammer within tokio::select! to allow for graceful shutdown
             let spam_finished: bool = tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
                     println!("\nCTRL-C received, stopping spamming...");
+                    cancel_token.cancel();
+
                     false
                 },
                 _ = scenario.execute_spammer(&mut cursor, &tx_req_chunks, sent_tx_callback) => {
@@ -66,13 +94,16 @@ where
             if !spam_finished {
                 println!("Spammer terminated. Press CTRL-C again to stop result collection...");
             }
-            done_sending.store(true, std::sync::atomic::Ordering::SeqCst);
+            self.context()
+                .done_sending
+                .store(true, std::sync::atomic::Ordering::SeqCst);
 
             // collect results from cached pending txs
             let flush_finished: bool = tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
                     println!("\nCTRL-C received, stopping result collection...");
                     let _ = scenario.msg_handle.stop().await;
+                    cancel_token.cancel();
                     false
                 },
                 _ = scenario.flush_tx_cache(start_block, run_id.unwrap_or(0)) => {
@@ -87,6 +118,7 @@ where
             let dump_finished: bool = tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
                     println!("\nCTRL-C received, stopping tx cache dump...");
+                    cancel_token.cancel();
                     false
                 },
                 _ = scenario.dump_tx_cache(run_id.unwrap_or(0)) => {
@@ -106,9 +138,7 @@ where
 
             println!(
                 "done. {}",
-                run_id
-                    .map(|id| format!("run_id: {}", id))
-                    .unwrap_or_default()
+                run_id.map(|id| format!("run_id: {id}")).unwrap_or_default()
             );
             Ok(())
         }

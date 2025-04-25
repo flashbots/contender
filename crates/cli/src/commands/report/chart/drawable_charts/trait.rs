@@ -17,7 +17,7 @@ pub trait DrawableChart {
             .expect("invalid fill color");
         self.define_chart(&root)?;
         root.present()?;
-        println!("saved chart to {}", filepath);
+        println!("saved chart to {filepath}");
 
         Ok(())
     }

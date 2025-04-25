@@ -285,7 +285,7 @@ pub async fn spam<
                     if let Some(auth_client) = &auth_client {
                         let res = auth_client.advance_chain(DEFAULT_BLOCK_TIME).await;
                         if let Err(e) = res {
-                            println!("Error advancing chain: {}", e);
+                            println!("Error advancing chain: {e}");
                         }
                     }
                 }
@@ -296,14 +296,15 @@ pub async fn spam<
 
     // trigger blockwise spammer
     if let Some(txs_per_block) = txs_per_block {
-        println!("Blockwise spamming with {} txs per block", txs_per_block);
-        let spammer = BlockwiseSpammer {};
+        println!("Blockwise spamming with {txs_per_block} txs per block");
+        let spammer = BlockwiseSpammer::new();
 
         match spam_callback_default(
             !disable_reporting,
             engine_params.call_fcu,
             Some(rpc_client.clone()),
             auth_client,
+            test_scenario.ctx.cancel_token.clone(),
         )
         .await
         {
@@ -325,7 +326,6 @@ pub async fn spam<
                         *duration,
                         run_id,
                         tx_callback.into(),
-                        is_sending_done.clone(),
                     )
                     .await?;
             }
@@ -337,7 +337,6 @@ pub async fn spam<
                         *duration,
                         None,
                         tx_callback.into(),
-                        is_sending_done.clone(),
                     )
                     .await?;
             }
@@ -347,13 +346,14 @@ pub async fn spam<
 
     // trigger timed spammer
     let tps = txs_per_second.unwrap_or(10);
-    println!("Timed spamming with {} txs per second", tps);
+    println!("Timed spamming with {tps} txs per second");
     let spammer = TimedSpammer::new(std::time::Duration::from_secs(1));
     match spam_callback_default(
         !disable_reporting,
         engine_params.call_fcu,
         rpc_client.into(),
         auth_client,
+        test_scenario.ctx.cancel_token.clone(),
     )
     .await
     {
@@ -369,26 +369,12 @@ pub async fn spam<
                 test_scenario.rpc_url.as_str(),
             )?);
             spammer
-                .spam_rpc(
-                    test_scenario,
-                    tps,
-                    *duration,
-                    run_id,
-                    tx_callback.into(),
-                    is_sending_done.clone(),
-                )
+                .spam_rpc(test_scenario, tps, *duration, run_id, tx_callback.into())
                 .await?;
         }
         SpamCallbackType::Nil(tx_callback) => {
             spammer
-                .spam_rpc(
-                    test_scenario,
-                    tps,
-                    *duration,
-                    None,
-                    tx_callback.into(),
-                    is_sending_done.clone(),
-                )
+                .spam_rpc(test_scenario, tps, *duration, None, tx_callback.into())
                 .await?;
         }
     };
