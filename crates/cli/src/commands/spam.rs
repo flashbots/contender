@@ -28,7 +28,7 @@ use contender_engine_provider::{
     AdvanceChain, AuthProviderEth, AuthProviderOp, DEFAULT_BLOCK_TIME,
 };
 use contender_testfile::TestConfig;
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 use std::{path::PathBuf, sync::atomic::AtomicBool};
 
 #[derive(Debug)]
@@ -135,7 +135,7 @@ impl SpamCommandArgs {
 
         let mut testconfig: TestConfig = TestConfig::from_file(testfile)?;
         // Setup env variables
-        let mut env_variables = HashMap::new();
+        let mut env_variables = testconfig.env.clone().unwrap_or_default();
         if env.is_some() {
             for (key, value) in env.clone().unwrap() {
                 let _ = &env_variables.insert(key.to_string(), value.to_string());

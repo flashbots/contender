@@ -21,11 +21,9 @@ use contender_core::{
     generator::RandSeed,
     test_scenario::{TestScenario, TestScenarioParams},
 };
-use contender_core::generator::templater::Templater;
 use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use contender_testfile::TestConfig;
 use std::{
-    collections::HashMap,
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -76,7 +74,7 @@ pub async fn setup(
     let mut testconfig: TestConfig = TestConfig::from_file(testfile.as_ref())?;
 
     // Setup env variables 
-    let mut env_variables = HashMap::new();
+    let mut env_variables = testconfig.env.clone().unwrap_or_default();
     if env.is_some() {
         for (key, value) in env.unwrap() {
             let _ = &env_variables.insert(key.to_string(), value.to_string());
