@@ -1,3 +1,4 @@
+use super::common::cli_env_vars_parser;
 use crate::{
     util::{
         check_private_keys_fns, find_insufficient_balances, fund_accounts,
@@ -20,15 +21,18 @@ use contender_core::{
     generator::RandSeed,
     test_scenario::{TestScenario, TestScenarioParams},
 };
+use contender_core::generator::templater::Templater;
 use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use contender_testfile::TestConfig;
 use std::{
-    collections::HashMap, str::FromStr, sync::{
+    collections::HashMap,
+    str::FromStr,
+    sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
-    }, time::Duration
+    },
+    time::Duration,
 };
-use super::common::cli_env_vars_parser;
 
 use super::common::ScenarioSendTxsCliArgs;
 
@@ -36,6 +40,7 @@ use super::common::ScenarioSendTxsCliArgs;
 pub struct SetupCliArgs {
     #[command(flatten)]
     pub args: ScenarioSendTxsCliArgs,
+
     #[arg(
         short,
         long,
@@ -44,7 +49,7 @@ pub struct SetupCliArgs {
         value_parser = cli_env_vars_parser,
         action = clap::ArgAction::Append,
     )]
-    pub env: Option<Vec<(String, String)>>
+    pub env: Option<Vec<(String, String)>>,
 }
 
 pub async fn setup(
@@ -59,7 +64,7 @@ pub async fn setup(
         seed,
         tx_type,
         engine_params,
-        env
+        env,
     } = args;
 
     let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
@@ -77,7 +82,7 @@ pub async fn setup(
             let _ = &env_variables.insert(key.to_string(), value.to_string());
         }
     }
-    testconfig.env = Some(env_variables);
+    testconfig.env = Some(env_variables.clone());
 
     let min_balance = parse_ether(&min_balance)?;
 
@@ -255,5 +260,5 @@ pub struct SetupCommandArgs {
     pub seed: RandSeed,
     pub tx_type: TxType,
     pub engine_params: EngineParams,
-    pub env: Option<Vec<(String, String)>>
+    pub env: Option<Vec<(String, String)>>,
 }

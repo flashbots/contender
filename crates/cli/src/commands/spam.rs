@@ -28,7 +28,7 @@ use contender_engine_provider::{
     AdvanceChain, AuthProviderEth, AuthProviderOp, DEFAULT_BLOCK_TIME,
 };
 use contender_testfile::TestConfig;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use std::{path::PathBuf, sync::atomic::AtomicBool};
 
 #[derive(Debug)]
@@ -106,6 +106,7 @@ pub struct SpamCommandArgs {
     pub engine_params: EngineParams,
     pub gas_price_percent_add: Option<u64>,
     pub timeout_secs: u64,
+    pub env: Option<Vec<(String, String)>>,
 }
 
 impl SpamCommandArgs {
@@ -128,10 +129,19 @@ impl SpamCommandArgs {
             gas_price_percent_add,
             timeout_secs,
             engine_params,
+            env,
             ..
         } = &self;
 
-        let testconfig = TestConfig::from_file(testfile)?;
+        let mut testconfig: TestConfig = TestConfig::from_file(testfile)?;
+        // Setup env variables
+        let mut env_variables = HashMap::new();
+        if env.is_some() {
+            for (key, value) in env.clone().unwrap() {
+                let _ = &env_variables.insert(key.to_string(), value.to_string());
+            }
+        }
+        testconfig.env = Some(env_variables.clone());
         let rand_seed = RandSeed::seed_from_str(seed);
         let url = Url::parse(rpc_url).expect("Invalid RPC URL");
         let rpc_client = DynProvider::new(
