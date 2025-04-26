@@ -73,7 +73,7 @@ pub async fn setup(
     );
     let mut testconfig: TestConfig = TestConfig::from_file(testfile.as_ref())?;
 
-    // Setup env variables 
+    // Setup env variables
     let mut env_variables = testconfig.env.clone().unwrap_or_default();
     if env.is_some() {
         for (key, value) in env.unwrap() {

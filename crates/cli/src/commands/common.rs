@@ -168,7 +168,10 @@ pub fn cli_env_vars_parser(s: &str) -> Result<(String, String), String> {
     let equal_sign_index = s
         .find('=')
         .ok_or_else(|| format!("invalid KEY=value: no `=` found in `{s}`"))?;
-    Ok((s[..equal_sign_index].to_string(), s[equal_sign_index + 1..].to_string()))
+    Ok((
+        s[..equal_sign_index].to_string(),
+        s[equal_sign_index + 1..].to_string(),
+    ))
 }
 
 #[cfg(test)]
