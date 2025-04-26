@@ -167,7 +167,12 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
 pub fn cli_env_vars_parser(s: &str) -> Result<(String, String), String> {
     let equal_sign_index = s
         .find('=')
-        .ok_or_else(|| format!("invalid KEY=value: no `=` found in `{s}`"))?;
+        .ok_or_else(|| "Invalid KEY=VALUE: No \"=\" found")?;
+
+    if equal_sign_index == 0 {
+        return Err("Empty Key: No Key found".to_owned());
+    }
+
     Ok((
         s[..equal_sign_index].to_string(),
         s[equal_sign_index + 1..].to_string(),
@@ -185,5 +190,38 @@ mod tests {
             cli_env_vars_parser(&env_param_value).unwrap(),
             ("key1".to_owned(), "value1".to_owned())
         );
+    }
+
+    #[test]
+    fn multiple_equal_signs() {
+        let env_param_value = "key1=value1==";
+        assert_eq!(
+            cli_env_vars_parser(&env_param_value).unwrap(),
+            ("key1".to_owned(), "value1==".to_owned())
+        );
+    }
+
+    #[test]
+    fn empty_env() {
+        let env_param_value = "";
+        assert_eq!(
+            cli_env_vars_parser(env_param_value)
+                .err()
+                .unwrap()
+                .to_string(),
+            "Invalid KEY=VALUE: No \"=\" found"
+        )
+    }
+
+    #[test]
+    fn empty_key() {
+        let env_param_value = "=value1";
+        assert_eq!(
+            cli_env_vars_parser(env_param_value)
+                .err()
+                .unwrap()
+                .to_string(),
+            "Empty Key: No Key found"
+        )
     }
 }
