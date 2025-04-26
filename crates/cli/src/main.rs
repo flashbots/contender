@@ -97,6 +97,7 @@ Remote DB version = {}, contender expected version {}.
                             tx_type,
                             auth_args,
                         },
+                    env
                 },
         } => {
             let seed = seed.unwrap_or(stored_seed);
@@ -111,6 +112,7 @@ Remote DB version = {}, contender expected version {}.
                     seed: RandSeed::seed_from_str(&seed),
                     tx_type: tx_type.into(),
                     engine_params,
+                    env
                 },
             )
             .await?
@@ -136,6 +138,7 @@ Remote DB version = {}, contender expected version {}.
                             txs_per_second,
                             builder_url,
                             timeout,
+                            env,
                         },
                     disable_reporting,
                     gen_report,
@@ -197,6 +200,7 @@ Remote DB version = {}, contender expected version {}.
                         txs_per_second,
                         builder_url,
                         timeout,
+                        env
                     },
                 disable_reporting,
                 gen_report,

@@ -152,4 +152,19 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         visible_aliases = &["wait"]
     )]
     pub timeout: u64,
+
+    #[arg(
+        short,
+        long,
+        value_name="KEY=VALUE",
+        long_help = "Key-value pairs to override the parameters in scenario files.",
+        value_parser = cli_env_vars_parser,
+        action = clap::ArgAction::Append,
+    )]
+    pub env: Option<Vec<(String, String)>>,
+}
+
+pub fn cli_env_vars_parser(s: &str) -> Result<(String, String), String> {
+    let pos = s.find('=').ok_or_else(|| format!("invalid KEY=value: no `=` found in `{s}`"))?;
+    Ok((s[..pos].to_string(), s[pos + 1..].to_string()))
 }

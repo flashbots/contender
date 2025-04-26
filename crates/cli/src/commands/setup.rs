@@ -23,13 +23,12 @@ use contender_core::{
 use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use contender_testfile::TestConfig;
 use std::{
-    str::FromStr,
-    sync::{
+    collections::HashMap, str::FromStr, sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
-    },
-    time::Duration,
+    }, time::Duration
 };
+use super::common::cli_env_vars_parser;
 
 use super::common::ScenarioSendTxsCliArgs;
 
@@ -37,6 +36,15 @@ use super::common::ScenarioSendTxsCliArgs;
 pub struct SetupCliArgs {
     #[command(flatten)]
     pub args: ScenarioSendTxsCliArgs,
+    #[arg(
+        short,
+        long,
+        value_name="KEY=VALUE",
+        long_help = "Key-value pairs to override the parameters in scenario files.",
+        value_parser = cli_env_vars_parser,
+        action = clap::ArgAction::Append,
+    )]
+    pub env: Option<Vec<(String, String)>>
 }
 
 pub async fn setup(
@@ -51,6 +59,7 @@ pub async fn setup(
         seed,
         tx_type,
         engine_params,
+        env
     } = args;
 
     let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
@@ -59,7 +68,17 @@ pub async fn setup(
             .network::<AnyNetwork>()
             .on_http(url.to_owned()),
     );
-    let testconfig: TestConfig = TestConfig::from_file(testfile.as_ref())?;
+    let mut testconfig: TestConfig = TestConfig::from_file(testfile.as_ref())?;
+
+    // Setup env variables 
+    let mut env_variables = HashMap::new();
+    if env.is_some() {
+        for (key, value) in env.unwrap() {
+            let _ = &env_variables.insert(key.to_string(), value.to_string());
+        }
+    }
+    testconfig.env = Some(env_variables);
+
     let min_balance = parse_ether(&min_balance)?;
 
     let user_signers = private_keys
@@ -236,4 +255,5 @@ pub struct SetupCommandArgs {
     pub seed: RandSeed,
     pub tx_type: TxType,
     pub engine_params: EngineParams,
+    pub env: Option<Vec<(String, String)>>
 }
