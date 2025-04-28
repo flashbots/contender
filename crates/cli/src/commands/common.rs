@@ -1,6 +1,5 @@
 //! This file contains type definition for CLI arguments.
 
-use std::default;
 
 use crate::util::{EngineParams, TxTypeCli};
 
