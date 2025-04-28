@@ -1,6 +1,6 @@
 use super::named_txs::ExecutionRequest;
 use alloy::{
-    network::{AnyNetwork, Ethereum},
+    network::AnyNetwork,
     primitives::{Address, U256},
     providers::DynProvider,
 };
@@ -12,7 +12,6 @@ use tokio::task::JoinHandle;
 pub use crate::generator::named_txs::NamedTxRequest;
 
 // -- convenience
-pub type EthProvider = DynProvider<Ethereum>;
 pub type AnyProvider = DynProvider<AnyNetwork>;
 
 // -- core types for test scenarios
@@ -115,5 +114,5 @@ pub enum PlanType<F: Fn(NamedTxRequest) -> CallbackResult> {
     /// Run setup steps, triggering a callback after each tx is sent.
     Setup(F),
     /// Spam with a number of txs and trigger a callback after each one is sent.
-    Spam(usize, F),
+    Spam(u64, F),
 }

@@ -1,3 +1,4 @@
+use std::sync::atomic::AtomicBool;
 use std::{pin::Pin, sync::Arc};
 
 use alloy::providers::Provider;
@@ -12,12 +13,13 @@ use crate::{
     Result,
 };
 
+use super::tx_callback::OnBatchSent;
 use super::SpamTrigger;
 use super::{tx_actor::TxActorHandle, OnTxSent};
 
 pub trait Spammer<F, D, S, P>
 where
-    F: OnTxSent + Send + Sync + 'static,
+    F: OnTxSent + OnBatchSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
@@ -34,10 +36,11 @@ where
     fn spam_rpc(
         &self,
         scenario: &mut TestScenario<D, S, P>,
-        txs_per_period: usize,
-        num_periods: usize,
+        txs_per_period: u64,
+        num_periods: u64,
         run_id: Option<u64>,
         sent_tx_callback: Arc<F>,
+        done_sending: Arc<AtomicBool>,
     ) -> impl std::future::Future<Output = Result<()>> {
         async move {
             let tx_req_chunks = scenario
@@ -48,7 +51,7 @@ where
                 .get_block_number()
                 .await
                 .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
-            let mut cursor = self.on_spam(scenario).await?.take(num_periods);
+            let mut cursor = self.on_spam(scenario).await?.take(num_periods as usize);
 
             // run spammer within tokio::select! to allow for graceful shutdown
             let spam_finished: bool = tokio::select! {
@@ -63,6 +66,7 @@ where
             if !spam_finished {
                 println!("Spammer terminated. Press CTRL-C again to stop result collection...");
             }
+            done_sending.store(true, std::sync::atomic::Ordering::SeqCst);
 
             // collect results from cached pending txs
             let flush_finished: bool = tokio::select! {

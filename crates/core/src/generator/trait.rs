@@ -319,16 +319,15 @@ where
             }
             PlanType::Spam(num_txs, on_spam_setup) => {
                 let spam_steps = conf.get_spam_steps()?;
-                let num_steps = spam_steps.len();
+                let num_steps = spam_steps.len() as u64;
                 // round num_txs up to the nearest multiple of num_steps to prevent missed steps
                 let num_txs = num_txs + (num_txs % num_steps);
-                let mut placeholder_map = HashMap::<K, String>::new();
                 let mut canonical_fuzz_map = HashMap::<String, Vec<U256>>::new();
 
                 // finds fuzzed values for a function call definition and populates `canonical_fuzz_map` with fuzzy values.
                 let mut find_fuzz = |req: &FunctionCallDefinition| {
                     let fuzz_args = req.fuzz.to_owned().unwrap_or_default();
-                    let fuzz_map = self.create_fuzz_map(num_txs, &fuzz_args)?; // this may create more values than needed, but it's fine
+                    let fuzz_map = self.create_fuzz_map(num_txs as usize, &fuzz_args)?; // this may create more values than needed, but it's fine
                     canonical_fuzz_map.extend(fuzz_map);
                     Ok(())
                 };
@@ -365,7 +364,7 @@ where
 
                 // txs will be grouped by full step sequences [from=1, from=2, from=3, from=1, from=2, from=3, ...]
                 for step in spam_steps.iter() {
-                    for i in 0..(num_txs / num_steps) {
+                    for i in 0..(num_txs / num_steps) as usize {
                         // converts a FunctionCallDefinition to a NamedTxRequest (filling in fuzzable args),
                         // returns a callback handle and the processed tx request
                         let prepare_tx = |req| {

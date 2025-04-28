@@ -10,7 +10,7 @@ use crate::{
     test_scenario::TestScenario,
 };
 
-use super::{OnTxSent, SpamTrigger, Spammer};
+use super::{tx_callback::OnBatchSent, OnTxSent, SpamTrigger, Spammer};
 
 #[derive(Default)]
 pub struct BlockwiseSpammer;
@@ -23,7 +23,7 @@ impl BlockwiseSpammer {
 
 impl<F, D, S, P> Spammer<F, D, S, P> for BlockwiseSpammer
 where
-    F: OnTxSent + Send + Sync + 'static,
+    F: OnTxSent + OnBatchSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
@@ -64,8 +64,8 @@ mod tests {
         spammer::util::test::{fund_account, get_test_signers, MockCallback},
         test_scenario::{tests::MockConfig, TestScenarioParams},
     };
-    use std::collections::HashSet;
     use std::sync::Arc;
+    use std::{collections::HashSet, sync::atomic::AtomicBool};
 
     use super::*;
 
@@ -80,16 +80,17 @@ mod tests {
         println!("anvil url: {}", anvil.endpoint_url());
         let seed = crate::generator::RandSeed::seed_from_str("444444444444");
         let mut agents = AgentStore::new();
-        let txs_per_period = 10;
-        let periods = 3;
+        let txs_per_period = 10u64;
+        let periods = 3u64;
         let tx_type = alloy::consensus::TxType::Legacy;
+        let num_signers = (txs_per_period / periods) as usize;
         agents.add_agent(
             "pool1",
-            SignerStore::new_random(txs_per_period / periods, &seed, "eeeeeeee"),
+            SignerStore::new_random(num_signers, &seed, "eeeeeeee"),
         );
         agents.add_agent(
             "pool2",
-            SignerStore::new_random(txs_per_period / periods, &seed, "11111111"),
+            SignerStore::new_random(num_signers, &seed, "11111111"),
         );
 
         let user_signers = get_test_signers();
@@ -129,6 +130,7 @@ mod tests {
                 gas_price_percent_add: None,
                 pending_tx_timeout_secs: 12,
             },
+            None,
         )
         .await
         .unwrap();
@@ -136,6 +138,7 @@ mod tests {
         let spammer = BlockwiseSpammer {};
 
         let start_block = provider.get_block_number().await.unwrap();
+        let callback = Arc::new(callback_handler);
 
         let result = spammer
             .spam_rpc(
@@ -143,7 +146,8 @@ mod tests {
                 txs_per_period,
                 periods,
                 None,
-                Arc::new(callback_handler),
+                callback.clone(),
+                Arc::new(AtomicBool::new(false)),
             )
             .await;
         assert!(result.is_ok());
@@ -166,7 +170,7 @@ mod tests {
             println!("unique address: {}", addr);
         }
 
-        assert!(unique_addresses.len() >= (txs_per_period / periods));
-        assert!(unique_addresses.len() <= txs_per_period);
+        assert!(unique_addresses.len() >= (txs_per_period / periods) as usize);
+        assert!(unique_addresses.len() <= txs_per_period as usize);
     }
 }

@@ -1,6 +1,8 @@
 //! This file contains type definition for CLI arguments.
 
-use crate::util::TxTypeCli;
+use crate::util::{EngineParams, TxTypeCli};
+
+use super::EngineArgs;
 
 #[derive(Debug, clap::Args)]
 pub struct ScenarioSendTxsCliArgs {
@@ -45,6 +47,66 @@ May be specified multiple times."
             default_value_t = TxTypeCli::Eip1559,
         )]
     pub tx_type: TxTypeCli,
+
+    #[command(flatten)]
+    pub auth_args: AuthCliArgs,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct AuthCliArgs {
+    /// Auth RPC URL for `engine_` calls
+    #[arg(
+        long,
+        long_help = "Provide this URL to enable use of engine_ calls.",
+        visible_aliases = &["auth"]
+    )]
+    pub auth_rpc_url: Option<String>,
+
+    /// JWT secret used for `engine_` calls
+    #[arg(
+        long,
+        long_help = "JWT secret.
+Required if --auth-rpc-url is set.",
+        visible_aliases = &["jwt"]
+    )]
+    pub jwt_secret: Option<String>,
+
+    /// Call `engine_forkchoiceUpdated` after each block
+    #[arg(
+        long,
+        long_help = "Call engine_forkchoiceUpdated on Auth RPC after each block.
+Requires --auth-rpc-url and --jwt-secret to be set.",
+        visible_aliases = &["fcu"]
+    )]
+    pub call_forkchoice: bool,
+
+    /// Use OP engine provider
+    #[arg(
+        long = "optimism",
+        long_help = "Set this flag when targeting an OP node.",
+        visible_aliases = &["op"]
+    )]
+    pub use_op: bool,
+}
+
+impl AuthCliArgs {
+    pub async fn engine_params(&self) -> Result<EngineParams, Box<dyn std::error::Error>> {
+        if self.call_forkchoice && (self.auth_rpc_url.is_none() || self.jwt_secret.is_none()) {
+            return Err("engine args required for forkchoice".into());
+        }
+
+        let engine_params = if self.auth_rpc_url.is_some() && self.jwt_secret.is_some() {
+            let args = EngineArgs {
+                auth_rpc_url: self.auth_rpc_url.to_owned().expect("auth_rpc_url"),
+                jwt_secret: self.jwt_secret.to_owned().expect("jwt_secret").into(),
+                use_op: self.use_op,
+            };
+            EngineParams::new(args.new_provider().await?, self.call_forkchoice)
+        } else {
+            EngineParams::default()
+        };
+        Ok(engine_params)
+    }
 }
 
 #[derive(Debug, clap::Args)]

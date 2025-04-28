@@ -1,6 +1,7 @@
+pub mod admin;
 pub mod common;
 mod contender_subcommand;
-mod db;
+pub mod db;
 mod report;
 mod run;
 mod setup;
@@ -10,11 +11,10 @@ mod spamd;
 use clap::Parser;
 
 pub use contender_subcommand::{ContenderSubcommand, DbCommand};
-pub use db::*;
 pub use report::report;
 pub use run::{run, RunCommandArgs};
-pub use setup::{setup, SetupCliArgs};
-pub use spam::{spam, SpamCliArgs, SpamCommandArgs};
+pub use setup::{setup, SetupCliArgs, SetupCommandArgs};
+pub use spam::{spam, EngineArgs, SpamCliArgs, SpamCommandArgs};
 pub use spamd::spamd;
 
 #[derive(Parser, Debug)]

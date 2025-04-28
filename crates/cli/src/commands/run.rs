@@ -1,4 +1,12 @@
-use std::{env, str::FromStr, sync::Arc};
+use std::{
+    env,
+    str::FromStr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use alloy::{
     consensus::TxType,
@@ -19,18 +27,19 @@ use contender_testfile::TestConfig;
 
 use crate::{
     default_scenarios::{BuiltinScenario, BuiltinScenarioConfig},
-    util::{check_private_keys, get_signers_with_defaults, prompt_cli},
+    util::{check_private_keys, get_signers_with_defaults, prompt_cli, EngineParams},
 };
 
 pub struct RunCommandArgs {
     pub scenario: BuiltinScenario,
     pub rpc_url: String,
     pub private_key: Option<String>,
-    pub interval: usize,
-    pub duration: usize,
-    pub txs_per_duration: usize,
+    pub interval: f64,
+    pub duration: u64,
+    pub txs_per_duration: u64,
     pub skip_deploy_prompt: bool,
     pub tx_type: TxType,
+    pub engine_params: EngineParams,
 }
 
 pub async fn run(
@@ -59,16 +68,26 @@ pub async fn run(
     let scenario_config = match args.scenario {
         BuiltinScenario::FillBlock => BuiltinScenarioConfig::fill_block(
             block_gas_limit,
-            args.txs_per_duration as u64,
+            args.txs_per_duration,
             admin_signer.address(),
             fill_percent,
         ),
     };
     let scenario_name = scenario_config.to_string();
     let testconfig: TestConfig = scenario_config.into();
+    let rpc_url = Url::parse(&args.rpc_url).expect("Invalid RPC URL");
     check_private_keys(&testconfig, &user_signers);
 
-    let rpc_url = Url::parse(&args.rpc_url).expect("Invalid RPC URL");
+    let params = TestScenarioParams {
+        rpc_url: rpc_url.to_owned(),
+        builder_rpc_url: None,
+        signers: user_signers,
+        agent_store: AgentStore::default(),
+        tx_type: args.tx_type,
+        gas_price_percent_add: None, // TODO: support this here !!!
+        pending_tx_timeout_secs: 12,
+    };
+
     let mut scenario = TestScenario::new(
         testconfig,
         db.clone().into(),
@@ -82,6 +101,8 @@ pub async fn run(
             gas_price_percent_add: None, // TODO: support this here !!!
             pending_tx_timeout_secs: 12,
         },
+        params,
+        args.engine_params.engine_provider,
     )
     .await?;
 
@@ -102,6 +123,31 @@ pub async fn run(
         true
     };
 
+    let done = AtomicBool::new(false);
+    let is_done = Arc::new(done);
+
+    // loop FCU calls in the background
+    if args.engine_params.call_fcu {
+        if let Some(auth_provider) = scenario.auth_provider.to_owned() {
+            let is_done = is_done.clone();
+            tokio::task::spawn(async move {
+                loop {
+                    // sleep before checking if we should stop
+                    if is_done.load(Ordering::SeqCst) {
+                        break;
+                    }
+
+                    auth_provider
+                        .advance_chain(args.interval as u64)
+                        .await
+                        .expect("failed to advance chain");
+
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+            });
+        }
+    }
+
     if do_deploy_contracts {
         println!("deploying contracts...");
         scenario.deploy_contracts().await?;
@@ -110,7 +156,7 @@ pub async fn run(
     println!("running setup...");
     scenario.run_setup().await?;
 
-    let wait_duration = std::time::Duration::from_secs(args.interval as u64);
+    let wait_duration = std::time::Duration::from_millis((args.interval * 1000.0) as u64);
     let spammer = TimedSpammer::new(wait_duration);
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -121,19 +167,28 @@ pub async fn run(
         args.duration * args.txs_per_duration,
         &format!("{} ({})", contract_name, scenario_name),
     )?;
-
-    let callback = LogCallback::new(&Arc::new(DynProvider::new(provider)));
+    let provider = Arc::new(DynProvider::new(provider));
+    let tx_callback = LogCallback::new(
+        provider.clone(),
+        scenario.auth_provider.clone(),
+        false, // don't call in callback bc we're already calling in the loop
+    );
 
     println!("starting spammer...");
+    let done_sending = Arc::new(AtomicBool::new(false));
     spammer
         .spam_rpc(
             &mut scenario,
             args.txs_per_duration,
             args.duration,
             Some(run_id),
-            callback.into(),
+            tx_callback.into(),
+            done_sending,
         )
         .await?;
+
+    // done sending txs, stop the FCU loop
+    is_done.store(true, Ordering::SeqCst);
 
     Ok(())
 }

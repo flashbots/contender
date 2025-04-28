@@ -232,7 +232,7 @@ impl DbOps for SqliteDb {
     }
 
     /// Inserts a new run into the database and returns the ID of the new row.
-    fn insert_run(&self, timestamp: u64, tx_count: usize, scenario_name: &str) -> Result<u64> {
+    fn insert_run(&self, timestamp: u64, tx_count: u64, scenario_name: &str) -> Result<u64> {
         self.execute(
             "INSERT INTO runs (timestamp, tx_count, scenario_name) VALUES (?, ?, ?)",
             params![timestamp, tx_count, scenario_name],

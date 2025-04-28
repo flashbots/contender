@@ -340,10 +340,13 @@ pub fn prompt_cli(msg: impl AsRef<str>) -> String {
 /// Returns the path to the data directory.
 /// The directory is created if it does not exist.
 pub fn data_dir() -> Result<String, Box<dyn std::error::Error>> {
-    let dir = format!(
-        "{}/.contender",
-        std::env::var("HOME").map_err(|_| "Failed to get $HOME from environment")?
-    );
+    let home_dir = if cfg!(windows) {
+        std::env::var("USERPROFILE").map_err(|_| "Failed to get USERPROFILE from environment")?
+    } else {
+        std::env::var("HOME").map_err(|_| "Failed to get HOME from environment")?
+    };
+
+    let dir = format!("{}/.contender", home_dir);
 
     // ensure directory exists
     std::fs::create_dir_all(&dir)?;

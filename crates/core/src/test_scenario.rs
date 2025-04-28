@@ -3,13 +3,13 @@ use crate::db::{DbOps, NamedTx};
 use crate::error::ContenderError;
 use crate::generator::named_txs::ExecutionRequest;
 use crate::generator::templater::Templater;
-use crate::generator::types::{AnyProvider, EthProvider};
+use crate::generator::types::AnyProvider;
 use crate::generator::util::complete_tx_request;
 use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use crate::provider::LoggingLayer;
 use crate::spammer::tx_actor::TxActorHandle;
-use crate::spammer::{ExecutionPayload, OnTxSent, SpamTrigger};
+use crate::spammer::{ExecutionPayload, OnBatchSent, OnTxSent, SpamTrigger};
 use crate::Result;
 use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
 use alloy::consensus::{Transaction, TxType};
@@ -21,10 +21,12 @@ use alloy::primitives::{keccak256, Address, FixedBytes, U256};
 use alloy::providers::{DynProvider, PendingTransactionConfig, Provider, ProviderBuilder};
 use alloy::rpc::client::ClientBuilder;
 use alloy::rpc::types::TransactionRequest;
+use alloy::serde::WithOtherFields;
 use alloy::signers::local::{LocalSigner, PrivateKeySigner};
 use alloy::transports::http::reqwest::Url;
 use contender_bundle_provider::bundle_provider::new_basic_bundle;
 use contender_bundle_provider::BundleClient;
+use contender_engine_provider::AdvanceChain;
 use futures::{Stream, StreamExt};
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -34,7 +36,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// A test scenario can be used to run a test with a specific configuration, database, and RPC provider.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct TestScenario<D, S, P>
 where
     D: DbOps + Send + Sync + 'static,
@@ -45,7 +47,6 @@ where
     pub db: Arc<D>,
     pub rpc_url: Url,
     pub rpc_client: Arc<AnyProvider>,
-    pub eth_client: Arc<EthProvider>,
     pub bundle_client: Option<Arc<BundleClient>>,
     pub builder_rpc_url: Option<Url>,
     pub rand_seed: S,
@@ -58,12 +59,10 @@ where
     pub gas_limits: HashMap<FixedBytes<32>, u64>,
     pub msg_handle: Arc<TxActorHandle>,
     pub tx_type: TxType,
-    /// Fixed percentage provided by user to add to gas price.
     pub gas_price_percent_add: u64,
-    /// Timeout for pending transactions in seconds, provided by user.
     pub pending_tx_timeout_secs: u64,
-    /// Execution context for the test scenario; things about the target chain that affect the txs we send.
     pub ctx: ExecutionContext,
+    pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
 }
 
 pub struct TestScenarioParams {
@@ -76,7 +75,7 @@ pub struct TestScenarioParams {
     pub pending_tx_timeout_secs: u64,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ExecutionContext {
     /// Adds this amount of wei per gas to the gas price given to each transaction. May be negative to subtract gas.
     /// This is not the same as the `gas_price_percent_add`, which is a percentage of the gas price provided by the user.
@@ -102,6 +101,7 @@ where
         db: Arc<D>,
         rand_seed: S,
         params: TestScenarioParams,
+        auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
     ) -> Result<Self> {
         let TestScenarioParams {
             rpc_url,
@@ -188,7 +188,6 @@ where
             db: db.clone(),
             rpc_url: rpc_url.to_owned(),
             rpc_client: Arc::new(rpc_client),
-            eth_client: Arc::new(DynProvider::new(ProviderBuilder::new().on_http(rpc_url))),
             bundle_client,
             builder_rpc_url,
             rand_seed,
@@ -201,10 +200,12 @@ where
             tx_type,
             gas_price_percent_add: gas_price_percent_add.unwrap_or(0),
             pending_tx_timeout_secs,
+            block_time_secs,
             ctx: ExecutionContext {
                 gas_price_adder: 0,
                 block_time_secs,
             },
+            auth_provider,
         })
     }
 
@@ -240,6 +241,7 @@ where
                 gas_price_percent_add: Some(self.gas_price_percent_add), // will be 0 if not specified
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             },
+            None,
         )
         .await?;
 
@@ -372,6 +374,7 @@ where
                 .to_owned();
             let wallet = ProviderBuilder::new()
                 .wallet(wallet_conf)
+                .network::<AnyNetwork>()
                 .on_http(self.rpc_url.to_owned());
 
             println!(
@@ -383,7 +386,7 @@ where
             let handle = tokio::task::spawn(async move {
                 // estimate gas limit
                 let gas_limit = wallet
-                    .estimate_gas(tx_req.tx.to_owned())
+                    .estimate_gas(WithOtherFields::new(tx_req.tx.to_owned()))
                     .await
                     .expect("failed to estimate gas");
 
@@ -391,7 +394,7 @@ where
                 let mut tx = tx_req.tx;
                 complete_tx_request(&mut tx, tx_type, gas_price, (GWEI_TO_WEI as u128).min(gas_price - 1), gas_limit, chain_id);
 
-                let res = wallet.send_transaction(tx).await;
+                let res = wallet.send_transaction(WithOtherFields::new(tx)).await;
                 if let Err(err) = res {
                     let err = err.to_string();
                     if err.to_lowercase().contains("already known") {
@@ -550,8 +553,8 @@ where
             let gas_limit = if let Some(gas) = tx_req.gas {
                 gas
             } else {
-                self.eth_client
-                    .estimate_gas(tx_req.to_owned())
+                self.rpc_client
+                    .estimate_gas(WithOtherFields::new(tx_req.to_owned()))
                     .await
                     .map_err(|e| ContenderError::with_err(e, "failed to estimate gas for tx"))?
             };
@@ -689,7 +692,7 @@ where
         &mut self,
         trigger: SpamTrigger,
         payloads: Vec<ExecutionPayload>,
-        callback_handler: Arc<impl OnTxSent + Send + Sync + 'static>,
+        callback_handler: Arc<impl OnTxSent + OnBatchSent + Send + Sync + 'static>,
         context_handler: SpamContextHandler,
     ) -> Result<Vec<tokio::task::JoinHandle<()>>> {
         // sort payloads by nonce
@@ -859,7 +862,7 @@ where
     }
 
     /// Send spam batches until the cursor is depleted.
-    pub async fn execute_spammer<F: OnTxSent + Send + Sync + 'static>(
+    pub async fn execute_spammer<F: OnTxSent + OnBatchSent + Send + Sync + 'static>(
         &mut self,
         cursor: &mut futures::stream::Take<Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>>,
         tx_req_chunks: &[Vec<ExecutionRequest>],
@@ -893,6 +896,12 @@ where
                     num_tasks -= 1;
                 }
             }
+
+            if let Some(task) = sent_tx_callback.on_batch_sent() {
+                task.await
+                    .map_err(|e| ContenderError::with_err(e, "on_batch_sent callback failed"))?;
+            }
+
             println!("[{}] executed {} spam tasks", tick, num_tasks);
 
             // increase gas price if needed
@@ -982,26 +991,26 @@ where
                 gas_price_percent_add: Some(self.gas_price_percent_add),
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             },
+            None,
         )
         .await?;
 
         // load a sample of each spam tx from the scenario
+        let txs = scenario
+            .load_txs(PlanType::Spam(
+                scenario
+                    .config
+                    .get_spam_steps()
+                    .map(|s| s.len()) // take the number of spam txs from the testfile
+                    .unwrap_or(0) as u64,
+                |_named_req| {
+                    // we can look at the named request here if needed
+                    Ok(None)
+                },
+            ))
+            .await?;
         let sample_txs = scenario
-            .prepare_spam(
-                &scenario
-                    .load_txs(PlanType::Spam(
-                        scenario
-                            .config
-                            .get_spam_steps()
-                            .map(|s| s.len()) // take the number of spam txs from the testfile
-                            .unwrap_or(0),
-                        |_named_req| {
-                            // we can look at the named request here if needed
-                            Ok(None)
-                        },
-                    ))
-                    .await?,
-            )
+            .prepare_spam(&txs)
             .await?
             .iter()
             .map(|ex_payload| match ex_payload {
@@ -1050,8 +1059,8 @@ where
 
     pub async fn get_spam_tx_chunks(
         &self,
-        txs_per_period: usize,
-        num_periods: usize,
+        txs_per_period: u64,
+        num_periods: u64,
     ) -> Result<Vec<Vec<ExecutionRequest>>> {
         let tx_requests = self
             .load_txs(crate::generator::PlanType::Spam(
@@ -1060,15 +1069,18 @@ where
             ))
             .await?;
         Ok(tx_requests
-            .chunks(txs_per_period)
+            .chunks(txs_per_period as usize)
             .map(|chunk| chunk.to_vec())
             .collect::<_>())
     }
 
     pub async fn flush_tx_cache(&self, block_start: u64, run_id: u64) -> Result<()> {
         let mut block_counter = 0;
+        // the number of blocks to check for stalled txs
+        let block_timeout = ((self.pending_tx_timeout_secs / self.ctx.block_time_secs) + 1)
+            // must be at least 2 blocks because otherwise we have nothing to compare
+            .max(2);
         let mut cache_size_queue = vec![];
-        let block_timeout = self.pending_tx_timeout_secs / self.ctx.block_time_secs;
         cache_size_queue.resize(block_timeout as usize, 1);
         loop {
             let pending_txs = self
@@ -1081,36 +1093,35 @@ where
 
             if pending_txs.is_empty() {
                 break;
-            } else {
-                // if a tx has been sitting in the cache for > T seconds, remove it
-                let current_timestamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("time went backwards")
-                    .as_millis();
+            }
 
-                // remove cached txs if the size hasn't changed for the last N blocks
-                if cache_size_queue
-                    .iter()
-                    .all(|&size| size == cache_size_queue[0])
-                {
-                    println!(
+            let current_timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time went backwards")
+                .as_millis();
+
+            // remove cached txs if the size hasn't changed for the last N blocks
+            if cache_size_queue
+                .iter()
+                .all(|&size| size == cache_size_queue[0])
+            {
+                println!(
                             "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
                         );
-                    for tx in &pending_txs {
-                        // only remove txs that have been waiting for > T seconds
-                        if current_timestamp
-                            > (tx.start_timestamp + (self.pending_tx_timeout_secs * 1000)) as u128
-                        {
-                            self.msg_handle
-                                .remove_cached_tx(tx.tx_hash)
-                                .await
-                                .map_err(|e| {
-                                    ContenderError::with_err(
-                                        e.deref(),
-                                        "failed to remove tx from cache",
-                                    )
-                                })?;
-                        }
+                for tx in &pending_txs {
+                    // only remove txs that have been waiting for > T seconds
+                    if current_timestamp
+                        > (tx.start_timestamp + (self.pending_tx_timeout_secs * 1000)) as u128
+                    {
+                        self.msg_handle
+                            .remove_cached_tx(tx.tx_hash)
+                            .await
+                            .map_err(|e| {
+                                ContenderError::with_err(
+                                    e.deref(),
+                                    "failed to remove tx from cache",
+                                )
+                            })?;
                     }
                 }
             }
@@ -1444,7 +1455,7 @@ pub mod tests {
 
     pub async fn get_test_scenario(
         anvil: &AnvilInstance,
-        txs_per_duration: usize,
+        txs_per_duration: u64,
         fund_amount_eth: f64,
     ) -> TestScenario<MockDb, RandSeed, MockConfig> {
         let seed = RandSeed::seed_from_bytes(&[0x01; 32]);
@@ -1453,9 +1464,13 @@ pub mod tests {
 
         let mut agents = AgentStore::new();
         let config = MockConfig;
-        let num_pools = config.get_spam_pools().len().max(1);
+        let num_pools = config.get_spam_pools().len().max(1) as u64;
         println!("spam pools: {num_pools}, txs_per_duration: {txs_per_duration}");
-        agents.init(&["pool1", "pool2"], txs_per_duration / num_pools, &seed);
+        agents.init(
+            &["pool1", "pool2"],
+            (txs_per_duration / num_pools) as usize,
+            &seed,
+        );
 
         let admin1_signers = SignerStore::new_random(1, &seed, "admin1");
         let admin2_signers = SignerStore::new_random(1, &seed, "admin2");
@@ -1475,6 +1490,7 @@ pub mod tests {
                 gas_price_percent_add: None,
                 pending_tx_timeout_secs: 12,
             },
+            None,
         )
         .await
         .unwrap();
@@ -1730,7 +1746,7 @@ pub mod tests {
     async fn all_tx_requests_are_contiguous() -> std::result::Result<(), Box<dyn std::error::Error>>
     {
         let anvil = spawn_anvil();
-        let txs_per_duration: usize = 500;
+        let txs_per_duration = 500u64;
         let duration = 3;
         let mut scenario = get_test_scenario(&anvil, txs_per_duration, 0.01).await;
 
@@ -1740,9 +1756,9 @@ pub mod tests {
             .await?;
 
         // test chunk size & count
-        assert_eq!(tx_req_chunks.len(), duration);
+        assert_eq!(tx_req_chunks.len(), duration as usize);
         for chunk in tx_req_chunks.iter() {
-            assert_eq!(chunk.len(), txs_per_duration);
+            assert_eq!(chunk.len(), txs_per_duration as usize);
         }
 
         // prepare tx requests & collect them all into a single array

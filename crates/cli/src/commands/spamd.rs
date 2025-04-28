@@ -33,7 +33,6 @@ pub async fn spamd(
     });
 
     let mut scenario = args.init_scenario(db).await?;
-    let rpc_client = scenario.rpc_client.clone();
 
     // collects run IDs from the spam command
     let mut run_ids = vec![];
@@ -59,7 +58,7 @@ pub async fn spamd(
         println!("syncing nonces...");
         scenario.sync_nonces().await?;
         let db = db.clone();
-        let spam_res = commands::spam(&db, &args, &mut scenario, &rpc_client).await;
+        let spam_res = commands::spam(&db, &args, &mut scenario).await;
         if let Err(e) = spam_res {
             println!("spam failed: {:?}", e);
         } else {

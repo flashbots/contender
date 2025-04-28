@@ -2,17 +2,18 @@ mod commands;
 mod default_scenarios;
 mod util;
 
-use std::sync::LazyLock;
-
 use alloy::hex;
 use commands::{
+    admin::handle_admin_command,
     common::{ScenarioSendTxsCliArgs, SendSpamCliArgs},
-    ContenderCli, ContenderSubcommand, DbCommand, RunCommandArgs, SetupCliArgs, SpamCliArgs,
-    SpamCommandArgs,
+    db::{drop_db, export_db, import_db, reset_db},
+    ContenderCli, ContenderSubcommand, DbCommand, RunCommandArgs, SetupCliArgs, SetupCommandArgs,
+    SpamCliArgs, SpamCommandArgs,
 };
 use contender_core::{db::DbOps, generator::RandSeed};
 use contender_sqlite::{SqliteDb, DB_VERSION};
 use rand::Rng;
+use std::sync::LazyLock;
 use util::{data_dir, db_file};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
@@ -27,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if DB.table_exists("run_txs")? {
         // check version and exit if DB version is incompatible
         let quit_early = DB.version() < DB_VERSION
-            && !matches!(&args.command, ContenderSubcommand::Db { command: _ });
+            && !matches!(&args.command, ContenderSubcommand::Db { command: _ } | ContenderSubcommand::Admin { command: _ });
         if quit_early {
             println!("Your database is incompatible with this version of contender. To backup your data, run `contender db export`.\nPlease run `contender db drop` before trying again.");
             return Ok(());
@@ -56,10 +57,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match args.command {
         ContenderSubcommand::Db { command } => match command {
-            DbCommand::Drop => commands::drop_db(&db_path).await?,
-            DbCommand::Reset => commands::reset_db(&db_path).await?,
-            DbCommand::Export { out_path } => commands::export_db(&db_path, out_path).await?,
-            DbCommand::Import { src_path } => commands::import_db(src_path, &db_path).await?,
+            DbCommand::Drop => drop_db(&db_path).await?,
+            DbCommand::Reset => reset_db(&db_path).await?,
+            DbCommand::Export { out_path } => export_db(&db_path, out_path).await?,
+            DbCommand::Import { src_path } => import_db(src_path, &db_path).await?,
         },
 
         ContenderSubcommand::Setup {
@@ -73,18 +74,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             min_balance,
                             seed,
                             tx_type,
+                            auth_args,
                         },
                 },
         } => {
             let seed = seed.unwrap_or(stored_seed);
+            let engine_params = auth_args.engine_params().await?;
             commands::setup(
                 &db,
-                testfile,
-                rpc_url,
-                private_keys,
-                min_balance,
-                RandSeed::seed_from_str(&seed),
-                tx_type.into(),
+                SetupCommandArgs {
+                    testfile,
+                    rpc_url,
+                    private_keys,
+                    min_balance,
+                    seed: RandSeed::seed_from_str(&seed),
+                    tx_type: tx_type.into(),
+                    engine_params,
+                },
             )
             .await?
         }
@@ -100,6 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             private_keys,
                             min_balance,
                             tx_type,
+                            auth_args,
                         },
                     spam_args:
                         SendSpamCliArgs {
@@ -115,6 +122,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
         } => {
             let seed = seed.unwrap_or(stored_seed);
+            let engine_params = auth_args.engine_params().await?;
+
             let spam_args = SpamCommandArgs {
                 testfile,
                 rpc_url: rpc_url.to_owned(),
@@ -128,11 +137,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 min_balance,
                 tx_type: tx_type.into(),
                 gas_price_percent_add,
+                engine_params,
                 timeout_secs: timeout,
             };
             let mut scenario = spam_args.init_scenario(&db).await?;
-            let rpc_client = scenario.rpc_client.clone();
-            let run_id = commands::spam(&db, &spam_args, &mut scenario, &rpc_client).await?;
+            let run_id = commands::spam(&db, &spam_args, &mut scenario).await?;
             if gen_report {
                 tokio::select! {
                     _ = tokio::signal::ctrl_c() => {
@@ -158,6 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         private_keys,
                         min_balance,
                         tx_type,
+                        auth_args,
                     },
                 spam_args:
                     SendSpamCliArgs {
@@ -172,20 +182,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 gas_price_percent_add,
             } = spam_inner_args;
 
-            let seed = seed.unwrap_or(stored_seed);
+            let seed = seed.to_owned().unwrap_or(stored_seed);
+            let engine_params = auth_args.engine_params().await?;
+
             let spam_args = SpamCommandArgs {
                 testfile,
-                rpc_url: rpc_url.to_owned(),
+                rpc_url,
                 builder_url,
                 txs_per_block,
                 txs_per_second,
                 duration,
-                seed: seed.clone(),
+                seed,
                 private_keys,
                 disable_reporting,
                 min_balance,
                 tx_type: tx_type.into(),
                 gas_price_percent_add,
+                engine_params,
                 timeout_secs: timeout,
             };
             commands::spamd(&db, spam_args, gen_report, time_limit).await?;
@@ -208,7 +221,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             txs_per_duration,
             skip_deploy_prompt,
             tx_type,
+            auth_args,
         } => {
+            let engine_params = auth_args.engine_params().await?;
             commands::run(
                 &db,
                 RunCommandArgs {
@@ -220,10 +235,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     txs_per_duration,
                     skip_deploy_prompt,
                     tx_type: tx_type.into(),
+                    engine_params,
                 },
             )
             .await?
         }
+
+        ContenderSubcommand::Admin { command } => {
+            handle_admin_command(command, db).await?;
+        },
     }
     Ok(())
 }
