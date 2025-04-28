@@ -1,6 +1,5 @@
 //! This file contains type definition for CLI arguments.
 
-
 use crate::util::{EngineParams, TxTypeCli};
 
 use super::EngineArgs;
@@ -12,6 +11,7 @@ pub struct ScenarioSendTxsCliArgs {
 
     /// The HTTP JSON-RPC URL to spam with requests.
     #[arg(
+        short,
         long,
         long_help = "RPC URL to test the scenario.",
         default_value = "http://localhost:8545"

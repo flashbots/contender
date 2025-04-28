@@ -75,9 +75,9 @@ pub struct SpamCliArgs {
     /// If not provided, the report can be generated with the `report` subcommand.
     /// If provided, the report is saved to the given path.
     #[arg(
-        short = 'r',
         long,
-        long_help = "Set this to generate a report for the spam run(s) after spamming."
+        long_help = "Set this to generate a report for the spam run(s) after spamming.",
+        visible_aliases = &["report"]
     )]
     pub gen_report: bool,
 
