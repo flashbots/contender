@@ -144,6 +144,18 @@ contender report -i 203 -p 3
 
 ---
 
+**Overriding variables**
+
+You may manually override any placeholder in a scenario file by passing `-e <KEY=VALUE>` with your spam/setup commands.
+
+The following example will replace any instance of `{testAddr}` in `example.toml`:
+
+```bash
+contender spam example.toml --tps 10 -e testAddr=0x0000000000000000000000000000000000000013
+```
+
+---
+
 **Spamming with the `engine_` API**
 
 Add the following flags to `setup`, `spam`, or `spamd` to trigger block building manually via the authenticated `engine_` API:
