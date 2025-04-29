@@ -37,10 +37,11 @@ Contender can be used as both a library and a command-line tool.
 ### Command-line Interface
 
 ```bash
-contender setup <testfile> <rpc_url> [OPTIONS]
-contender spam <testfile> <rpc_url> [OPTIONS]
+contender setup <testfile> [OPTIONS]
+contender spam <testfile> [OPTIONS]
 contender report [OPTIONS]
 contender run [OPTIONS]
+contender admin [OPTIONS]
 ```
 
 For detailed usage instructions, run:
@@ -54,13 +55,13 @@ contender --help
 Run a zero-config scenario that attempts to fill a block to its gas limit:
 
 ```bash
-contender run fill-block $RPC_URL
+contender run fill-block -r $RPC_URL
 ```
 
 Send txs every 1 second instead of the default 12s:
 
 ```bash
-contender run fill-block $RPC_URL -i 1
+contender run fill-block -r $RPC_URL -i 1
 ```
 
 Pass a private key to send txs from your own account:
@@ -194,6 +195,29 @@ Delete your DB:
 
 ```bash
 contender db drop
+```
+
+---
+
+Contender also has some admin features for debugging...
+
+List the accounts that contender generates for a given `from_pool` definition:
+
+```bash
+# list 100 agent accounts from the "spammers" pool
+contender admin accounts --from-pool "spammers" -n 100
+```
+
+These accounts are generated from your locally-stored seed, which can be viewed with the following:
+
+```bash
+contender admin seed
+```
+
+We can also view the latest run ID from the local DB, which can be useful for DB debugging:
+
+```bash
+contender admin latest-run-id
 ```
 
 ### Scenarios
