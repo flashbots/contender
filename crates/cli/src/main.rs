@@ -103,8 +103,8 @@ Remote DB version = {}, contender expected version {}.
                             seed,
                             tx_type,
                             auth_args,
+                            env,
                         },
-                    env,
                 },
         } => {
             let seed = seed.unwrap_or(stored_seed);
@@ -137,6 +137,7 @@ Remote DB version = {}, contender expected version {}.
                             min_balance,
                             tx_type,
                             auth_args,
+                            env,
                         },
                     spam_args:
                         SendSpamCliArgs {
@@ -145,7 +146,6 @@ Remote DB version = {}, contender expected version {}.
                             txs_per_second,
                             builder_url,
                             timeout,
-                            env,
                         },
                     disable_reporting,
                     gen_report,
@@ -200,6 +200,7 @@ Remote DB version = {}, contender expected version {}.
                         min_balance,
                         tx_type,
                         auth_args,
+                        env,
                     },
                 spam_args:
                     SendSpamCliArgs {
@@ -208,7 +209,6 @@ Remote DB version = {}, contender expected version {}.
                         txs_per_second,
                         builder_url,
                         timeout,
-                        env,
                     },
                 disable_reporting,
                 gen_report,

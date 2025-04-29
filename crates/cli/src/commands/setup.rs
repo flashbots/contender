@@ -1,4 +1,3 @@
-use super::common::cli_env_vars_parser;
 use crate::{
     util::{
         check_private_keys_fns, find_insufficient_balances, fund_accounts,
@@ -38,16 +37,6 @@ use super::common::ScenarioSendTxsCliArgs;
 pub struct SetupCliArgs {
     #[command(flatten)]
     pub args: ScenarioSendTxsCliArgs,
-
-    #[arg(
-        short,
-        long,
-        value_name="KEY=VALUE",
-        long_help = "Key-value pairs to override the parameters in scenario files.",
-        value_parser = cli_env_vars_parser,
-        action = clap::ArgAction::Append,
-    )]
-    pub env: Option<Vec<(String, String)>>,
 }
 
 pub async fn setup(
