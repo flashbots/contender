@@ -66,7 +66,7 @@ contender run fill-block $RPC_URL -i 1
 Pass a private key to send txs from your own account:
 
 ```bash
-contender run fill-block $RPC_URL -i 1 -p $PRIVATE_KEY
+contender run fill-block -r $RPC_URL -i 1 -p $PRIVATE_KEY
 ```
 
 ---
@@ -74,13 +74,13 @@ contender run fill-block $RPC_URL -i 1 -p $PRIVATE_KEY
 Deploy custom scenario:
 
 ```bash
-contender setup ./scenarios/stress.toml $RPC_URL
+contender setup ./scenarios/stress.toml -r $RPC_URL
 ```
 
 Pass a private key to fund the setup txs from your own account (default anvil account[0] is used otherwise):
 
 ```bash
-contender setup ./scenarios/stress.toml $RPC_URL -p $PRIVATE_KEY
+contender setup ./scenarios/stress.toml -r $RPC_URL -p $PRIVATE_KEY
 ```
 
 ---
@@ -88,7 +88,7 @@ contender setup ./scenarios/stress.toml $RPC_URL -p $PRIVATE_KEY
 Run the spammer with a custom scenario (10 tx/sec for 3 seconds):
 
 ```bash
-contender spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3
+contender spam ./scenarios/stress.toml -r $RPC_URL --tps 10 -d 3
 ```
 
 Setting `--tps` defines the number of "agent accounts" (generated EOAs used to send txs). The number of accounts each agent has is determined by `txs_per_period / num_agents`, where `num_agents` is defined by the scenario. For example, if the `stress.toml` scenario has 4 agents (defined by `from_pool` declarations), passing `--tps` 10 will generate `10 / 4 = 2.5` accounts, rounded down.
@@ -96,13 +96,13 @@ Setting `--tps` defines the number of "agent accounts" (generated EOAs used to s
 Pass a private key with `-p` to fund agent accounts from your account:
 
 ```bash
-contender spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRV_KEY
+contender spam ./scenarios/stress.toml -r $RPC_URL --tps 10 -d 3 -p $PRV_KEY
 ```
 
 Generate a report immediately following a spam run:
 
 ```bash
-contender spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRV_KEY --gen-report
+contender spam ./scenarios/stress.toml -r $RPC_URL --tps 10 -d 3 -p $PRV_KEY --gen-report
 ```
 
 ---
@@ -110,13 +110,13 @@ contender spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRV_KEY --gen-
 Run spammer indefinitely:
 
 ```bash
-contender spamd ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRV_KEY
+contender spamd ./scenarios/stress.toml -r $RPC_URL --tps 10 -d 3 -p $PRV_KEY
 ```
 
 Run spammer for 5 minutes:
 
 ```bash
-contender spamd ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRV_KEY --tl $((60 * 5))
+contender spamd ./scenarios/stress.toml -r $RPC_URL --tps 10 -d 3 -p $PRV_KEY --tl $((60 * 5))
 ```
 
 ---
@@ -155,14 +155,14 @@ If targeting an Optimism node, you'll also need to add the `--op` flag.
 
 ```bash
 # default
-cargo run -- spamd ./scenarios/stress.toml $RPC \
+cargo run -- spamd ./scenarios/stress.toml -r $RPC \
 --auth http://localhost:8551 \
 --jwt $JWT_FILE \
 --fcu \
 --tps 200 -d 2 -w 3
 
 # example targeting local op-rbuilder
-cargo run -- spamd ./scenarios/stress.toml http://localhost:1111 \
+cargo run -- spamd ./scenarios/stress.toml -r http://localhost:1111 \
 --auth http://localhost:4444 \
 --jwt $CODE/rbuilder/crates/op-rbuilder/src/tester/fixtures/test-jwt-secret.txt \
 --fcu \
@@ -205,8 +205,8 @@ We provide some scenarios in the repo under the [`scenarios/`](./scenarios/) dir
 ```sh
 git clone https://github.com/flashbots/contender
 cd contender
-cargo run -- setup ./scenarios/stress.toml $RPC_URL -p $PRIVATE_KEY
-cargo run -- spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRIVATE_KEY
+cargo run -- setup ./scenarios/stress.toml -r $RPC_URL -p $PRIVATE_KEY
+cargo run -- spam ./scenarios/stress.toml -r $RPC_URL --tps 10 -d 3 -p $PRIVATE_KEY
 ```
 
 ### Library Usage

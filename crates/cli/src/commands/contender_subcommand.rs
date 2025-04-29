@@ -79,7 +79,13 @@ pub enum ContenderSubcommand {
         /// The scenario to run.
         scenario: BuiltinScenario,
 
-        /// The HTTP JSON-RPC URL to target with the scenario.
+        /// The HTTP JSON-RPC URL to spam with requests.
+        #[arg(
+            short,
+            long,
+            long_help = "RPC URL to test the scenario.",
+            default_value = "http://localhost:8545"
+        )]
         rpc_url: String,
 
         #[arg(
