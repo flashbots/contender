@@ -35,10 +35,7 @@ fn read_seed_file() -> Result<Vec<u8>, ContenderError> {
         .map_err(|e| ContenderError::GenericError("Failed to get data dir", e.to_string()))?;
     let seed_path = format!("{data_dir}/seed");
     let seed_hex = std::fs::read_to_string(&seed_path).map_err(|e| {
-        ContenderError::AdminError(
-            "Failed to read seed file",
-            format!("at {seed_path}: {e}"),
-        )
+        ContenderError::AdminError("Failed to read seed file", format!("at {seed_path}: {e}"))
     })?;
     let decoded = hex::decode(seed_hex.trim()).map_err(|_| {
         ContenderError::AdminError("Invalid hex data in seed file", format!("at {seed_path}"))
