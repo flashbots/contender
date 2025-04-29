@@ -173,7 +173,7 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
 pub fn cli_env_vars_parser(s: &str) -> Result<(String, String), String> {
     let equal_sign_index = s
         .find('=')
-        .ok_or_else(|| "Invalid KEY=VALUE: No \"=\" found")?;
+        .ok_or("Invalid KEY=VALUE: No \"=\" found")?;
 
     if equal_sign_index == 0 {
         return Err("Empty Key: No Key found".to_owned());
@@ -193,7 +193,7 @@ mod tests {
     fn correct_parsing_env_vars() {
         let env_param_value = "key1=value1";
         assert_eq!(
-            cli_env_vars_parser(&env_param_value).unwrap(),
+            cli_env_vars_parser(env_param_value).unwrap(),
             ("key1".to_owned(), "value1".to_owned())
         );
     }
@@ -202,7 +202,7 @@ mod tests {
     fn multiple_equal_signs() {
         let env_param_value = "key1=value1==";
         assert_eq!(
-            cli_env_vars_parser(&env_param_value).unwrap(),
+            cli_env_vars_parser(env_param_value).unwrap(),
             ("key1".to_owned(), "value1==".to_owned())
         );
     }
