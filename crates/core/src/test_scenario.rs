@@ -1549,8 +1549,8 @@ pub mod tests {
             &seed,
         );
 
-        let admin1_signers = SignerStore::new_random(1, &seed, "admin1");
-        let admin2_signers = SignerStore::new_random(1, &seed, "admin2");
+        let admin1_signers = SignerStore::new(1, &seed, "admin1");
+        let admin2_signers = SignerStore::new(1, &seed, "admin2");
         agents.add_agent("admin1", admin1_signers);
         agents.add_agent("admin2", admin2_signers);
 
