@@ -33,20 +33,20 @@ pub enum AdminCommand {
 fn read_seed_file() -> Result<Vec<u8>, ContenderError> {
     let data_dir = data_dir()
         .map_err(|e| ContenderError::GenericError("Failed to get data dir", e.to_string()))?;
-    let seed_path = format!("{}/seed", data_dir);
+    let seed_path = format!("{data_dir}/seed");
     let seed_hex = std::fs::read_to_string(&seed_path).map_err(|e| {
         ContenderError::AdminError(
             "Failed to read seed file",
-            format!("at {}: {}", seed_path, e),
+            format!("at {seed_path}: {e}"),
         )
     })?;
     let decoded = hex::decode(seed_hex.trim()).map_err(|_| {
-        ContenderError::AdminError("Invalid hex data in seed file", format!("at {}", seed_path))
+        ContenderError::AdminError("Invalid hex data in seed file", format!("at {seed_path}"))
     })?;
     if decoded.is_empty() {
         return Err(ContenderError::AdminError(
             "Empty seed file",
-            format!("at {}", seed_path),
+            format!("at {seed_path}"),
         ));
     }
     Ok(decoded)
@@ -60,7 +60,7 @@ fn confirm_sensitive_operation(_operation: &str) -> Result<(), ContenderError> {
     let mut input = String::new();
     std::io::stdin()
         .read_line(&mut input)
-        .map_err(|e| ContenderError::AdminError("Failed to read input", format!("{}", e)))?;
+        .map_err(|e| ContenderError::AdminError("Failed to read input", format!("{e}")))?;
     Ok(())
 }
 
@@ -108,7 +108,7 @@ pub fn handle_admin_command(
         } => handle_accounts(from_pool, num_signers),
         AdminCommand::LatestRunId => {
             let num_runs = db.num_runs()?;
-            println!("Latest run ID: {}", num_runs);
+            println!("Latest run ID: {num_runs}");
             Ok(())
         }
         AdminCommand::Seed => handle_seed(),

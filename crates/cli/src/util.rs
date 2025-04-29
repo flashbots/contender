@@ -409,7 +409,7 @@ pub fn data_dir() -> Result<String, Box<dyn std::error::Error>> {
         std::env::var("HOME").map_err(|_| "Failed to get HOME from environment")?
     };
 
-    let dir = format!("{}/.contender", home_dir);
+    let dir = format!("{home_dir}/.contender");
 
     // ensure directory exists
     std::fs::create_dir_all(&dir)?;
