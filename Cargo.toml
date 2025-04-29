@@ -34,6 +34,7 @@ alloy-signer = { version = "0.14.0", features = ["wallet"] }
 serde = "1.0.209"
 rand = "0.8.5"
 tracing = "0.1.41"
+tracing-subscriber = { version = "0.3" }
 prometheus = "0.14"
 
 ## cli

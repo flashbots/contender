@@ -20,10 +20,6 @@ pub enum AdminCommand {
         /// Number of signers to generate
         #[arg(short = 'n', long, default_value = "10")]
         num_signers: usize,
-
-        /// Acknowledge that printing addresses may expose sensitive information
-        #[arg(long)]
-        confirm: bool,
     },
 
     #[command(name = "latest-run-id", about = "Print the max run id in the DB")]
@@ -69,15 +65,10 @@ fn confirm_sensitive_operation(_operation: &str) -> Result<(), ContenderError> {
 }
 
 /// Handles the accounts subcommand
-async fn handle_accounts(
+fn handle_accounts(
     from_pool: String,
     num_signers: usize,
-    confirm: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if confirm {
-        confirm_sensitive_operation("displaying account addresses")?;
-    }
-
     let seed_bytes = read_seed_file()?;
     let seed = RandSeed::seed_from_bytes(&seed_bytes);
     print_accounts_for_pool(&from_pool, num_signers, &seed)?;
@@ -106,14 +97,14 @@ fn print_accounts_for_pool(
 }
 
 /// Handles the seed subcommand
-async fn handle_seed() -> Result<(), Box<dyn std::error::Error>> {
+fn handle_seed() -> Result<(), Box<dyn std::error::Error>> {
     confirm_sensitive_operation("displaying seed value")?;
     let seed_bytes = read_seed_file()?;
     println!("{}", hex::encode(seed_bytes));
     Ok(())
 }
 
-pub async fn handle_admin_command(
+pub fn handle_admin_command(
     command: AdminCommand,
     db: impl DbOps,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -121,13 +112,12 @@ pub async fn handle_admin_command(
         AdminCommand::Accounts {
             from_pool,
             num_signers,
-            confirm,
-        } => handle_accounts(from_pool, num_signers, confirm).await,
+        } => handle_accounts(from_pool, num_signers),
         AdminCommand::LatestRunId => {
             let num_runs = db.num_runs()?;
             println!("Latest run ID: {}", num_runs);
             Ok(())
         }
-        AdminCommand::Seed => handle_seed().await,
+        AdminCommand::Seed => handle_seed(),
     }
 }
