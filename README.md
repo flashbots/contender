@@ -144,14 +144,29 @@ contender report -i 203 -p 3
 
 ---
 
-**Overriding variables**
+**Overriding [env] values**
 
-You may manually override any placeholder in a scenario file by passing `-e <KEY=VALUE>` with your spam/setup commands.
+You may manually override any `[env]` variable (or add new ones) in a scenario file by passing `-e <KEY=VALUE>` with your spam/setup commands.
 
-The following example will replace any instance of `{testAddr}` in `example.toml`:
+The following example will replace the value for `{testAddr}` in `example.toml`:
+
+```toml
+# example.toml
+...
+
+[[spam]]
+[spam.tx]
+to = "{testAddr}"
+from_pool = "spammers"
+signature = "call()"
+args = []
+```
+
+In this case, we're using `{testAddr}` for the spam tx's `to` address, so we'll be sending transactions to the address we provide with `-e`:
 
 ```bash
-contender spam example.toml --tps 10 -e testAddr=0x0000000000000000000000000000000000000013
+contender spam example.toml --tps 10 \
+-e testAddr=0x0000000000000000000000000000000000000013
 ```
 
 ---
