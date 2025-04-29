@@ -1,3 +1,4 @@
+use super::command::SpamRunMetrics;
 use crate::{commands::report::chart::ReportChartId, util::report_dir};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -9,6 +10,8 @@ pub struct ReportMetadata {
     pub start_block: u64,
     pub end_block: u64,
     pub rpc_url: String,
+    pub metrics: SpamRunMetrics,
+    pub chart_ids: Vec<ReportChartId>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -18,6 +21,7 @@ struct TemplateData {
     rpc_url: String,
     start_block: String,
     end_block: String,
+    metrics: SpamRunMetrics,
     charts: Vec<(String, String)>,
 }
 
@@ -29,6 +33,7 @@ impl TemplateData {
             rpc_url: meta.rpc_url.clone(),
             start_block: meta.start_block.to_string(),
             end_block: meta.end_block.to_string(),
+            metrics: meta.metrics.to_owned(),
             charts,
         }
     }
@@ -38,13 +43,7 @@ impl TemplateData {
 pub fn build_html_report(meta: ReportMetadata) -> Result<String, Box<dyn std::error::Error>> {
     let report_dir = report_dir()?;
     let mut charts = Vec::new();
-    for chart_id in &[
-        ReportChartId::Heatmap,
-        ReportChartId::GasPerBlock,
-        ReportChartId::TimeToInclusion,
-        ReportChartId::TxGasUsed,
-        ReportChartId::PendingTxs,
-    ] {
+    for chart_id in &meta.chart_ids {
         let filename = chart_id.filename(meta.start_run_id, meta.end_run_id)?;
         charts.push((chart_id.proper_name(), filename));
     }
@@ -61,7 +60,7 @@ pub fn build_html_report(meta: ReportMetadata) -> Result<String, Box<dyn std::er
         report_dir, meta.start_run_id, meta.end_run_id
     );
     std::fs::write(&path, html)?;
-    println!("saved report to {}", path);
+    println!("saved report to {path}");
 
     Ok(path)
 }

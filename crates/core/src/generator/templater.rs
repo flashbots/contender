@@ -5,7 +5,7 @@ use crate::{
     Result,
 };
 use alloy::{
-    hex::FromHex,
+    hex::{FromHex, ToHexExt},
     primitives::{Address, Bytes, TxKind, U256},
     rpc::types::TransactionRequest,
 };
@@ -23,7 +23,6 @@ where
     fn copy_end(&self, input: &str, last_end: usize) -> String;
     fn num_placeholders(&self, input: &str) -> usize;
     fn find_key(&self, input: &str) -> Option<(K, usize)>;
-    fn encode_contract_address(&self, input: &Address) -> String;
 
     /// Looks for {placeholders} in `arg` and updates `env` with the values found by querying the DB.
     fn find_placeholder_values(
@@ -63,7 +62,7 @@ where
                 .map_err(|e| {
                     ContenderError::SpamError(
                         "Failed to get named tx from DB. There may be an issue with your database.",
-                        Some(format!("value={:?} ({})", template_key, e)),
+                        Some(format!("value={template_key:?} ({e})")),
                     )
                 })?;
             if let Some(template_value) = template_value {
@@ -71,7 +70,7 @@ where
                     template_key,
                     template_value
                         .address
-                        .map(|a| self.encode_contract_address(&a))
+                        .map(|a| a.encode_hex())
                         .unwrap_or_default(),
                 );
             } else {

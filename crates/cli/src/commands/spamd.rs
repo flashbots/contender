@@ -60,7 +60,7 @@ pub async fn spamd(
         let db = db.clone();
         let spam_res = commands::spam(&db, &args, &mut scenario).await;
         if let Err(e) = spam_res {
-            println!("spam failed: {:?}", e);
+            println!("spam failed: {e:?}");
         } else {
             println!("spam batch completed");
             let run_id = spam_res.expect("spam");
@@ -79,16 +79,11 @@ pub async fn spamd(
             }
             let first_run_id = run_ids.iter().min().expect("no run IDs found");
             let last_run_id = *run_ids.iter().max().expect("no run IDs found");
-            commands::report(
-                Some(last_run_id),
-                last_run_id - first_run_id,
-                db,
-                &args.rpc_url,
-            )
-            .await
-            .map_err(|e| {
-                ContenderError::GenericError("failed to generate report", e.to_string())
-            })?;
+            commands::report(Some(last_run_id), last_run_id - first_run_id, db)
+                .await
+                .map_err(|e| {
+                    ContenderError::GenericError("failed to generate report", e.to_string())
+                })?;
         }
         Ok(())
     };

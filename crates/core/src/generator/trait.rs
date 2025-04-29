@@ -148,13 +148,13 @@ where
                 .get_address(idx % agent.signers.len())
                 .ok_or(ContenderError::SpamError(
                     "signer not found in agent store",
-                    Some(format!("from_pool={}, idx={}", from_pool, idx)),
+                    Some(format!("from_pool={from_pool}, idx={idx}")),
                 ))?
         } else if let Some(from) = &create_def.from {
             from.parse().map_err(|e| {
                 ContenderError::SpamError(
                     "failed to parse 'from' address",
-                    Some(format!("from={}, error={}", from, e)),
+                    Some(format!("from={from}, error={e}")),
                 )
             })?
         } else {
@@ -193,13 +193,13 @@ where
                 .get_address(idx % agent.signers.len())
                 .ok_or(ContenderError::SpamError(
                     "signer not found in agent store",
-                    Some(format!("from_pool={}, idx={}", from_pool, idx)),
+                    Some(format!("from_pool={from_pool}, idx={idx}")),
                 ))?
         } else if let Some(from) = &funcdef.from {
             from.parse().map_err(|e| {
                 ContenderError::SpamError(
                     "failed to parse 'from' address",
-                    Some(format!("from={}, error={}", from, e)),
+                    Some(format!("from={from}, error={e}")),
                 )
             })?
         } else {
@@ -338,7 +338,6 @@ where
                     let res =
                         templater.find_fncall_placeholders(tx, db, &mut placeholder_map, &rpc_url);
                     if let Err(e) = res {
-                        eprintln!("error finding placeholders: {}", e);
                         return Err(ContenderError::SpamError(
                             "failed to find placeholder value",
                             Some(e.to_string()),

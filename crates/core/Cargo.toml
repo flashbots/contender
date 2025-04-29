@@ -17,11 +17,13 @@ contender_bundle_provider = { workspace = true }
 contender_engine_provider = { workspace = true }
 
 alloy = { workspace = true, features = ["full", "node-bindings"] }
+async-trait.workspace = true
+eyre = { workspace = true }
+futures = { workspace = true }
+prometheus = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-futures = { workspace = true }
-async-trait.workspace = true
-tokio = { workspace = true, features = ["signal"]}
 serde_json = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
+tokio-util = { workspace = true }
 tower = { workspace = true }
-eyre = { workspace = true }

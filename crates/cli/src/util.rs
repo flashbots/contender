@@ -15,9 +15,10 @@ use contender_core::{
     },
     spammer::{LogCallback, NilCallback},
 };
+use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
 use csv::Writer;
-use std::{io::Write, str::FromStr, sync::Arc};
+use std::{io::Write, str::FromStr, sync::Arc, time::Duration};
 use termcolor::{ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 pub enum SpamCallbackType {
@@ -118,7 +119,7 @@ pub fn check_private_keys_fns(fn_calls: &[FunctionCallDefinition], prv_keys: &[P
         if let Some(from) = &fn_call.from {
             let address = from.parse::<Address>().expect("invalid 'from' address");
             if prv_keys.iter().all(|k| k.address() != address) {
-                panic!("No private key found for address: {}", address);
+                panic!("No private key found for address: {address}");
             }
         }
     }
@@ -133,14 +134,48 @@ async fn is_balance_sufficient(
     Ok((balance >= min_balance, balance))
 }
 
+pub struct EngineParams {
+    pub engine_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    pub call_fcu: bool,
+}
+
+impl EngineParams {
+    pub fn new(
+        engine_provider: Arc<dyn AdvanceChain + Send + Sync + 'static>,
+        call_forkchoice: bool,
+    ) -> Self {
+        Self {
+            engine_provider: Some(engine_provider),
+            call_fcu: call_forkchoice,
+        }
+    }
+}
+
+/// default is Eth wrapper with no provider
+impl Default for EngineParams {
+    fn default() -> Self {
+        Self {
+            engine_provider: None,
+            call_fcu: false,
+        }
+    }
+}
+
 /// Funds given accounts if/when their balance is below the minimum balance.
+///
+/// TODO: remove this function
 pub async fn fund_accounts(
     recipient_addresses: &[Address],
     fund_with: &PrivateKeySigner,
     rpc_client: &AnyProvider,
     min_balance: U256,
     tx_type: TxType,
+    engine_params: &EngineParams,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let EngineParams {
+        engine_provider,
+        call_fcu,
+    } = engine_params;
     let insufficient_balances =
         find_insufficient_balances(recipient_addresses, min_balance, rpc_client).await?;
 
@@ -168,8 +203,9 @@ pub async fn fund_accounts(
     }
 
     let mut fund_handles: Vec<tokio::task::JoinHandle<()>> = vec![];
-    let (sender, mut receiver) = tokio::sync::mpsc::channel::<PendingTransactionConfig>(9000);
-    let sendr = Arc::new(sender.clone());
+    let (sender_pending_tx, mut receiver_pending_tx) =
+        tokio::sync::mpsc::channel::<PendingTransactionConfig>(9000);
+
     let rpc_client = Arc::new(rpc_client.to_owned());
 
     let (balance_sufficient, balance) = is_balance_sufficient(
@@ -204,26 +240,27 @@ pub async fn fund_accounts(
     for (idx, (address, _)) in insufficient_balances.into_iter().enumerate() {
         let fund_amount = min_balance;
         let fund_with = fund_with.to_owned();
-        let sender = sendr.clone();
-        let rpc = rpc_client.clone();
+        let sender = sender_pending_tx.clone();
+        let rpc_client = rpc_client.clone();
 
         fund_handles.push(tokio::task::spawn(async move {
             let res = fund_account(
                 &fund_with,
                 address,
                 fund_amount,
-                &rpc,
+                &rpc_client,
                 Some(admin_nonce + idx as u64),
                 tx_type,
             )
             .await;
-
-            // TODO: figure out how to handle this error (not type-safe?)
-            match res.ok() {
-                Some(res) => sender.send(res).await.expect("failed to handle pending tx"),
-                None => {
-                    eprintln!("Error funding account {}", address);
-                }
+            if let Err(e) = res {
+                let err = e.to_string();
+                println!("error funding account {address}: {err}");
+            } else {
+                sender
+                    .send(res.expect("fund result not sent"))
+                    .await
+                    .expect("failed to handle pending tx");
             }
         }));
     }
@@ -234,11 +271,26 @@ pub async fn fund_accounts(
             handle.await?;
         }
     }
-    receiver.close();
+    receiver_pending_tx.close();
 
-    while let Some(tx) = receiver.recv().await {
-        let pending = rpc_client.watch_pending_transaction(tx).await?;
-        println!("funding tx confirmed ({})", pending.await?);
+    tokio::time::sleep(Duration::from_secs(DEFAULT_BLOCK_TIME)).await;
+
+    let mut pending_txs = vec![];
+    while let Some(tx) = receiver_pending_tx.recv().await {
+        pending_txs.push(tx);
+    }
+    for txs_chunk in pending_txs.chunks(100) {
+        if *call_fcu {
+            if let Some(engine_provider) = &engine_provider {
+                engine_provider.advance_chain(DEFAULT_BLOCK_TIME).await?;
+            } else {
+                return Err("No engine provider found".into());
+            }
+        }
+        for tx in txs_chunk {
+            let pending = rpc_client.watch_pending_transaction(tx.to_owned()).await?;
+            println!("funding tx confirmed ({})", pending.await?);
+        }
     }
 
     Ok(())
@@ -263,7 +315,14 @@ pub async fn fund_account(
         chain_id: Some(chain_id),
         ..Default::default()
     };
-    complete_tx_request(&mut tx_req, tx_type, gas_price, 1_u128, 21000, chain_id);
+    complete_tx_request(
+        &mut tx_req,
+        tx_type,
+        gas_price,
+        gas_price / 10,
+        21000,
+        chain_id,
+    );
 
     let eth_wallet = EthereumWallet::from(sender.to_owned());
     let tx = tx_req.build(&eth_wallet).await?;
@@ -291,7 +350,7 @@ pub async fn find_insufficient_balances(
     for address in addresses {
         let (balance_sufficient, balance) = is_balance_sufficient(address, min_balance, rpc_client)
             .await
-            .map_err(|e| format!("Error checking balance for address {}: {}", address, e))?;
+            .map_err(|e| format!("Error checking balance for address {address}: {e}"))?;
         if !balance_sufficient {
             insufficient_balances.push((*address, balance));
         }
@@ -301,11 +360,16 @@ pub async fn find_insufficient_balances(
 
 pub async fn spam_callback_default(
     log_txs: bool,
-    rpc_client: Option<&Arc<AnyProvider>>,
+    send_fcu: bool,
+    rpc_client: Option<Arc<AnyProvider>>,
+    auth_client: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    cancel_token: tokio_util::sync::CancellationToken,
 ) -> SpamCallbackType {
     if let Some(rpc_client) = rpc_client {
         if log_txs {
-            return SpamCallbackType::Log(LogCallback::new(rpc_client));
+            let log_callback =
+                LogCallback::new(rpc_client.clone(), auth_client, send_fcu, cancel_token);
+            return SpamCallbackType::Log(log_callback);
         }
     }
     SpamCallbackType::Nil(NilCallback)
@@ -363,7 +427,7 @@ pub fn report_dir() -> Result<String, Box<dyn std::error::Error>> {
 /// Returns path to default contender DB file.
 pub fn db_file() -> Result<String, Box<dyn std::error::Error>> {
     let data_path = data_dir()?;
-    Ok(format!("{}/contender.db", data_path))
+    Ok(format!("{data_path}/contender.db"))
 }
 
 #[cfg(test)]
@@ -417,13 +481,14 @@ mod test {
             &rpc_client,
             min_balance,
             tx_type,
+            &Default::default(),
         )
         .await
         .unwrap();
 
         for addr in &recipient_addresses {
             let balance = rpc_client.get_balance(*addr).await.unwrap();
-            println!("balance of {}: {}", addr, balance);
+            println!("balance of {addr}: {balance}");
             assert_eq!(balance, U256::from(ETH_TO_WEI));
         }
 
@@ -435,9 +500,10 @@ mod test {
             &rpc_client,
             min_balance,
             tx_type,
+            &Default::default(),
         )
         .await;
-        println!("res: {:?}", res);
+        println!("res: {res:?}");
         assert!(res.is_err());
     }
 }

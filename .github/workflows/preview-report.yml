@@ -1,0 +1,58 @@
+on: [pull_request]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  preview-report:
+    runs-on: ${{ matrix.configs.runner }}
+    strategy:
+      matrix:
+        configs:
+        - runner: warp-ubuntu-latest-x64-32x
+    
+    env:
+      DEBUG_USEFILE: true
+      BROWSER: none
+      C_HOME_PATH: /home/runner/.contender
+      C_REPORT_NAME: report-2-2.html
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
+    - name: Install deps
+      run: sudo apt-get install -y libsqlite3-dev fontconfig libfontconfig1-dev libfontconfig
+    - name: Build
+      run: cargo build --workspace
+
+    - name: Copy example data
+      run: |
+        mkdir -p $C_HOME_PATH/reports
+        cp -r ./test_fixtures/* $C_HOME_PATH
+
+    - name: Generate report
+      run: cargo run -- report
+
+    - name: Prepare report
+      id: prepare-report
+      run: |
+        sed -i "s|$C_HOME_PATH/reports|.|g" $C_HOME_PATH/reports/report-*.html
+
+    - name: Upload report
+      id: artifact-upload-step
+      uses: actions/upload-artifact@v4
+      with:
+        name: example-report
+        path: /home/runner/.contender/reports
+        retention-days: 10
+
+    - name: Comment summary on PR
+      uses: thollander/actions-comment-pull-request@v3
+      with:
+        message: |
+          ### [Preview Report](https://github.com/flashbots/contender/actions/runs/${{github.run_id}}/artifacts/${{steps.artifact-upload-step.outputs.artifact-id}})
+          An example contender report preview is available [here](https://github.com/flashbots/contender/actions/runs/${{github.run_id}}/artifacts/${{steps.artifact-upload-step.outputs.artifact-id}}).
+        comment-tag: 'preview-report'

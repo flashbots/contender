@@ -28,6 +28,7 @@ use contender_testfile::TestConfig;
 use crate::{
     default_scenarios::{BuiltinScenario, BuiltinScenarioConfig},
     util::{check_private_keys, get_signers_with_defaults, prompt_cli, EngineParams},
+    LATENCY_HIST as HIST, PROM,
 };
 
 pub struct RunCommandArgs {
@@ -92,17 +93,9 @@ pub async fn run(
         testconfig,
         db.clone().into(),
         rand_seed,
-        TestScenarioParams {
-            rpc_url: rpc_url.to_owned(),
-            builder_rpc_url: None,
-            signers: user_signers,
-            agent_store: AgentStore::default(),
-            tx_type: args.tx_type,
-            gas_price_percent_add: None, // TODO: support this here !!!
-            pending_tx_timeout_secs: 12,
-        },
         params,
         args.engine_params.engine_provider,
+        (&PROM, &HIST),
     )
     .await?;
 
@@ -114,10 +107,9 @@ pub async fn run(
             false
         } else {
             let input = prompt_cli(format!(
-                "{} deployment already detected. Re-deploy? [y/N]",
-                contract_name
+                "{contract_name} deployment already detected. Re-deploy? [y/N]"
             ));
-            input.to_lowercase() == "y"
+            input.to_lowercase().starts_with("y")
         }
     } else {
         true
@@ -165,17 +157,18 @@ pub async fn run(
     let run_id = db.insert_run(
         timestamp as u64,
         args.duration * args.txs_per_duration,
-        &format!("{} ({})", contract_name, scenario_name),
+        &format!("{contract_name} ({scenario_name})"),
+        scenario.rpc_url.as_str(),
     )?;
     let provider = Arc::new(DynProvider::new(provider));
     let tx_callback = LogCallback::new(
         provider.clone(),
         scenario.auth_provider.clone(),
         false, // don't call in callback bc we're already calling in the loop
+        scenario.ctx.cancel_token.clone(),
     );
 
     println!("starting spammer...");
-    let done_sending = Arc::new(AtomicBool::new(false));
     spammer
         .spam_rpc(
             &mut scenario,
@@ -183,7 +176,6 @@ pub async fn run(
             args.duration,
             Some(run_id),
             tx_callback.into(),
-            done_sending,
         )
         .await?;
 

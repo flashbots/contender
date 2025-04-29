@@ -1,100 +1,6 @@
-mod types;
+mod test_config;
 
-pub use crate::types::TestConfig;
-use alloy::hex::ToHexExt;
-use alloy::primitives::Address;
-use contender_core::{
-    error::ContenderError,
-    generator::{
-        templater::Templater,
-        types::{CreateDefinition, FunctionCallDefinition, SpamRequest},
-        PlanConfig,
-    },
-};
-use std::collections::HashMap;
-use std::fs::read;
-
-impl TestConfig {
-    pub fn from_file(file_path: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
-        let file_contents = read(file_path)?;
-        let file_contents_str = String::from_utf8_lossy(&file_contents).to_string();
-        let test_file: TestConfig = toml::from_str(&file_contents_str)?;
-        Ok(test_file)
-    }
-
-    pub fn encode_toml(&self) -> Result<String, Box<dyn std::error::Error>> {
-        let encoded = toml::to_string(self)?;
-        Ok(encoded)
-    }
-
-    pub fn save_toml(&self, file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let encoded = self.encode_toml()?;
-        std::fs::write(file_path, encoded)?;
-        Ok(())
-    }
-}
-
-impl PlanConfig<String> for TestConfig {
-    fn get_spam_steps(&self) -> Result<Vec<SpamRequest>, ContenderError> {
-        Ok(self.spam.to_owned().unwrap_or_default())
-    }
-
-    fn get_setup_steps(&self) -> Result<Vec<FunctionCallDefinition>, ContenderError> {
-        Ok(self.setup.to_owned().unwrap_or_default())
-    }
-
-    fn get_create_steps(&self) -> Result<Vec<CreateDefinition>, ContenderError> {
-        Ok(self.create.to_owned().unwrap_or_default())
-    }
-
-    fn get_env(&self) -> Result<HashMap<String, String>, ContenderError> {
-        Ok(self.env.to_owned().unwrap_or_default())
-    }
-}
-
-impl Templater<String> for TestConfig {
-    /// Find values wrapped in brackets in a string and replace them with values from a hashmap whose key match the value in the brackets.
-    /// example: "hello {world}" with hashmap {"world": "earth"} will return "hello earth"
-    fn replace_placeholders(&self, input: &str, template_map: &HashMap<String, String>) -> String {
-        let mut output = input.to_owned();
-        for (key, value) in template_map.iter() {
-            let template = format!("{{{}}}", key);
-            output = output.replace(&template, value);
-        }
-        output
-    }
-
-    fn terminator_start(&self, input: &str) -> Option<usize> {
-        input.find("{")
-    }
-
-    fn terminator_end(&self, input: &str) -> Option<usize> {
-        input.find("}")
-    }
-
-    fn num_placeholders(&self, input: &str) -> usize {
-        input.chars().filter(|&c| c == '{').count()
-    }
-
-    fn copy_end(&self, input: &str, last_end: usize) -> String {
-        input.split_at(last_end).1.to_owned()
-    }
-
-    fn find_key(&self, input: &str) -> Option<(String, usize)> {
-        if let Some(template_start) = self.terminator_start(input) {
-            let template_end = self.terminator_end(input);
-            if let Some(template_end) = template_end {
-                let template_name = &input[template_start + 1..template_end];
-                return Some((template_name.to_owned(), template_end));
-            }
-        }
-        None
-    }
-
-    fn encode_contract_address(&self, input: &Address) -> String {
-        input.encode_hex()
-    }
-}
+pub use test_config::TestConfig;
 
 #[cfg(test)]
 pub mod tests {
@@ -106,6 +12,7 @@ pub mod tests {
         primitives::{Address, U256},
         signers::local::PrivateKeySigner,
     };
+    use contender_core::generator::templater::Templater;
     use contender_core::{
         db::MockDb,
         generator::{
@@ -119,6 +26,11 @@ pub mod tests {
         test_scenario::{TestScenario, TestScenarioParams},
     };
     use std::{collections::HashMap, fs, str::FromStr};
+    use tokio::sync::OnceCell;
+
+    // prometheus
+    static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
+    static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
 
     pub fn spawn_anvil() -> AnvilInstance {
         Anvil::new().block_time(1).try_spawn().unwrap()
@@ -336,7 +248,7 @@ pub mod tests {
 
     fn print_testconfig(cfg: &str) {
         println!("{}", "-".repeat(80));
-        println!("{}", cfg);
+        println!("{cfg}");
         println!("{}", "-".repeat(80));
     }
 
@@ -391,6 +303,7 @@ pub mod tests {
                 pending_tx_timeout_secs: 12,
             },
             None,
+            (&PROM, &HIST),
         )
         .await
         .unwrap();
@@ -438,6 +351,7 @@ pub mod tests {
                 pending_tx_timeout_secs: 12,
             },
             None,
+            (&PROM, &HIST),
         )
         .await
         .unwrap();
@@ -455,6 +369,7 @@ pub mod tests {
                 pending_tx_timeout_secs: 12,
             },
             None,
+            (&PROM, &HIST),
         )
         .await
         .unwrap();
@@ -501,7 +416,6 @@ pub mod tests {
 
     #[test]
     fn test_placeholders_count() {
-        use crate::{types::TestConfig, Templater};
         let test_config = TestConfig::default();
 
         let count = test_config.num_placeholders("{lol}{baa}{hahaa}");
@@ -511,8 +425,6 @@ pub mod tests {
 
     #[test]
     fn test_placeholders_find() {
-        use crate::{types::TestConfig, Templater};
-
         let test_config = TestConfig::default();
 
         let mut placeholder_map = HashMap::new();

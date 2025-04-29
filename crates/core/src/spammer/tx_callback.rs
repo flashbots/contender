@@ -1,6 +1,5 @@
 use super::tx_actor::{CacheTx, TxActorHandle};
 use crate::generator::{types::AnyProvider, NamedTxRequest};
-use super::tx_actor::{CacheTx, TxActorHandle};
 use alloy::providers::PendingTransactionConfig;
 use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use std::{collections::HashMap, sync::Arc};
@@ -31,6 +30,7 @@ pub struct LogCallback {
     pub rpc_provider: Arc<AnyProvider>,
     pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
     pub send_fcu: bool,
+    pub cancel_token: tokio_util::sync::CancellationToken,
 }
 
 impl LogCallback {
@@ -38,11 +38,13 @@ impl LogCallback {
         rpc_provider: Arc<AnyProvider>,
         auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
         send_fcu: bool,
+        cancel_token: tokio_util::sync::CancellationToken,
     ) -> Self {
         Self {
             rpc_provider,
             auth_provider,
             send_fcu,
+            cancel_token,
         }
     }
 }
@@ -78,6 +80,7 @@ impl OnTxSent for LogCallback {
         let error = extra
             .as_ref()
             .and_then(|e| e.get("error").map(|e| e.to_owned()));
+        let cancel_token = self.cancel_token.clone();
         let handle = tokio::task::spawn(async move {
             if let Some(tx_actor) = tx_actor {
                 let tx = CacheTx {
@@ -86,10 +89,10 @@ impl OnTxSent for LogCallback {
                     kind,
                     error,
                 };
-                tx_actor
-                    .cache_run_tx(tx)
-                    .await
-                    .expect("failed to cache run tx");
+                tokio::select! {
+                    _ = cancel_token.cancelled() => {}
+                    _ = tx_actor.cache_run_tx(tx) => {}
+                };
             }
         });
         Some(handle)

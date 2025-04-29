@@ -1,6 +1,9 @@
-use crate::util::{
-    check_private_keys_fns, find_insufficient_balances, fund_accounts, get_signers_with_defaults,
-    EngineParams,
+use crate::{
+    util::{
+        check_private_keys_fns, find_insufficient_balances, fund_accounts,
+        get_signers_with_defaults, EngineParams,
+    },
+    LATENCY_HIST as HIST, PROM,
 };
 use alloy::{
     consensus::TxType,
@@ -137,17 +140,9 @@ pub async fn setup(
         testconfig.to_owned(),
         db.clone().into(),
         seed,
-        TestScenarioParams {
-            rpc_url: url,
-            builder_rpc_url: None,
-            signers: user_signers_with_defaults,
-            agent_store: agents,
-            tx_type,
-            gas_price_percent_add: None,
-            pending_tx_timeout_secs: 12,
-        },
         params,
         engine_params.engine_provider,
+        (&PROM, &HIST),
     )
     .await?;
 

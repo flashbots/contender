@@ -1,14 +1,10 @@
-use alloy::hex;
-use clap::Subcommand;
-use contender_core::{
-    db::DbOps,
-    error::ContenderError,
-    generator::RandSeed,
-};
 use crate::util::data_dir;
-use tracing::{info};
-use alloy::signers::local::PrivateKeySigner;
+use alloy::hex;
 use alloy::primitives::FixedBytes;
+use alloy::signers::local::PrivateKeySigner;
+use clap::Subcommand;
+use contender_core::{db::DbOps, error::ContenderError, generator::RandSeed};
+use tracing::info;
 
 #[derive(Debug, Subcommand)]
 pub enum AdminCommand {
@@ -30,42 +26,31 @@ pub enum AdminCommand {
         confirm: bool,
     },
 
-    #[command(
-        name = "latest-run-id",
-        about = "Print the max run id in the DB"
-    )]
+    #[command(name = "latest-run-id", about = "Print the max run id in the DB")]
     LatestRunId,
 
-    #[command(
-        name = "seed",
-        about = "Print the contents of ~/.contender/seed"
-    )]
+    #[command(name = "seed", about = "Print the contents of ~/.contender/seed")]
     Seed,
 }
 
 /// Reads and validates the seed file
 fn read_seed_file() -> Result<Vec<u8>, ContenderError> {
-    let data_dir = data_dir().map_err(|e| {
-        ContenderError::GenericError(
-            "Failed to get data dir",
-            e.to_string()
+    let data_dir = data_dir()
+        .map_err(|e| ContenderError::GenericError("Failed to get data dir", e.to_string()))?;
+    let seed_path = format!("{}/seed", data_dir);
+    let seed_hex = std::fs::read_to_string(&seed_path).map_err(|e| {
+        ContenderError::AdminError(
+            "Failed to read seed file",
+            format!("at {}: {}", seed_path, e),
         )
     })?;
-    let seed_path = format!("{}/seed", data_dir);
-    let seed_hex = std::fs::read_to_string(&seed_path)
-        .map_err(|e| ContenderError::AdminError(
-            "Failed to read seed file",
-            format!("at {}: {}", seed_path, e)
-        ))?;
-    let decoded = hex::decode(seed_hex.trim())
-        .map_err(|_| ContenderError::AdminError(
-            "Invalid hex data in seed file",
-            format!("at {}", seed_path)
-        ))?;
+    let decoded = hex::decode(seed_hex.trim()).map_err(|_| {
+        ContenderError::AdminError("Invalid hex data in seed file", format!("at {}", seed_path))
+    })?;
     if decoded.is_empty() {
         return Err(ContenderError::AdminError(
             "Empty seed file",
-            format!("at {}", seed_path)
+            format!("at {}", seed_path),
         ));
     }
     Ok(decoded)
@@ -77,11 +62,9 @@ fn confirm_sensitive_operation(_operation: &str) -> Result<(), ContenderError> {
     println!("This information should not be shared or exposed in CI environments.");
     println!("Press Enter to continue or Ctrl+C to cancel...");
     let mut input = String::new();
-    std::io::stdin().read_line(&mut input)
-        .map_err(|e| ContenderError::AdminError(
-            "Failed to read input",
-            format!("{}", e)
-        ))?;
+    std::io::stdin()
+        .read_line(&mut input)
+        .map_err(|e| ContenderError::AdminError("Failed to read input", format!("{}", e)))?;
     Ok(())
 }
 
@@ -102,19 +85,20 @@ async fn handle_accounts(
 }
 
 /// Prints accounts for a specific pool
-fn print_accounts_for_pool(pool: &str, num_signers: usize, seed: &RandSeed) -> Result<(), ContenderError> {
+fn print_accounts_for_pool(
+    pool: &str,
+    num_signers: usize,
+    seed: &RandSeed,
+) -> Result<(), ContenderError> {
     info!("Generating addresses for pool: {}", pool);
     for i in 0..num_signers {
-        let key_bytes = seed.derive_signing_key(pool, i)
-            .map_err(|e| ContenderError::AdminError(
-                "Failed to derive signing key",
-                format!("{}", e)
-            ))?;
-        let signer = PrivateKeySigner::from_bytes(&FixedBytes::from_slice(&key_bytes))
-            .map_err(|e| ContenderError::AdminError(
-                "Failed to create signing key",
-                format!("{}", e)
-            ))?;
+        let key_bytes = seed.derive_signing_key(pool, i).map_err(|e| {
+            ContenderError::AdminError("Failed to derive signing key", format!("{}", e))
+        })?;
+        let signer =
+            PrivateKeySigner::from_bytes(&FixedBytes::from_slice(&key_bytes)).map_err(|e| {
+                ContenderError::AdminError("Failed to create signing key", format!("{}", e))
+            })?;
         let address = signer.address();
         info!("Signer {}: {}", i, address);
     }
@@ -129,7 +113,10 @@ async fn handle_seed() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub async fn handle_admin_command(command: AdminCommand, db: impl DbOps) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn handle_admin_command(
+    command: AdminCommand,
+    db: impl DbOps,
+) -> Result<(), Box<dyn std::error::Error>> {
     match command {
         AdminCommand::Accounts {
             from_pool,

@@ -1,7 +1,10 @@
 use super::common::{ScenarioSendTxsCliArgs, SendSpamCliArgs};
-use crate::util::{
-    check_private_keys, fund_accounts, get_signers_with_defaults, spam_callback_default,
-    EngineParams, SpamCallbackType,
+use crate::{
+    util::{
+        check_private_keys, fund_accounts, get_signers_with_defaults, spam_callback_default,
+        EngineParams, SpamCallbackType,
+    },
+    LATENCY_HIST as HIST, PROM,
 };
 use alloy::{
     consensus::TxType,
@@ -29,21 +32,6 @@ use std::sync::Arc;
 use std::{path::PathBuf, sync::atomic::AtomicBool};
 
 #[derive(Debug)]
-pub struct SpamCommandArgs {
-    pub testfile: String,
-    pub rpc_url: String,
-    pub builder_url: Option<String>,
-    pub txs_per_block: Option<u64>,
-    pub txs_per_second: Option<u64>,
-    pub duration: u64,
-    pub seed: String,
-    pub private_keys: Option<Vec<String>>,
-    pub disable_reporting: bool,
-    pub min_balance: String,
-    pub tx_type: TxType,
-    pub gas_price_percent_add: Option<u64>,
-    pub timeout_secs: u64,
-}
 pub struct EngineArgs {
     pub auth_rpc_url: String,
     pub jwt_secret: PathBuf,
@@ -87,9 +75,9 @@ pub struct SpamCliArgs {
     /// If not provided, the report can be generated with the `report` subcommand.
     /// If provided, the report is saved to the given path.
     #[arg(
-        short = 'r',
         long,
-        long_help = "Filename of the saved report. May be a fully-qualified path. If not provided, the report can be generated with the `report` subcommand. '.csv' extension is added automatically."
+        long_help = "Set this to generate a report for the spam run(s) after spamming.",
+        visible_aliases = &["report"]
     )]
     pub gen_report: bool,
 
@@ -120,27 +108,6 @@ pub struct SpamCommandArgs {
     pub timeout_secs: u64,
 }
 
-/// Initializes a TestScenario with the given arguments.
-async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
-    db: &D,
-    args: &SpamCommandArgs,
-) -> Result<InitializedScenario<D>, Box<dyn std::error::Error>> {
-    println!("Initializing spammer...");
-    let SpamCommandArgs {
-        txs_per_block,
-        txs_per_second,
-        testfile,
-        duration,
-        seed,
-        rpc_url,
-        builder_url,
-        min_balance,
-        private_keys,
-        tx_type,
-        gas_price_percent_add,
-        timeout_secs,
-        ..
-    } = &args;
 impl SpamCommandArgs {
     pub async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
         &self,
@@ -232,19 +199,6 @@ impl SpamCommandArgs {
             tx_type: *tx_type,
             gas_price_percent_add: *gas_price_percent_add,
             pending_tx_timeout_secs: *timeout_secs,
-        },
-
-    // don't multiply by TPS or TPB, because that number scales the number of accounts; this cost is per account
-    let total_cost = U256::from(*duration) * scenario.get_max_spam_cost(&user_signers).await?;
-    if min_balance < U256::from(total_cost) {
-        return Err(ContenderError::SpamError(
-            "min_balance is not enough to cover the cost of the spam transactions",
-            format!(
-                "min_balance: {}, total_cost: {}",
-                format_ether(min_balance),
-                format_ether(total_cost)
-            )
-            .into(),
         };
 
         fund_accounts(
@@ -263,11 +217,12 @@ impl SpamCommandArgs {
             rand_seed,
             params,
             engine_params.engine_provider.to_owned(),
+            (&PROM, &HIST),
         )
         .await?;
 
-        // don't multiply by TPS or TPB, because that number scales the number of accounts; this cost is per account
-        let total_cost = U256::from(*duration) * scenario.get_max_spam_cost(&user_signers).await?;
+        let total_cost = U256::from(*duration * txs_per_duration)
+            * scenario.get_max_spam_cost(&user_signers).await?;
         if min_balance < U256::from(total_cost) {
             return Err(ContenderError::SpamError(
                 "min_balance is not enough to cover the cost of the spam transactions",
@@ -330,7 +285,7 @@ pub async fn spam<
                     if let Some(auth_client) = &auth_client {
                         let res = auth_client.advance_chain(DEFAULT_BLOCK_TIME).await;
                         if let Err(e) = res {
-                            println!("Error advancing chain: {}", e);
+                            println!("Error advancing chain: {e}");
                         }
                     }
                 }
@@ -341,14 +296,15 @@ pub async fn spam<
 
     // trigger blockwise spammer
     if let Some(txs_per_block) = txs_per_block {
-        println!("Blockwise spamming with {} txs per block", txs_per_block);
-        let spammer = BlockwiseSpammer {};
+        println!("Blockwise spamming with {txs_per_block} txs per block");
+        let spammer = BlockwiseSpammer::new();
 
         match spam_callback_default(
             !disable_reporting,
             engine_params.call_fcu,
             Some(rpc_client.clone()),
             auth_client,
+            test_scenario.ctx.cancel_token.clone(),
         )
         .await
         {
@@ -359,17 +315,17 @@ pub async fn spam<
                     .as_millis();
                 run_id = Some(db.insert_run(
                     timestamp as u64,
-                    (txs_per_block * duration) as usize,
+                    txs_per_block * duration,
                     testfile,
+                    test_scenario.rpc_url.as_str(),
                 )?);
                 spammer
                     .spam_rpc(
                         test_scenario,
-                        *txs_per_block as usize,
-                        *duration as usize,
+                        *txs_per_block,
+                        *duration,
                         run_id,
                         tx_callback.into(),
-                        is_sending_done.clone(),
                     )
                     .await?;
             }
@@ -377,12 +333,10 @@ pub async fn spam<
                 spammer
                     .spam_rpc(
                         test_scenario,
-                        *txs_per_block as usize,
-                        *duration as usize,
+                        *txs_per_block,
+                        *duration,
                         None,
-                        cback.into(),
                         tx_callback.into(),
-                        is_sending_done.clone(),
                     )
                     .await?;
             }
@@ -392,13 +346,14 @@ pub async fn spam<
 
     // trigger timed spammer
     let tps = txs_per_second.unwrap_or(10);
-    println!("Timed spamming with {} txs per second", tps);
+    println!("Timed spamming with {tps} txs per second");
     let spammer = TimedSpammer::new(std::time::Duration::from_secs(1));
     match spam_callback_default(
         !disable_reporting,
         engine_params.call_fcu,
         rpc_client.into(),
         auth_client,
+        test_scenario.ctx.cancel_token.clone(),
     )
     .await
     {
@@ -407,30 +362,19 @@ pub async fn spam<
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_millis();
-            run_id = Some(db.insert_run(timestamp as u64, (tps * duration) as usize, testfile)?);
+            run_id = Some(db.insert_run(
+                timestamp as u64,
+                tps * duration,
+                testfile,
+                test_scenario.rpc_url.as_str(),
+            )?);
             spammer
-                .spam_rpc(
-                    test_scenario,
-                    tps as usize,
-                    *duration as usize,
-                    run_id,
-                    cback.into(),
-                    tx_callback.into(),
-                    is_sending_done.clone(),
-                )
+                .spam_rpc(test_scenario, tps, *duration, run_id, tx_callback.into())
                 .await?;
         }
         SpamCallbackType::Nil(tx_callback) => {
             spammer
-                .spam_rpc(
-                    test_scenario,
-                    tps as usize,
-                    *duration as usize,
-                    None,
-                    cback.into(),
-                    tx_callback.into(),
-                    is_sending_done.clone(),
-                )
+                .spam_rpc(test_scenario, tps, *duration, None, tx_callback.into())
                 .await?;
         }
     };
