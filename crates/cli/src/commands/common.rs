@@ -10,6 +10,12 @@ pub struct ScenarioSendTxsCliArgs {
     pub testfile: String,
 
     /// The HTTP JSON-RPC URL to spam with requests.
+    #[arg(
+        short,
+        long,
+        long_help = "RPC URL to test the scenario.",
+        default_value = "http://localhost:8545"
+    )]
     pub rpc_url: String,
 
     /// The seed to use for generating spam transactions & accounts.

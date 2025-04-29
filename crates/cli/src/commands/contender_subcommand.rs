@@ -1,6 +1,7 @@
 use clap::Subcommand;
 use std::path::PathBuf;
 
+use super::admin::AdminCommand;
 use super::common::AuthCliArgs;
 use super::setup::SetupCliArgs;
 use super::spam::SpamCliArgs;
@@ -9,6 +10,12 @@ use crate::util::TxTypeCli;
 
 #[derive(Debug, Subcommand)]
 pub enum ContenderSubcommand {
+    #[command(name = "admin", about = "Admin commands")]
+    Admin {
+        #[command(subcommand)]
+        command: AdminCommand,
+    },
+
     #[command(name = "db", about = "Database management commands")]
     Db {
         #[command(subcommand)]
@@ -79,7 +86,13 @@ pub enum ContenderSubcommand {
         /// The scenario to run.
         scenario: BuiltinScenario,
 
-        /// The HTTP JSON-RPC URL to target with the scenario.
+        /// The HTTP JSON-RPC URL to spam with requests.
+        #[arg(
+            short,
+            long,
+            long_help = "RPC URL to test the scenario.",
+            default_value = "http://localhost:8545"
+        )]
         rpc_url: String,
 
         #[arg(

@@ -4,6 +4,7 @@ mod util;
 
 use alloy::hex;
 use commands::{
+    admin::handle_admin_command,
     common::{ScenarioSendTxsCliArgs, SendSpamCliArgs},
     db::{drop_db, export_db, import_db, reset_db},
     ContenderCli, ContenderSubcommand, DbCommand, RunCommandArgs, SetupCliArgs, SetupCommandArgs,
@@ -27,11 +28,17 @@ static LATENCY_HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let subscriber = tracing_subscriber::FmtSubscriber::new();
+    tracing::subscriber::set_global_default(subscriber)?;
+
     let args = ContenderCli::parse_args();
     if DB.table_exists("run_txs")? {
         // check version and exit if DB version is incompatible
         let quit_early = DB.version() != DB_VERSION
-            && !matches!(&args.command, ContenderSubcommand::Db { command: _ });
+            && !matches!(
+                &args.command,
+                ContenderSubcommand::Db { command: _ } | ContenderSubcommand::Admin { command: _ }
+            );
         if quit_early {
             let recommendation = format!(
                 "To backup your data, run `contender db export`.\n{}",
@@ -265,6 +272,10 @@ Remote DB version = {}, contender expected version {}.
                 },
             )
             .await?
+        }
+
+        ContenderSubcommand::Admin { command } => {
+            handle_admin_command(command, db)?;
         }
     }
     Ok(())

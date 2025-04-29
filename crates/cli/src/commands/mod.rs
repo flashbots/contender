@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod common;
 mod contender_subcommand;
 pub mod db;
