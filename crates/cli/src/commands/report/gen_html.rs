@@ -1,8 +1,7 @@
+use super::command::SpamRunMetrics;
 use crate::{commands::report::chart::ReportChartId, util::report_dir};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-use super::command::SpamRunMetrics;
 
 pub struct ReportMetadata {
     pub scenario_name: String,

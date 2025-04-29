@@ -328,8 +328,7 @@ pub async fn fund_account(
     let tx = tx_req.build(&eth_wallet).await?;
 
     println!(
-        "funding account {} with user account {}. tx: {}",
-        recipient,
+        "funding account {recipient} with user account {}. tx: {}",
         sender.address(),
         tx.tx_hash().encode_hex()
     );
@@ -404,10 +403,13 @@ pub fn prompt_cli(msg: impl AsRef<str>) -> String {
 /// Returns the path to the data directory.
 /// The directory is created if it does not exist.
 pub fn data_dir() -> Result<String, Box<dyn std::error::Error>> {
-    let dir = format!(
-        "{}/.contender",
-        std::env::var("HOME").map_err(|_| "Failed to get $HOME from environment")?
-    );
+    let home_dir = if cfg!(windows) {
+        std::env::var("USERPROFILE").map_err(|_| "Failed to get USERPROFILE from environment")?
+    } else {
+        std::env::var("HOME").map_err(|_| "Failed to get HOME from environment")?
+    };
+
+    let dir = format!("{home_dir}/.contender");
 
     // ensure directory exists
     std::fs::create_dir_all(&dir)?;

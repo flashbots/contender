@@ -108,7 +108,7 @@ pub async fn setup(
             continue;
         }
 
-        let agent = SignerStore::new_random(1, &seed, from_pool);
+        let agent = SignerStore::new(1, &seed, from_pool);
         agents.add_agent(from_pool, agent);
     }
 
