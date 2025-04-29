@@ -328,8 +328,7 @@ pub async fn fund_account(
     let tx = tx_req.build(&eth_wallet).await?;
 
     println!(
-        "funding account {} with user account {}. tx: {}",
-        recipient,
+        "funding account {recipient} with user account {}. tx: {}",
         sender.address(),
         tx.tx_hash().encode_hex()
     );

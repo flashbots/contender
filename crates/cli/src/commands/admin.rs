@@ -1,9 +1,9 @@
 use crate::util::data_dir;
 use alloy::hex;
-use alloy::primitives::FixedBytes;
-use alloy::signers::local::PrivateKeySigner;
 use clap::Subcommand;
-use contender_core::{db::DbOps, error::ContenderError, generator::RandSeed};
+use contender_core::{
+    agent_controller::SignerStore, db::DbOps, error::ContenderError, generator::RandSeed,
+};
 use tracing::info;
 
 #[derive(Debug, Subcommand)]
@@ -82,15 +82,8 @@ fn print_accounts_for_pool(
     seed: &RandSeed,
 ) -> Result<(), ContenderError> {
     info!("Generating addresses for pool: {}", pool);
-    for i in 0..num_signers {
-        let key_bytes = seed.derive_signing_key(pool, i).map_err(|e| {
-            ContenderError::AdminError("Failed to derive signing key", format!("{}", e))
-        })?;
-        let signer =
-            PrivateKeySigner::from_bytes(&FixedBytes::from_slice(&key_bytes)).map_err(|e| {
-                ContenderError::AdminError("Failed to create signing key", format!("{}", e))
-            })?;
-        let address = signer.address();
+    let agent = SignerStore::new(num_signers, seed, pool);
+    for (i, address) in agent.all_addresses().iter().enumerate() {
         info!("Signer {}: {}", i, address);
     }
     Ok(())
