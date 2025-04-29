@@ -103,6 +103,7 @@ Remote DB version = {}, contender expected version {}.
                             seed,
                             tx_type,
                             auth_args,
+                            env,
                         },
                 },
         } => {
@@ -118,6 +119,7 @@ Remote DB version = {}, contender expected version {}.
                     seed: RandSeed::seed_from_str(&seed),
                     tx_type: tx_type.into(),
                     engine_params,
+                    env,
                 },
             )
             .await?
@@ -135,6 +137,7 @@ Remote DB version = {}, contender expected version {}.
                             min_balance,
                             tx_type,
                             auth_args,
+                            env,
                         },
                     spam_args:
                         SendSpamCliArgs {
@@ -167,6 +170,7 @@ Remote DB version = {}, contender expected version {}.
                 gas_price_percent_add,
                 engine_params,
                 timeout_secs: timeout,
+                env,
             };
             let mut scenario = spam_args.init_scenario(&db).await?;
             let run_id = commands::spam(&db, &spam_args, &mut scenario).await?;
@@ -196,6 +200,7 @@ Remote DB version = {}, contender expected version {}.
                         min_balance,
                         tx_type,
                         auth_args,
+                        env,
                     },
                 spam_args:
                     SendSpamCliArgs {
@@ -228,6 +233,7 @@ Remote DB version = {}, contender expected version {}.
                 gas_price_percent_add,
                 engine_params,
                 timeout_secs: timeout,
+                env,
             };
             commands::spamd(&db, spam_args, gen_report, time_limit).await?;
         }
