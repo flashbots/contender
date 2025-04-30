@@ -312,8 +312,7 @@ fn check_spam_args(args: &SpamCliArgs) -> Result<bool, ContenderError> {
         return Err(ContenderError::SpamError(
             "Either txs-per-block or txs-per-second must be set",
             None,
-        )
-        .into());
+        ));
     };
     let duration = args.spam_args.duration;
     if duration > max_duration {
@@ -345,8 +344,7 @@ fn check_spamd_args(args: &SpamCliArgs, time_limit: Option<u64>) -> Result<bool,
         return Err(ContenderError::SpamError(
             "Either txs-per-block or txs-per-second must be set",
             None,
-        )
-        .into());
+        ));
     };
     let duration = args.spam_args.duration;
     if duration > max_duration {
@@ -374,7 +372,7 @@ To improve performance, you may want to set a lower spamming duration {}{and_hig
 
 \t{suggestion_cmd}
 ",
-                    ansi_term::Style::new().bold().paint(format!("(-d)")),
+                    ansi_term::Style::new().bold().paint("(-d)".to_string()),
                 );
 
         return Ok(prompt_continue(None));
