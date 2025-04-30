@@ -37,10 +37,11 @@ Contender can be used as both a library and a command-line tool.
 ### Command-line Interface
 
 ```bash
-contender setup <testfile> <rpc_url> [OPTIONS]
-contender spam <testfile> <rpc_url> [OPTIONS]
+contender setup <testfile> [OPTIONS]
+contender spam <testfile> [OPTIONS]
 contender report [OPTIONS]
 contender run [OPTIONS]
+contender admin [OPTIONS]
 ```
 
 For detailed usage instructions, run:
@@ -54,13 +55,13 @@ contender --help
 Run a zero-config scenario that attempts to fill a block to its gas limit:
 
 ```bash
-contender run fill-block $RPC_URL
+contender run fill-block -r $RPC_URL
 ```
 
 Send txs every 1 second instead of the default 12s:
 
 ```bash
-contender run fill-block $RPC_URL -i 1
+contender run fill-block -r $RPC_URL -i 1
 ```
 
 Pass a private key to send txs from your own account:
@@ -143,6 +144,33 @@ contender report -i 203 -p 3
 
 ---
 
+**Overriding [env] values**
+
+You may manually override any `[env]` variable (or add new ones) in a scenario file by passing `-e <KEY=VALUE>` with your spam/setup commands.
+
+The following example will replace the value for `{testAddr}` in `example.toml`:
+
+```toml
+# example.toml
+...
+
+[[spam]]
+[spam.tx]
+to = "{testAddr}"
+from_pool = "spammers"
+signature = "call()"
+args = []
+```
+
+In this case, we're using `{testAddr}` for the spam tx's `to` address, so we'll be sending transactions to the address we provide with `-e`:
+
+```bash
+contender spam example.toml --tps 10 \
+-e testAddr=0x0000000000000000000000000000000000000013
+```
+
+---
+
 **Spamming with the `engine_` API**
 
 Add the following flags to `setup`, `spam`, or `spamd` to trigger block building manually via the authenticated `engine_` API:
@@ -194,6 +222,29 @@ Delete your DB:
 
 ```bash
 contender db drop
+```
+
+---
+
+Contender also has some admin features for debugging...
+
+List the accounts that contender generates for a given `from_pool` definition:
+
+```bash
+# list 100 agent accounts from the "spammers" pool
+contender admin accounts --from-pool "spammers" -n 100
+```
+
+These accounts are generated from your locally-stored seed, which can be viewed with the following:
+
+```bash
+contender admin seed
+```
+
+We can also view the latest run ID from the local DB, which can be useful for DB debugging:
+
+```bash
+contender admin latest-run-id
 ```
 
 ### Scenarios

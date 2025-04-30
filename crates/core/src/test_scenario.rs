@@ -67,11 +67,8 @@ where
     pub gas_limits: HashMap<FixedBytes<32>, u64>,
     pub msg_handle: Arc<TxActorHandle>,
     pub tx_type: TxType,
-    /// Fixed percentage provided by user to add to gas price.
     pub gas_price_percent_add: u64,
-    /// Timeout for pending transactions in seconds, provided by user.
     pub pending_tx_timeout_secs: u64,
-    /// Execution context for the test scenario; things about the target chain that affect the txs we send.
     pub ctx: ExecutionContext,
     pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
     prometheus: PrometheusCollector,
@@ -1552,8 +1549,8 @@ pub mod tests {
             &seed,
         );
 
-        let admin1_signers = SignerStore::new_random(1, &seed, "admin1");
-        let admin2_signers = SignerStore::new_random(1, &seed, "admin2");
+        let admin1_signers = SignerStore::new(1, &seed, "admin1");
+        let admin2_signers = SignerStore::new(1, &seed, "admin2");
         agents.add_agent("admin1", admin1_signers);
         agents.add_agent("admin2", admin2_signers);
 

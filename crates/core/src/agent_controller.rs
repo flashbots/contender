@@ -52,7 +52,7 @@ impl AgentStore {
             if self.has_agent(agent) {
                 continue;
             }
-            self.add_random_agent(agent, signers_per_agent, seed);
+            self.add_new_agent(agent, signers_per_agent, seed);
         }
     }
 
@@ -60,13 +60,13 @@ impl AgentStore {
         self.agents.insert(name.as_ref().to_owned(), signers);
     }
 
-    pub fn add_random_agent(
+    pub fn add_new_agent(
         &mut self,
         name: impl AsRef<str>,
         num_signers: usize,
         rand_seeder: &RandSeed,
     ) {
-        let signers = SignerStore::new_random(num_signers, rand_seeder, name.as_ref());
+        let signers = SignerStore::new(num_signers, rand_seeder, name.as_ref());
         self.add_agent(name, signers);
     }
 
@@ -112,7 +112,7 @@ where
 }
 
 impl SignerStore {
-    pub fn new_random(num_signers: usize, rand_seeder: &RandSeed, acct_seed: &str) -> Self {
+    pub fn new(num_signers: usize, rand_seeder: &RandSeed, acct_seed: &str) -> Self {
         // add numerical value of acct_seed to given seed
         let new_seed = rand_seeder.as_u256() + U256::from_be_slice(acct_seed.as_bytes());
         let rand_seeder = RandSeed::seed_from_u256(new_seed);

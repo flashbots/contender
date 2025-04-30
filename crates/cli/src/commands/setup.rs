@@ -51,6 +51,7 @@ pub async fn setup(
         seed,
         tx_type,
         engine_params,
+        env,
     } = args;
 
     let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
@@ -59,7 +60,17 @@ pub async fn setup(
             .network::<AnyNetwork>()
             .on_http(url.to_owned()),
     );
-    let testconfig: TestConfig = TestConfig::from_file(testfile.as_ref()).await?;
+    let mut testconfig: TestConfig = TestConfig::from_file(testfile.as_ref()).await?;
+
+    // Setup env variables
+    let mut env_variables = testconfig.env.clone().unwrap_or_default();
+    if env.is_some() {
+        for (key, value) in env.unwrap() {
+            let _ = &env_variables.insert(key.to_string(), value.to_string());
+        }
+    }
+    testconfig.env = Some(env_variables.clone());
+
     let min_balance = parse_ether(&min_balance)?;
 
     let user_signers = private_keys
@@ -108,7 +119,7 @@ pub async fn setup(
             continue;
         }
 
-        let agent = SignerStore::new_random(1, &seed, from_pool);
+        let agent = SignerStore::new(1, &seed, from_pool);
         agents.add_agent(from_pool, agent);
     }
 
@@ -236,4 +247,5 @@ pub struct SetupCommandArgs {
     pub seed: RandSeed,
     pub tx_type: TxType,
     pub engine_params: EngineParams,
+    pub env: Option<Vec<(String, String)>>,
 }

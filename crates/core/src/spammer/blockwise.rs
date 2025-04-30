@@ -99,14 +99,8 @@ mod tests {
         let periods = 3u64;
         let tx_type = alloy::consensus::TxType::Legacy;
         let num_signers = (txs_per_period / periods) as usize;
-        agents.add_agent(
-            "pool1",
-            SignerStore::new_random(num_signers, &seed, "eeeeeeee"),
-        );
-        agents.add_agent(
-            "pool2",
-            SignerStore::new_random(num_signers, &seed, "11111111"),
-        );
+        agents.add_agent("pool1", SignerStore::new(num_signers, &seed, "eeeeeeee"));
+        agents.add_agent("pool2", SignerStore::new(num_signers, &seed, "11111111"));
 
         let user_signers = get_test_signers();
         let mut nonce = provider

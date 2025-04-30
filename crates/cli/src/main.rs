@@ -4,6 +4,7 @@ mod util;
 
 use alloy::hex;
 use commands::{
+    admin::handle_admin_command,
     common::{ScenarioSendTxsCliArgs, SendSpamCliArgs},
     db::{drop_db, export_db, import_db, reset_db},
     ContenderCli, ContenderSubcommand, DbCommand, RunCommandArgs, SetupCliArgs, SetupCommandArgs,
@@ -14,6 +15,7 @@ use contender_sqlite::{SqliteDb, DB_VERSION};
 use rand::Rng;
 use std::sync::LazyLock;
 use tokio::sync::OnceCell;
+use tracing_subscriber::EnvFilter;
 use util::{data_dir, db_file};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
@@ -27,11 +29,16 @@ static LATENCY_HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    init_tracing();
+
     let args = ContenderCli::parse_args();
     if DB.table_exists("run_txs")? {
         // check version and exit if DB version is incompatible
         let quit_early = DB.version() != DB_VERSION
-            && !matches!(&args.command, ContenderSubcommand::Db { command: _ });
+            && !matches!(
+                &args.command,
+                ContenderSubcommand::Db { command: _ } | ContenderSubcommand::Admin { command: _ }
+            );
         if quit_early {
             let recommendation = format!(
                 "To backup your data, run `contender db export`.\n{}",
@@ -96,6 +103,7 @@ Remote DB version = {}, contender expected version {}.
                             seed,
                             tx_type,
                             auth_args,
+                            env,
                         },
                 },
         } => {
@@ -111,6 +119,7 @@ Remote DB version = {}, contender expected version {}.
                     seed: RandSeed::seed_from_str(&seed),
                     tx_type: tx_type.into(),
                     engine_params,
+                    env,
                 },
             )
             .await?
@@ -128,6 +137,7 @@ Remote DB version = {}, contender expected version {}.
                             min_balance,
                             tx_type,
                             auth_args,
+                            env,
                         },
                     spam_args:
                         SendSpamCliArgs {
@@ -160,6 +170,7 @@ Remote DB version = {}, contender expected version {}.
                 gas_price_percent_add,
                 engine_params,
                 timeout_secs: timeout,
+                env,
             };
             let mut scenario = spam_args.init_scenario(&db).await?;
             let run_id = commands::spam(&db, &spam_args, &mut scenario).await?;
@@ -189,6 +200,7 @@ Remote DB version = {}, contender expected version {}.
                         min_balance,
                         tx_type,
                         auth_args,
+                        env,
                     },
                 spam_args:
                     SendSpamCliArgs {
@@ -221,6 +233,7 @@ Remote DB version = {}, contender expected version {}.
                 gas_price_percent_add,
                 engine_params,
                 timeout_secs: timeout,
+                env,
             };
             commands::spamd(&db, spam_args, gen_report, time_limit).await?;
         }
@@ -260,6 +273,20 @@ Remote DB version = {}, contender expected version {}.
             )
             .await?
         }
+
+        ContenderSubcommand::Admin { command } => {
+            handle_admin_command(command, db)?;
+        }
     }
     Ok(())
+}
+
+fn init_tracing() {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")); // fallback if RUST_LOG is unset
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(true)
+        .with_line_number(true)
+        .init();
 }

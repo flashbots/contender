@@ -106,6 +106,7 @@ pub struct SpamCommandArgs {
     pub engine_params: EngineParams,
     pub gas_price_percent_add: Option<u64>,
     pub timeout_secs: u64,
+    pub env: Option<Vec<(String, String)>>,
 }
 
 impl SpamCommandArgs {
@@ -128,10 +129,20 @@ impl SpamCommandArgs {
             gas_price_percent_add,
             timeout_secs,
             engine_params,
+            env,
             ..
         } = &self;
 
-        let testconfig = TestConfig::from_file(testfile).await?;
+        let mut testconfig: TestConfig = TestConfig::from_file(testfile).await?;
+        // Setup env variables
+        let mut env_variables = testconfig.env.clone().unwrap_or_default();
+        if env.is_some() {
+            for (key, value) in env.clone().unwrap() {
+                let _ = &env_variables.insert(key.to_string(), value.to_string());
+            }
+        }
+        testconfig.env = Some(env_variables.clone());
+
         let rand_seed = RandSeed::seed_from_str(seed);
         let url = Url::parse(rpc_url).expect("Invalid RPC URL");
         let rpc_client = DynProvider::new(

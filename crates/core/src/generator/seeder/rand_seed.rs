@@ -48,6 +48,7 @@ impl RandSeed {
         Self::seed_from_u256(n)
     }
 
+    /// Interprets seed as a U256.
     pub fn seed_from_u256(seed: U256) -> Self {
         Self {
             seed: seed.to_be_bytes(),

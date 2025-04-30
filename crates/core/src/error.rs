@@ -5,6 +5,7 @@ pub enum ContenderError {
     SpamError(&'static str, Option<String>),
     SetupError(&'static str, Option<String>),
     GenericError(&'static str, String),
+    AdminError(&'static str, String),
 }
 
 impl ContenderError {
@@ -16,11 +17,12 @@ impl ContenderError {
 impl std::fmt::Display for ContenderError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            ContenderError::SpamError(msg, _) => write!(f, "SpamError: {msg}"),
+            ContenderError::AdminError(msg, e) => write!(f, "AdminError: {msg} - {e}"),
             ContenderError::DbError(msg, _) => write!(f, "DatabaseError: {msg}"),
             ContenderError::GenericError(msg, e) => {
                 write!(f, "{} {}", msg, e.to_owned())
             }
+            ContenderError::SpamError(msg, _) => write!(f, "SpamError: {msg}"),
             ContenderError::SetupError(msg, _) => write!(f, "SetupError: {msg}"),
         }
     }
@@ -39,9 +41,8 @@ impl std::fmt::Debug for ContenderError {
             ContenderError::SetupError(msg, e) => {
                 write!(f, "SetupError: {} {}", msg, err(e.to_owned()))
             }
-            ContenderError::GenericError(msg, e) => {
-                write!(f, "{} {}", msg, e.to_owned())
-            }
+            ContenderError::GenericError(msg, e) => write!(f, "{msg} {e}"),
+            ContenderError::AdminError(msg, e) => write!(f, "AdminError: {msg} - {e}"),
         }
     }
 }
