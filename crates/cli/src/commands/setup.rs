@@ -59,7 +59,7 @@ pub async fn setup(
             .network::<AnyNetwork>()
             .on_http(url.to_owned()),
     );
-    let testconfig: TestConfig = TestConfig::from_file(testfile.as_ref())?;
+    let testconfig: TestConfig = TestConfig::from_file(testfile.as_ref()).await?;
     let min_balance = parse_ether(&min_balance)?;
 
     let user_signers = private_keys

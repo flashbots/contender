@@ -131,7 +131,7 @@ impl SpamCommandArgs {
             ..
         } = &self;
 
-        let testconfig = TestConfig::from_file(testfile)?;
+        let testconfig = TestConfig::from_file(testfile).await?;
         let rand_seed = RandSeed::seed_from_str(seed);
         let url = Url::parse(rpc_url).expect("Invalid RPC URL");
         let rpc_client = DynProvider::new(
