@@ -2208,6 +2208,8 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tower 0.5.2",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
