@@ -122,6 +122,7 @@ impl Templater<String> for TestConfig {
     }
 }
 
+#[cfg(test)]
 mod test {
 
     use super::*;
