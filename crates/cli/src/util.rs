@@ -395,6 +395,14 @@ pub fn prompt_cli(msg: impl AsRef<str>) -> String {
     input.trim().to_owned()
 }
 
+/// Prompts the user for a yes/no answer.
+/// Returns true if the answer starts with 'y' or 'Y', false otherwise.
+pub fn prompt_continue(msg: Option<&str>) -> bool {
+    prompt_cli(msg.unwrap_or("Do you want to continue anyways? [y/N]"))
+        .to_lowercase()
+        .starts_with("y")
+}
+
 /// Returns the path to the data directory.
 /// The directory is created if it does not exist.
 pub fn data_dir() -> Result<String, Box<dyn std::error::Error>> {

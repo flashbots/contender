@@ -17,7 +17,7 @@ use std::sync::LazyLock;
 use tokio::sync::OnceCell;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
-use util::{data_dir, db_file, prompt_cli};
+use util::{data_dir, db_file, prompt_continue};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     let path = db_file().expect("failed to get DB file path");
@@ -126,33 +126,36 @@ Remote DB version = {}, contender expected version {}.
             .await?
         }
 
-        ContenderSubcommand::Spam {
-            args:
-                SpamCliArgs {
-                    eth_json_rpc_args:
-                        ScenarioSendTxsCliArgs {
-                            testfile,
-                            rpc_url,
-                            seed,
-                            private_keys,
-                            min_balance,
-                            tx_type,
-                            auth_args,
-                            env,
-                        },
-                    spam_args:
-                        SendSpamCliArgs {
-                            duration,
-                            txs_per_block,
-                            txs_per_second,
-                            builder_url,
-                            timeout,
-                        },
-                    disable_reporting,
-                    gen_report,
-                    gas_price_percent_add,
-                },
-        } => {
+        ContenderSubcommand::Spam { args } => {
+            if !check_spam_args(&args)? {
+                return Ok(());
+            }
+
+            let SpamCliArgs {
+                eth_json_rpc_args:
+                    ScenarioSendTxsCliArgs {
+                        testfile,
+                        rpc_url,
+                        seed,
+                        private_keys,
+                        min_balance,
+                        tx_type,
+                        auth_args,
+                        env,
+                    },
+                spam_args:
+                    SendSpamCliArgs {
+                        duration,
+                        txs_per_block,
+                        txs_per_second,
+                        builder_url,
+                        timeout,
+                    },
+                disable_reporting,
+                gen_report,
+                gas_price_percent_add,
+            } = args;
+
             let seed = seed.unwrap_or(stored_seed);
             let engine_params = auth_args.engine_params().await?;
 
@@ -174,38 +177,6 @@ Remote DB version = {}, contender expected version {}.
                 env,
             };
 
-            // check for spicy params, make recommendations
-            let (units, max_duration) = if txs_per_block.is_some() {
-                ("blocks", 50)
-            } else if txs_per_second.is_some() {
-                ("seconds", 100)
-            } else {
-                return Err(ContenderError::SpamError(
-                    "Either txs-per-block or txs-per-second must be set",
-                    None,
-                )
-                .into());
-            };
-            if duration > max_duration {
-                let time_limit = duration / max_duration;
-                let suggestion_cmd = ansi_term::Style::new().bold().paint(format!(
-                    "contender spamd {testfile} -d {max_duration} -l {time_limit} ..."
-                ));
-                let spamd = ansi_term::Style::new().bold().paint("spamd");
-                println!(
-"Duration is set to {duration} {units}, which is quite high. Generating transactions and collecting results may take a long time.
-You may want to use {spamd} instead, with a lower spamming duration (-d) and a time limit (-l):
-
-\t{suggestion_cmd}
-");
-                let do_continue = prompt_cli("Do you want to continue anyways? [y/N]")
-                    .to_lowercase()
-                    .starts_with("y");
-                if !do_continue {
-                    return Ok(());
-                }
-            }
-
             let mut scenario = spam_args.init_scenario(&db).await?;
             let run_id = commands::spam(&db, &spam_args, &mut scenario).await?;
             if gen_report {
@@ -224,6 +195,10 @@ You may want to use {spamd} instead, with a lower spamming duration (-d) and a t
             spam_inner_args,
             time_limit,
         } => {
+            if !check_spamd_args(&spam_inner_args, time_limit)? {
+                return Ok(());
+            }
+
             let SpamCliArgs {
                 eth_json_rpc_args:
                     ScenarioSendTxsCliArgs {
@@ -253,7 +228,7 @@ You may want to use {spamd} instead, with a lower spamming duration (-d) and a t
             let engine_params = auth_args.engine_params().await?;
 
             let spam_args = SpamCommandArgs {
-                testfile,
+                testfile: testfile.to_owned(),
                 rpc_url,
                 builder_url,
                 txs_per_block,
@@ -269,6 +244,7 @@ You may want to use {spamd} instead, with a lower spamming duration (-d) and a t
                 timeout_secs: timeout,
                 env,
             };
+
             commands::spamd(&db, spam_args, gen_report, time_limit).await?;
         }
 
@@ -323,4 +299,85 @@ fn init_tracing() {
         .with_target(true)
         .with_line_number(true)
         .init();
+}
+
+/// Check if spam arguments are typical and prompt the user to continue if they are not.
+/// Returns true if the user chooses to continue, false otherwise.
+fn check_spam_args(args: &SpamCliArgs) -> Result<bool, ContenderError> {
+    let (units, max_duration) = if args.spam_args.txs_per_block.is_some() {
+        ("blocks", 50)
+    } else if args.spam_args.txs_per_second.is_some() {
+        ("seconds", 100)
+    } else {
+        return Err(ContenderError::SpamError(
+            "Either txs-per-block or txs-per-second must be set",
+            None,
+        )
+        .into());
+    };
+    let duration = args.spam_args.duration;
+    if duration > max_duration {
+        let time_limit = duration / max_duration;
+        let suggestion_cmd = ansi_term::Style::new().bold().paint(format!(
+            "contender spamd {} -d {max_duration} -l {time_limit} ...",
+            args.eth_json_rpc_args.testfile
+        ));
+        let spamd = ansi_term::Style::new().bold().paint("spamd");
+        println!(
+"Duration is set to {duration} {units}, which is quite high. Generating transactions and collecting results may take a long time.
+You may want to use {spamd} instead, with a lower spamming duration (-d) and a time limit (-l):
+
+\t{suggestion_cmd}
+");
+        return Ok(prompt_continue(None));
+    }
+    Ok(true)
+}
+
+/// Check if spamd arguments are typical and prompt the user to continue if they are not.
+/// Returns true if the user chooses to continue, false otherwise.
+fn check_spamd_args(args: &SpamCliArgs, time_limit: Option<u64>) -> Result<bool, ContenderError> {
+    let (units, max_duration) = if args.spam_args.txs_per_block.is_some() {
+        ("blocks", 50)
+    } else if args.spam_args.txs_per_second.is_some() {
+        ("seconds", 100)
+    } else {
+        return Err(ContenderError::SpamError(
+            "Either txs-per-block or txs-per-second must be set",
+            None,
+        )
+        .into());
+    };
+    let duration = args.spam_args.duration;
+    if duration > max_duration {
+        let time_limit_str = if let Some(time_limit) = time_limit {
+            format!(" -l {}", (duration / max_duration) * time_limit)
+        } else {
+            "".to_owned()
+        };
+
+        let suggestion_cmd = ansi_term::Style::new().bold().paint(format!(
+            "contender spamd {} -d {max_duration}{time_limit_str} ...",
+            args.eth_json_rpc_args.testfile
+        ));
+        let and_higher_time_limit = if time_limit.is_some() {
+            format!(
+                " and a higher time limit {}",
+                ansi_term::Style::new().bold().paint("(-l)")
+            )
+        } else {
+            "".to_owned()
+        };
+        println!(
+"Duration is set to {duration} {units}, which is quite high. Generating transactions and collecting results may take a long time.
+To improve performance, you may want to set a lower spamming duration {}{and_higher_time_limit}:
+
+\t{suggestion_cmd}
+",
+                    ansi_term::Style::new().bold().paint(format!("(-d)")),
+                );
+
+        return Ok(prompt_continue(None));
+    }
+    Ok(true)
 }
