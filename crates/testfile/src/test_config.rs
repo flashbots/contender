@@ -35,7 +35,7 @@ impl TestConfig {
         const BASE_URL_SCENARIOS_DIRECTORY: &str =
             "https://raw.githubusercontent.com/flashbots/contender/refs/heads/main/scenarios/";
         let file_url = (String::from(BASE_URL_SCENARIOS_DIRECTORY) + scenario_path).to_owned();
-        let file_contents = reqwest::get(file_url).await?.text().await?;
+        let file_contents = reqwest::get(&file_url).await.map_err(|err| format!("Error occured while fetching URL {}", &file_url))?.text().await.map_err(|err| "Cannot convert the contents of the file into text.")?;
         Ok(file_contents)
     }
 
@@ -43,7 +43,7 @@ impl TestConfig {
         let file_contents_str: String;
         if file_path.starts_with("scenario:") {
             file_contents_str =
-                Self::fetch_remote_scenario_file_url(&file_path.replace("scenario:", "")).await?;
+                Self::fetch_remote_scenario_file_url(&file_path.replace("scenario:", "")).await.map_err(|err|"Error occured while fetching remote scenario files")?;
         } else {
             let file_contents = read(file_path)?;
             file_contents_str = String::from_utf8_lossy(&file_contents).to_string();
