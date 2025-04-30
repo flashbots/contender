@@ -7,6 +7,7 @@ use alloy::{
     rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
 };
+use ansi_term::Color;
 use contender_core::{
     db::RunTx,
     generator::{
@@ -18,8 +19,7 @@ use contender_core::{
 use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
 use csv::Writer;
-use std::{io::Write, str::FromStr, sync::Arc, time::Duration};
-use termcolor::{ColorChoice, ColorSpec, StandardStream, WriteColor};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 pub enum SpamCallbackType {
     Log(LogCallback),
@@ -386,12 +386,7 @@ pub fn write_run_txs<T: std::io::Write>(
 }
 
 pub fn prompt_cli(msg: impl AsRef<str>) -> String {
-    let mut stdout = StandardStream::stdout(ColorChoice::Always);
-    stdout
-        .set_color(ColorSpec::new().set_fg(Some(termcolor::Color::Rgb(252, 186, 3))))
-        .expect("failed to set stdout color");
-    writeln!(&mut stdout, "{}", msg.as_ref()).expect("failed to write to stdout");
-    stdout.reset().expect("failed to reset color");
+    println!("{}", Color::RGB(252, 186, 3).paint(msg.as_ref()));
 
     let mut input = String::new();
     std::io::stdin()

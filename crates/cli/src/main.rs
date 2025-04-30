@@ -10,13 +10,14 @@ use commands::{
     ContenderCli, ContenderSubcommand, DbCommand, RunCommandArgs, SetupCliArgs, SetupCommandArgs,
     SpamCliArgs, SpamCommandArgs,
 };
-use contender_core::{db::DbOps, generator::RandSeed};
+use contender_core::{db::DbOps, error::ContenderError, generator::RandSeed};
 use contender_sqlite::{SqliteDb, DB_VERSION};
 use rand::Rng;
 use std::sync::LazyLock;
 use tokio::sync::OnceCell;
+use tracing::info;
 use tracing_subscriber::EnvFilter;
-use util::{data_dir, db_file};
+use util::{data_dir, db_file, prompt_cli};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     let path = db_file().expect("failed to get DB file path");
@@ -156,7 +157,7 @@ Remote DB version = {}, contender expected version {}.
             let engine_params = auth_args.engine_params().await?;
 
             let spam_args = SpamCommandArgs {
-                testfile,
+                testfile: testfile.to_owned(),
                 rpc_url: rpc_url.to_owned(),
                 builder_url,
                 txs_per_block,
@@ -172,15 +173,48 @@ Remote DB version = {}, contender expected version {}.
                 timeout_secs: timeout,
                 env,
             };
+
+            // check for spicy params, make recommendations
+            let (units, max_duration) = if txs_per_block.is_some() {
+                ("blocks", 50)
+            } else if txs_per_second.is_some() {
+                ("seconds", 100)
+            } else {
+                return Err(ContenderError::SpamError(
+                    "Either txs-per-block or txs-per-second must be set",
+                    None,
+                )
+                .into());
+            };
+            if duration > max_duration {
+                let time_limit = duration / max_duration;
+                let suggestion_cmd = ansi_term::Style::new().bold().paint(format!(
+                    "contender spamd {testfile} -d {max_duration} -l {time_limit} ..."
+                ));
+                let spamd = ansi_term::Style::new().bold().paint("spamd");
+                println!(
+"Duration is set to {duration} {units}, which is quite high. Generating transactions and collecting results may take a long time.
+You may want to use {spamd} instead, with a lower spamming duration (-d) and a time limit (-l):
+
+\t{suggestion_cmd}
+");
+                let do_continue = prompt_cli("Do you want to continue anyways? [y/N]")
+                    .to_lowercase()
+                    .starts_with("y");
+                if !do_continue {
+                    return Ok(());
+                }
+            }
+
             let mut scenario = spam_args.init_scenario(&db).await?;
             let run_id = commands::spam(&db, &spam_args, &mut scenario).await?;
             if gen_report {
                 tokio::select! {
                     _ = tokio::signal::ctrl_c() => {
-                        println!("CTRL-C received, discarding report...");
+                        info!("CTRL-C received, discarding report...");
                     }
                     _ = commands::report(run_id, 0, &db) => {
-                        println!("Report generated successfully");
+                        info!("Report generated successfully");
                     }
                 }
             }
