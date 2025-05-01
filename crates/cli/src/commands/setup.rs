@@ -60,7 +60,7 @@ pub async fn setup(
             .network::<AnyNetwork>()
             .on_http(url.to_owned()),
     );
-    let mut testconfig: TestConfig = TestConfig::from_file(testfile.as_ref())?;
+    let mut testconfig: TestConfig = TestConfig::from_file(testfile.as_ref()).await?;
 
     // Setup env variables
     let mut env_variables = testconfig.env.clone().unwrap_or_default();
