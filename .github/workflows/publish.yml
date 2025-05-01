@@ -61,7 +61,7 @@ jobs:
 
       - name: Update crate versions
         run: |
-          cargo workspaces version ${{ steps.version.outputs.version }} --yes --allow-dirty --no-git-commit
+          cargo workspaces version ${{ steps.version.outputs.version }} --yes --allow-branch '*' --no-git-commit
 
       - name: Configure git identity
         run: |
