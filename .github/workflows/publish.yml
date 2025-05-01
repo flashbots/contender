@@ -1,0 +1,100 @@
+name: Publish Crates
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 1.2.3)"
+        required: true
+      dry_run:
+        description: "Dry run (do not publish to crates.io)"
+        required: false
+        default: "false"
+
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write  # needed to push tags and create releases
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', '.tool-versions') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install tools
+        run: |
+          cargo install cargo-workspaces --version 0.3.6 || true
+          cargo install release-plz --version 0.3.133 --locked || true
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            echo "dry_run=${{ github.event.inputs.dry_run }}" >> $GITHUB_OUTPUT
+          else
+            TAG="${GITHUB_REF##*/}"       # refs/tags/v1.2.3 → v1.2.3
+            VERSION="${TAG#v}"            # v1.2.3 → 1.2.3
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "dry_run=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update crate versions
+        run: |
+          cargo workspaces version ${{ steps.version.outputs.version }} --yes
+
+      - name: Commit + tag (manual only)
+        if: github.event_name == 'workflow_dispatch' && steps.version.outputs.dry_run != 'true'
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git commit -am "Release v${{ steps.version.outputs.version }}"
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin HEAD
+          git push origin "v${{ steps.version.outputs.version }}"
+
+      - name: Generate changelog
+        run: |
+          release-plz changelog > CHANGELOG.md
+          echo "=== CHANGELOG ==="
+          cat CHANGELOG.md
+
+      - name: Publish crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [[ "${{ steps.version.outputs.dry_run }}" == "true" ]]; then
+            echo "🧪 Dry-run mode"
+            cargo workspaces publish --dry-run --yes --no-git-commit --from-git
+          else
+            echo "🚀 Publishing to crates.io"
+            cargo workspaces publish --yes --no-git-commit --from-git
+          fi
+
+      - name: Create GitHub Release
+        if: steps.version.outputs.dry_run != 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Release v${{ steps.version.outputs.version }}
+          body_path: CHANGELOG.md
