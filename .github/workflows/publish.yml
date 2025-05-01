@@ -30,6 +30,11 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Install system dependencies for fontconfig
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev pkg-config
+
       - name: Cache Cargo
         uses: actions/cache@v3
         with:
