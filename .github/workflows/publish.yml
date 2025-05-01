@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release (e.g. 1.2.3)"
+        description: "Version to release (e.g. patch, minor, major)"
         required: true
       dry_run:
         description: "Dry run (do not publish to crates.io)"
@@ -62,6 +62,11 @@ jobs:
       - name: Update crate versions
         run: |
           cargo workspaces version ${{ steps.version.outputs.version }} --yes
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
 
       - name: Commit + tag (manual only)
         if: github.event_name == 'workflow_dispatch' && steps.version.outputs.dry_run != 'true'
