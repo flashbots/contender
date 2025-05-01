@@ -9,7 +9,7 @@ on:
       dry_run:
         description: "Dry run (do not publish to crates.io)"
         required: false
-        default: "false"
+        default: "true"
 
   push:
     tags:
