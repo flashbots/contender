@@ -146,6 +146,7 @@ Remote DB version = {}, contender expected version {}.
                             txs_per_second,
                             builder_url,
                             timeout,
+                            loops,
                         },
                     disable_reporting,
                     gen_report,
@@ -172,70 +173,14 @@ Remote DB version = {}, contender expected version {}.
                 timeout_secs: timeout,
                 env,
             };
-            let mut scenario = spam_args.init_scenario(&db).await?;
-            let run_id = commands::spam(&db, &spam_args, &mut scenario).await?;
-            if gen_report {
-                tokio::select! {
-                    _ = tokio::signal::ctrl_c() => {
-                        println!("CTRL-C received, discarding report...");
-                    }
-                    _ = commands::report(run_id, 0, &db) => {
-                        println!("Report generated successfully");
-                    }
-                }
-            }
-        }
-
-        ContenderSubcommand::SpamD {
-            spam_inner_args,
-            time_limit,
-        } => {
-            let SpamCliArgs {
-                eth_json_rpc_args:
-                    ScenarioSendTxsCliArgs {
-                        testfile,
-                        rpc_url,
-                        seed,
-                        private_keys,
-                        min_balance,
-                        tx_type,
-                        auth_args,
-                        env,
-                    },
-                spam_args:
-                    SendSpamCliArgs {
-                        duration,
-                        txs_per_block,
-                        txs_per_second,
-                        builder_url,
-                        timeout,
-                    },
-                disable_reporting,
-                gen_report,
-                gas_price_percent_add,
-            } = spam_inner_args;
-
-            let seed = seed.to_owned().unwrap_or(stored_seed);
-            let engine_params = auth_args.engine_params().await?;
-
-            let spam_args = SpamCommandArgs {
-                testfile,
-                rpc_url,
-                builder_url,
-                txs_per_block,
-                txs_per_second,
-                duration,
-                seed,
-                private_keys,
-                disable_reporting,
-                min_balance,
-                tx_type: tx_type.into(),
-                gas_price_percent_add,
-                engine_params,
-                timeout_secs: timeout,
-                env,
+            let real_loops = if let Some(loops) = loops {
+                // loops flag is set; spamd will interpret a None value as infinite
+                loops
+            } else {
+                // loops flag is not set, so only loop once
+                Some(1)
             };
-            commands::spamd(&db, spam_args, gen_report, time_limit).await?;
+            commands::spamd(&db, spam_args, gen_report, real_loops).await?;
         }
 
         ContenderSubcommand::Report {
