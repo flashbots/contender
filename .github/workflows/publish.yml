@@ -78,9 +78,9 @@ jobs:
           git push origin HEAD
           git push origin "v${{ steps.version.outputs.version }}"
 
-      - name: Generate release pull request
+      - name: Generate release PR + changelog
         run: |
-          release-plz release-pr
+          release-plz release-pr --git-token "${{ secrets.GITHUB_TOKEN }}"
 
       - name: Publish crates
         env:
