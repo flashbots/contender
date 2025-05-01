@@ -13,6 +13,7 @@ use eyre::Result;
 use prometheus::{HistogramOpts, HistogramVec, Registry};
 use tokio::sync::OnceCell;
 use tower::{Layer, Service};
+use tracing::debug;
 
 pub const RPC_REQUEST_LATENCY_ID: &str = "rpc_request_latency_seconds";
 
@@ -96,13 +97,16 @@ where
                     match res {
                         ResponsePacket::Single(inner_res) => {
                             if let Some(payload) = inner_res.payload.as_success() {
-                                println!("tx delivered. hash: {}, id: {id}", payload.get());
+                                debug!("tx delivered. hash: {}, id: {id}", payload.get());
                             }
                         }
                         ResponsePacket::Batch(_) => {}
                     }
                 }
+            } else if let Err(err) = &res {
+                debug!("RPC Error: {err}");
             }
+
             res
         })
     }
@@ -122,4 +126,69 @@ async fn init_metrics(registry: &OnceCell<Registry>, latency_hist: &OnceCell<His
 
     registry.set(reg).unwrap_or(());
     latency_hist.set(histogram_vec).unwrap_or(());
+}
+
+#[cfg(test)]
+pub mod tests {
+    use alloy::rpc::json_rpc::Id;
+    use tracing::Level;
+    use tracing_subscriber::FmtSubscriber;
+
+    use super::*;
+
+    static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
+    static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
+    static TRACING_INIT: std::sync::Once = std::sync::Once::new();
+
+    #[derive(Clone)]
+    struct FailingService;
+
+    impl Service<RequestPacket> for FailingService {
+        type Response = ResponsePacket;
+        type Error = TransportError;
+        type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn call(&mut self, _req: RequestPacket) -> Self::Future {
+            let err = TransportError::Transport(alloy::transports::TransportErrorKind::Custom(
+                "bummer".into(),
+            ));
+            Box::pin(async move { Err(err) })
+        }
+    }
+
+    #[tokio::test]
+    async fn bad_request_logs_error() -> Result<()> {
+        TRACING_INIT.call_once(|| {
+            let subscriber = FmtSubscriber::builder()
+                .with_max_level(Level::DEBUG)
+                .finish();
+            tracing::subscriber::set_global_default(subscriber)
+                .expect("setting default subscriber failed");
+        });
+
+        let layer = LoggingLayer::new(&PROM, &HIST).await;
+        let mut service = layer.layer(FailingService);
+        let req = RequestPacket::Single(
+            alloy::rpc::json_rpc::Request::<Vec<String>>::new(
+                "eth_sendRawTransaction",
+                Id::Number(1),
+                vec![],
+            )
+            .serialize()
+            .unwrap(),
+        );
+        let res = service.call(req).await;
+        assert!(res.is_err());
+        if let Err(TransportError::Transport(err)) = res {
+            assert_eq!(err.to_string(), "bummer");
+        } else {
+            panic!("Expected a transport error");
+        }
+
+        Ok(())
+    }
 }

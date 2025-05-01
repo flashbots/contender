@@ -16,6 +16,7 @@ use rand::Rng;
 use std::sync::LazyLock;
 use tokio::sync::OnceCell;
 use tracing::{info, warn};
+use tracing_subscriber::EnvFilter;
 use util::{data_dir, db_file};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
@@ -29,8 +30,7 @@ static LATENCY_HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let subscriber = tracing_subscriber::FmtSubscriber::new();
-    tracing::subscriber::set_global_default(subscriber)?;
+    init_tracing();
 
     let args = ContenderCli::parse_args();
     if DB.table_exists("run_txs")? {
@@ -280,4 +280,14 @@ Remote DB version = {}, contender expected version {}.
         }
     }
     Ok(())
+}
+
+fn init_tracing() {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")); // fallback if RUST_LOG is unset
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(true)
+        .with_line_number(true)
+        .init();
 }

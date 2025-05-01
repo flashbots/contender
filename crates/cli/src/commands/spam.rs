@@ -134,7 +134,7 @@ impl SpamCommandArgs {
             ..
         } = &self;
 
-        let mut testconfig: TestConfig = TestConfig::from_file(testfile)?;
+        let mut testconfig: TestConfig = TestConfig::from_file(testfile).await?;
         // Setup env variables
         let mut env_variables = testconfig.env.clone().unwrap_or_default();
         if env.is_some() {
@@ -143,6 +143,7 @@ impl SpamCommandArgs {
             }
         }
         testconfig.env = Some(env_variables.clone());
+
         let rand_seed = RandSeed::seed_from_str(seed);
         let url = Url::parse(rpc_url).expect("Invalid RPC URL");
         let rpc_client = DynProvider::new(
