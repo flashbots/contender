@@ -167,6 +167,18 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         visible_aliases = &["wait"]
     )]
     pub timeout: u64,
+
+    /// The number of times to repeat the spam run.
+    /// If set with a value, the spam run will be repeated this many times.
+    /// If set without a value, the spam run will be repeated indefinitely.
+    /// If not set, the spam run will be repeated once.
+    #[arg(
+        short,
+        long,
+        num_args = 0..=1,
+        long_help = "The number of times to repeat the spam run. If set with a value, the spam run will be repeated this many times. If set without a value, the spam run will be repeated indefinitely. If not set, the spam run will be repeated once."
+    )]
+    pub loops: Option<Option<u64>>,
 }
 
 pub fn cli_env_vars_parser(s: &str) -> Result<(String, String), String> {

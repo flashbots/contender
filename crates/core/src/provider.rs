@@ -131,7 +131,6 @@ async fn init_metrics(registry: &OnceCell<Registry>, latency_hist: &OnceCell<His
 #[cfg(test)]
 pub mod tests {
     use alloy::rpc::json_rpc::Id;
-    use tracing::Level;
     use tracing_subscriber::FmtSubscriber;
 
     use super::*;
@@ -164,7 +163,7 @@ pub mod tests {
     async fn bad_request_logs_error() -> Result<()> {
         TRACING_INIT.call_once(|| {
             let subscriber = FmtSubscriber::builder()
-                .with_max_level(Level::DEBUG)
+                .with_env_filter("contender_core=debug")
                 .finish();
             tracing::subscriber::set_global_default(subscriber)
                 .expect("setting default subscriber failed");
