@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: write  # needed to push tags and create releases
+  pull-requests: write
 
 jobs:
   publish:
