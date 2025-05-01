@@ -63,6 +63,7 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
+
       - name: Update crate versions
         run: |
           cargo workspaces version ${{ steps.version.outputs.version }} --yes --allow-branch '*'
@@ -77,11 +78,9 @@ jobs:
           git push origin HEAD
           git push origin "v${{ steps.version.outputs.version }}"
 
-      - name: Generate changelog
+      - name: Generate release pull request
         run: |
-          release-plz changelog > CHANGELOG.md
-          echo "=== CHANGELOG ==="
-          cat CHANGELOG.md
+          release-plz release-pr
 
       - name: Publish crates
         env:
