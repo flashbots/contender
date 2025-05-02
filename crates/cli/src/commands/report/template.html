@@ -217,6 +217,31 @@
     </table>
   </section>
 
+
+  <section>
+    <h2>Runtime Parameters</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Run ID</th>
+          <th>Txs Per Duration</th>
+          <th>Duration</th>
+          <th>Timeout</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each data.metrics.runtime_params}}
+        <tr>
+          <td>{{this.run_id}}</td>
+          <td>{{this.txs_per_duration}}</td>
+          <td>{{this.duration}}</td>
+          <td>{{this.timeout}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  </section>
+
   {{#each data.charts}}
   <section>
     <h2>
