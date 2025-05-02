@@ -332,7 +332,7 @@ pub async fn spam<
                     test_scenario.rpc_url.as_str(),
                     *txs_per_block,
                     *duration,
-                    *timeout_secs
+                    *timeout_secs,
                 )?);
                 spammer
                     .spam_rpc(

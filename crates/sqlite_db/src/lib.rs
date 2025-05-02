@@ -158,7 +158,7 @@ struct SpamRunRow {
     pub rpc_url: String,
     pub txs_per_duration: u64,
     pub duration: u64,
-    pub timeout: u64
+    pub timeout: u64,
 }
 
 impl From<SpamRunRow> for SpamRun {
@@ -171,7 +171,7 @@ impl From<SpamRunRow> for SpamRun {
             rpc_url: row.rpc_url,
             txs_per_duration: row.txs_per_duration,
             duration: row.duration,
-            timeout: row.timeout
+            timeout: row.timeout,
         }
     }
 }
@@ -246,7 +246,7 @@ impl DbOps for SqliteDb {
         rpc_url: &str,
         txs_per_duration: u64,
         duration: u64,
-        timeout: u64
+        timeout: u64,
     ) -> Result<u64> {
         self.execute(
             "INSERT INTO runs (timestamp, tx_count, scenario_name, rpc_url, txs_per_duration, duration, timeout) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -298,7 +298,7 @@ impl DbOps for SqliteDb {
                     rpc_url: row.get(4)?,
                     txs_per_duration: row.get(5)?,
                     duration: row.get(6)?,
-                    timeout: row.get(7)?
+                    timeout: row.get(7)?,
                 })
             })
             .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;

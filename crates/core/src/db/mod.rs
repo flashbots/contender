@@ -45,7 +45,7 @@ pub struct SpamRun {
     pub rpc_url: String,
     pub txs_per_duration: u64,
     pub duration: u64,
-    pub timeout: u64
+    pub timeout: u64,
 }
 
 pub trait DbOps {
