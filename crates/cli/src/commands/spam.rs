@@ -268,6 +268,7 @@ pub async fn spam<
         duration,
         disable_reporting,
         engine_params,
+        timeout_secs,
         ..
     } = args;
 
@@ -329,6 +330,9 @@ pub async fn spam<
                     txs_per_block * duration,
                     testfile,
                     test_scenario.rpc_url.as_str(),
+                    *txs_per_block,
+                    *duration,
+                    *timeout_secs
                 )?);
                 spammer
                     .spam_rpc(
@@ -378,6 +382,9 @@ pub async fn spam<
                 tps * duration,
                 testfile,
                 test_scenario.rpc_url.as_str(),
+                tps,
+                *duration,
+                *timeout_secs,
             )?);
             spammer
                 .spam_rpc(test_scenario, tps, *duration, run_id, tx_callback.into())

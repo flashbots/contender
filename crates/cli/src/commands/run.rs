@@ -159,6 +159,9 @@ pub async fn run(
         args.duration * args.txs_per_duration,
         &format!("{contract_name} ({scenario_name})"),
         scenario.rpc_url.as_str(),
+        args.txs_per_duration,
+        args.duration,
+        12 // Since pending_tx_timeout is set to 12
     )?;
     let provider = Arc::new(DynProvider::new(provider));
     let tx_callback = LogCallback::new(

@@ -22,6 +22,9 @@ impl DbOps for MockDb {
         _tx_count: u64,
         _scenario_name: &str,
         _rpc_url: &str,
+        _txs_per_duration: u64,
+        _duration: u64,
+        _timeout: u64
     ) -> Result<u64> {
         Ok(0)
     }

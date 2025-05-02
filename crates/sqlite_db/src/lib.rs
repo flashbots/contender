@@ -156,6 +156,9 @@ struct SpamRunRow {
     pub tx_count: usize,
     pub scenario_name: String,
     pub rpc_url: String,
+    pub txs_per_duration: u64,
+    pub duration: u64,
+    pub timeout: u64
 }
 
 impl From<SpamRunRow> for SpamRun {
@@ -166,6 +169,9 @@ impl From<SpamRunRow> for SpamRun {
             tx_count: row.tx_count,
             scenario_name: row.scenario_name,
             rpc_url: row.rpc_url,
+            txs_per_duration: row.txs_per_duration,
+            duration: row.duration,
+            timeout: row.timeout
         }
     }
 }
@@ -185,7 +191,10 @@ impl DbOps for SqliteDb {
                 timestamp TEXT NOT NULL,
                 tx_count INTEGER NOT NULL,
                 scenario_name TEXT NOT NULL DEFAULT '',
-                rpc_url TEXT NOT NULL DEFAULT ''
+                rpc_url TEXT NOT NULL DEFAULT '',
+                txs_per_duration INTEGER NOT NULL,
+                duration INTEGER NOT NULL, 
+                timeout INTEGER NOT NULL
             )",
             "CREATE TABLE rpc_urls (
                 id INTEGER PRIMARY KEY,
@@ -235,10 +244,13 @@ impl DbOps for SqliteDb {
         tx_count: u64,
         scenario_name: &str,
         rpc_url: &str,
+        txs_per_duration: u64,
+        duration: u64,
+        timeout: u64
     ) -> Result<u64> {
         self.execute(
-            "INSERT INTO runs (timestamp, tx_count, scenario_name, rpc_url) VALUES (?, ?, ?, ?)",
-            params![timestamp, tx_count, scenario_name, rpc_url],
+            "INSERT INTO runs (timestamp, tx_count, scenario_name, rpc_url, txs_per_duration, duration, timeout) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            params![timestamp, tx_count, scenario_name, rpc_url, txs_per_duration, duration, timeout],
         )?;
         // get ID from newly inserted row
         let id: u64 = self.query_row("SELECT last_insert_rowid()", params![], |row| row.get(0))?;
@@ -272,7 +284,7 @@ impl DbOps for SqliteDb {
         let pool = self.get_pool()?;
         let mut stmt = pool
             .prepare(
-                "SELECT id, timestamp, tx_count, scenario_name, rpc_url FROM runs WHERE id = ?1",
+                "SELECT id, timestamp, tx_count, scenario_name, rpc_url, txs_per_duration, duration, timeout FROM runs WHERE id = ?1",
             )
             .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
 
@@ -284,6 +296,9 @@ impl DbOps for SqliteDb {
                     tx_count: row.get(2)?,
                     scenario_name: row.get(3)?,
                     rpc_url: row.get(4)?,
+                    txs_per_duration: row.get(5)?,
+                    duration: row.get(6)?,
+                    timeout: row.get(7)?
                 })
             })
             .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
@@ -479,7 +494,7 @@ mod tests {
         let db = SqliteDb::new_memory();
         db.create_tables().unwrap();
         let do_it = |num| {
-            db.insert_run(100000, num, "test", "http://test:8545")
+            db.insert_run(100000, num, "test", "http://test:8545", 10, 10, 12)
                 .unwrap()
         };
 
@@ -528,7 +543,7 @@ mod tests {
         let db = SqliteDb::new_memory();
         db.create_tables().unwrap();
         let run_id = db
-            .insert_run(100000, 100, "test", "http://test:8545")
+            .insert_run(100000, 100, "test", "http://test:8545", 10, 10, 12)
             .unwrap();
         let run_txs = vec![
             RunTx {

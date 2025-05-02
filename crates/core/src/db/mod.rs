@@ -43,6 +43,9 @@ pub struct SpamRun {
     pub tx_count: usize,
     pub scenario_name: String,
     pub rpc_url: String,
+    pub txs_per_duration: u64,
+    pub duration: u64,
+    pub timeout: u64
 }
 
 pub trait DbOps {
@@ -68,6 +71,9 @@ pub trait DbOps {
         tx_count: u64,
         scenario_name: &str,
         rpc_url: &str,
+        txs_per_duration: u64,
+        duration: u64,
+        timeout: u64,
     ) -> Result<u64>;
 
     /// Insert txs from a spam run into the database.
