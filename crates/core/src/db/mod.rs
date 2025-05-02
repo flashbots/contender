@@ -65,6 +65,7 @@ pub trait DbOps {
     fn insert_named_txs(&self, named_txs: &[NamedTx], rpc_url: &str) -> Result<()>;
 
     /// Insert a new run into the database. Returns run_id.
+    #[allow(clippy::too_many_arguments)]
     fn insert_run(
         &self,
         timestamp: u64,
