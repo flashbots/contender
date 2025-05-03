@@ -4,6 +4,7 @@ use alloy::primitives::Address;
 use contender_core::generator::types::{CreateDefinition, FunctionCallDefinition, SpamRequest};
 use contender_testfile::TestConfig;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use super::bytecode;
 
@@ -60,7 +61,7 @@ impl From<BuiltinScenarioConfig> for TestConfig {
                 fill_percent,
             } => {
                 let gas_per_tx = (fill_percent as u64 * max_gas_per_block) / (num_txs * 100);
-                println!("Filling blocks to {fill_percent}% ({}/{max_gas_per_block}); sending {num_txs} txs with gas limit {gas_per_tx}", fill_percent as u64 * max_gas_per_block / 100);
+                info!("Filling blocks to {fill_percent}% ({}/{max_gas_per_block}); sending {num_txs} txs with gas limit {gas_per_tx}", fill_percent as u64 * max_gas_per_block / 100);
                 let spam_txs = (0..num_txs)
                     .map(|_| {
                         SpamRequest::Tx(FunctionCallDefinition {

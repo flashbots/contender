@@ -4,6 +4,7 @@ use plotters::{
     prelude::{BitMapBackend, DrawingArea},
     style::RGBColor,
 };
+use tracing::info;
 
 pub trait DrawableChart {
     fn define_chart(
@@ -17,7 +18,7 @@ pub trait DrawableChart {
             .expect("invalid fill color");
         self.define_chart(&root)?;
         root.present()?;
-        println!("saved chart to {filepath}");
+        info!("saved chart to {filepath}");
 
         Ok(())
     }

@@ -14,6 +14,7 @@ use op_rbuilder::{
 };
 use reth_optimism_node::OpPayloadAttributes;
 use std::{path::PathBuf, time::Duration};
+use tracing::info;
 
 const FJORD_DATA: &[u8] = &make_hex!(
     "440a5e200000146b000f79c500000000000000040000000066d052e700000000013ad8a3000000000000000000000000000000000000000000000000000000003ef1278700000000000000000000000000000000000000000000000000000000000000012fdf87b89884a61e74b322bbcf60386f543bfae7827725efaaf0ab1de2294a590000000000000000000000006887246668a3b87f54deb3b94ba47a6f63f32985"
@@ -101,7 +102,7 @@ async fn call_fcu_default(
 impl AdvanceChain for AuthProviderOp {
     /// Advance the chain by calling `engine_forkchoiceUpdated` (FCU) and `engine_newPayload` methods.
     async fn advance_chain(&self, block_time_secs: u64) -> Result<(), Box<dyn std::error::Error>> {
-        println!("[OP] advancing chain {block_time_secs}s...");
+        info!("[OP] advancing chain {block_time_secs}s...");
         let engine_client = &self.inner;
         let block = engine_client
             .latest()
@@ -119,7 +120,7 @@ impl AdvanceChain for AuthProviderOp {
             Some(block.header.gas_limit),
         )
         .await?;
-        println!("[OP] FCU call sent. Payload ID: {:?}", res.payload_id);
+        info!("[OP] FCU call sent. Payload ID: {:?}", res.payload_id);
         let payload_id = res.payload_id.ok_or("need payload ID")?;
 
         // wait for builder to build
@@ -152,7 +153,7 @@ impl AdvanceChain for AuthProviderOp {
             Some(block.header.gas_limit),
         )
         .await?;
-        println!("[OP] FCU call sent. Payload ID: {:?}", res.payload_id);
+        info!("[OP] FCU call sent. Payload ID: {:?}", res.payload_id);
 
         Ok(())
     }
