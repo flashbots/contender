@@ -8,6 +8,7 @@ use std::{
     },
     time::Duration,
 };
+use tracing::{info, warn};
 
 /// Runs spam in a loop, potentially executing multiple spam runs.
 pub async fn spamd(
@@ -26,7 +27,7 @@ pub async fn spamd(
         if let Some(limit) = time_limit {
             tokio::time::sleep(Duration::from_secs(limit)).await;
             if start_time.elapsed().as_secs() >= limit {
-                println!("Time limit reached. Spam daemon will shut down as soon as current batch finishes...");
+                info!("Time limit reached. Spam daemon will shut down as soon as current batch finishes...");
                 is_finished.store(true, Ordering::SeqCst);
             }
         }
@@ -43,26 +44,24 @@ pub async fn spamd(
         tokio::signal::ctrl_c()
             .await
             .expect("Failed to listen for CTRL-C");
-        println!(
-            "CTRL-C received. Spam daemon will shut down as soon as current batch finishes..."
-        );
+        info!("CTRL-C received. Spam daemon will shut down as soon as current batch finishes...");
         is_finished.store(true, Ordering::SeqCst);
     });
 
     // runs spam command in a loop
     loop {
         if finished.load(Ordering::SeqCst) {
-            println!("Spam loop finished");
+            info!("Spam loop finished");
             break;
         }
-        println!("syncing nonces...");
+        info!("syncing nonces...");
         scenario.sync_nonces().await?;
         let db = db.clone();
         let spam_res = commands::spam(&db, &args, &mut scenario).await;
         if let Err(e) = spam_res {
-            println!("spam failed: {e:?}");
+            warn!("spam failed: {e:?}");
         } else {
-            println!("spam batch completed");
+            info!("spam batch completed");
             let run_id = spam_res.expect("spam");
             if let Some(run_id) = run_id {
                 run_ids.push(run_id);
@@ -74,7 +73,7 @@ pub async fn spamd(
     let run_report = || async move {
         if gen_report {
             if run_ids.is_empty() {
-                println!("No runs found, exiting.");
+                info!("No runs found, exiting.");
                 return Ok::<_, ContenderError>(());
             }
             let first_run_id = run_ids.iter().min().expect("no run IDs found");
@@ -91,7 +90,7 @@ pub async fn spamd(
     tokio::select! {
         _ = run_report() => {},
         _ = tokio::signal::ctrl_c() => {
-            println!("CTRL-C received, shutting down...");
+            info!("CTRL-C received, shutting down...");
         }
     }
 

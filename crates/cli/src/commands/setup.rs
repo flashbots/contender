@@ -30,6 +30,7 @@ use std::{
     },
     time::Duration,
 };
+use tracing::{debug, info, warn};
 
 use super::common::ScenarioSendTxsCliArgs;
 
@@ -201,7 +202,7 @@ pub async fn setup(
         let timeout_blocks = 10;
         let safe_time = (testconfig.create.iter().len() + timeout_blocks) as u64 * block_time_secs;
         tokio::time::sleep(Duration::from_secs(safe_time)).await;
-        println!("Contract deployment has been waiting for more than {timeout_blocks} blocks... Press Ctrl+C to cancel.");
+        warn!("Contract deployment has been waiting for more than {timeout_blocks} blocks... Press Ctrl+C to cancel.");
     });
     let done = AtomicBool::new(false);
     let is_done = Arc::new(done);
@@ -229,9 +230,9 @@ pub async fn setup(
 
     scenario.deploy_contracts().await?;
     timekeeper_handle.abort();
-    println!("Finished deploying contracts. Running setup txs...");
+    info!("Finished deploying contracts. Running setup txs...");
     scenario.run_setup().await?;
-    println!("Setup complete. To run the scenario, use the `spam` command.");
+    debug!("Setup complete. To run the scenario, use the `spam` command.");
 
     // stop advancing the chain
     is_done.store(true, Ordering::SeqCst);

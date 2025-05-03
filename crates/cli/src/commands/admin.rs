@@ -4,7 +4,7 @@ use clap::Subcommand;
 use contender_core::{
     agent_controller::SignerStore, db::DbOps, error::ContenderError, generator::RandSeed,
 };
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Debug, Subcommand)]
 pub enum AdminCommand {
@@ -51,9 +51,9 @@ fn read_seed_file() -> Result<Vec<u8>, ContenderError> {
 
 /// Prompts for confirmation before displaying sensitive information
 fn confirm_sensitive_operation(_operation: &str) -> Result<(), ContenderError> {
-    println!("WARNING: This command will display sensitive information.");
-    println!("This information should not be shared or exposed in CI environments.");
-    println!("Press Enter to continue or Ctrl+C to cancel...");
+    warn!("WARNING: This command will display sensitive information.");
+    warn!("This information should not be shared or exposed in CI environments.");
+    info!("Press Enter to continue or Ctrl+C to cancel...");
     let mut input = String::new();
     std::io::stdin()
         .read_line(&mut input)
@@ -90,7 +90,7 @@ fn print_accounts_for_pool(
 fn handle_seed() -> Result<(), Box<dyn std::error::Error>> {
     confirm_sensitive_operation("displaying seed value")?;
     let seed_bytes = read_seed_file()?;
-    println!("{}", hex::encode(seed_bytes));
+    info!("{}", hex::encode(seed_bytes));
     Ok(())
 }
 
@@ -105,7 +105,7 @@ pub fn handle_admin_command(
         } => handle_accounts(from_pool, num_signers),
         AdminCommand::LatestRunId => {
             let num_runs = db.num_runs()?;
-            println!("Latest run ID: {num_runs}");
+            info!("Latest run ID: {num_runs}");
             Ok(())
         }
         AdminCommand::Seed => handle_seed(),

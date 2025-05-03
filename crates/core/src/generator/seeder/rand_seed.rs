@@ -109,6 +109,7 @@ impl Default for RandSeed {
 #[cfg(test)]
 mod tests {
     use alloy::hex::ToHexExt;
+    use tracing::debug;
 
     use super::U256;
     use crate::generator::seeder::{SeedValue, Seeder};
@@ -117,9 +118,9 @@ mod tests {
     fn encodes_seed_bytes() {
         let mut seed_bytes = [0u8; 32];
         seed_bytes[seed_bytes.len() - 1] = 0x01;
-        println!("{}", seed_bytes.encode_hex());
+        debug!("{}", seed_bytes.encode_hex());
         let seed = super::RandSeed::seed_from_bytes(&seed_bytes);
-        println!("{}", seed.as_bytes().encode_hex());
+        debug!("{}", seed.as_bytes().encode_hex());
         assert_eq!(seed.as_bytes().len(), 32);
         assert_eq!(seed.as_u64(), 1);
         assert_eq!(seed.as_u128(), 1);

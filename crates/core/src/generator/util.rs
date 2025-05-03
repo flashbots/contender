@@ -5,6 +5,7 @@ use alloy::{
     json_abi,
     rpc::types::TransactionRequest,
 };
+use tracing::info;
 
 /// Encode the calldata for a function signature given an array of string arguments.
 ///
@@ -63,7 +64,7 @@ pub fn complete_tx_request(
             tx_req.chain_id = Some(chain_id);
         }
         _ => {
-            println!("Unsupported tx type: {tx_type:?}, defaulting to legacy");
+            info!("Unsupported tx type: {tx_type:?}, defaulting to legacy");
             complete_tx_request(
                 tx_req,
                 TxType::Legacy,

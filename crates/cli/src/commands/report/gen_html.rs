@@ -2,6 +2,7 @@ use super::command::SpamRunMetrics;
 use crate::{commands::report::chart::ReportChartId, util::report_dir};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tracing::info;
 
 pub struct ReportMetadata {
     pub scenario_name: String,
@@ -60,7 +61,7 @@ pub fn build_html_report(meta: ReportMetadata) -> Result<String, Box<dyn std::er
         report_dir, meta.start_run_id, meta.end_run_id
     );
     std::fs::write(&path, html)?;
-    println!("saved report to {path}");
+    info!("saved report to {path}");
 
     Ok(path)
 }
