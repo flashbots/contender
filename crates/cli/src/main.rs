@@ -264,7 +264,7 @@ fn check_spam_args(args: &SpamCliArgs) -> Result<bool, ContenderError> {
 You may want to use {} with a lower spamming duration {} and a loop limit {}:\n
 \t{suggestion_cmd}\n",
             ansi_term::Style::new().bold().paint("spam"),
-            ansi_term::Style::new().bold().paint(format!("(-d)")),
+            ansi_term::Style::new().bold().paint("(-d)".to_string()),
             ansi_term::Style::new().bold().paint("(-l)")
     );
         return Ok(prompt_continue(None));
