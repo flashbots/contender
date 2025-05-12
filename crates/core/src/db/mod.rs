@@ -1,5 +1,5 @@
 mod mock;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt::Display};
 
 pub use mock::MockDb;
 
@@ -37,6 +37,60 @@ impl NamedTx {
     }
 }
 
+pub enum SpamDuration {
+    Seconds(u64),
+    Blocks(u64),
+}
+
+impl SpamDuration {
+    pub fn value(&self) -> u64 {
+        match self {
+            SpamDuration::Seconds(v) => *v,
+            SpamDuration::Blocks(v) => *v,
+        }
+    }
+
+    pub fn unit(&self) -> &'static str {
+        match self {
+            SpamDuration::Seconds(_) => "seconds",
+            SpamDuration::Blocks(_) => "blocks",
+        }
+    }
+
+    pub fn is_seconds(&self) -> bool {
+        matches!(self, SpamDuration::Seconds(_))
+    }
+
+    pub fn is_blocks(&self) -> bool {
+        matches!(self, SpamDuration::Blocks(_))
+    }
+}
+
+impl Display for SpamDuration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SpamDuration::Seconds(v) => write!(f, "{} seconds", v),
+            SpamDuration::Blocks(v) => write!(f, "{} blocks", v),
+        }
+    }
+}
+
+impl From<String> for SpamDuration {
+    fn from(value: String) -> Self {
+        let value = value.trim();
+        if let Some(stripped) = value.strip_suffix(" seconds") {
+            if let Ok(seconds) = stripped.trim().parse::<u64>() {
+                return SpamDuration::Seconds(seconds);
+            }
+        } else if let Some(stripped) = value.strip_suffix(" blocks") {
+            if let Ok(blocks) = stripped.trim().parse::<u64>() {
+                return SpamDuration::Blocks(blocks);
+            }
+        }
+        panic!("Invalid format for SpamDuration: {}", value);
+    }
+}
+
 pub struct SpamRun {
     pub id: u64,
     pub timestamp: usize,
@@ -44,7 +98,17 @@ pub struct SpamRun {
     pub scenario_name: String,
     pub rpc_url: String,
     pub txs_per_duration: u64,
-    pub duration: u64,
+    pub duration: SpamDuration,
+    pub timeout: u64,
+}
+
+pub struct SpamRunRequest {
+    pub timestamp: usize,
+    pub tx_count: usize,
+    pub scenario_name: String,
+    pub rpc_url: String,
+    pub txs_per_duration: u64,
+    pub duration: SpamDuration,
     pub timeout: u64,
 }
 
@@ -65,17 +129,7 @@ pub trait DbOps {
     fn insert_named_txs(&self, named_txs: &[NamedTx], rpc_url: &str) -> Result<()>;
 
     /// Insert a new run into the database. Returns run_id.
-    #[allow(clippy::too_many_arguments)]
-    fn insert_run(
-        &self,
-        timestamp: u64,
-        tx_count: u64,
-        scenario_name: &str,
-        rpc_url: &str,
-        txs_per_duration: u64,
-        duration: u64,
-        timeout: u64,
-    ) -> Result<u64>;
+    fn insert_run(&self, run: &SpamRunRequest) -> Result<u64>;
 
     /// Insert txs from a spam run into the database.
     fn insert_run_txs(&self, run_id: u64, run_txs: &[RunTx]) -> Result<()>;

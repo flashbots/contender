@@ -18,7 +18,7 @@ use alloy::{
 };
 use contender_core::{
     agent_controller::AgentStore,
-    db::DbOps,
+    db::{DbOps, SpamDuration, SpamRunRequest},
     error::ContenderError,
     generator::{seeder::Seeder, templater::Templater, PlanConfig, RandSeed},
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
@@ -328,15 +328,16 @@ pub async fn spam<
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("Time went backwards")
                     .as_millis();
-                run_id = Some(db.insert_run(
-                    timestamp as u64,
-                    txs_per_block * duration,
-                    testfile,
-                    test_scenario.rpc_url.as_str(),
-                    *txs_per_block,
-                    *duration,
-                    *timeout_secs,
-                )?);
+                let run = SpamRunRequest {
+                    timestamp: timestamp as usize,
+                    tx_count: (*txs_per_block * duration) as usize,
+                    scenario_name: testfile.to_string(),
+                    rpc_url: test_scenario.rpc_url.to_string(),
+                    txs_per_duration: *txs_per_block,
+                    duration: SpamDuration::Blocks(*duration),
+                    timeout: *timeout_secs,
+                };
+                run_id = Some(db.insert_run(&run)?);
                 spammer
                     .spam_rpc(
                         test_scenario,
@@ -380,15 +381,16 @@ pub async fn spam<
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_millis();
-            run_id = Some(db.insert_run(
-                timestamp as u64,
-                tps * duration,
-                testfile,
-                test_scenario.rpc_url.as_str(),
-                tps,
-                *duration,
-                *timeout_secs,
-            )?);
+            let run = SpamRunRequest {
+                timestamp: timestamp as usize,
+                tx_count: (tps * duration) as usize,
+                scenario_name: testfile.to_string(),
+                rpc_url: test_scenario.rpc_url.to_string(),
+                txs_per_duration: tps,
+                duration: SpamDuration::Seconds(*duration),
+                timeout: *timeout_secs,
+            };
+            run_id = Some(db.insert_run(&run)?);
             spammer
                 .spam_rpc(test_scenario, tps, *duration, run_id, tx_callback.into())
                 .await?;

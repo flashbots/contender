@@ -69,7 +69,8 @@ pub async fn report(
             }
             runtime_params_list.push(RuntimeParams {
                 txs_per_duration: run.txs_per_duration,
-                duration: run.duration,
+                duration_value: run.duration.value(),
+                duration_unit: run.duration.unit().to_owned(),
                 timeout: run.timeout,
             });
             run_data.push(run);
@@ -285,7 +286,8 @@ pub struct SpamRunMetrics {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RuntimeParams {
     pub txs_per_duration: u64,
-    pub duration: u64,
+    pub duration_value: u64,
+    pub duration_unit: String,
     pub timeout: u64,
 }
 

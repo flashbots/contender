@@ -17,7 +17,7 @@ use alloy::{
 };
 use contender_core::{
     agent_controller::AgentStore,
-    db::DbOps,
+    db::{DbOps, SpamRunRequest},
     error::ContenderError,
     generator::RandSeed,
     spammer::{LogCallback, Spammer, TimedSpammer},
@@ -154,15 +154,16 @@ pub async fn run(
         .duration_since(std::time::UNIX_EPOCH)
         .expect("Time went backwards")
         .as_millis();
-    let run_id = db.insert_run(
-        timestamp as u64,
-        args.duration * args.txs_per_duration,
-        &format!("{contract_name} ({scenario_name})"),
-        scenario.rpc_url.as_str(),
-        args.txs_per_duration,
-        args.duration,
-        12, // Since pending_tx_timeout is set to 12
-    )?;
+    let run = SpamRunRequest {
+        timestamp: timestamp as usize,
+        duration: contender_core::db::SpamDuration::Seconds(args.duration),
+        tx_count: (args.txs_per_duration * args.duration) as usize,
+        scenario_name: format!("{contract_name} ({scenario_name})"),
+        rpc_url: scenario.rpc_url.to_string(),
+        txs_per_duration: args.txs_per_duration,
+        timeout: 12, // Since pending_tx_timeout is set to 12
+    };
+    let run_id = db.insert_run(&run)?;
     let provider = Arc::new(DynProvider::new(provider));
     let tx_callback = LogCallback::new(
         provider.clone(),
