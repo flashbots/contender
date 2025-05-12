@@ -8,16 +8,16 @@ use std::sync::{
 
 /// Runs spam in a loop, potentially executing multiple spam runs.
 ///
-/// If `loops` is `None`, it will run indefinitely.
+/// If `limit_loops` is `None`, it will run indefinitely.
 ///
-/// If `loops` is `Some(n)`, it will run `n` times.
+/// If `limit_loops` is `Some(n)`, it will run `n` times.
 ///
 /// If `gen_report` is `true`, it will generate a report at the end.
 pub async fn spamd(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     args: SpamCommandArgs,
     gen_report: bool,
-    loops: Option<u64>,
+    limit_loops: Option<u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let finished = Arc::new(AtomicBool::new(false));
     let mut scenario = args.init_scenario(db).await?;
@@ -40,7 +40,7 @@ pub async fn spamd(
     // runs spam command in a loop
     let mut i = 0;
     loop {
-        if let Some(loops) = &loops {
+        if let Some(loops) = &limit_loops {
             if i >= *loops {
                 println!("Spam loop finished");
                 break;
