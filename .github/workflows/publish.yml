@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release (e.g. patch, minor, major)"
+        description: "Version to release (major, minor, patch, premajor, preminor, prepatch, skip, prerelease, custom)"
         required: true
       dry_run:
         description: "Dry run (do not publish to crates.io)"
