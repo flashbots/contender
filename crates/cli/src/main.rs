@@ -15,7 +15,6 @@ use contender_sqlite::{SqliteDb, DB_VERSION};
 use rand::Rng;
 use std::sync::LazyLock;
 use tokio::sync::OnceCell;
-use tracing::info;
 use tracing_subscriber::EnvFilter;
 use util::{data_dir, db_file, prompt_continue};
 
@@ -150,6 +149,7 @@ Remote DB version = {}, contender expected version {}.
                         txs_per_second,
                         builder_url,
                         timeout,
+                        loops,
                     },
                 disable_reporting,
                 gen_report,
@@ -176,76 +176,14 @@ Remote DB version = {}, contender expected version {}.
                 timeout_secs: timeout,
                 env,
             };
-
-            let mut scenario = spam_args.init_scenario(&db).await?;
-            let run_id = commands::spam(&db, &spam_args, &mut scenario).await?;
-            if gen_report {
-                tokio::select! {
-                    _ = tokio::signal::ctrl_c() => {
-                        info!("CTRL-C received, discarding report...");
-                    }
-                    _ = commands::report(run_id, 0, &db) => {
-                        info!("Report generated successfully");
-                    }
-                }
-            }
-        }
-
-        ContenderSubcommand::SpamD {
-            spam_inner_args,
-            time_limit,
-        } => {
-            if !check_spamd_args(&spam_inner_args, time_limit)? {
-                return Ok(());
-            }
-
-            let SpamCliArgs {
-                eth_json_rpc_args:
-                    ScenarioSendTxsCliArgs {
-                        testfile,
-                        rpc_url,
-                        seed,
-                        private_keys,
-                        min_balance,
-                        tx_type,
-                        auth_args,
-                        env,
-                    },
-                spam_args:
-                    SendSpamCliArgs {
-                        duration,
-                        txs_per_block,
-                        txs_per_second,
-                        builder_url,
-                        timeout,
-                    },
-                disable_reporting,
-                gen_report,
-                gas_price_percent_add,
-            } = spam_inner_args;
-
-            let seed = seed.to_owned().unwrap_or(stored_seed);
-            let engine_params = auth_args.engine_params().await?;
-
-            let spam_args = SpamCommandArgs {
-                testfile: testfile.to_owned(),
-                rpc_url,
-                builder_url,
-                txs_per_block,
-                txs_per_second,
-                duration,
-                seed,
-                private_keys,
-                disable_reporting,
-                min_balance,
-                tx_type: tx_type.into(),
-                gas_price_percent_add,
-                engine_params,
-                timeout_secs: timeout,
-                env,
+            let real_loops = if let Some(loops) = loops {
+                // loops flag is set; spamd will interpret a None value as infinite
+                loops
+            } else {
+                // loops flag is not set, so only loop once
+                Some(1)
             };
-
-            commands::spamd(&db, spam_args, gen_report, time_limit).await?;
+            commands::spamd(&db, spam_args, gen_report, real_loops).await?;
         }
 
         ContenderSubcommand::Report {
@@ -318,63 +256,17 @@ fn check_spam_args(args: &SpamCliArgs) -> Result<bool, ContenderError> {
     if duration > max_duration {
         let time_limit = duration / max_duration;
         let suggestion_cmd = ansi_term::Style::new().bold().paint(format!(
-            "contender spamd {} -d {max_duration} -l {time_limit} ...",
+            "contender spam {} -d {max_duration} -l {time_limit} ...",
             args.eth_json_rpc_args.testfile
         ));
-        let spamd = ansi_term::Style::new().bold().paint("spamd");
         println!(
 "Duration is set to {duration} {units}, which is quite high. Generating transactions and collecting results may take a long time.
-You may want to use {spamd} instead, with a lower spamming duration (-d) and a time limit (-l):
-
-\t{suggestion_cmd}
-");
-        return Ok(prompt_continue(None));
-    }
-    Ok(true)
-}
-
-/// Check if spamd arguments are typical and prompt the user to continue if they are not.
-/// Returns true if the user chooses to continue, false otherwise.
-fn check_spamd_args(args: &SpamCliArgs, time_limit: Option<u64>) -> Result<bool, ContenderError> {
-    let (units, max_duration) = if args.spam_args.txs_per_block.is_some() {
-        ("blocks", 50)
-    } else if args.spam_args.txs_per_second.is_some() {
-        ("seconds", 100)
-    } else {
-        return Err(ContenderError::SpamError(
-            "Either txs-per-block or txs-per-second must be set",
-            None,
-        ));
-    };
-    let duration = args.spam_args.duration;
-    if duration > max_duration {
-        let time_limit_str = if let Some(time_limit) = time_limit {
-            format!(" -l {}", (duration / max_duration) * time_limit)
-        } else {
-            "".to_owned()
-        };
-
-        let suggestion_cmd = ansi_term::Style::new().bold().paint(format!(
-            "contender spamd {} -d {max_duration}{time_limit_str} ...",
-            args.eth_json_rpc_args.testfile
-        ));
-        let and_higher_time_limit = if time_limit.is_some() {
-            format!(
-                " and a higher time limit {}",
-                ansi_term::Style::new().bold().paint("(-l)")
-            )
-        } else {
-            "".to_owned()
-        };
-        println!(
-"Duration is set to {duration} {units}, which is quite high. Generating transactions and collecting results may take a long time.
-To improve performance, you may want to set a lower spamming duration {}{and_higher_time_limit}:
-
-\t{suggestion_cmd}
-",
-                    ansi_term::Style::new().bold().paint("(-d)".to_string()),
-                );
-
+You may want to use {} with a lower spamming duration {} and a loop limit {}:\n
+\t{suggestion_cmd}\n",
+            ansi_term::Style::new().bold().paint("spam"),
+            ansi_term::Style::new().bold().paint(format!("(-d)")),
+            ansi_term::Style::new().bold().paint("(-l)")
+    );
         return Ok(prompt_continue(None));
     }
     Ok(true)
