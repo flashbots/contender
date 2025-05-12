@@ -32,23 +32,6 @@ pub enum ContenderSubcommand {
     },
 
     #[command(
-        name = "spamd",
-        long_about = "Run spam in a loop over a long duration or indefinitely."
-    )]
-    SpamD {
-        #[command(flatten)]
-        spam_inner_args: SpamCliArgs,
-
-        #[arg(
-            short = 'l',
-            long,
-            long_help = "The time limit in seconds for the spam daemon. If not provided, the daemon will run indefinitely.",
-            visible_aliases = &["tl"]
-        )]
-        time_limit: Option<u64>,
-    },
-
-    #[command(
         name = "setup",
         long_about = "Deploy contracts and run the setup step(s) in the given testfile."
     )]
