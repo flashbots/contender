@@ -40,15 +40,18 @@ pub async fn spamd(
     // runs spam command in a loop
     let mut i = 0;
     loop {
+        let mut do_finish = false;
         if let Some(loops) = &limit_loops {
             if i >= *loops {
-                println!("Spam loop finished");
-                break;
+                do_finish = true;
             }
             i += 1;
         }
         if finished.load(Ordering::SeqCst) {
-            println!("Spam loop finished");
+            do_finish = true;
+        }
+        if do_finish {
+            println!("Spam loop finished.");
             break;
         }
         println!("syncing nonces...");
