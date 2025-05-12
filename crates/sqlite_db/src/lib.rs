@@ -15,7 +15,7 @@ use rusqlite::{params, types::FromSql, Row};
 use serde::{Deserialize, Serialize};
 
 /// Increment this whenever making changes to the DB schema.
-pub static DB_VERSION: u64 = 2;
+pub static DB_VERSION: u64 = 3;
 
 #[derive(Clone)]
 pub struct SqliteDb {
