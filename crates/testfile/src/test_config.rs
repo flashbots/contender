@@ -1,3 +1,4 @@
+use alloy::transports::http::reqwest;
 use contender_core::{
     error::ContenderError,
     generator::{
@@ -28,9 +29,30 @@ pub struct TestConfig {
 }
 
 impl TestConfig {
-    pub fn from_file(file_path: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
-        let file_contents = read(file_path)?;
-        let file_contents_str = String::from_utf8_lossy(&file_contents).to_string();
+    async fn fetch_remote_scenario_file_url(
+        scenario_path: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        const BASE_URL_SCENARIOS_DIRECTORY: &str =
+            "https://raw.githubusercontent.com/flashbots/contender/refs/heads/main/scenarios/";
+        let file_url = (String::from(BASE_URL_SCENARIOS_DIRECTORY) + scenario_path).to_owned();
+        let file_contents = reqwest::get(&file_url)
+            .await
+            .map_err(|_err| format!("Error occured while fetching URL {}", &file_url))?
+            .text()
+            .await
+            .map_err(|_err| "Cannot convert the contents of the file into text.")?;
+        Ok(file_contents)
+    }
+
+    pub async fn from_file(file_path: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
+        let file_contents_str: String = if file_path.starts_with("scenario:") {
+            Self::fetch_remote_scenario_file_url(&file_path.replace("scenario:", ""))
+                .await
+                .map_err(|_err| "Error occured while fetching remote scenario files")?
+        } else {
+            let file_contents = read(file_path)?;
+            String::from_utf8_lossy(&file_contents).to_string()
+        };
         let test_file: TestConfig = toml::from_str(&file_contents_str)?;
         Ok(test_file)
     }
@@ -102,5 +124,32 @@ impl Templater<String> for TestConfig {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+
+    #[tokio::test]
+    async fn fetch_bad_url() {
+        let testconfig = TestConfig::from_file("scenario:bad_path.toml").await;
+        assert!(
+            testconfig.is_err(),
+            "Expected error when fetching non-existent URL"
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_correct_url_when_prefix_added() {
+        let testconfig = TestConfig::from_file("scenario:simpler.toml").await;
+        assert!(testconfig.is_ok(), "Can't fetch this URL");
+    }
+
+    #[tokio::test]
+    async fn dont_fetch_remote_scenario_without_prefix() {
+        let testconfig = TestConfig::from_file("bad_prefix:simpler.toml").await;
+        assert!(testconfig.is_err(), "URL fetched even without prefix");
     }
 }
