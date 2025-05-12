@@ -236,11 +236,14 @@ impl SpamCommandArgs {
             * scenario.get_max_spam_cost(&user_signers).await?;
         if min_balance < U256::from(total_cost) {
             return Err(ContenderError::SpamError(
-                "min_balance is not enough to cover the cost of the spam transactions",
+                "min_balance is not enough to cover the cost of the spam transactions.",
                 format!(
-                    "min_balance: {}, total_cost: {}",
+                    "min_balance: {}, total_cost: {}\nUse {} to increase the amount of funds sent to agent wallets.",
                     format_ether(min_balance),
-                    format_ether(total_cost)
+                    format_ether(total_cost),
+                    ansi_term::Style::new()
+                        .bold()
+                        .paint("--min-balance <ETH amount>"),
                 )
                 .into(),
             )
