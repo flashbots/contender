@@ -16,100 +16,26 @@ permissions:
   pull-requests: write
 
 jobs:
-  publish:
+  release-plz-pr:
+    name: Release-plz PR
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: release-plz-${{ github.ref }}
+      cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          toolchain: stable
-
-      - name: Install system dependencies for fontconfig
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libfontconfig1-dev pkg-config
-
-      - name: Cache Cargo
-        uses: actions/cache@v3
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run release-plz
+        uses: release-plz/action@v0.5
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cargo/bin
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', '.tool-versions') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Install tools
-        run: |
-          cargo install cargo-workspaces --version 0.3.6 || true
-          cargo install git-cliff --version 2.8.0 || true
-
-      - name: Determine version
-        id: version
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-            echo "dry_run=${{ github.event.inputs.dry_run }}" >> $GITHUB_OUTPUT
-          else
-            TAG="${GITHUB_REF##*/}"       # refs/tags/v1.2.3 → v1.2.3
-            VERSION="${TAG#v}"            # v1.2.3 → 1.2.3
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
-            echo "dry_run=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Configure git identity
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-
-      - name: Update crate versions
-        run: |
-          cargo workspaces version ${{ steps.version.outputs.version }} --yes --no-git-commit
-
-      - name: Generate changelog
-        run: |
-          touch CHANGELOG.md
-          git-cliff -o /tmp/new_changelog.md
-          cat /tmp/new_changelog.md CHANGELOG.md > /tmp/complete_changelog.md
-          mv /tmp/complete_changelog.md CHANGELOG.md
-
-      - name: Commit + tag
-        if: steps.version.outputs.dry_run == 'false'
-        run: |
-          set -euo pipefail
-          VERSION="v${{ steps.version.outputs.version }}"
-          BRANCH="release/$VERSION"
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git checkout -b "$BRANCH"
-          git commit -am "Release $VERSION"
-          git tag "$VERSION"
-          git push origin "$BRANCH"
-
-      ## TODO: before publishing to crates.io, we need to fix our dependencies
-      ## - op-rbuilder uses a git tag
-      ## - contender_bundle_provider does not specify a version
-      ## - contender_core does not specify a version
-      # - name: Publish crates
-      #   env:
-      #     CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      #   run: |
-      #     if [[ "${{ steps.version.outputs.dry_run }}" == "true" ]]; then
-      #       echo "🧪 Dry-run mode"
-      #       cargo workspaces publish --dry-run --yes --no-git-commit --from-git
-      #     else
-      #       echo "🚀 Publishing to crates.io"
-      #       cargo workspaces publish --yes --no-git-commit --from-git
-      #     fi
-
-      - name: Create GitHub Release
-        if: steps.version.outputs.dry_run == 'false'
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: Release v${{ steps.version.outputs.version }}
-          body_path: CHANGELOG.md
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }} # not used for now
