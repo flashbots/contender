@@ -20,11 +20,19 @@ homepage = "https://github.com/flashbots/contender"
 repository = "https://github.com/flashbots/contender"
 
 [workspace.dependencies]
+<<<<<<< Updated upstream
 contender_core = { path = "crates/core/" }
 contender_sqlite = { path = "crates/sqlite_db/" }
 contender_testfile = { path = "crates/testfile/" }
 contender_bundle_provider = { path = "crates/bundle_provider/" }
 contender_engine_provider = { path = "crates/engine_provider/" }
+=======
+contender_core = { version = "0.1.1-alpha.6", path = "crates/core/" }
+contender_sqlite = { version = "0.1.1-alpha.6", path = "crates/sqlite_db/" }
+contender_testfile = { version = "0.1.1-alpha.6", path = "crates/testfile/" }
+contender_bundle_provider = { version = "0.1.1-alpha.6", path = "crates/bundle_provider/" }
+contender_engine_provider = { version = "0.1.1-alpha.6", path = "crates/engine_provider/" }
+>>>>>>> Stashed changes
 
 eyre = "0.6.12"
 tokio = { version = "1.40.0" }
