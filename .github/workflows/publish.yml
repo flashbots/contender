@@ -2,14 +2,6 @@ name: Publish Crates
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Version to release (major, minor, patch, premajor, preminor, prepatch, skip, prerelease, custom)"
-        required: true
-      dry_run:
-        description: "Dry run (do not publish GH release)"
-        required: false
-        default: "true"
 
 permissions:
   contents: write  # needed to push tags and create releases
