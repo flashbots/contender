@@ -46,7 +46,6 @@ jobs:
       - name: Install tools
         run: |
           cargo install cargo-workspaces --version 0.3.6 || true
-          cargo install release-plz --version 0.3.133 --locked || true
 
       - name: Determine version
         id: version
@@ -82,11 +81,6 @@ jobs:
           git commit -am "Release $VERSION"
           git tag "$VERSION"
           git push origin "$BRANCH"
-
-      - name: Generate release PR + changelog
-        if: steps.version.outputs.dry_run == 'false'
-        run: |
-          release-plz release-pr --git-token "${{ secrets.GITHUB_TOKEN }}"
 
       ## TODO: before publishing to crates.io, we need to fix our dependencies
       ## - op-rbuilder uses a git tag
