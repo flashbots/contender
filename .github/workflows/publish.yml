@@ -77,12 +77,15 @@ jobs:
       - name: Commit + tag (manual only)
         if: github.event_name == 'workflow_dispatch' && steps.version.outputs.dry_run == 'false'
         run: |
+          set -euo pipefail
+          VERSION="v${{ steps.version.outputs.version }}"
+          BRANCH="release/$VERSION"
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git commit -am "Release v${{ steps.version.outputs.version }}"
-          git tag "v${{ steps.version.outputs.version }}"
-          git push origin HEAD
-          git push origin "v${{ steps.version.outputs.version }}"
+          git checkout -b "$BRANCH"
+          git commit -am "Release $VERSION"
+          git tag "$VERSION"
+          git push origin "$BRANCH"
 
       - name: Generate release PR + changelog
         run: |
