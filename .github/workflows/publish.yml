@@ -46,6 +46,7 @@ jobs:
       - name: Install tools
         run: |
           cargo install cargo-workspaces --version 0.3.6 || true
+          cargo install release-plz --version 0.3.133 --locked || true
 
       - name: Determine version
         id: version
@@ -68,6 +69,12 @@ jobs:
       - name: Update crate versions
         run: |
           cargo workspaces version ${{ steps.version.outputs.version }} --yes --no-git-commit
+
+      - name: Generate changelog
+        run: |
+          release-plz release --dry-run --output-changelog > /tmp/new_changelog
+          cat /tmp/new_changelog CHANGELOG.md > /tmp/full_changelog
+          mv /tmp/full_changelog CHANGELOG.md
 
       - name: Commit + tag
         if: steps.version.outputs.dry_run == 'false'
