@@ -46,7 +46,7 @@ jobs:
       - name: Install tools
         run: |
           cargo install cargo-workspaces --version 0.3.6 || true
-          cargo install release-plz --version 0.3.133 --locked || true
+          cargo install git-cliff --version 2.8.0 || true
 
       - name: Determine version
         id: version
@@ -72,9 +72,9 @@ jobs:
 
       - name: Generate changelog
         run: |
-          release-plz release --dry-run --output-changelog > /tmp/new_changelog
-          cat /tmp/new_changelog CHANGELOG.md > /tmp/full_changelog
-          mv /tmp/full_changelog CHANGELOG.md
+          git-cliff -o /tmp/new_changelog.md
+          cat /tmp/new_changelog.md CHANGELOG.md > /tmp/complete_changelog.md
+          mv /tmp/complete_changelog.md CHANGELOG.md
 
       - name: Commit + tag
         if: steps.version.outputs.dry_run == 'false'
