@@ -72,7 +72,7 @@ jobs:
 
       - name: Update crate versions
         run: |
-          cargo workspaces version ${{ steps.version.outputs.version }} --yes --no-git-commit --no-git-push --no-git-tag
+          cargo workspaces version ${{ steps.version.outputs.version }} --yes --no-git-commit
 
       - name: Commit + tag (manual only)
         if: github.event_name == 'workflow_dispatch' && steps.version.outputs.dry_run == 'false'
