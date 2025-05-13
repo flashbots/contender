@@ -60,12 +60,19 @@ pub async fn report(
 
     // get run data, filter by rpc_url
     let mut run_data = vec![];
+    let mut runtime_params_list = Vec::new();
     for id in start_run_id..=end_run_id {
         let run = db.get_run(id)?;
         if let Some(run) = run {
             if run.rpc_url != rpc_url {
                 continue;
             }
+            runtime_params_list.push(RuntimeParams {
+                txs_per_duration: run.txs_per_duration,
+                duration_value: run.duration.value(),
+                duration_unit: run.duration.unit().to_owned(),
+                timeout: run.timeout,
+            });
             run_data.push(run);
         }
     }
@@ -200,6 +207,7 @@ pub async fn report(
                 method: method.to_owned(),
             })
             .collect(),
+        runtime_params: runtime_params_list,
     };
 
     // make relevant chart for each report_id
@@ -272,6 +280,15 @@ pub struct SpamRunMetrics {
     pub peak_tx_count: MetricDescriptor<u64>,
     pub average_block_time_secs: MetricDescriptor<f64>,
     pub latency_quantiles: Vec<RpcLatencyQuantiles>,
+    pub runtime_params: Vec<RuntimeParams>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RuntimeParams {
+    pub txs_per_duration: u64,
+    pub duration_value: u64,
+    pub duration_unit: String,
+    pub timeout: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

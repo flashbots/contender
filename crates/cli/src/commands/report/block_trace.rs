@@ -44,8 +44,8 @@ pub async fn get_block_data(
 
     // pad block range on each side
     let block_padding = 3;
-    let min_block = min_block - block_padding;
-    let max_block = max_block + block_padding;
+    let min_block = min_block.saturating_sub(block_padding);
+    let max_block = max_block.saturating_add(block_padding);
 
     let rpc_client = Arc::new(rpc_client.clone());
 

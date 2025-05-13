@@ -18,7 +18,7 @@ use alloy::{
 };
 use contender_core::{
     agent_controller::AgentStore,
-    db::DbOps,
+    db::{DbOps, SpamDuration, SpamRunRequest},
     error::ContenderError,
     generator::{seeder::Seeder, templater::Templater, PlanConfig, RandSeed},
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
@@ -133,7 +133,7 @@ impl SpamCommandArgs {
             ..
         } = &self;
 
-        let mut testconfig: TestConfig = TestConfig::from_file(testfile)?;
+        let mut testconfig: TestConfig = TestConfig::from_file(testfile).await?;
         // Setup env variables
         let mut env_variables = testconfig.env.clone().unwrap_or_default();
         if env.is_some() {
@@ -142,6 +142,7 @@ impl SpamCommandArgs {
             }
         }
         testconfig.env = Some(env_variables.clone());
+
         let rand_seed = RandSeed::seed_from_str(seed);
         let url = Url::parse(rpc_url).expect("Invalid RPC URL");
         let rpc_client = DynProvider::new(
@@ -235,11 +236,14 @@ impl SpamCommandArgs {
             * scenario.get_max_spam_cost(&user_signers).await?;
         if min_balance < U256::from(total_cost) {
             return Err(ContenderError::SpamError(
-                "min_balance is not enough to cover the cost of the spam transactions",
+                "min_balance is not enough to cover the cost of the spam transactions.",
                 format!(
-                    "min_balance: {}, total_cost: {}",
+                    "min_balance: {}, total_cost: {}\nUse {} to increase the amount of funds sent to agent wallets.",
                     format_ether(min_balance),
-                    format_ether(total_cost)
+                    format_ether(total_cost),
+                    ansi_term::Style::new()
+                        .bold()
+                        .paint("--min-balance <ETH amount>"),
                 )
                 .into(),
             )
@@ -267,6 +271,7 @@ pub async fn spam<
         duration,
         disable_reporting,
         engine_params,
+        timeout_secs,
         ..
     } = args;
 
@@ -323,12 +328,16 @@ pub async fn spam<
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("Time went backwards")
                     .as_millis();
-                run_id = Some(db.insert_run(
-                    timestamp as u64,
-                    txs_per_block * duration,
-                    testfile,
-                    test_scenario.rpc_url.as_str(),
-                )?);
+                let run = SpamRunRequest {
+                    timestamp: timestamp as usize,
+                    tx_count: (*txs_per_block * duration) as usize,
+                    scenario_name: testfile.to_string(),
+                    rpc_url: test_scenario.rpc_url.to_string(),
+                    txs_per_duration: *txs_per_block,
+                    duration: SpamDuration::Blocks(*duration),
+                    timeout: *timeout_secs,
+                };
+                run_id = Some(db.insert_run(&run)?);
                 spammer
                     .spam_rpc(
                         test_scenario,
@@ -372,12 +381,16 @@ pub async fn spam<
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_millis();
-            run_id = Some(db.insert_run(
-                timestamp as u64,
-                tps * duration,
-                testfile,
-                test_scenario.rpc_url.as_str(),
-            )?);
+            let run = SpamRunRequest {
+                timestamp: timestamp as usize,
+                tx_count: (tps * duration) as usize,
+                scenario_name: testfile.to_string(),
+                rpc_url: test_scenario.rpc_url.to_string(),
+                txs_per_duration: tps,
+                duration: SpamDuration::Seconds(*duration),
+                timeout: *timeout_secs,
+            };
+            run_id = Some(db.insert_run(&run)?);
             spammer
                 .spam_rpc(test_scenario, tps, *duration, run_id, tx_callback.into())
                 .await?;
