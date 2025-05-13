@@ -9,10 +9,6 @@ homepage.workspace = true
 repository.workspace = true
 description = "Contender core library"
 
-[lib]
-name = "contender_core"
-path = "src/lib.rs"
-
 [dependencies]
 contender_bundle_provider = { workspace = true }
 contender_engine_provider = { workspace = true }
