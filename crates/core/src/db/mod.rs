@@ -69,8 +69,8 @@ impl SpamDuration {
 impl Display for SpamDuration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SpamDuration::Seconds(v) => write!(f, "{} seconds", v),
-            SpamDuration::Blocks(v) => write!(f, "{} blocks", v),
+            SpamDuration::Seconds(v) => write!(f, "{v} seconds"),
+            SpamDuration::Blocks(v) => write!(f, "{v} blocks"),
         }
     }
 }
@@ -87,7 +87,7 @@ impl From<String> for SpamDuration {
                 return SpamDuration::Blocks(blocks);
             }
         }
-        panic!("Invalid format for SpamDuration: {}", value);
+        panic!("Invalid format for SpamDuration: {value}");
     }
 }
 

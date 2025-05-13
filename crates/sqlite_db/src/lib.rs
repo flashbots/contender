@@ -47,7 +47,7 @@ impl SqliteDb {
         self.get_pool()?.execute(query, params).map_err(|e| {
             ContenderError::DbError(
                 "failed to execute query.",
-                Some(format!("query: \"{}\",  error: \"{}\"", query, e)),
+                Some(format!("query: \"{query}\",  error: \"{e}\"")),
             )
         })?;
         Ok(())
@@ -251,8 +251,6 @@ impl DbOps for SqliteDb {
             duration,
             timeout,
         } = run;
-        println!("INSERT INTO runs (timestamp, tx_count, scenario_name, rpc_url, txs_per_duration, duration, timeout) VALUES ({}, {}, {}, {}, {}, '{}', {})",
-            timestamp, tx_count, scenario_name, rpc_url, txs_per_duration, duration, timeout);
         self.execute(
             "INSERT INTO runs (timestamp, tx_count, scenario_name, rpc_url, txs_per_duration, duration, timeout) VALUES (?, ?, ?, ?, ?, ?, ?)",
             params![timestamp, tx_count, scenario_name, rpc_url, txs_per_duration, &duration.to_string(), timeout],
