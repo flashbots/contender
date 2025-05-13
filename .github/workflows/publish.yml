@@ -72,6 +72,7 @@ jobs:
 
       - name: Generate changelog
         run: |
+          touch CHANGELOG.md
           git-cliff -o /tmp/new_changelog.md
           cat /tmp/new_changelog.md CHANGELOG.md > /tmp/complete_changelog.md
           mv /tmp/complete_changelog.md CHANGELOG.md
