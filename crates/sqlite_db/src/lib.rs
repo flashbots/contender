@@ -6,7 +6,7 @@ use alloy::{
 };
 use contender_core::{
     buckets::Bucket,
-    db::{DbOps, NamedTx, RunTx, SpamRun},
+    db::{DbOps, NamedTx, RunTx, SpamRun, SpamRunRequest},
 };
 use contender_core::{error::ContenderError, Result};
 use r2d2::{Pool, PooledConnection};
@@ -15,7 +15,7 @@ use rusqlite::{params, types::FromSql, Row};
 use serde::{Deserialize, Serialize};
 
 /// Increment this whenever making changes to the DB schema.
-pub static DB_VERSION: u64 = 2;
+pub static DB_VERSION: u64 = 3;
 
 #[derive(Clone)]
 pub struct SqliteDb {
@@ -44,9 +44,12 @@ impl SqliteDb {
     }
 
     fn execute<P: rusqlite::Params>(&self, query: &str, params: P) -> Result<()> {
-        self.get_pool()?
-            .execute(query, params)
-            .map_err(|e| ContenderError::DbError("failed to execute query", Some(e.to_string())))?;
+        self.get_pool()?.execute(query, params).map_err(|e| {
+            ContenderError::DbError(
+                "failed to execute query.",
+                Some(format!("query: \"{query}\",  error: \"{e}\"")),
+            )
+        })?;
         Ok(())
     }
 
@@ -156,6 +159,9 @@ struct SpamRunRow {
     pub tx_count: usize,
     pub scenario_name: String,
     pub rpc_url: String,
+    pub txs_per_duration: u64,
+    pub duration: String,
+    pub timeout: u64,
 }
 
 impl From<SpamRunRow> for SpamRun {
@@ -166,6 +172,9 @@ impl From<SpamRunRow> for SpamRun {
             tx_count: row.tx_count,
             scenario_name: row.scenario_name,
             rpc_url: row.rpc_url,
+            txs_per_duration: row.txs_per_duration,
+            duration: row.duration.into(),
+            timeout: row.timeout,
         }
     }
 }
@@ -185,7 +194,10 @@ impl DbOps for SqliteDb {
                 timestamp TEXT NOT NULL,
                 tx_count INTEGER NOT NULL,
                 scenario_name TEXT NOT NULL DEFAULT '',
-                rpc_url TEXT NOT NULL DEFAULT ''
+                rpc_url TEXT NOT NULL DEFAULT '',
+                txs_per_duration INTEGER NOT NULL,
+                duration TEXT NOT NULL,
+                timeout INTEGER NOT NULL
             )",
             "CREATE TABLE rpc_urls (
                 id INTEGER PRIMARY KEY,
@@ -229,16 +241,19 @@ impl DbOps for SqliteDb {
     }
 
     /// Inserts a new run into the database and returns the ID of the new row.
-    fn insert_run(
-        &self,
-        timestamp: u64,
-        tx_count: u64,
-        scenario_name: &str,
-        rpc_url: &str,
-    ) -> Result<u64> {
+    fn insert_run(&self, run: &SpamRunRequest) -> Result<u64> {
+        let SpamRunRequest {
+            timestamp,
+            tx_count,
+            scenario_name,
+            rpc_url,
+            txs_per_duration,
+            duration,
+            timeout,
+        } = run;
         self.execute(
-            "INSERT INTO runs (timestamp, tx_count, scenario_name, rpc_url) VALUES (?, ?, ?, ?)",
-            params![timestamp, tx_count, scenario_name, rpc_url],
+            "INSERT INTO runs (timestamp, tx_count, scenario_name, rpc_url, txs_per_duration, duration, timeout) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            params![timestamp, tx_count, scenario_name, rpc_url, txs_per_duration, &duration.to_string(), timeout],
         )?;
         // get ID from newly inserted row
         let id: u64 = self.query_row("SELECT last_insert_rowid()", params![], |row| row.get(0))?;
@@ -272,7 +287,7 @@ impl DbOps for SqliteDb {
         let pool = self.get_pool()?;
         let mut stmt = pool
             .prepare(
-                "SELECT id, timestamp, tx_count, scenario_name, rpc_url FROM runs WHERE id = ?1",
+                "SELECT id, timestamp, tx_count, scenario_name, rpc_url, txs_per_duration, duration, timeout FROM runs WHERE id = ?1",
             )
             .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
 
@@ -284,6 +299,9 @@ impl DbOps for SqliteDb {
                     tx_count: row.get(2)?,
                     scenario_name: row.get(3)?,
                     rpc_url: row.get(4)?,
+                    txs_per_duration: row.get(5)?,
+                    duration: row.get(6)?,
+                    timeout: row.get(7)?,
                 })
             })
             .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
@@ -466,6 +484,7 @@ impl DbOps for SqliteDb {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use contender_core::db::SpamDuration;
 
     #[test]
     fn creates_table() {
@@ -478,14 +497,22 @@ mod tests {
     fn inserts_runs() {
         let db = SqliteDb::new_memory();
         db.create_tables().unwrap();
-        let do_it = |num| {
-            db.insert_run(100000, num, "test", "http://test:8545")
-                .unwrap()
+        let do_it = || {
+            let run = SpamRunRequest {
+                timestamp: 100,
+                tx_count: 20,
+                scenario_name: "test".to_string(),
+                rpc_url: "http://test:8545".to_string(),
+                txs_per_duration: 10,
+                duration: SpamDuration::Seconds(10),
+                timeout: 12,
+            };
+            db.insert_run(&run).unwrap()
         };
 
-        println!("id: {}", do_it(100));
-        println!("id: {}", do_it(101));
-        println!("id: {}", do_it(102));
+        println!("id: {}", do_it());
+        println!("id: {}", do_it());
+        println!("id: {}", do_it());
         assert_eq!(db.num_runs().unwrap(), 3);
     }
 
@@ -527,9 +554,16 @@ mod tests {
     fn inserts_and_gets_run_txs() {
         let db = SqliteDb::new_memory();
         db.create_tables().unwrap();
-        let run_id = db
-            .insert_run(100000, 100, "test", "http://test:8545")
-            .unwrap();
+        let run = SpamRunRequest {
+            timestamp: 100,
+            tx_count: 20,
+            scenario_name: "test".to_string(),
+            rpc_url: "http://test:8545".to_string(),
+            txs_per_duration: 10,
+            duration: SpamDuration::Seconds(10),
+            timeout: 12,
+        };
+        let run_id = db.insert_run(&run).unwrap();
         let run_txs = vec![
             RunTx {
                 tx_hash: TxHash::from_slice(&[0u8; 32]),
