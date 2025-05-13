@@ -7,10 +7,7 @@ authors.workspace = true
 license.workspace = true
 homepage.workspace = true
 repository.workspace = true
-
-[lib]
-name = "contender_core"
-path = "src/lib.rs"
+description = "Contender core library"
 
 [dependencies]
 contender_bundle_provider = { workspace = true }
