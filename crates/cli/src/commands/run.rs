@@ -24,6 +24,7 @@ use contender_core::{
     test_scenario::{TestScenario, TestScenarioParams},
 };
 use contender_testfile::TestConfig;
+use tracing::info;
 
 use crate::{
     default_scenarios::{BuiltinScenario, BuiltinScenarioConfig},
@@ -141,11 +142,11 @@ pub async fn run(
     }
 
     if do_deploy_contracts {
-        println!("deploying contracts...");
+        info!("deploying contracts...");
         scenario.deploy_contracts().await?;
     }
 
-    println!("running setup...");
+    info!("running setup...");
     scenario.run_setup().await?;
 
     let wait_duration = std::time::Duration::from_millis((args.interval * 1000.0) as u64);
@@ -172,7 +173,7 @@ pub async fn run(
         scenario.ctx.cancel_token.clone(),
     );
 
-    println!("starting spammer...");
+    info!("starting spammer...");
     spammer
         .spam_rpc(
             &mut scenario,

@@ -12,6 +12,7 @@ use contender_core::error::ContenderError;
 use contender_core::generator::types::AnyProvider;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tracing::{debug, info};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TxTraceReceipt {
@@ -59,14 +60,14 @@ pub async fn get_block_data(
         let rpc_client = rpc_client.clone();
         let sender = sender.clone();
         let handle = tokio::task::spawn(async move {
-            println!("getting block {block_num}...");
+            info!("getting block {block_num}...");
             let block = rpc_client
                 .get_block_by_number(block_num.into())
                 .full()
                 .await
                 .expect("failed to get block");
             if let Some(block) = block {
-                println!("read block {}", block.header.number);
+                debug!("read block {}", block.header.number);
                 sender.send(block).await.expect("failed to cache block");
             }
         });
@@ -98,7 +99,7 @@ pub async fn get_block_traces(
             let rpc_client = rpc_client.clone();
             let sender = sender.clone();
             let task = tokio::task::spawn(async move {
-                println!("tracing tx {tx_hash:?}");
+                debug!("tracing tx {tx_hash:?}");
                 let trace = rpc_client
                     .debug_trace_transaction(
                         tx_hash,
@@ -124,29 +125,29 @@ pub async fn get_block_traces(
                 let receipt = rpc_client.get_transaction_receipt(tx_hash).await;
                 if let Ok(receipt) = receipt {
                     if let Some(receipt) = receipt {
-                        println!("got receipt for tx {tx_hash:?}");
+                        info!("got receipt for tx {tx_hash:?}");
                         sender
                             .send(TxTraceReceipt::new(trace, receipt))
                             .await
                             .unwrap();
                     } else {
-                        println!("no receipt for tx {tx_hash:?}");
+                        info!("no receipt for tx {tx_hash:?}");
                     }
                 } else {
-                    println!("ignored receipt for tx {tx_hash:?} (failed to decode)");
+                    info!("ignored receipt for tx {tx_hash:?} (failed to decode)");
                 }
             });
             tx_tasks.push(task);
         }
-        println!("waiting for traces from block {}...", block.header.number);
+        info!("waiting for traces from block {}...", block.header.number);
         futures::future::join_all(tx_tasks).await;
-        println!("finished tracing block {}", block.header.number);
+        info!("finished tracing block {}", block.header.number);
     }
 
     receiver.close();
 
     while let Some(res) = receiver.recv().await {
-        println!("received trace for {}", res.receipt.transaction_hash);
+        debug!("received trace for {}", res.receipt.transaction_hash);
         all_traces.push(res);
     }
 

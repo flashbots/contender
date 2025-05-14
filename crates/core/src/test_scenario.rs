@@ -37,6 +37,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
+use tracing::{debug, info, warn};
 
 type PrometheusCollector = (
     &'static OnceCell<prometheus::Registry>,
@@ -169,7 +170,7 @@ where
             wallet_map.insert(addr, wallet);
         }
         for (name, signers) in agent_store.all_agents() {
-            println!("adding '{name}' signers to wallet map");
+            info!("adding '{name}' signers to wallet map");
             for signer in signers.signers.iter() {
                 wallet_map.insert(signer.address(), EthereumWallet::new(signer.clone()));
             }
@@ -224,7 +225,7 @@ where
     }
 
     pub async fn estimate_setup_cost(&self) -> Result<U256> {
-        println!(
+        info!(
             "
 ================================================================================
 ================= running simulation to estimate setup cost ====================
@@ -310,7 +311,7 @@ where
             total_cost += cost;
         }
 
-        println!(
+        info!(
             "
 ================================================================================
 ============================= simulation complete ==============================
@@ -360,7 +361,7 @@ where
                 .send_tx_envelope(AnyTxEnvelope::Ethereum(signed_tx))
                 .await
                 .map_err(|e| ContenderError::with_err(e, "failed to send funding tx"))?;
-            println!(
+            debug!(
                 "funded account {}, tx: {}",
                 addr.encode_hex(),
                 pending.tx_hash()
@@ -400,7 +401,7 @@ where
                 .network::<AnyNetwork>()
                 .on_http(self.rpc_url.to_owned());
 
-            println!(
+            info!(
                 "deploying contract: {:?}",
                 tx_req.name.as_ref().unwrap_or(&"".to_string())
             );
@@ -421,22 +422,22 @@ where
                 if let Err(err) = res {
                     let err = err.to_string();
                     if err.to_lowercase().contains("already known") {
-                        eprintln!("Transaction already known. You may be using the same seed (or private key) as another spammer. Try modifying seed with `-s`, or waiting if you set `-p`. JSON-RPC Error: {err:?}");
+                        warn!("Transaction already known. You may be using the same seed (or private key) as another spammer. Try modifying seed with `-s`, or waiting if you set `-p`. JSON-RPC Error: {err:?}");
                     } else if err.to_lowercase().contains("insufficient funds") {
-                        eprintln!(
+                        warn!(
                             "Insufficient funds for transaction (account: {from}). Try passing a funded private key with `-p`. JSON-RPC Error: {err:?}"
                         );
                     } else if err.to_lowercase().contains("replacement transaction underpriced") {
-                        eprintln!("Replacement transaction underpriced. You may have to wait, or replace the currently-pending transactions manually. JSON-RPC Error: {err:?}");
+                        warn!("Replacement transaction underpriced. You may have to wait, or replace the currently-pending transactions manually. JSON-RPC Error: {err:?}");
                     } else {
-                        eprintln!("failed to send tx: {err:?}");
+                        warn!("failed to send tx: {err:?}");
                     }
                     return;
                 }
                 let res =
                     res.expect("this will never happen. If it does, I'm a terrible programmer.");
                 let receipt = res.get_receipt().await.expect("failed to get receipt");
-                println!(
+                debug!(
                     "contract address: {}",
                     receipt.contract_address.unwrap_or_default()
                 );
@@ -462,7 +463,7 @@ where
     pub async fn run_setup(&mut self) -> Result<()> {
         self.load_txs(PlanType::Setup(|tx_req| {
             /* callback */
-            println!("{}", self.format_setup_log(&tx_req));
+            info!("{}", self.format_setup_log(&tx_req));
 
             // copy data/refs from self before spawning the task
             let from = tx_req.tx.from.as_ref().ok_or(ContenderError::SetupError(
@@ -627,7 +628,7 @@ where
             gas_price + self.ctx.gas_price_adder as u128
         };
         let mut payloads = vec![];
-        println!("preparing {} spam payloads", tx_requests.len());
+        info!("preparing {} spam payloads", tx_requests.len());
         for tx in tx_requests {
             let payload = match tx {
                 ExecutionRequest::Bundle(reqs) => {
@@ -647,7 +648,7 @@ where
                             .await
                             .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
 
-                        println!("bundle tx from {:?}", tx_req.from);
+                        debug!("bundle tx from {:?}", tx_req.from);
                         // sign tx
                         let tx_envelope = tx_req.build(&signer).await.map_err(|e| {
                             ContenderError::with_err(e, "bad request: failed to build tx")
@@ -676,7 +677,7 @@ where
                         .max_priority_fee_per_gas
                         .map(|f| format!(" priority_fee: {f},"))
                         .unwrap_or_default();
-                    println!(
+                    debug!(
                         "prepared tx: {}, from: {}, to: {:?}, input: {}, value={}, gas_limit: {}, gas_price: {},{priority_fee} nonce={}",
                         tx_envelope.tx_hash(),
                         new_req.tx.from.map(|s| s.encode_hex()).unwrap_or_default(),
@@ -704,7 +705,7 @@ where
             };
             payloads.push(payload);
         }
-        println!("prepared {} payloads", payloads.len());
+        info!("prepared {} payloads", payloads.len());
         Ok(payloads)
     }
 
@@ -807,7 +808,7 @@ where
                                     // include errored txs in the cache; user may want to retry them
                                     // if they are due to nonce issues, this will fail, but if they do land somehow,
                                     // they will be awaited in the post-spam loop
-                                    println!("error from tx {tx_hash}: {err:?}");
+                                    warn!("error from tx {tx_hash}: {err:?}");
                                     extra.insert("error".to_owned(), err.to_string());
                                     vec![callback_handler.on_tx_sent(
                                         PendingTransactionConfig::new(tx_hash),
@@ -817,7 +818,7 @@ where
                                     )]
                                 } else {
                                     // ignore errors that can't be decoded
-                                    println!("ignoring tx response, could not decode error: {e:?}");
+                                    warn!("ignoring tx response, could not decode error: {e:?}");
                                     vec![]
                                 }
                             }
@@ -850,18 +851,16 @@ where
                             block_num,
                         );
                         if let Some(bundle_client) = bundle_client {
-                            println!("spamming bundle: {rpc_bundle:?}");
+                            info!("spamming bundle: {rpc_bundle:?}");
                             for i in 1..4 {
                                 let mut rpc_bundle = rpc_bundle.clone();
                                 rpc_bundle.block_number = block_num + i as u64;
 
                                 let res = bundle_client.send_bundle(rpc_bundle).await;
                                 if let Err(e) = res {
-                                    println!("failed to send bundle: {e:?}");
+                                    warn!("failed to send bundle: {e:?}");
                                 }
                             }
-                        } else {
-                            panic!("bundle client not found");
                         }
 
                         let mut tx_handles = vec![];
@@ -881,7 +880,7 @@ where
                 for handle in handles.into_iter().flatten() {
                     tokio::select! {
                         _ = cancel_token.cancelled() => {
-                            println!("cancelled spammer task");
+                            debug!("cancelled spammer task");
                             return;
                         }
                         _ = handle => {
@@ -928,7 +927,7 @@ where
                 tokio::select! {
                     res = task => {
                         if let Err(e) = res {
-                            println!("spam task failed: {e:?}");
+                            warn!("spam task failed: {e:?}");
                             num_tasks -= 1;
                         }
                     },
@@ -944,7 +943,7 @@ where
                     .map_err(|e| ContenderError::with_err(e, "on_batch_sent callback failed"))?;
             }
 
-            println!("[{tick}] executed {num_tasks} spam tasks");
+            info!("[{tick}] executed {num_tasks} spam tasks");
 
             // increase gas price if needed
             add_gas_receiver.close();
@@ -953,7 +952,7 @@ where
                 if self.ctx.gas_price_adder >= gas as i128 + starting_gas_adder {
                     continue;
                 }
-                println!("incrementing gas price by {gas}");
+                debug!("incrementing gas price by {gas}");
                 self.ctx.add_to_gas_price(gas as i128);
             }
 
@@ -964,13 +963,13 @@ where
                 success_count += 1;
             }
             if success_count == num_payloads {
-                println!("all spam txs sent successfully");
+                info!("all spam txs sent successfully");
                 if self.ctx.gas_price_adder > 0 {
                     // remove 10% of the gas price adder
                     self.ctx.add_to_gas_price(self.ctx.gas_price_adder / -10);
                 }
             } else {
-                println!(
+                warn!(
                     "some spam txs failed to send: {} / {}",
                     num_payloads - success_count,
                     num_payloads
@@ -1151,7 +1150,7 @@ where
                 .iter()
                 .all(|&size| size == cache_size_queue[0])
             {
-                println!(
+                debug!(
                             "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
                         );
                 for tx in &pending_txs {
@@ -1179,7 +1178,7 @@ where
     }
 
     pub async fn dump_tx_cache(&self, run_id: u64) -> Result<()> {
-        println!("dumping tx cache...");
+        debug!("dumping tx cache...");
 
         let failed_txs = self
             .msg_handle
@@ -1187,7 +1186,7 @@ where
             .await
             .map_err(|e| ContenderError::with_err(e.deref(), "failed to dump cache"))?;
         if !failed_txs.is_empty() {
-            println!(
+            warn!(
                 "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
                 failed_txs.len()
             );
@@ -1260,12 +1259,12 @@ async fn sync_nonces(
 
     for task in tasks {
         if let Err(e) = task.await {
-            eprintln!("failed to sync nonce: {e:?}");
+            warn!("failed to sync nonce: {e:?}");
         }
     }
     receiver.close();
 
-    println!("waiting for nonces to sync...");
+    debug!("waiting for nonces to sync...");
     while let Some((addr, nonce)) = receiver.recv().await {
         nonces.insert(addr, nonce);
     }
@@ -1329,6 +1328,7 @@ pub mod tests {
     use alloy::primitives::{Address, U256};
     use std::collections::HashMap;
     use tokio::sync::OnceCell;
+    use tracing::{debug, info};
 
     use super::TestScenarioParams;
 
@@ -1551,7 +1551,7 @@ pub mod tests {
         let mut agents = AgentStore::new();
         let config = MockConfig;
         let num_pools = config.get_spam_pools().len().max(1) as u64;
-        println!("spam pools: {num_pools}, txs_per_duration: {txs_per_duration}");
+        info!("spam pools: {num_pools}, txs_per_duration: {txs_per_duration}");
         agents.init(
             &["pool1", "pool2"],
             (txs_per_duration / num_pools) as usize,
@@ -1583,8 +1583,8 @@ pub mod tests {
         .unwrap();
 
         let fund_amount_wei = U256::from(fund_amount_eth * 1e18);
-        println!("fund_amount_wei: {fund_amount_wei}");
-        println!("fund_amount_eth: {fund_amount_eth}");
+        debug!("fund_amount_wei: {fund_amount_wei}");
+        debug!("fund_amount_eth: {fund_amount_eth}");
 
         let all_agent_names = scenario
             .agent_store
@@ -1592,7 +1592,7 @@ pub mod tests {
             .map(|(name, _)| name.to_owned())
             .collect::<Vec<_>>();
         for agent_name in &all_agent_names {
-            println!(
+            info!(
                 "funding agent: {agent_name} (num signers: {})",
                 scenario
                     .agent_store
@@ -1617,7 +1617,7 @@ pub mod tests {
 
         let create_txs = scenario
             .load_txs(PlanType::Create(|tx| {
-                println!("create tx callback triggered! {tx:?}\n");
+                info!("create tx callback triggered! {tx:?}\n");
                 Ok(None)
             }))
             .await?;
@@ -1625,7 +1625,7 @@ pub mod tests {
 
         let setup_txs = scenario
             .load_txs(PlanType::Setup(|tx| {
-                println!("setup tx callback triggered! {tx:?}\n");
+                info!("setup tx callback triggered! {tx:?}\n");
                 Ok(None)
             }))
             .await?;
@@ -1633,7 +1633,7 @@ pub mod tests {
 
         let spam_txs = scenario
             .load_txs(PlanType::Spam(20, |tx| {
-                println!("spam tx callback triggered! {tx:?}\n");
+                info!("spam tx callback triggered! {tx:?}\n");
                 Ok(None)
             }))
             .await?;
@@ -1649,7 +1649,7 @@ pub mod tests {
         let scenario = get_test_scenario(&anvil, 10, 10.0).await;
         let spam_txs = scenario
             .load_txs(PlanType::Spam(20, |tx| {
-                println!("spam tx callback triggered! {tx:?}\n");
+                info!("spam tx callback triggered! {tx:?}\n");
                 Ok(None)
             }))
             .await
@@ -1681,7 +1681,7 @@ pub mod tests {
 
         let spam_txs = scenario
             .load_txs(PlanType::Spam(10, |tx| {
-                println!("spam tx callback triggered! {tx:?}\n");
+                info!("spam tx callback triggered! {tx:?}\n");
                 Ok(None)
             }))
             .await
@@ -1693,8 +1693,8 @@ pub mod tests {
         };
         let from = tx.tx.from.unwrap();
         let input = tx.tx.input.input.as_ref().unwrap();
-        println!("input: {input}");
-        println!("from: {}", from.encode_hex());
+        debug!("input: {input}");
+        debug!("from: {}", from.encode_hex());
         assert!(input.encode_hex().contains(&from.encode_hex()));
     }
 
@@ -1705,7 +1705,7 @@ pub mod tests {
 
         let txs = scenario
             .load_txs(PlanType::Create(|tx| {
-                println!("create tx callback triggered! {tx:?}\n");
+                info!("create tx callback triggered! {tx:?}\n");
                 Ok(None)
             }))
             .await
@@ -1717,8 +1717,8 @@ pub mod tests {
             };
             let from = tx.tx.from.unwrap();
             let input = tx.tx.input.input.as_ref().unwrap();
-            println!("input: {input}");
-            println!("from: {}", from.encode_hex());
+            debug!("input: {input}");
+            debug!("from: {}", from.encode_hex());
             assert!(input.encode_hex().contains(&from.encode_hex()));
         }
     }
@@ -1812,7 +1812,7 @@ pub mod tests {
         let mut scenario = get_test_scenario(&anvil, 10, 10.0).await;
         scenario.deploy_contracts().await.unwrap();
         let res = scenario.run_setup().await;
-        println!("{res:?}");
+        info!("{res:?}");
         assert!(res.is_ok());
     }
 
@@ -1885,7 +1885,7 @@ pub mod tests {
                     max_nonce = *nonce;
                 }
             }
-            println!("({from}) min_nonce: {min_nonce}, max_nonce: {max_nonce}");
+            debug!("({from}) min_nonce: {min_nonce}, max_nonce: {max_nonce}");
         }
 
         Ok(())

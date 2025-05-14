@@ -10,6 +10,7 @@ use alloy::{
 };
 use alloy_rpc_types_engine::JwtSecret;
 use async_trait::async_trait;
+use tracing::{debug, info};
 
 use crate::{
     read_jwt_file,
@@ -57,7 +58,7 @@ impl AuthProvider {
 impl AdvanceChain for AuthProvider {
     /// Advance the chain by calling `engine_forkchoiceUpdated` (FCU) and `engine_newPayload` methods.
     async fn advance_chain(&self, block_time_secs: u64) -> Result<(), Box<dyn std::error::Error>> {
-        println!("advancing chain...");
+        info!("advancing chain...");
         let engine_client = &self.inner;
 
         let block = engine_client
@@ -76,7 +77,7 @@ impl AdvanceChain for AuthProvider {
             Some(block.header.timestamp + block_time_secs),
         )
         .await?;
-        println!("FCU call sent. Payload ID: {:?}", res.payload_id);
+        debug!("FCU call sent. Payload ID: {:?}", res.payload_id);
         let payload_id = res.payload_id.expect("need payload ID");
 
         //
@@ -98,7 +99,7 @@ impl AdvanceChain for AuthProvider {
         )
         .await
         .expect("failed to call newPayload");
-        println!("new payload sent.");
+        info!("new payload sent.");
 
         //
         // second FCU: call with updated block head from new payload
@@ -114,7 +115,7 @@ impl AdvanceChain for AuthProvider {
             None,
         )
         .await?;
-        println!("FCU call sent. Payload ID: {:?}", res.payload_id);
+        debug!("FCU call sent. Payload ID: {:?}", res.payload_id);
 
         Ok(())
     }

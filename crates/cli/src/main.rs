@@ -15,12 +15,13 @@ use contender_sqlite::{SqliteDb, DB_VERSION};
 use rand::Rng;
 use std::sync::LazyLock;
 use tokio::sync::OnceCell;
+use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 use util::{data_dir, db_file, prompt_continue};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     let path = db_file().expect("failed to get DB file path");
-    println!("opening DB at {path}");
+    debug!("opening DB at {path}");
     SqliteDb::from_file(&path).expect("failed to open contender DB file")
 });
 // prometheus
@@ -50,19 +51,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "Please upgrade contender or run `contender db drop` to delete your DB."
                 }
             );
-            println!(
-                "Your database is incompatible with this version of contender.
-Remote DB version = {}, contender expected version {}.
-
-{recommendation}
-",
+            warn!("Your database is incompatible with this version of contender.");
+            warn!(
+                "Remote DB version = {}, contender expected version {}.",
                 DB.version(),
                 DB_VERSION
             );
+            warn!("{recommendation}");
             return Err("Incompatible DB detected".into());
         }
     } else {
-        println!("no DB found, creating new DB");
+        info!("no DB found, creating new DB");
         DB.create_tables()?;
     }
     let db = DB.clone();
@@ -71,7 +70,7 @@ Remote DB version = {}, contender expected version {}.
 
     let seed_path = format!("{}/seed", &data_path);
     if !std::path::Path::new(&seed_path).exists() {
-        println!("generating seed file at {}", &seed_path);
+        info!("generating seed file at {}", &seed_path);
         let mut rng = rand::thread_rng();
         let seed: [u8; 32] = rng.gen();
         let seed_hex = hex::encode(seed);

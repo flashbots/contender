@@ -81,7 +81,7 @@ fn print_accounts_for_pool(
     info!("Generating addresses for pool: {}", pool);
     let agent = SignerStore::new(num_signers, seed, pool);
     for (i, address) in agent.all_addresses().iter().enumerate() {
-        info!("Signer {}: {}", i, address);
+        println!("Signer {i}: {address}");
     }
     Ok(())
 }
@@ -105,7 +105,8 @@ pub fn handle_admin_command(
         } => handle_accounts(from_pool, num_signers),
         AdminCommand::LatestRunId => {
             let num_runs = db.num_runs()?;
-            println!("Latest run ID: {num_runs}");
+            info!("Latest run ID: {num_runs}");
+            println!("{num_runs}");
             Ok(())
         }
         AdminCommand::Seed => handle_seed(),

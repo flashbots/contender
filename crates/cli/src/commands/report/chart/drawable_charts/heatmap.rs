@@ -3,6 +3,7 @@ use crate::commands::report::block_trace::TxTraceReceipt;
 use alloy::primitives::FixedBytes;
 use plotters::prelude::*;
 use std::collections::BTreeMap;
+use tracing::warn;
 
 pub struct HeatMapChart {
     updates_per_slot_per_block: BTreeMap<u64, BTreeMap<FixedBytes<32>, u64>>,
@@ -22,7 +23,7 @@ impl HeatMapChart {
 
             let trace_frame = t.trace.to_owned().try_into_pre_state_frame();
             if let Err(e) = trace_frame {
-                println!("failed to decode frame (preState mode): {e:?}");
+                warn!("failed to decode frame (preState mode): {e:?}");
                 continue;
             }
             let trace_frame = trace_frame.expect("failed to decode frame (preState mode)");
@@ -51,7 +52,7 @@ impl HeatMapChart {
         }
 
         if updates_per_slot_per_block.is_empty() {
-            println!("No trace data was collected. If transactions from the specified run landed, your target node may not support geth-style preState traces");
+            warn!("No trace data was collected. If transactions from the specified run landed, your target node may not support geth-style preState traces");
         }
 
         Ok(Self {

@@ -2,6 +2,7 @@ use std::pin::Pin;
 
 use alloy::providers::Provider;
 use futures::{Stream, StreamExt};
+use tracing::info;
 
 use crate::{
     db::DbOps,
@@ -47,7 +48,7 @@ where
             .into_stream()
             .flat_map(futures::stream::iter)
             .map(|b| {
-                println!("new block detected: {b:?}");
+                info!("new block detected: {b:?}");
                 SpamTrigger::BlockHash(b)
             })
             .boxed())
@@ -67,6 +68,7 @@ mod tests {
         providers::{DynProvider, ProviderBuilder},
     };
     use tokio::sync::OnceCell;
+    use tracing::debug;
 
     use crate::{
         agent_controller::{AgentStore, SignerStore},
@@ -92,7 +94,7 @@ mod tests {
                 .network::<AnyNetwork>()
                 .on_http(anvil.endpoint_url().to_owned()),
         );
-        println!("anvil url: {}", anvil.endpoint_url());
+        debug!("anvil url: {}", anvil.endpoint_url());
         let seed = crate::generator::RandSeed::seed_from_str("444444444444");
         let mut agents = AgentStore::new();
         let txs_per_period = 10u64;
@@ -120,7 +122,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-                println!("funded signer: {res:?}");
+                debug!("funded signer: {res:?}");
                 provider.watch_pending_transaction(res).await.unwrap();
                 nonce += 1;
             }
@@ -176,7 +178,7 @@ mod tests {
         }
 
         for addr in unique_addresses.iter() {
-            println!("unique address: {addr}");
+            debug!("unique address: {addr}");
         }
 
         assert!(unique_addresses.len() >= (txs_per_period / periods) as usize);

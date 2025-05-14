@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use alloy::{network::ReceiptResponse, primitives::TxHash, providers::Provider};
 use tokio::sync::{mpsc, oneshot};
+use tracing::{debug, info, warn};
 
 use crate::{
     db::{DbOps, RunTx},
@@ -97,7 +98,7 @@ where
         on_flush: oneshot::Sender<Vec<PendingRunTx>>, // returns the number of txs remaining in cache
         target_block_num: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        println!("unconfirmed txs: {}", cache.len());
+        info!("unconfirmed txs: {}", cache.len());
         let mut maybe_block;
         // TODO: replace this garbage mutator thing with a while loop
         loop {
@@ -107,7 +108,7 @@ where
                     break;
                 }
             }
-            println!("waiting for block {target_block_num}");
+            info!("waiting for block {target_block_num}");
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
         let target_block = maybe_block
@@ -117,7 +118,7 @@ where
             .get_block_receipts(target_block_num.into())
             .await?
             .unwrap_or_default();
-        println!(
+        info!(
             "found {} receipts for block {}",
             receipts.len(),
             target_block_num
@@ -150,9 +151,9 @@ where
                     .find(|r| r.transaction_hash == pending_tx.tx_hash)
                     .expect("this should never happen");
                 if !receipt.status() {
-                    println!("tx failed: {:?}", pending_tx.tx_hash);
+                    warn!("tx failed: {:?}", pending_tx.tx_hash);
                 } else {
-                    println!(
+                    debug!(
                         "tx landed. hash: {}, gas_used: {}, block_num: {}",
                         pending_tx.tx_hash,
                         receipt.gas_used,

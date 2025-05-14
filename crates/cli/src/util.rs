@@ -20,6 +20,7 @@ use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
 use csv::Writer;
 use std::{str::FromStr, sync::Arc, time::Duration};
+use tracing::{debug, info, warn};
 
 pub enum SpamCallbackType {
     Log(LogCallback),
@@ -67,7 +68,7 @@ pub const DEFAULT_PRV_KEYS: [&str; 10] = [
 
 pub fn get_signers_with_defaults(private_keys: Option<Vec<String>>) -> Vec<PrivateKeySigner> {
     if private_keys.is_none() {
-        println!("No private keys provided. Using default private keys.");
+        warn!("No private keys provided. Using default private keys.");
     }
     let private_keys = private_keys.unwrap_or_default();
     let private_keys = [
@@ -232,7 +233,7 @@ pub async fn fund_accounts(
         } else {
             "s"
         };
-        println!(
+        info!(
             "sending funding txs ({} account{s})...",
             insufficient_balances.len()
         );
@@ -255,7 +256,7 @@ pub async fn fund_accounts(
             .await;
             if let Err(e) = res {
                 let err = e.to_string();
-                println!("error funding account {address}: {err}");
+                warn!("error funding account {address}: {err}");
             } else {
                 sender
                     .send(res.expect("fund result not sent"))
@@ -266,7 +267,7 @@ pub async fn fund_accounts(
     }
 
     if !fund_handles.is_empty() {
-        println!("waiting for funding tasks to finish...");
+        info!("waiting for funding tasks to finish...");
         for handle in fund_handles {
             handle.await?;
         }
@@ -289,7 +290,7 @@ pub async fn fund_accounts(
         }
         for tx in txs_chunk {
             let pending = rpc_client.watch_pending_transaction(tx.to_owned()).await?;
-            println!("funding tx confirmed ({})", pending.await?);
+            info!("funding tx confirmed ({})", pending.await?);
         }
     }
 
@@ -327,7 +328,7 @@ pub async fn fund_account(
     let eth_wallet = EthereumWallet::from(sender.to_owned());
     let tx = tx_req.build(&eth_wallet).await?;
 
-    println!(
+    debug!(
         "funding account {recipient} with user account {}. tx: {}",
         sender.address(),
         tx.tx_hash().encode_hex()

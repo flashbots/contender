@@ -1,11 +1,10 @@
 on: [pull_request]
 
-permissions:
-  pull-requests: write
-
 jobs:
   preview-report:
     runs-on: ${{ matrix.configs.runner }}
+    permissions:
+      pull-requests: write
     strategy:
       matrix:
         configs:

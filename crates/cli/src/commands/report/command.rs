@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::env;
 use std::str::FromStr;
+use tracing::info;
 
 pub async fn report(
     last_run_id: Option<u64>,
@@ -27,7 +28,7 @@ pub async fn report(
     let num_runs = db.num_runs()?;
 
     if num_runs == 0 {
-        println!("No runs found in the database. Exiting.");
+        info!("No runs found in the database. Exiting.");
         return Ok(());
     }
 
@@ -40,7 +41,7 @@ pub async fn report(
         id
     } else {
         // get latest run
-        println!("No run ID provided. Using latest run ID: {num_runs}");
+        info!("No run ID provided. Using latest run ID: {num_runs}");
         num_runs
     };
 
@@ -97,7 +98,7 @@ pub async fn report(
     let url = Url::from_str(&rpc_url).expect("Invalid URL");
     let rpc_client = DynProvider::new(ProviderBuilder::new().network::<AnyNetwork>().on_http(url));
     let (trace_data, blocks) = if std::env::var("DEBUG_USEFILE").is_ok() {
-        println!("DEBUG_USEFILE detected: using cached data");
+        info!("DEBUG_USEFILE detected: using cached data");
         // load trace data from file
         let cache_data = CacheFile::load()?;
         (cache_data.traces, cache_data.blocks)
@@ -257,7 +258,7 @@ fn save_csv_report(id: u64, txs: &[RunTx]) -> Result<(), Box<dyn std::error::Err
     let report_dir = report_dir()?;
     let out_path = format!("{report_dir}/{id}.csv");
 
-    println!("Exporting report for run #{id:?} to {out_path:?}");
+    info!("Exporting report for run #{id:?} to {out_path:?}");
     let mut writer = WriterBuilder::new().has_headers(true).from_path(out_path)?;
     write_run_txs(&mut writer, txs)?;
 
