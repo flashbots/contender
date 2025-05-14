@@ -72,7 +72,7 @@ pub async fn spamd(
     let run_report = || async move {
         if gen_report {
             if run_ids.is_empty() {
-                info!("No runs found, exiting.");
+                warn!("No runs found, exiting.");
                 return Ok::<_, ContenderError>(());
             }
             let first_run_id = run_ids.iter().min().expect("no run IDs found");

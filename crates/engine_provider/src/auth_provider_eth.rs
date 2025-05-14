@@ -10,7 +10,7 @@ use alloy::{
 };
 use alloy_rpc_types_engine::JwtSecret;
 use async_trait::async_trait;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::{
     read_jwt_file,
@@ -77,7 +77,7 @@ impl AdvanceChain for AuthProvider {
             Some(block.header.timestamp + block_time_secs),
         )
         .await?;
-        info!("FCU call sent. Payload ID: {:?}", res.payload_id);
+        debug!("FCU call sent. Payload ID: {:?}", res.payload_id);
         let payload_id = res.payload_id.expect("need payload ID");
 
         //
@@ -115,7 +115,7 @@ impl AdvanceChain for AuthProvider {
             None,
         )
         .await?;
-        info!("FCU call sent. Payload ID: {:?}", res.payload_id);
+        debug!("FCU call sent. Payload ID: {:?}", res.payload_id);
 
         Ok(())
     }

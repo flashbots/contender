@@ -14,7 +14,7 @@ use op_rbuilder::{
 };
 use reth_optimism_node::OpPayloadAttributes;
 use std::{path::PathBuf, time::Duration};
-use tracing::info;
+use tracing::{debug, info};
 
 const FJORD_DATA: &[u8] = &make_hex!(
     "440a5e200000146b000f79c500000000000000040000000066d052e700000000013ad8a3000000000000000000000000000000000000000000000000000000003ef1278700000000000000000000000000000000000000000000000000000000000000012fdf87b89884a61e74b322bbcf60386f543bfae7827725efaaf0ab1de2294a590000000000000000000000006887246668a3b87f54deb3b94ba47a6f63f32985"
@@ -120,7 +120,7 @@ impl AdvanceChain for AuthProviderOp {
             Some(block.header.gas_limit),
         )
         .await?;
-        info!("[OP] FCU call sent. Payload ID: {:?}", res.payload_id);
+        debug!("[OP] FCU call sent. Payload ID: {:?}", res.payload_id);
         let payload_id = res.payload_id.ok_or("need payload ID")?;
 
         // wait for builder to build
@@ -137,6 +137,7 @@ impl AdvanceChain for AuthProviderOp {
         let _res = engine_client
             .new_payload(payload.execution_payload.to_owned(), vec![], B256::ZERO)
             .await?;
+        info!("[OP] new payload sent.");
 
         //
         // second FCU call: call with updated block head from new payload
@@ -153,7 +154,7 @@ impl AdvanceChain for AuthProviderOp {
             Some(block.header.gas_limit),
         )
         .await?;
-        info!("[OP] FCU call sent. Payload ID: {:?}", res.payload_id);
+        debug!("[OP] FCU call sent. Payload ID: {:?}", res.payload_id);
 
         Ok(())
     }

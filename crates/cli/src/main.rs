@@ -51,15 +51,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "Please upgrade contender or run `contender db drop` to delete your DB."
                 }
             );
+            warn!("Your database is incompatible with this version of contender.");
             warn!(
-                "Your database is incompatible with this version of contender.
-Remote DB version = {}, contender expected version {}.
-
-{recommendation}
-",
+                "Remote DB version = {}, contender expected version {}.",
                 DB.version(),
                 DB_VERSION
             );
+            warn!("{recommendation}");
             return Err("Incompatible DB detected".into());
         }
     } else {
