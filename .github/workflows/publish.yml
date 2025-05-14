@@ -3,10 +3,6 @@ name: Publish Crates
 on:
   workflow_dispatch:
 
-permissions:
-  contents: write  # needed to push tags and create releases
-  pull-requests: write
-
 jobs:
   release-plz-pr:
     name: Release-plz PR
@@ -14,6 +10,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      issues: write
     concurrency:
       group: release-plz-${{ github.ref }}
       cancel-in-progress: false
