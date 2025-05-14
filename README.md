@@ -425,3 +425,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - The Ethereum community for their continuous innovation.
 - The Reth project for inspiration on project structure and documentation.
 - [alloy-rs](https://github.com/alloy-rs) -- the backbone of this project.
+
