@@ -30,7 +30,7 @@ use contender_engine_provider::{
 use contender_testfile::TestConfig;
 use std::sync::Arc;
 use std::{path::PathBuf, sync::atomic::AtomicBool};
-use tracing::{debug, trace, warn};
+use tracing::{info, warn};
 
 #[derive(Debug)]
 pub struct EngineArgs {
@@ -115,7 +115,7 @@ impl SpamCommandArgs {
         &self,
         db: &D,
     ) -> Result<TestScenario<D, RandSeed, TestConfig>, Box<dyn std::error::Error>> {
-        debug!("Initializing spammer...");
+        info!("Initializing spammer...");
         let SpamCommandArgs {
             txs_per_block,
             txs_per_second,
@@ -312,7 +312,7 @@ pub async fn spam<
 
     // trigger blockwise spammer
     if let Some(txs_per_block) = txs_per_block {
-        trace!("Blockwise spamming with {txs_per_block} txs per block");
+        info!("Blockwise spamming with {txs_per_block} txs per block");
         let spammer = BlockwiseSpammer::new();
 
         match spam_callback_default(
@@ -366,7 +366,7 @@ pub async fn spam<
 
     // trigger timed spammer
     let tps = txs_per_second.unwrap_or(10);
-    debug!("Timed spamming with {tps} txs per second");
+    info!("Timed spamming with {tps} txs per second");
     let spammer = TimedSpammer::new(std::time::Duration::from_secs(1));
     match spam_callback_default(
         !disable_reporting,

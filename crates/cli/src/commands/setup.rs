@@ -30,7 +30,7 @@ use std::{
     },
     time::Duration,
 };
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 use super::common::ScenarioSendTxsCliArgs;
 
@@ -232,7 +232,7 @@ pub async fn setup(
     timekeeper_handle.abort();
     info!("Finished deploying contracts. Running setup txs...");
     scenario.run_setup().await?;
-    debug!("Setup complete. To run the scenario, use the `spam` command.");
+    info!("Setup complete. To run the scenario, use the `spam` command.");
 
     // stop advancing the chain
     is_done.store(true, Ordering::SeqCst);
