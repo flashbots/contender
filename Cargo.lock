@@ -2162,7 +2162,7 @@ dependencies = [
 
 [[package]]
 name = "contender_cli"
-version = "0.1.1-alpha.8"
+version = "0.1.1"
 dependencies = [
  "alloy",
  "ansi_term",

@@ -1,6 +1,6 @@
 [package]
 name = "contender_bundle_provider"
-version = "0.1.1"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
