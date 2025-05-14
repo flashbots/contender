@@ -11,7 +11,6 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.1"
 edition = "2021"
 rust-version = "1.86"
 authors = ["Flashbots"]
