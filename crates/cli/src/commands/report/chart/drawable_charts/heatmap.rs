@@ -52,7 +52,7 @@ impl HeatMapChart {
         }
 
         if updates_per_slot_per_block.is_empty() {
-            return Err("No trace data was collected. If transactions from the specified run landed, your target node may not support geth-style preState traces".into());
+            println!("No trace data was collected. If transactions from the specified run landed, your target node may not support geth-style preState traces");
         }
 
         Ok(Self {
@@ -139,6 +139,15 @@ impl DrawableChart for HeatMapChart {
         let block_nums = self.get_block_numbers();
         let slot_names = self.get_hex_slots();
         let matrix = self.get_matrix();
+
+        if matrix.is_empty() {
+            root.draw(&Text::new(
+                "No trace data was collected",
+                (0, 0),
+                ("sans-serif", 32),
+            ))?;
+            return Ok(());
+        }
 
         let x_size = matrix.len();
         let y_size = matrix[0].len();

@@ -103,21 +103,19 @@ contender spam ./scenarios/stress.toml -r $RPC_URL --tps 10 -d 3 -p $PRV_KEY
 Generate a report immediately following a spam run:
 
 ```bash
-contender spam ./scenarios/stress.toml -r $RPC_URL --tps 10 -d 3 -p $PRV_KEY --gen-report
+contender spam ./scenarios/stress.toml -r $RPC_URL --tps 10 -d 3 -p $PRV_KEY --report
 ```
 
----
-
-Run spammer indefinitely:
+Run spammer indefinitely with `--loops` (`-l`):
 
 ```bash
-contender spamd ./scenarios/stress.toml -r $RPC_URL --tps 10 -d 3 -p $PRV_KEY
+contender spam ./scenarios/stress.toml -r $RPC_URL --tps 10 -d 3 -p $PRV_KEY -l
 ```
 
-Run spammer for 5 minutes:
+Loop spammer 5 times:
 
 ```bash
-contender spamd ./scenarios/stress.toml -r $RPC_URL --tps 10 -d 3 -p $PRV_KEY --tl $((60 * 5))
+contender spam ./scenarios/stress.toml -r $RPC_URL --tps 10 -d 3 -p $PRV_KEY -l 5
 ```
 
 ---

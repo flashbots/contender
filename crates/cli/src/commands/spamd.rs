@@ -1,38 +1,26 @@
 use super::SpamCommandArgs;
 use crate::commands::{self};
 use contender_core::{db::DbOps, error::ContenderError};
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Duration,
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
 };
 use tracing::{info, warn};
 
 /// Runs spam in a loop, potentially executing multiple spam runs.
+///
+/// If `limit_loops` is `None`, it will run indefinitely.
+///
+/// If `limit_loops` is `Some(n)`, it will run `n` times.
+///
+/// If `gen_report` is `true`, it will generate a report at the end.
 pub async fn spamd(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     args: SpamCommandArgs,
     gen_report: bool,
-    time_limit: Option<u64>,
+    limit_loops: Option<u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let finished = Arc::new(AtomicBool::new(false));
-    let start_time = std::time::Instant::now();
-
-    // spawn a task to check the time limit and set finished to true if it is reached
-    let is_finished = finished.clone();
-    tokio::task::spawn(async move {
-        // check time limit
-        if let Some(limit) = time_limit {
-            tokio::time::sleep(Duration::from_secs(limit)).await;
-            if start_time.elapsed().as_secs() >= limit {
-                info!("Time limit reached. Spam daemon will shut down as soon as current batch finishes...");
-                is_finished.store(true, Ordering::SeqCst);
-            }
-        }
-    });
-
     let mut scenario = args.init_scenario(db).await?;
 
     // collects run IDs from the spam command
@@ -49,9 +37,20 @@ pub async fn spamd(
     });
 
     // runs spam command in a loop
+    let mut i = 0;
     loop {
+        let mut do_finish = false;
+        if let Some(loops) = &limit_loops {
+            if i >= *loops {
+                do_finish = true;
+            }
+            i += 1;
+        }
         if finished.load(Ordering::SeqCst) {
-            info!("Spam loop finished");
+            do_finish = true;
+        }
+        if do_finish {
+            info!("Spam loop finished.");
             break;
         }
         info!("syncing nonces...");

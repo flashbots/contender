@@ -1,100 +1,56 @@
 name: Publish Crates
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Version to release (e.g. 1.2.3)"
-        required: true
-      dry_run:
-        description: "Dry run (do not publish to crates.io)"
-        required: false
-        default: "false"
-
   push:
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
-
-permissions:
-  contents: write  # needed to push tags and create releases
+    branches:
+      - main
 
 jobs:
-  publish:
+
+  # Release unpublished packages.
+  release-plz-release:
+    name: Release-plz release
     runs-on: ubuntu-latest
-
+    if: ${{ github.repository_owner == 'flashbots' }}
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          toolchain: stable
-
-      - name: Cache Cargo
-        uses: actions/cache@v3
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run release-plz
+        uses: release-plz/action@v0.5
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cargo/bin
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', '.tool-versions') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Install tools
-        run: |
-          cargo install cargo-workspaces --version 0.3.6 || true
-          cargo install release-plz --version 0.3.133 --locked || true
-
-      - name: Determine version
-        id: version
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-            echo "dry_run=${{ github.event.inputs.dry_run }}" >> $GITHUB_OUTPUT
-          else
-            TAG="${GITHUB_REF##*/}"       # refs/tags/v1.2.3 → v1.2.3
-            VERSION="${TAG#v}"            # v1.2.3 → 1.2.3
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
-            echo "dry_run=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Update crate versions
-        run: |
-          cargo workspaces version ${{ steps.version.outputs.version }} --yes
-
-      - name: Commit + tag (manual only)
-        if: github.event_name == 'workflow_dispatch' && steps.version.outputs.dry_run != 'true'
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git commit -am "Release v${{ steps.version.outputs.version }}"
-          git tag "v${{ steps.version.outputs.version }}"
-          git push origin HEAD
-          git push origin "v${{ steps.version.outputs.version }}"
-
-      - name: Generate changelog
-        run: |
-          release-plz changelog > CHANGELOG.md
-          echo "=== CHANGELOG ==="
-          cat CHANGELOG.md
-
-      - name: Publish crates
+          command: release
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: |
-          if [[ "${{ steps.version.outputs.dry_run }}" == "true" ]]; then
-            echo "🧪 Dry-run mode"
-            cargo workspaces publish --dry-run --yes --no-git-commit --from-git
-          else
-            echo "🚀 Publishing to crates.io"
-            cargo workspaces publish --yes --no-git-commit --from-git
-          fi
 
-      - name: Create GitHub Release
-        if: steps.version.outputs.dry_run != 'true'
-        uses: softprops/action-gh-release@v1
+  # Create a PR with the new versions and changelog, preparing the next release.
+  release-plz-pr:
+    name: Release-plz PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    concurrency:
+      group: release-plz-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: Release v${{ steps.version.outputs.version }}
-          body_path: CHANGELOG.md
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run release-plz
+        uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }} # not used for now

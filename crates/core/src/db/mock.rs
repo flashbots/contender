@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use alloy::primitives::{Address, TxHash};
 
-use super::{DbOps, NamedTx, RunTx};
+use super::{DbOps, NamedTx, RunTx, SpamRunRequest};
 use crate::{buckets::Bucket, Result};
 
 pub struct MockDb;
@@ -16,13 +16,7 @@ impl DbOps for MockDb {
         Ok(())
     }
 
-    fn insert_run(
-        &self,
-        _timestamp: u64,
-        _tx_count: u64,
-        _scenario_name: &str,
-        _rpc_url: &str,
-    ) -> Result<u64> {
+    fn insert_run(&self, _run: &SpamRunRequest) -> Result<u64> {
         Ok(0)
     }
 

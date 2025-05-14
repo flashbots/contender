@@ -7,13 +7,20 @@ authors.workspace = true
 license.workspace = true
 homepage.workspace = true
 repository.workspace = true
+description = "Contender engine_ API provider"
 
 [lib]
 name = "contender_engine_provider"
 path = "src/lib.rs"
 
 [dependencies]
-alloy = { workspace = true, features = ["full", "node-bindings", "rpc-types-mev", "json-rpc", "provider-engine-api"] }
+alloy = { workspace = true, features = [
+    "full",
+    "node-bindings",
+    "rpc-types-mev",
+    "json-rpc",
+    "provider-engine-api",
+] }
 alloy-rpc-types-engine = { workspace = true, features = ["std", "jwt"] }
 alloy-chains = { version = "0.1.64", default-features = false }
 alloy-json-rpc = { workspace = true }
