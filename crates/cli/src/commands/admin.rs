@@ -81,7 +81,7 @@ fn print_accounts_for_pool(
     info!("Generating addresses for pool: {}", pool);
     let agent = SignerStore::new(num_signers, seed, pool);
     for (i, address) in agent.all_addresses().iter().enumerate() {
-        println!("Signer {}: {}", i, address);
+        println!("Signer {i}: {address}");
     }
     Ok(())
 }
