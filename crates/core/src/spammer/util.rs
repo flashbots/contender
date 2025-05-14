@@ -11,6 +11,7 @@ pub mod test {
         signers::local::PrivateKeySigner,
     };
     use tokio::task::JoinHandle;
+    use tracing::{debug, info};
 
     use crate::{
         generator::{types::AnyProvider, util::complete_tx_request, NamedTxRequest},
@@ -26,14 +27,14 @@ pub mod test {
             _extra: Option<HashMap<String, String>>,
             _tx_handler: Option<Arc<TxActorHandle>>,
         ) -> Option<JoinHandle<()>> {
-            println!("MockCallback::on_tx_sent: tx_hash={}", _tx_res.tx_hash());
+            info!("MockCallback::on_tx_sent: tx_hash={}", _tx_res.tx_hash());
             None
         }
     }
 
     impl OnBatchSent for MockCallback {
         fn on_batch_sent(&self) -> Option<JoinHandle<()>> {
-            println!("MockCallback::on_batch_sent");
+            info!("MockCallback::on_batch_sent");
             None
         }
     }
@@ -57,7 +58,7 @@ pub mod test {
         nonce: Option<u64>,
         tx_type: TxType,
     ) -> Result<PendingTransactionConfig, Box<dyn std::error::Error>> {
-        println!(
+        debug!(
             "funding account {} with user account {}",
             recipient,
             sender.address()

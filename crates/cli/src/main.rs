@@ -15,13 +15,13 @@ use contender_sqlite::{SqliteDb, DB_VERSION};
 use rand::Rng;
 use std::sync::LazyLock;
 use tokio::sync::OnceCell;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 use util::{data_dir, db_file, prompt_continue};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     let path = db_file().expect("failed to get DB file path");
-    info!("opening DB at {path}");
+    debug!("opening DB at {path}");
     SqliteDb::from_file(&path).expect("failed to open contender DB file")
 });
 // prometheus

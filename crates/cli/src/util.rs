@@ -68,7 +68,7 @@ pub const DEFAULT_PRV_KEYS: [&str; 10] = [
 
 pub fn get_signers_with_defaults(private_keys: Option<Vec<String>>) -> Vec<PrivateKeySigner> {
     if private_keys.is_none() {
-        info!("No private keys provided. Using default private keys.");
+        warn!("No private keys provided. Using default private keys.");
     }
     let private_keys = private_keys.unwrap_or_default();
     let private_keys = [

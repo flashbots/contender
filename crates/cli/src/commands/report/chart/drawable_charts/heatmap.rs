@@ -52,7 +52,7 @@ impl HeatMapChart {
         }
 
         if updates_per_slot_per_block.is_empty() {
-            println!("No trace data was collected. If transactions from the specified run landed, your target node may not support geth-style preState traces");
+            warn!("No trace data was collected. If transactions from the specified run landed, your target node may not support geth-style preState traces");
         }
 
         Ok(Self {

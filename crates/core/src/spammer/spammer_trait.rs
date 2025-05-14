@@ -4,7 +4,7 @@ use std::{pin::Pin, sync::Arc};
 use alloy::providers::Provider;
 use futures::Stream;
 use futures::StreamExt;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{
     db::DbOps,
@@ -83,7 +83,7 @@ where
             // run spammer within tokio::select! to allow for graceful shutdown
             let spam_finished: bool = tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
-                    info!("\nCTRL-C received, stopping spamming...");
+                    warn!("CTRL-C received, stopping spamming...");
                     cancel_token.cancel();
 
                     false
@@ -93,7 +93,7 @@ where
                 }
             };
             if !spam_finished {
-                info!("Spammer terminated. Press CTRL-C again to stop result collection...");
+                warn!("Spammer terminated. Press CTRL-C again to stop result collection...");
             }
             self.context()
                 .done_sending
@@ -102,7 +102,7 @@ where
             // collect results from cached pending txs
             let flush_finished: bool = tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
-                    info!("\nCTRL-C received, stopping result collection...");
+                    warn!("CTRL-C received, stopping result collection...");
                     let _ = scenario.msg_handle.stop().await;
                     cancel_token.cancel();
                     false
@@ -112,13 +112,13 @@ where
                 }
             };
             if !flush_finished {
-                info!("Result collection terminated. Some pending txs may not have been saved to the database.");
+                warn!("Result collection terminated. Some pending txs may not have been saved to the database.");
             }
 
             // clear out unconfirmed txs from the cache
             let dump_finished: bool = tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
-                    info!("\nCTRL-C received, stopping tx cache dump...");
+                    warn!("CTRL-C received, stopping tx cache dump...");
                     cancel_token.cancel();
                     false
                 },
@@ -127,7 +127,7 @@ where
                 }
             };
             if !dump_finished {
-                info!("Tx cache dump terminated. Some unconfirmed txs may not have been saved to the database.");
+                warn!("Tx cache dump terminated. Some unconfirmed txs may not have been saved to the database.");
             }
 
             if let Some(run_id) = run_id {
