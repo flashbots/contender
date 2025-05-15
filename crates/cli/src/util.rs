@@ -66,6 +66,25 @@ pub const DEFAULT_PRV_KEYS: [&str; 10] = [
     "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6",
 ];
 
+const DEFAULT_SCENARIOS_URL: &str =
+    "https://raw.githubusercontent.com/flashbots/contender/refs/heads/main/scenarios";
+
+/// Takes a testfile path or a builtin scenario and returns a TestConfig.
+/// If the testfile starts with `scenario:`, it is treated as a builtin scenario.
+/// Otherwise, it is treated as a file path.
+/// Built-in scenarios are fetched relative to the default URL: [`DEFAULT_SCENARIOS_URL`](crate::util::DEFAULT_SCENARIOS_URL).
+pub async fn load_testconfig(testfile: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
+    if testfile.starts_with("scenario:") {
+        let remote_url = format!(
+            "{DEFAULT_SCENARIOS_URL}/{}",
+            testfile.replace("scenario:", "")
+        );
+        TestConfig::from_remote_url(&remote_url).await
+    } else {
+        TestConfig::from_file(testfile)
+    }
+}
+
 pub fn get_signers_with_defaults(private_keys: Option<Vec<String>>) -> Vec<PrivateKeySigner> {
     if private_keys.is_none() {
         warn!("No private keys provided. Using default private keys.");

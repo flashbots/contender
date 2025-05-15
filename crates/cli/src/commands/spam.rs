@@ -1,8 +1,8 @@
 use super::common::{ScenarioSendTxsCliArgs, SendSpamCliArgs};
 use crate::{
     util::{
-        check_private_keys, fund_accounts, get_signers_with_defaults, spam_callback_default,
-        EngineParams, SpamCallbackType,
+        check_private_keys, fund_accounts, get_signers_with_defaults, load_testconfig,
+        spam_callback_default, EngineParams, SpamCallbackType,
     },
     LATENCY_HIST as HIST, PROM,
 };
@@ -130,17 +130,15 @@ impl SpamCommandArgs {
             gas_price_percent_add,
             timeout_secs,
             engine_params,
-            env,
             ..
         } = &self;
 
-        let mut testconfig: TestConfig = TestConfig::from_file(testfile).await?;
+        let mut testconfig = load_testconfig(testfile).await?;
+
         // Setup env variables
         let mut env_variables = testconfig.env.clone().unwrap_or_default();
-        if env.is_some() {
-            for (key, value) in env.clone().unwrap() {
-                let _ = &env_variables.insert(key.to_string(), value.to_string());
-            }
+        if let Some(env) = &self.env {
+            env_variables.extend(env.iter().cloned());
         }
         testconfig.env = Some(env_variables.clone());
 
