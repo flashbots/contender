@@ -63,7 +63,6 @@ pub fn fill_block_config(args: FillBlockArgs) -> TestConfig {
         num_txs,
     } = args;
     let gas_per_tx = max_gas_per_block / num_txs;
-    // info!("Attempting to fill blocks with {max_gas_per_block} gas; sending {num_txs} txs, each with gas limit {gas_per_tx}.");
     let spam_txs = (0..num_txs)
         .map(|_| {
             SpamRequest::Tx(FunctionCallDefinition {
