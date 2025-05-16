@@ -1,6 +1,8 @@
 use clap::Subcommand;
 use std::path::PathBuf;
 
+use crate::default_scenarios::BuiltinScenarioCli;
+
 use super::admin::AdminCommand;
 use super::setup::SetupCliArgs;
 use super::spam::SpamCliArgs;
@@ -26,6 +28,9 @@ pub enum ContenderSubcommand {
     Spam {
         #[command(flatten)]
         args: SpamCliArgs,
+
+        #[command(subcommand, name = "builtin-scenario")]
+        builtin_scenario_config: Option<BuiltinScenarioCli>,
     },
 
     #[command(

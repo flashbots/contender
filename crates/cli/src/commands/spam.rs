@@ -1,6 +1,6 @@
 use super::common::{ScenarioSendTxsCliArgs, SendSpamCliArgs};
 use crate::{
-    default_scenarios::BuiltinScenarioConfig,
+    default_scenarios::BuiltinScenario,
     util::{
         check_private_keys, fund_accounts, get_signers_with_defaults, load_testconfig,
         spam_callback_default, EngineParams, SpamCallbackType,
@@ -94,7 +94,7 @@ pub struct SpamCliArgs {
 
 pub enum SpamScenario {
     Testfile(String),
-    Builtin(BuiltinScenarioConfig),
+    Builtin(BuiltinScenario),
 }
 
 impl SpamScenario {

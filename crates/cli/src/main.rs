@@ -18,9 +18,9 @@ use commands::{
 };
 use contender_core::{db::DbOps, error::ContenderError, generator::RandSeed};
 use contender_sqlite::{SqliteDb, DB_VERSION};
-use default_scenarios::BuiltinScenarioConfig;
+use default_scenarios::{fill_block::FillBlockCliArgs, BuiltinScenarioCli};
 use rand::Rng;
-use std::{env, str::FromStr, sync::LazyLock};
+use std::{str::FromStr, sync::LazyLock};
 use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
@@ -138,9 +138,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?
         }
 
-        ContenderSubcommand::Spam { args } => {
+        ContenderSubcommand::Spam {
+            args,
+            builtin_scenario_config,
+        } => {
             if !check_spam_args(&args)? {
                 return Ok(());
+            }
+            if builtin_scenario_config.is_some() && args.eth_json_rpc_args.testfile.is_some() {
+                return Err(ContenderError::SpamError(
+                    "Cannot use both builtin scenario and testfile",
+                    None,
+                )
+                .into());
             }
 
             let SpamCliArgs {
@@ -155,15 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         auth_args,
                         env,
                     },
-                spam_args:
-                    SendSpamCliArgs {
-                        duration,
-                        txs_per_block,
-                        txs_per_second,
-                        builder_url,
-                        timeout,
-                        loops,
-                    },
+                spam_args,
                 disable_reporting,
                 gen_report,
                 gas_price_percent_add,
@@ -182,17 +184,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 SpamScenario::Testfile(testfile)
             } else {
                 // TODO: support other builtin scenarios
-                SpamScenario::Builtin(
-                    BuiltinScenarioConfig::fill_block(
-                        &provider,
-                        txs_per_block.unwrap_or(txs_per_second.unwrap_or(100)),
-                        env::var("C_FILL_PERCENT") // TODO: replace this with better CLI flags; each builtin scenario should have its own flags
-                            .map(|s| u32::from_str(&s).expect("invalid u16: fill_percent"))
-                            .unwrap_or(100u32),
+                if let Some(config) = builtin_scenario_config {
+                    SpamScenario::Builtin(config.to_builtin_scenario(&provider, &spam_args).await?)
+                } else {
+                    // default to fill block scenario
+                    SpamScenario::Builtin(
+                        BuiltinScenarioCli::FillBlock(FillBlockCliArgs {
+                            max_gas_per_block: None,
+                        })
+                        .to_builtin_scenario(&provider, &spam_args)
+                        .await?,
                     )
-                    .await?,
-                )
+                }
             };
+            let SendSpamCliArgs {
+                builder_url,
+                txs_per_block,
+                txs_per_second,
+                duration,
+                timeout,
+                loops,
+                ..
+            } = spam_args;
 
             let spam_args = SpamCommandArgs {
                 scenario,
