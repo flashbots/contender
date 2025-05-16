@@ -284,7 +284,7 @@ impl SpamCommandArgs {
             );
         }
 
-        let total_cost = U256::from(*duration * loops.unwrap_or(1))
+        let total_cost = U256::from(duration * loops.unwrap_or(1))
             * scenario.get_max_spam_cost(&user_signers).await?;
         if min_balance < U256::from(total_cost) {
             return Err(ContenderError::SpamError(
