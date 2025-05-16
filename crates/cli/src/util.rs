@@ -454,8 +454,21 @@ pub fn db_file() -> Result<String, Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod test {
+    use super::fund_accounts;
     use super::load_testconfig;
+    use alloy::{
+        consensus::constants::ETH_TO_WEI,
+        network::AnyNetwork,
+        node_bindings::{Anvil, AnvilInstance},
+        primitives::{Address, U256},
+        providers::{DynProvider, Provider, ProviderBuilder},
+        signers::local::PrivateKeySigner,
+    };
     use std::str::FromStr;
+
+    pub fn spawn_anvil() -> AnvilInstance {
+        Anvil::new().block_time(1).spawn()
+    }
 
     #[tokio::test]
     async fn fetch_bad_url() {
@@ -476,21 +489,6 @@ mod test {
     async fn dont_fetch_remote_scenario_without_prefix() {
         let testconfig = load_testconfig("bad_prefix:simpler.toml").await;
         assert!(testconfig.is_err(), "URL fetched even without prefix");
-    }
-
-    use alloy::{
-        consensus::constants::ETH_TO_WEI,
-        network::AnyNetwork,
-        node_bindings::{Anvil, AnvilInstance},
-        primitives::{Address, U256},
-        providers::{DynProvider, Provider, ProviderBuilder},
-        signers::local::PrivateKeySigner,
-    };
-
-    use super::fund_accounts;
-
-    pub fn spawn_anvil() -> AnvilInstance {
-        Anvil::new().block_time(1).spawn()
     }
 
     #[tokio::test]
