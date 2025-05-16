@@ -139,6 +139,7 @@ pub struct SpamCommandArgs {
     pub gas_price_percent_add: Option<u64>,
     pub timeout_secs: u64,
     pub env: Option<Vec<(String, String)>>,
+    pub loops: Option<u64>,
 }
 
 impl SpamCommandArgs {
@@ -161,6 +162,7 @@ impl SpamCommandArgs {
             gas_price_percent_add,
             timeout_secs,
             engine_params,
+            loops,
             ..
         } = self;
 
@@ -274,7 +276,15 @@ impl SpamCommandArgs {
             scenario.run_setup().await?;
         }
 
-        let total_cost = U256::from(duration * txs_per_duration)
+        if loops.is_none() {
+            warn!(
+                "Spammer agents will eventually run out of funds. Make sure you add plenty of funds with {} (set your pre-funded account with {}).",
+                ansi_term::Style::new().bold().paint("spam --min-balance"),
+                ansi_term::Style::new().bold().paint("spam -p"),
+            );
+        }
+
+        let total_cost = U256::from(*duration * loops.unwrap_or(1))
             * scenario.get_max_spam_cost(&user_signers).await?;
         if min_balance < U256::from(total_cost) {
             return Err(ContenderError::SpamError(
@@ -285,7 +295,7 @@ impl SpamCommandArgs {
                     format_ether(total_cost),
                     ansi_term::Style::new()
                         .bold()
-                        .paint("--min-balance <ETH amount>"),
+                        .paint("spam --min-balance <ETH amount>"),
                 )
                 .into(),
             )

@@ -206,6 +206,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
             };
 
+            let real_loops = if let Some(loops) = loops {
+                // loops flag is set; spamd will interpret a None value as infinite
+                loops
+            } else {
+                // loops flag is not set, so only loop once
+                Some(1)
+            };
             let spam_args = SpamCommandArgs {
                 scenario,
                 rpc_url,
@@ -222,15 +229,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engine_params,
                 timeout_secs: timeout,
                 env,
+                loops: real_loops,
             };
 
-            let real_loops = if let Some(loops) = loops {
-                // loops flag is set; spamd will interpret a None value as infinite
-                loops
-            } else {
-                // loops flag is not set, so only loop once
-                Some(1)
-            };
             commands::spamd(&db, spam_args, gen_report, real_loops).await?;
         }
 
