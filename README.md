@@ -40,7 +40,6 @@ Contender can be used as both a library and a command-line tool.
 contender setup <testfile> [OPTIONS]
 contender spam <testfile> [OPTIONS]
 contender report [OPTIONS]
-contender run [OPTIONS]
 contender admin [OPTIONS]
 ```
 
@@ -55,19 +54,25 @@ contender --help
 Run a zero-config scenario that attempts to fill a block to its gas limit:
 
 ```bash
-contender run fill-block -r $RPC_URL
+contender spam --tps 50 -r $RPC_URL fill-block
 ```
 
-Send txs every 1 second instead of the default 12s:
+Send txs every block (instead of every second):
 
 ```bash
-contender run fill-block -r $RPC_URL -i 1
+contender spam --tpb 50 -r $RPC_URL fill-block
 ```
 
-Pass a private key to send txs from your own account:
+Send 10 batches of txs before collecting receipts:
 
 ```bash
-contender run fill-block -r $RPC_URL -i 1 -p $PRIVATE_KEY
+contender spam --tps 50 -d 10 -r $RPC_URL fill-block
+```
+
+Pass a private key to fund spammer wallets from your own account:
+
+```bash
+contender spam --tps 50 -d 10 -r $RPC_URL -p $PRIVATE_KEY fill-block
 ```
 
 ---
