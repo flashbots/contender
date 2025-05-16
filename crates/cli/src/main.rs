@@ -182,19 +182,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let scenario = if let Some(testfile) = testfile {
                 SpamScenario::Testfile(testfile)
+            } else if let Some(config) = builtin_scenario_config {
+                SpamScenario::Builtin(config.to_builtin_scenario(&provider, &spam_args).await?)
             } else {
-                if let Some(config) = builtin_scenario_config {
-                    SpamScenario::Builtin(config.to_builtin_scenario(&provider, &spam_args).await?)
-                } else {
-                    // default to fill-block scenario
-                    SpamScenario::Builtin(
-                        BuiltinScenarioCli::FillBlock(FillBlockCliArgs {
-                            max_gas_per_block: None,
-                        })
-                        .to_builtin_scenario(&provider, &spam_args)
-                        .await?,
-                    )
-                }
+                // default to fill-block scenario
+                SpamScenario::Builtin(
+                    BuiltinScenarioCli::FillBlock(FillBlockCliArgs {
+                        max_gas_per_block: None,
+                    })
+                    .to_builtin_scenario(&provider, &spam_args)
+                    .await?,
+                )
             };
 
             let SendSpamCliArgs {
