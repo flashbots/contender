@@ -454,7 +454,29 @@ pub fn db_file() -> Result<String, Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod test {
+    use super::load_testconfig;
     use std::str::FromStr;
+
+    #[tokio::test]
+    async fn fetch_bad_url() {
+        let testconfig = load_testconfig("scenario:bad_path.toml").await;
+        assert!(
+            testconfig.is_err(),
+            "Expected error when fetching non-existent URL"
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_correct_url_when_prefix_added() {
+        let testconfig = load_testconfig("scenario:simpler.toml").await;
+        assert!(testconfig.is_ok(), "Can't fetch this URL");
+    }
+
+    #[tokio::test]
+    async fn dont_fetch_remote_scenario_without_prefix() {
+        let testconfig = load_testconfig("bad_prefix:simpler.toml").await;
+        assert!(testconfig.is_err(), "URL fetched even without prefix");
+    }
 
     use alloy::{
         consensus::constants::ETH_TO_WEI,

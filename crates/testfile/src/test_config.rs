@@ -115,30 +115,3 @@ impl Templater<String> for TestConfig {
         None
     }
 }
-
-#[cfg(test)]
-mod test {
-
-    use super::*;
-
-    #[tokio::test]
-    async fn fetch_bad_url() {
-        let testconfig = TestConfig::from_file("scenario:bad_path.toml");
-        assert!(
-            testconfig.is_err(),
-            "Expected error when fetching non-existent URL"
-        );
-    }
-
-    #[tokio::test]
-    async fn fetch_correct_url_when_prefix_added() {
-        let testconfig = TestConfig::from_file("scenario:simpler.toml");
-        assert!(testconfig.is_ok(), "Can't fetch this URL");
-    }
-
-    #[tokio::test]
-    async fn dont_fetch_remote_scenario_without_prefix() {
-        let testconfig = TestConfig::from_file("bad_prefix:simpler.toml");
-        assert!(testconfig.is_err(), "URL fetched even without prefix");
-    }
-}
