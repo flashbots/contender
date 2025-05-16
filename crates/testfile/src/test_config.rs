@@ -32,7 +32,7 @@ impl TestConfig {
     pub async fn from_remote_url(url: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
         let file_contents = reqwest::get(url)
             .await
-            .map_err(|_err| format!("Error occured while fetching URL {}", url))?
+            .map_err(|_err| format!("Error occured while fetching URL {url}"))?
             .text()
             .await
             .map_err(|_err| "Cannot convert the contents of the file into text.")?;
