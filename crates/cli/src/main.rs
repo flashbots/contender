@@ -183,11 +183,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let scenario = if let Some(testfile) = testfile {
                 SpamScenario::Testfile(testfile)
             } else {
-                // TODO: support other builtin scenarios
                 if let Some(config) = builtin_scenario_config {
                     SpamScenario::Builtin(config.to_builtin_scenario(&provider, &spam_args).await?)
                 } else {
-                    // default to fill block scenario
+                    // default to fill-block scenario
                     SpamScenario::Builtin(
                         BuiltinScenarioCli::FillBlock(FillBlockCliArgs {
                             max_gas_per_block: None,
@@ -197,6 +196,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     )
                 }
             };
+
             let SendSpamCliArgs {
                 builder_url,
                 txs_per_block,
