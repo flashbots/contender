@@ -100,7 +100,7 @@ pub enum SpamScenario {
 impl SpamScenario {
     pub async fn testconfig(&self) -> Result<TestConfig, Box<dyn std::error::Error>> {
         let config: TestConfig = match self {
-            SpamScenario::Testfile(testfile) => load_testconfig(&testfile).await?,
+            SpamScenario::Testfile(testfile) => load_testconfig(testfile).await?,
             SpamScenario::Builtin(scenario) => TestConfig::from(scenario.to_owned()),
         };
         Ok(config)
@@ -158,15 +158,15 @@ impl SpamCommandArgs {
         }
         testconfig.env = Some(env_variables.clone());
 
-        let rand_seed = RandSeed::seed_from_str(&seed);
-        let url = Url::parse(&rpc_url).expect("Invalid RPC URL");
+        let rand_seed = RandSeed::seed_from_str(seed);
+        let url = Url::parse(rpc_url).expect("Invalid RPC URL");
         let rpc_client = DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
                 .on_http(url.to_owned()),
         );
 
-        let min_balance = parse_ether(&min_balance)?;
+        let min_balance = parse_ether(min_balance)?;
 
         let user_signers = get_signers_with_defaults(private_keys.to_owned());
         let spam = testconfig
@@ -233,7 +233,7 @@ impl SpamCommandArgs {
             &rpc_client,
             min_balance,
             *tx_type,
-            &engine_params,
+            engine_params,
         )
         .await?;
 
