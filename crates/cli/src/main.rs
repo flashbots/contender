@@ -2,18 +2,25 @@ mod commands;
 mod default_scenarios;
 mod util;
 
-use alloy::hex;
+use alloy::{
+    hex,
+    network::AnyNetwork,
+    providers::{DynProvider, ProviderBuilder},
+    rpc::client::ClientBuilder,
+    transports::http::reqwest::Url,
+};
 use commands::{
     admin::handle_admin_command,
     common::{ScenarioSendTxsCliArgs, SendSpamCliArgs},
     db::{drop_db, export_db, import_db, reset_db},
-    ContenderCli, ContenderSubcommand, DbCommand, RunCommandArgs, SetupCliArgs, SetupCommandArgs,
-    SpamCliArgs, SpamCommandArgs,
+    ContenderCli, ContenderSubcommand, DbCommand, SetupCliArgs, SetupCommandArgs, SpamCliArgs,
+    SpamCommandArgs, SpamScenario,
 };
 use contender_core::{db::DbOps, error::ContenderError, generator::RandSeed};
 use contender_sqlite::{SqliteDb, DB_VERSION};
+use default_scenarios::{fill_block::FillBlockCliArgs, BuiltinScenarioCli};
 use rand::Rng;
-use std::sync::LazyLock;
+use std::{str::FromStr, sync::LazyLock};
 use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
@@ -108,6 +115,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             let seed = seed.unwrap_or(stored_seed);
             let engine_params = auth_args.engine_params().await?;
+            let testfile = if let Some(testfile) = testfile {
+                testfile
+            } else {
+                // if no testfile is provided, use the default one
+                warn!("No testfile provided, using default testfile \"scenario:simple.toml\"");
+                "scenario:simple.toml".to_owned()
+            };
             commands::setup(
                 &db,
                 SetupCommandArgs {
@@ -124,9 +138,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?
         }
 
-        ContenderSubcommand::Spam { args } => {
+        ContenderSubcommand::Spam {
+            args,
+            builtin_scenario_config,
+        } => {
             if !check_spam_args(&args)? {
                 return Ok(());
+            }
+            if builtin_scenario_config.is_some() && args.eth_json_rpc_args.testfile.is_some() {
+                return Err(ContenderError::SpamError(
+                    "Cannot use both builtin scenario and testfile",
+                    None,
+                )
+                .into());
             }
 
             let SpamCliArgs {
@@ -141,26 +165,57 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         auth_args,
                         env,
                     },
-                spam_args:
-                    SendSpamCliArgs {
-                        duration,
-                        txs_per_block,
-                        txs_per_second,
-                        builder_url,
-                        timeout,
-                        loops,
-                    },
+                spam_args,
                 disable_reporting,
                 gen_report,
                 gas_price_percent_add,
-            } = args;
+                ..
+            } = args.to_owned();
+
+            let SendSpamCliArgs {
+                builder_url,
+                txs_per_block,
+                txs_per_second,
+                duration,
+                timeout,
+                loops,
+                ..
+            } = spam_args.to_owned();
 
             let seed = seed.unwrap_or(stored_seed);
             let engine_params = auth_args.engine_params().await?;
+            let client = ClientBuilder::default().http(Url::from_str(&rpc_url)?);
+            let provider = DynProvider::new(
+                ProviderBuilder::new()
+                    .network::<AnyNetwork>()
+                    .on_client(client),
+            );
 
+            let scenario = if let Some(testfile) = testfile {
+                SpamScenario::Testfile(testfile)
+            } else if let Some(config) = builtin_scenario_config {
+                SpamScenario::Builtin(config.to_builtin_scenario(&provider, &spam_args).await?)
+            } else {
+                // default to fill-block scenario
+                SpamScenario::Builtin(
+                    BuiltinScenarioCli::FillBlock(FillBlockCliArgs {
+                        max_gas_per_block: None,
+                    })
+                    .to_builtin_scenario(&provider, &spam_args)
+                    .await?,
+                )
+            };
+
+            let real_loops = if let Some(loops) = loops {
+                // loops flag is set; spamd will interpret a None value as infinite
+                loops
+            } else {
+                // loops flag is not set, so only loop once
+                Some(1)
+            };
             let spam_args = SpamCommandArgs {
-                testfile: testfile.to_owned(),
-                rpc_url: rpc_url.to_owned(),
+                scenario,
+                rpc_url,
                 builder_url,
                 txs_per_block,
                 txs_per_second,
@@ -174,14 +229,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engine_params,
                 timeout_secs: timeout,
                 env,
+                loops: real_loops,
             };
-            let real_loops = if let Some(loops) = loops {
-                // loops flag is set; spamd will interpret a None value as infinite
-                loops
-            } else {
-                // loops flag is not set, so only loop once
-                Some(1)
-            };
+
             commands::spamd(&db, spam_args, gen_report, real_loops).await?;
         }
 
@@ -190,35 +240,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             preceding_runs,
         } => {
             commands::report(last_run_id, preceding_runs, &db).await?;
-        }
-
-        ContenderSubcommand::Run {
-            scenario,
-            rpc_url,
-            private_key,
-            interval,
-            duration,
-            txs_per_duration,
-            skip_deploy_prompt,
-            tx_type,
-            auth_args,
-        } => {
-            let engine_params = auth_args.engine_params().await?;
-            commands::run(
-                &db,
-                RunCommandArgs {
-                    scenario,
-                    rpc_url,
-                    private_key,
-                    interval,
-                    duration,
-                    txs_per_duration,
-                    skip_deploy_prompt,
-                    tx_type: tx_type.into(),
-                    engine_params,
-                },
-            )
-            .await?
         }
 
         ContenderSubcommand::Admin { command } => {
@@ -254,9 +275,13 @@ fn check_spam_args(args: &SpamCliArgs) -> Result<bool, ContenderError> {
     let duration = args.spam_args.duration;
     if duration > max_duration {
         let time_limit = duration / max_duration;
+        let scenario = args
+            .eth_json_rpc_args
+            .testfile
+            .as_deref()
+            .unwrap_or_default();
         let suggestion_cmd = ansi_term::Style::new().bold().paint(format!(
-            "contender spam {} -d {max_duration} -l {time_limit} ...",
-            args.eth_json_rpc_args.testfile
+            "contender spam {scenario} -d {max_duration} -l {time_limit} ..."
         ));
         println!(
 "Duration is set to {duration} {units}, which is quite high. Generating transactions and collecting results may take a long time.

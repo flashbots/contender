@@ -212,7 +212,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn parses_testconfig_toml() {
-        let test_file = TestConfig::from_file("testConfig.toml").await.unwrap();
+        let test_file = TestConfig::from_file("testConfig.toml").unwrap();
         assert!(test_file.env.is_some());
         assert!(test_file.setup.is_some());
         assert!(test_file.spam.is_some());
@@ -258,7 +258,7 @@ pub mod tests {
         let encoded = cfg.encode_toml().unwrap();
         print_testconfig(&encoded);
         cfg.save_toml("cargotest.toml").unwrap();
-        let test_file2 = TestConfig::from_file("cargotest.toml").await.unwrap();
+        let test_file2 = TestConfig::from_file("cargotest.toml").unwrap();
         let spam = cfg.clone().spam.unwrap();
         match &spam[0] {
             SpamRequest::Tx(req) => {

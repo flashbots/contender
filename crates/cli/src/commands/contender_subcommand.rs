@@ -1,12 +1,11 @@
 use clap::Subcommand;
 use std::path::PathBuf;
 
+use crate::default_scenarios::BuiltinScenarioCli;
+
 use super::admin::AdminCommand;
-use super::common::AuthCliArgs;
 use super::setup::SetupCliArgs;
 use super::spam::SpamCliArgs;
-use crate::default_scenarios::BuiltinScenario;
-use crate::util::TxTypeCli;
 
 #[derive(Debug, Subcommand)]
 pub enum ContenderSubcommand {
@@ -29,6 +28,9 @@ pub enum ContenderSubcommand {
     Spam {
         #[command(flatten)]
         args: SpamCliArgs,
+
+        #[command(subcommand, name = "builtin-scenario")]
+        builtin_scenario_config: Option<BuiltinScenarioCli>,
     },
 
     #[command(
@@ -62,72 +64,6 @@ pub enum ContenderSubcommand {
             default_value = "0"
         )]
         preceding_runs: u64,
-    },
-
-    #[command(name = "run", long_about = "Run a builtin scenario.")]
-    Run {
-        /// The scenario to run.
-        scenario: BuiltinScenario,
-
-        /// The HTTP JSON-RPC URL to spam with requests.
-        #[arg(
-            short,
-            long,
-            long_help = "RPC URL to test the scenario.",
-            default_value = "http://localhost:8545"
-        )]
-        rpc_url: String,
-
-        #[arg(
-            short,
-            long = "priv-key",
-            long_help = "Private key used to send all transactions."
-        )]
-        private_key: Option<String>,
-
-        #[arg(
-            short,
-            long = "interval",
-            long_help = "Interval in seconds between each batch of requests.",
-            default_value = "1"
-        )]
-        interval: f64,
-
-        #[arg(
-            short,
-            long = "duration",
-            long_help = "The number of batches of requests to send.",
-            default_value = "10"
-        )]
-        duration: u64,
-
-        #[arg(
-            short = 'n',
-            long = "num-txs",
-            long_help = "The number of txs to send on each elapsed interval.",
-            default_value = "50"
-        )]
-        txs_per_duration: u64,
-
-        #[arg(
-            long,
-            long_help = "Skip the deploy prompt. Contracts will only be deployed if not found in DB.",
-            visible_aliases = &["sdp"]
-        )]
-        skip_deploy_prompt: bool,
-
-        /// Transaction type
-        #[arg(
-            short = 't',
-            long,
-            long_help = "Transaction type for all transactions.",
-            value_enum,
-            default_value_t = TxTypeCli::Eip1559,
-        )]
-        tx_type: TxTypeCli,
-
-        #[command(flatten)]
-        auth_args: AuthCliArgs,
     },
 }
 
