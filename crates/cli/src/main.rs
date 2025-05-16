@@ -169,7 +169,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 disable_reporting,
                 gen_report,
                 gas_price_percent_add,
-            } = args;
+                ..
+            } = args.to_owned();
+
+            let SendSpamCliArgs {
+                builder_url,
+                txs_per_block,
+                txs_per_second,
+                duration,
+                timeout,
+                loops,
+                ..
+            } = spam_args.to_owned();
 
             let seed = seed.unwrap_or(stored_seed);
             let engine_params = auth_args.engine_params().await?;
@@ -195,19 +206,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
             };
 
-            let SendSpamCliArgs {
-                builder_url,
-                txs_per_block,
-                txs_per_second,
-                duration,
-                timeout,
-                loops,
-                ..
-            } = spam_args;
-
             let spam_args = SpamCommandArgs {
                 scenario,
-                rpc_url: rpc_url.to_owned(),
+                rpc_url,
                 builder_url,
                 txs_per_block,
                 txs_per_second,
@@ -222,6 +223,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 timeout_secs: timeout,
                 env,
             };
+
             let real_loops = if let Some(loops) = loops {
                 // loops flag is set; spamd will interpret a None value as infinite
                 loops

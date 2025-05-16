@@ -1,5 +1,5 @@
+mod builtin;
 mod bytecode;
 pub mod fill_block;
-mod runconfig;
 
-pub use runconfig::{BuiltinScenario, BuiltinScenarioCli};
+pub use builtin::{BuiltinScenario, BuiltinScenarioCli};

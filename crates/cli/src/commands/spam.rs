@@ -57,7 +57,7 @@ impl EngineArgs {
     }
 }
 
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 pub struct SpamCliArgs {
     #[command(flatten)]
     pub eth_json_rpc_args: ScenarioSendTxsCliArgs,
@@ -90,6 +90,14 @@ pub struct SpamCliArgs {
         long_help = "Adds given percent increase to the standard gas price of the transactions."
     )]
     pub gas_price_percent_add: Option<u64>,
+
+    /// Skip deploy prompt that appears when running a builtin scenario.
+    #[arg(
+        long,
+        long_help = "Skip deploy prompt that appears when running a builtin scenario.",
+        default_value_t = false
+    )]
+    pub skip_deploy_prompt: bool,
 }
 
 pub enum SpamScenario {
@@ -104,6 +112,13 @@ impl SpamScenario {
             SpamScenario::Builtin(scenario) => TestConfig::from(scenario.to_owned()),
         };
         Ok(config)
+    }
+
+    pub fn is_builtin(&self) -> bool {
+        match self {
+            SpamScenario::Testfile(_) => false,
+            SpamScenario::Builtin(_) => true,
+        }
     }
 }
 
@@ -189,6 +204,13 @@ impl SpamCommandArgs {
             signers_per_period as usize,
             &rand_seed,
         );
+        if self.scenario.is_builtin() {
+            agents.init(
+                &[testconfig.get_create_pools(), testconfig.get_setup_pools()].concat(),
+                1,
+                &rand_seed,
+            );
+        }
 
         let all_agents = agents.all_agents().collect::<Vec<_>>();
         if (txs_per_duration as usize) < all_agents.len() {
@@ -237,7 +259,7 @@ impl SpamCommandArgs {
         )
         .await?;
 
-        let scenario = TestScenario::new(
+        let mut scenario = TestScenario::new(
             testconfig,
             db.clone().into(),
             rand_seed,
@@ -246,6 +268,11 @@ impl SpamCommandArgs {
             (&PROM, &HIST),
         )
         .await?;
+
+        if self.scenario.is_builtin() {
+            scenario.deploy_contracts().await?;
+            scenario.run_setup().await?;
+        }
 
         let total_cost = U256::from(duration * txs_per_duration)
             * scenario.get_max_spam_cost(&user_signers).await?;
