@@ -1,10 +1,12 @@
 use std::fmt::Display;
 
-use alloy::primitives::Address;
-use contender_core::generator::types::{CreateDefinition, FunctionCallDefinition, SpamRequest};
+use alloy::providers::Provider;
+use contender_core::generator::types::{
+    AnyProvider, CreateDefinition, FunctionCallDefinition, SpamRequest,
+};
 use contender_testfile::TestConfig;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, warn};
 
 use super::bytecode;
 
@@ -19,35 +21,41 @@ impl Display for BuiltinScenarioConfig {
             BuiltinScenarioConfig::FillBlock {
                 max_gas_per_block: _,
                 num_txs: _,
-                sender: _,
                 fill_percent: _,
             } => write!(f, "fill-block"),
         }
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum BuiltinScenarioConfig {
     FillBlock {
         max_gas_per_block: u64,
         num_txs: u64,
-        sender: Address,
-        fill_percent: u16,
+        fill_percent: u32,
     },
 }
 
 impl BuiltinScenarioConfig {
-    pub fn fill_block(
-        max_gas_per_block: u64,
+    pub async fn fill_block(
+        provider: &AnyProvider,
         num_txs: u64,
-        sender: Address,
-        fill_percent: u16,
-    ) -> Self {
-        Self::FillBlock {
-            max_gas_per_block,
+        fill_percent: u32,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let block = provider
+            .get_block_by_number(alloy::eips::BlockNumberOrTag::Latest)
+            .await?;
+        let limit = if let Some(block) = block {
+            block.header.gas_limit
+        } else {
+            warn!("Could not get block gas limit, using default 30M");
+            30_000_000
+        };
+        Ok(Self::FillBlock {
+            max_gas_per_block: limit,
             num_txs,
-            sender,
             fill_percent,
-        }
+        })
     }
 }
 
@@ -57,7 +65,6 @@ impl From<BuiltinScenarioConfig> for TestConfig {
             BuiltinScenarioConfig::FillBlock {
                 max_gas_per_block,
                 num_txs,
-                sender,
                 fill_percent,
             } => {
                 let gas_per_tx = (fill_percent as u64 * max_gas_per_block) / (num_txs * 100);
@@ -65,10 +72,10 @@ impl From<BuiltinScenarioConfig> for TestConfig {
                 let spam_txs = (0..num_txs)
                     .map(|_| {
                         SpamRequest::Tx(FunctionCallDefinition {
-                            to: "{SpamMe}".to_owned(),
-                            from: Some(sender.to_string()),
+                            to: "{SpamMe5}".to_owned(),
+                            from: None,
                             signature: "consumeGas()".to_owned(),
-                            from_pool: None,
+                            from_pool: Some("spammers".to_owned()),
                             args: None,
                             value: None,
                             fuzz: None,
@@ -83,8 +90,8 @@ impl From<BuiltinScenarioConfig> for TestConfig {
                     create: Some(vec![CreateDefinition {
                         name: "SpamMe".to_owned(),
                         bytecode: bytecode::SPAM_ME.to_owned(),
-                        from: Some(sender.to_string()),
-                        from_pool: None,
+                        from: None,
+                        from_pool: Some("spammers".to_owned()),
                     }]),
                     setup: None,
                     spam: Some(spam_txs),

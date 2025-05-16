@@ -1,4 +1,4 @@
 mod bytecode;
 mod runconfig;
 
-pub use runconfig::{BuiltinScenario, BuiltinScenarioConfig};
+pub use runconfig::BuiltinScenarioConfig;

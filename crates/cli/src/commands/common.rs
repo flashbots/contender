@@ -7,7 +7,7 @@ use super::EngineArgs;
 #[derive(Debug, clap::Args)]
 pub struct ScenarioSendTxsCliArgs {
     /// The path to the test file to use for spamming/setup.
-    pub testfile: String,
+    pub testfile: Option<String>,
 
     /// The HTTP JSON-RPC URL to spam with requests.
     #[arg(

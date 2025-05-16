@@ -1,5 +1,6 @@
 use super::common::{ScenarioSendTxsCliArgs, SendSpamCliArgs};
 use crate::{
+    default_scenarios::BuiltinScenarioConfig,
     util::{
         check_private_keys, fund_accounts, get_signers_with_defaults, load_testconfig,
         spam_callback_default, EngineParams, SpamCallbackType,
@@ -91,8 +92,23 @@ pub struct SpamCliArgs {
     pub gas_price_percent_add: Option<u64>,
 }
 
+pub enum SpamScenario {
+    Testfile(String),
+    Builtin(BuiltinScenarioConfig),
+}
+
+impl SpamScenario {
+    pub async fn testconfig(&self) -> Result<TestConfig, Box<dyn std::error::Error>> {
+        let config: TestConfig = match self {
+            SpamScenario::Testfile(testfile) => load_testconfig(&testfile).await?,
+            SpamScenario::Builtin(scenario) => TestConfig::from(scenario.to_owned()),
+        };
+        Ok(config)
+    }
+}
+
 pub struct SpamCommandArgs {
-    pub testfile: String,
+    pub scenario: SpamScenario,
     pub rpc_url: String,
     pub builder_url: Option<String>,
     pub txs_per_block: Option<u64>,
@@ -119,7 +135,7 @@ impl SpamCommandArgs {
         let SpamCommandArgs {
             txs_per_block,
             txs_per_second,
-            testfile,
+            scenario,
             duration,
             seed,
             rpc_url,
@@ -131,9 +147,9 @@ impl SpamCommandArgs {
             timeout_secs,
             engine_params,
             ..
-        } = &self;
+        } = self;
 
-        let mut testconfig = load_testconfig(testfile).await?;
+        let mut testconfig = scenario.testconfig().await?;
 
         // Setup env variables
         let mut env_variables = testconfig.env.clone().unwrap_or_default();
@@ -142,15 +158,15 @@ impl SpamCommandArgs {
         }
         testconfig.env = Some(env_variables.clone());
 
-        let rand_seed = RandSeed::seed_from_str(seed);
-        let url = Url::parse(rpc_url).expect("Invalid RPC URL");
+        let rand_seed = RandSeed::seed_from_str(&seed);
+        let url = Url::parse(&rpc_url).expect("Invalid RPC URL");
         let rpc_client = DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
                 .on_http(url.to_owned()),
         );
 
-        let min_balance = parse_ether(min_balance)?;
+        let min_balance = parse_ether(&min_balance)?;
 
         let user_signers = get_signers_with_defaults(private_keys.to_owned());
         let spam = testconfig
@@ -217,7 +233,7 @@ impl SpamCommandArgs {
             &rpc_client,
             min_balance,
             *tx_type,
-            engine_params,
+            &engine_params,
         )
         .await?;
 
@@ -231,7 +247,7 @@ impl SpamCommandArgs {
         )
         .await?;
 
-        let total_cost = U256::from(*duration * txs_per_duration)
+        let total_cost = U256::from(duration * txs_per_duration)
             * scenario.get_max_spam_cost(&user_signers).await?;
         if min_balance < U256::from(total_cost) {
             return Err(ContenderError::SpamError(
@@ -266,7 +282,7 @@ pub async fn spam<
     let SpamCommandArgs {
         txs_per_block,
         txs_per_second,
-        testfile,
+        scenario,
         duration,
         disable_reporting,
         engine_params,
@@ -275,6 +291,10 @@ pub async fn spam<
     } = args;
 
     let mut run_id = None;
+    let scenario_name = match scenario {
+        SpamScenario::Testfile(testfile) => testfile.to_owned(),
+        SpamScenario::Builtin(scenario) => scenario.to_string(),
+    };
 
     let rpc_client = test_scenario.rpc_client.clone();
     let auth_client = test_scenario.auth_provider.to_owned();
@@ -330,7 +350,7 @@ pub async fn spam<
                 let run = SpamRunRequest {
                     timestamp: timestamp as usize,
                     tx_count: (*txs_per_block * duration) as usize,
-                    scenario_name: testfile.to_string(),
+                    scenario_name,
                     rpc_url: test_scenario.rpc_url.to_string(),
                     txs_per_duration: *txs_per_block,
                     duration: SpamDuration::Blocks(*duration),
@@ -383,7 +403,7 @@ pub async fn spam<
             let run = SpamRunRequest {
                 timestamp: timestamp as usize,
                 tx_count: (tps * duration) as usize,
-                scenario_name: testfile.to_string(),
+                scenario_name,
                 rpc_url: test_scenario.rpc_url.to_string(),
                 txs_per_duration: tps,
                 duration: SpamDuration::Seconds(*duration),
