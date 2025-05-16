@@ -41,6 +41,7 @@ contender setup <testfile> [OPTIONS]
 contender spam <testfile> [OPTIONS]
 contender report [OPTIONS]
 contender admin [OPTIONS]
+contender db [OPTIONS]
 ```
 
 For detailed usage instructions, run:
