@@ -16,6 +16,12 @@ pub use spam::{spam, EngineArgs, SpamCliArgs, SpamCommandArgs, SpamScenario};
 pub use spamd::spamd;
 
 #[derive(Parser, Debug)]
+#[command(
+    name = "contender",
+    version,
+    author = "Flashbots",
+    about = "A flexible JSON-RPC spammer for EVM chains."
+)]
 pub struct ContenderCli {
     #[command(subcommand)]
     pub command: ContenderSubcommand,
