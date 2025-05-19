@@ -64,8 +64,8 @@ pub async fn setup(
 
     // Setup env variables
     let mut env_variables = testconfig.env.clone().unwrap_or_default();
-    if env.is_some() {
-        for (key, value) in env.unwrap() {
+    if let Some(env) = env {
+        for (key, value) in env {
             let _ = &env_variables.insert(key.to_string(), value.to_string());
         }
     }
