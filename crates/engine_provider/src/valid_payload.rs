@@ -281,6 +281,7 @@ pub(crate) async fn call_forkchoice_updated<N, P: EngineApiValidWaitExt<N>>(
     payload_attributes: Option<PayloadAttributes>,
 ) -> TransportResult<ForkchoiceUpdated> {
     match message_version {
+        EngineApiMessageVersion::V5 => todo!("V5 payloads not supported yet"),
         EngineApiMessageVersion::V4 => todo!("V4 payloads not supported yet"),
         EngineApiMessageVersion::V3 => {
             provider

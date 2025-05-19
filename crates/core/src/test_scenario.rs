@@ -133,7 +133,7 @@ where
         let rpc_client = Arc::new(DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
-                .on_client(client),
+                .connect_client(client),
         ));
 
         // derive block time from last two blocks. if two blocks don't exist, assume block time is 1s
@@ -399,7 +399,7 @@ where
             let wallet = ProviderBuilder::new()
                 .wallet(wallet_conf)
                 .network::<AnyNetwork>()
-                .on_http(self.rpc_url.to_owned());
+                .connect_http(self.rpc_url.to_owned());
 
             info!(
                 "deploying contract: {:?}",
@@ -485,7 +485,7 @@ where
             let handle = tokio::task::spawn(async move {
                 let wallet = ProviderBuilder::new()
                     .wallet(wallet)
-                    .on_http(rpc_url.to_owned());
+                    .connect_http(rpc_url.to_owned());
 
                 let chain_id = wallet.get_chain_id().await.expect("failed to get chain id");
                 let tx_label = tx_req

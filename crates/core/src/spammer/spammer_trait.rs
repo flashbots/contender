@@ -2,6 +2,7 @@ use std::sync::atomic::AtomicBool;
 use std::{pin::Pin, sync::Arc};
 
 use alloy::providers::Provider;
+use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use futures::Stream;
 use futures::StreamExt;
 use tracing::{info, warn};
@@ -21,6 +22,7 @@ use super::{tx_actor::TxActorHandle, OnTxSent};
 #[derive(Clone)]
 pub struct SpamRunContext {
     done_sending: Arc<AtomicBool>,
+    done_fcu: Arc<AtomicBool>,
     do_quit: tokio_util::sync::CancellationToken,
 }
 
@@ -34,6 +36,7 @@ impl Default for SpamRunContext {
     fn default() -> Self {
         Self {
             done_sending: Arc::new(AtomicBool::new(false)),
+            done_fcu: Arc::new(AtomicBool::new(false)),
             do_quit: tokio_util::sync::CancellationToken::new(),
         }
     }
@@ -66,6 +69,32 @@ where
         sent_tx_callback: Arc<F>,
     ) -> impl std::future::Future<Output = Result<()>> {
         async move {
+            let is_fcu_done = self.context().done_fcu.clone();
+            let is_sending_done = self.context().done_sending.clone();
+            let auth_provider = scenario.auth_provider.clone();
+            // run loop in background to call fcu when spamming is done
+            tokio::task::spawn(async move {
+                if let Some(auth_client) = &auth_provider {
+                    loop {
+                        let is_fcu_done = is_fcu_done.load(std::sync::atomic::Ordering::SeqCst);
+                        let is_sending_done =
+                            is_sending_done.load(std::sync::atomic::Ordering::SeqCst);
+                        if is_fcu_done {
+                            warn!("FCU is done, stopping spammer");
+                            break;
+                        }
+                        if is_sending_done {
+                            warn!("sending is done, advancing chain");
+                            let res = auth_client.advance_chain(DEFAULT_BLOCK_TIME).await;
+                            if let Err(e) = res {
+                                warn!("Error advancing chain: {e}");
+                            }
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    }
+                }
+            });
+
             let tx_req_chunks = scenario
                 .get_spam_tx_chunks(txs_per_period, num_periods)
                 .await?;
@@ -105,6 +134,7 @@ where
                     warn!("CTRL-C received, stopping result collection...");
                     let _ = scenario.msg_handle.stop().await;
                     cancel_token.cancel();
+                    self.context().done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
                     false
                 },
                 _ = scenario.flush_tx_cache(start_block, run_id.unwrap_or(0)) => {
@@ -113,6 +143,10 @@ where
             };
             if !flush_finished {
                 warn!("Result collection terminated. Some pending txs may not have been saved to the database.");
+            } else {
+                self.context()
+                    .done_fcu
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
             }
 
             // clear out unconfirmed txs from the cache
@@ -129,6 +163,10 @@ where
             if !dump_finished {
                 warn!("Tx cache dump terminated. Some unconfirmed txs may not have been saved to the database.");
             }
+
+            self.context()
+                .done_fcu
+                .store(true, std::sync::atomic::Ordering::SeqCst);
 
             if let Some(run_id) = run_id {
                 let latency_metrics = scenario.collect_latency_metrics();

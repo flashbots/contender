@@ -188,7 +188,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let provider = DynProvider::new(
                 ProviderBuilder::new()
                     .network::<AnyNetwork>()
-                    .on_client(client),
+                    .connect_client(client),
             );
 
             let scenario = if let Some(testfile) = testfile {

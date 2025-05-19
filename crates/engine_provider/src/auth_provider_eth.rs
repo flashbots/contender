@@ -1,6 +1,5 @@
-use std::path::PathBuf;
-
 use alloy::{
+    consensus::BlockHeader,
     eips::BlockId,
     network::AnyNetwork,
     primitives::B256,
@@ -10,6 +9,8 @@ use alloy::{
 };
 use alloy_rpc_types_engine::JwtSecret;
 use async_trait::async_trait;
+use op_alloy_network::{primitives::HeaderResponse, BlockResponse, Network};
+use std::path::PathBuf;
 use tracing::{debug, info};
 
 use crate::{
@@ -20,11 +21,14 @@ use crate::{
 use super::{auth_transport::AuthenticatedTransportConnect, AdvanceChain};
 
 #[derive(Clone)]
-pub struct AuthProvider {
-    inner: DynProvider<AnyNetwork>,
+pub struct AuthProvider<Network = AnyNetwork> {
+    inner: DynProvider<Network>,
 }
 
-impl AuthProvider {
+impl<N> AuthProvider<N>
+where
+    N: Network,
+{
     /// Create a new AuthProvider instance.
     /// This will create a new authenticated transport connected to `auth_rpc_url` using `jwt_secret`.
     pub async fn new(
@@ -36,7 +40,7 @@ impl AuthProvider {
         let client = ClientBuilder::default()
             .connect_with(auth_transport)
             .await?;
-        let auth_provider = RootProvider::<AnyNetwork>::new(client);
+        let auth_provider = RootProvider::<N>::new(client);
         Ok(Self {
             inner: DynProvider::new(auth_provider),
         })
@@ -55,7 +59,7 @@ impl AuthProvider {
 }
 
 #[async_trait]
-impl AdvanceChain for AuthProvider {
+impl<N: Network> AdvanceChain for AuthProvider<N> {
     /// Advance the chain by calling `engine_forkchoiceUpdated` (FCU) and `engine_newPayload` methods.
     async fn advance_chain(&self, block_time_secs: u64) -> Result<(), Box<dyn std::error::Error>> {
         info!("advancing chain...");
@@ -70,11 +74,12 @@ impl AdvanceChain for AuthProvider {
         //
         // first FCU: call with same hash for parent and new head
         //
+        let header = block.header();
         let res = call_fcu_default(
             engine_client,
-            block.header.hash,
-            block.header.hash,
-            Some(block.header.timestamp + block_time_secs),
+            header.hash(),
+            header.hash(),
+            Some(header.timestamp() + block_time_secs),
         )
         .await?;
         debug!("FCU call sent. Payload ID: {:?}", res.payload_id);
@@ -106,7 +111,7 @@ impl AdvanceChain for AuthProvider {
         //
         let res = call_fcu_default(
             engine_client,
-            block.header.hash,
+            block.header().hash(),
             payload
                 .execution_payload
                 .payload_inner

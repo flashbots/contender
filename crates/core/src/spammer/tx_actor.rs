@@ -99,6 +99,14 @@ where
         target_block_num: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
         info!("unconfirmed txs: {}", cache.len());
+
+        if cache.len() == 0 {
+            on_flush
+                .send(cache.to_owned())
+                .map_err(|_| ContenderError::SpamError("failed to join TxActor on_flush", None))?;
+            return Ok(());
+        }
+
         let mut maybe_block;
         // TODO: replace this garbage mutator thing with a while loop
         loop {

@@ -25,12 +25,11 @@ use contender_core::{
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
 };
-use contender_engine_provider::{
-    AdvanceChain, AuthProviderEth, AuthProviderOp, DEFAULT_BLOCK_TIME,
-};
+use contender_engine_provider::{AdvanceChain, AuthProviderEth};
 use contender_testfile::TestConfig;
+use op_alloy_network::Optimism;
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::{path::PathBuf, sync::atomic::AtomicBool};
 use tracing::{info, warn};
 
 #[derive(Debug)]
@@ -45,13 +44,14 @@ impl EngineArgs {
         &self,
     ) -> Result<Arc<dyn AdvanceChain + Send + Sync + 'static>, Box<dyn std::error::Error>> {
         if self.use_op {
-            Ok(Arc::new(AuthProviderOp::from_jwt_file(
-                &self.auth_rpc_url,
-                &self.jwt_secret,
-            )?))
+            Ok(Arc::new(
+                AuthProviderEth::<Optimism>::from_jwt_file(&self.auth_rpc_url, &self.jwt_secret)
+                    .await?,
+            ))
         } else {
             Ok(Arc::new(
-                AuthProviderEth::from_jwt_file(&self.auth_rpc_url, &self.jwt_secret).await?,
+                AuthProviderEth::<AnyNetwork>::from_jwt_file(&self.auth_rpc_url, &self.jwt_secret)
+                    .await?,
             ))
         }
     }
@@ -180,7 +180,7 @@ impl SpamCommandArgs {
         let rpc_client = DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
-                .on_http(url.to_owned()),
+                .connect_http(url.to_owned()),
         );
 
         let min_balance = parse_ether(min_balance)?;
@@ -336,35 +336,6 @@ pub async fn spam<
     let rpc_client = test_scenario.rpc_client.clone();
     let auth_client = test_scenario.auth_provider.to_owned();
 
-    // thread-safe flag to stop spammer at different stages
-    let done_fcu = AtomicBool::new(false);
-    let is_fcu_done = Arc::new(done_fcu);
-    let done_sending = AtomicBool::new(false);
-    let is_sending_done = Arc::new(done_sending);
-
-    // run loop in background to call fcu when spamming is done
-    if engine_params.call_fcu {
-        let is_fcu_done = is_fcu_done.clone();
-        let is_sending_done = is_sending_done.clone();
-        let auth_client = auth_client.clone();
-        tokio::spawn(async move {
-            loop {
-                if is_fcu_done.load(std::sync::atomic::Ordering::SeqCst) {
-                    break;
-                }
-                if is_sending_done.load(std::sync::atomic::Ordering::SeqCst) {
-                    if let Some(auth_client) = &auth_client {
-                        let res = auth_client.advance_chain(DEFAULT_BLOCK_TIME).await;
-                        if let Err(e) = res {
-                            warn!("Error advancing chain: {e}");
-                        }
-                    }
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-            }
-        });
-    }
-
     // trigger blockwise spammer
     if let Some(txs_per_block) = txs_per_block {
         info!("Blockwise spamming with {txs_per_block} txs per block");
@@ -457,7 +428,6 @@ pub async fn spam<
                 .await?;
         }
     };
-    is_fcu_done.store(true, std::sync::atomic::Ordering::SeqCst);
 
     Ok(run_id)
 }

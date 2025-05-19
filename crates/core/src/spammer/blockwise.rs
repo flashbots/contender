@@ -92,7 +92,7 @@ mod tests {
         let provider = DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
-                .on_http(anvil.endpoint_url().to_owned()),
+                .connect_http(anvil.endpoint_url().to_owned()),
         );
         debug!("anvil url: {}", anvil.endpoint_url());
         let seed = crate::generator::RandSeed::seed_from_str("444444444444");

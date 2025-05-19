@@ -59,6 +59,7 @@ reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.4.0", d
 reth-rpc-layer = { git = "https://github.com/paradigmxyz/reth", tag = "v1.4.0", default-features = false }
 reth-optimism-node = { git = "https://github.com/paradigmxyz/reth", tag = "v1.4.0" }
 op-alloy-consensus = { version = "0.16.0", default-features = false }
+op-alloy-network = { version = "0.16.0", default-features = false }
 
 ## sqlite
 r2d2_sqlite = "0.25.0"

@@ -58,7 +58,7 @@ pub async fn setup(
     let rpc_client = DynProvider::new(
         ProviderBuilder::new()
             .network::<AnyNetwork>()
-            .on_http(url.to_owned()),
+            .connect_http(url.to_owned()),
     );
     let mut testconfig = load_testconfig(&testfile).await?;
 

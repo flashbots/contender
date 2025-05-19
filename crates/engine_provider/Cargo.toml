@@ -38,3 +38,4 @@ reth-node-api = { workspace = true }
 reth-rpc-layer = { workspace = true }
 reth-optimism-node = { workspace = true }
 op-alloy-consensus = { workspace = true }
+op-alloy-network = { workspace = true }

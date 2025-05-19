@@ -60,7 +60,6 @@ pub async fn spamd(
         if let Err(e) = spam_res {
             warn!("spam failed: {e:?}");
         } else {
-            info!("spam batch completed");
             let run_id = spam_res.expect("spam");
             if let Some(run_id) = run_id {
                 run_ids.push(run_id);

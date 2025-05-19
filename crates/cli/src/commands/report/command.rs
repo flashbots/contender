@@ -96,7 +96,11 @@ pub async fn report(
 
     // get trace data for reports
     let url = Url::from_str(&rpc_url).expect("Invalid URL");
-    let rpc_client = DynProvider::new(ProviderBuilder::new().network::<AnyNetwork>().on_http(url));
+    let rpc_client = DynProvider::new(
+        ProviderBuilder::new()
+            .network::<AnyNetwork>()
+            .connect_http(url),
+    );
     let (trace_data, blocks) = if std::env::var("DEBUG_USEFILE").is_ok() {
         info!("DEBUG_USEFILE detected: using cached data");
         // load trace data from file
