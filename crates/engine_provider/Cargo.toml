@@ -22,7 +22,7 @@ alloy = { workspace = true, features = [
     "provider-engine-api",
 ] }
 alloy-rpc-types-engine = { workspace = true, features = ["std", "jwt"] }
-alloy-chains = { version = "0.1.64", default-features = false }
+alloy-chains = { workspace = true }
 alloy-json-rpc = { workspace = true }
 tracing = { workspace = true }
 futures = { workspace = true }
@@ -31,8 +31,10 @@ tokio = { workspace = true }
 thiserror = { workspace = true }
 tower = { workspace = true }
 eyre = { workspace = true }
+jsonrpsee = { workspace = true }
 
-reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.3.4", default-features = false }
-reth-optimism-node = { git = "https://github.com/paradigmxyz/reth", tag = "v1.3.4" }
-op-rbuilder = { git = "https://github.com/flashbots/rbuilder", branch = "brock/tester-engine-api", default-features = false }
-op-alloy-consensus = { version = "0.11.2", default-features = false }
+# engine provider
+reth-node-api = { workspace = true }
+reth-rpc-layer = { workspace = true }
+reth-optimism-node = { workspace = true }
+op-alloy-consensus = { workspace = true }

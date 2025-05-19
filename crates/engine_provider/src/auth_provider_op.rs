@@ -7,18 +7,129 @@ use alloy::{
     primitives::{BlockHash, Bytes, TxKind, B256, U256},
 };
 use alloy_rpc_types_engine::{ForkchoiceUpdated, PayloadAttributes};
+use jsonrpsee::http_client::{transport::HttpBackend, HttpClient};
 use op_alloy_consensus::{OpTypedTransaction, TxDeposit};
-use op_rbuilder::{
-    tester::{EngineApi, EngineApiBuilder},
-    tx_signer::Signer,
-};
-use reth_optimism_node::OpPayloadAttributes;
-use std::{path::PathBuf, time::Duration};
+use reth_node_api::PayloadTypes;
+use reth_optimism_node::{OpEngineTypes, OpPayloadAttributes};
+use reth_rpc_layer::{AuthClientLayer, AuthClientService, JwtSecret};
+use std::{path::PathBuf, str::FromStr, time::Duration};
 use tracing::{debug, info};
 
 const FJORD_DATA: &[u8] = &make_hex!(
     "440a5e200000146b000f79c500000000000000040000000066d052e700000000013ad8a3000000000000000000000000000000000000000000000000000000003ef1278700000000000000000000000000000000000000000000000000000000000000012fdf87b89884a61e74b322bbcf60386f543bfae7827725efaaf0ab1de2294a590000000000000000000000006887246668a3b87f54deb3b94ba47a6f63f32985"
 );
+
+/// Helper for engine api operations
+pub struct EngineApi {
+    pub engine_api_client: HttpClient<AuthClientService<HttpBackend>>,
+}
+
+/// Builder for EngineApi configuration
+pub struct EngineApiBuilder {
+    url: String,
+    jwt_secret: String,
+}
+
+impl Default for EngineApiBuilder {
+    fn default() -> Self {
+        Self::new()
+            .with_jwt_secret("688f5d737bad920bdfb2fc2f488d6b6209eebda1dae949a8de91398d932c517a")
+            .with_url("http://localhost:8551")
+    }
+}
+
+impl EngineApiBuilder {
+    pub fn new() -> Self {
+        Self {
+            url: String::default(),
+            jwt_secret: String::default(),
+        }
+    }
+
+    pub fn with_url(mut self, url: &str) -> Self {
+        self.url = url.to_string();
+        self
+    }
+
+    pub fn with_jwt_secret(mut self, jwt_secret: &str) -> Self {
+        self.jwt_secret = jwt_secret.to_string();
+        self
+    }
+
+    pub fn build(&self) -> Result<EngineApi, Box<dyn std::error::Error>> {
+        let secret_layer = AuthClientLayer::new(JwtSecret::from_str(&self.jwt_secret)?);
+        let middleware = tower::ServiceBuilder::default().layer(secret_layer);
+        let client = jsonrpsee::http_client::HttpClientBuilder::default()
+            .set_http_middleware(middleware)
+            .build(&self.url)
+            .expect("Failed to create http client");
+
+        Ok(EngineApi {
+            engine_api_client: client,
+        })
+    }
+}
+
+impl EngineApi {
+    pub async fn get_payload_v3(
+        &self,
+        payload_id: PayloadId,
+    ) -> eyre::Result<<OpEngineTypes as EngineTypes>::ExecutionPayloadEnvelopeV3> {
+        Ok(
+            EngineApiClient::<OpEngineTypes>::get_payload_v3(&self.engine_api_client, payload_id)
+                .await?,
+        )
+    }
+
+    pub async fn new_payload(
+        &self,
+        payload: ExecutionPayloadV3,
+        versioned_hashes: Vec<B256>,
+        parent_beacon_block_root: B256,
+    ) -> eyre::Result<PayloadStatus> {
+        Ok(EngineApiClient::<OpEngineTypes>::new_payload_v3(
+            &self.engine_api_client,
+            payload,
+            versioned_hashes,
+            parent_beacon_block_root,
+        )
+        .await?)
+    }
+
+    pub async fn update_forkchoice(
+        &self,
+        current_head: B256,
+        new_head: B256,
+        payload_attributes: Option<<OpEngineTypes as PayloadTypes>::PayloadAttributes>,
+    ) -> eyre::Result<ForkchoiceUpdated> {
+        Ok(EngineApiClient::<OpEngineTypes>::fork_choice_updated_v3(
+            &self.engine_api_client,
+            ForkchoiceState {
+                head_block_hash: new_head,
+                safe_block_hash: current_head,
+                finalized_block_hash: current_head,
+            },
+            payload_attributes,
+        )
+        .await?)
+    }
+
+    pub async fn latest(&self) -> eyre::Result<Option<alloy_rpc_types_eth::Block>> {
+        self.get_block_by_number(BlockNumberOrTag::Latest, false)
+            .await
+    }
+
+    pub async fn get_block_by_number(
+        &self,
+        number: BlockNumberOrTag,
+        include_txs: bool,
+    ) -> eyre::Result<Option<alloy_rpc_types_eth::Block>> {
+        Ok(
+            BlockApiClient::get_block_by_number(&self.engine_api_client, number, include_txs)
+                .await?,
+        )
+    }
+}
 
 pub struct AuthProviderOp {
     inner: EngineApi,
