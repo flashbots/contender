@@ -47,21 +47,13 @@ pub trait ProviderExt {
     fn is_op(&self) -> bool;
 }
 
+#[derive(Default)]
 pub struct OpPayloadParams {
     pub transactions: Option<Vec<Bytes>>,
     pub gas_limit: Option<u64>,
     pub eip_1559_params: Option<FixedBytes<8>>,
 }
 
-impl Default for OpPayloadParams {
-    fn default() -> Self {
-        Self {
-            transactions: None,
-            gas_limit: None,
-            eip_1559_params: None,
-        }
-    }
-}
 
 pub trait FcuDefault: reth_node_api::PayloadAttributes + Send + Sync {
     fn fcu_payload_attributes(timestamp: u64, op_params: Option<OpPayloadParams>) -> Self;

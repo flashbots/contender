@@ -100,7 +100,7 @@ where
     ) -> Result<(), Box<dyn std::error::Error>> {
         info!("unconfirmed txs: {}", cache.len());
 
-        if cache.len() == 0 {
+        if cache.is_empty() {
             on_flush
                 .send(cache.to_owned())
                 .map_err(|_| ContenderError::SpamError("failed to join TxActor on_flush", None))?;
