@@ -66,7 +66,6 @@ pub struct SpamCliArgs {
     #[command(flatten)]
     pub spam_args: SendSpamCliArgs,
 
-    /// Whether to log reports for the spamming run.
     #[arg(
             long,
             long_help = "Prevent tx results from being saved to DB.",
@@ -74,31 +73,12 @@ pub struct SpamCliArgs {
         )]
     pub disable_reporting: bool,
 
-    /// The path to save the report to.
-    /// If not provided, the report can be generated with the `report` subcommand.
-    /// If provided, the report is saved to the given path.
     #[arg(
         long,
         long_help = "Set this to generate a report for the spam run(s) after spamming.",
         visible_aliases = &["report"]
     )]
     pub gen_report: bool,
-
-    /// Adds (gas_price * percent) / 100 to the standard gas price of the transactions.
-    #[arg(
-        short,
-        long,
-        long_help = "Adds given percent increase to the standard gas price of the transactions."
-    )]
-    pub gas_price_percent_add: Option<u64>,
-
-    /// Skip deploy prompt that appears when running a builtin scenario.
-    #[arg(
-        long,
-        long_help = "Skip deploy prompt that appears when running a builtin scenario.",
-        default_value_t = false
-    )]
-    pub skip_deploy_prompt: bool,
 }
 
 pub enum SpamScenario {
