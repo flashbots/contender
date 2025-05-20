@@ -19,7 +19,7 @@ use op_alloy_consensus::OpTypedTransaction;
 use reth_optimism_primitives::OpTransactionSigned;
 use secp256k1::{Message, SecretKey, SECP256K1};
 
-use crate::auth_provider_eth::NetworkAttributes;
+use crate::auth_provider::NetworkAttributes;
 
 /// Extension trait that gives access to engine API RPC methods.
 ///

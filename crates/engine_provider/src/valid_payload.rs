@@ -2,15 +2,14 @@
 //! response. This is useful for benchmarking, as it allows us to wait for a payload to be valid
 //! before sending additional calls.
 
-use crate::{auth_provider_eth::NetworkAttributes, engine::EngineApi};
+use crate::{auth_provider::NetworkAttributes, engine::EngineApi};
 use alloy::primitives::B256;
 use alloy::providers::Network;
 use alloy::transports::TransportResult;
 use alloy_rpc_types_engine::{
-    ExecutionPayload, ExecutionPayloadInputV2, ExecutionPayloadV1, ExecutionPayloadV3,
-    ForkchoiceState, ForkchoiceUpdated, PayloadStatus,
+    ExecutionPayloadInputV2, ExecutionPayloadV1, ExecutionPayloadV3, ForkchoiceState,
+    ForkchoiceUpdated, PayloadStatus,
 };
-use reth_node_api::EngineApiMessageVersion;
 use tracing::error;
 
 /// An extension trait for providers that implement the engine API, to wait for a VALID response.
@@ -229,75 +228,5 @@ where
         }
 
         Ok(status)
-    }
-}
-
-/// Calls the correct `engine_newPayload` method depending on the given [`ExecutionPayload`] and its
-/// versioned variant. Returns the [`EngineApiMessageVersion`] depending on the payload's version.
-///
-/// # Panics
-/// If the given payload is a V3 payload, but a parent beacon block root is provided as `None`.
-pub async fn call_new_payload<N: NetworkAttributes>(
-    provider: impl EngineApiValidWaitExt<N>,
-    payload: ExecutionPayload,
-    parent_beacon_block_root: Option<B256>,
-    versioned_hashes: Vec<B256>,
-) -> TransportResult<EngineApiMessageVersion> {
-    match payload {
-        ExecutionPayload::V3(payload) => {
-            // We expect the caller
-            let parent_beacon_block_root = parent_beacon_block_root
-                .expect("parent_beacon_block_root is required for V3 payloads");
-            provider
-                .new_payload_v3_wait(payload, versioned_hashes, parent_beacon_block_root)
-                .await?;
-
-            Ok(EngineApiMessageVersion::V3)
-        }
-        ExecutionPayload::V2(payload) => {
-            let input = ExecutionPayloadInputV2 {
-                execution_payload: payload.payload_inner,
-                withdrawals: Some(payload.withdrawals),
-            };
-
-            provider.new_payload_v2_wait(input).await?;
-
-            Ok(EngineApiMessageVersion::V2)
-        }
-        ExecutionPayload::V1(payload) => {
-            provider.new_payload_v1_wait(payload).await?;
-
-            Ok(EngineApiMessageVersion::V1)
-        }
-    }
-}
-
-/// Calls the correct `engine_forkchoiceUpdated` method depending on the given
-/// `EngineApiMessageVersion`, using the provided forkchoice state and payload attributes for the
-/// actual engine api message call.
-pub(crate) async fn call_forkchoice_updated<N: NetworkAttributes, P: EngineApiValidWaitExt<N>>(
-    provider: P,
-    message_version: EngineApiMessageVersion,
-    forkchoice_state: ForkchoiceState,
-    payload_attributes: Option<N::PayloadAttributes>,
-) -> TransportResult<ForkchoiceUpdated> {
-    match message_version {
-        EngineApiMessageVersion::V5 => todo!("V5 payloads not supported yet"),
-        EngineApiMessageVersion::V4 => todo!("V4 payloads not supported yet"),
-        EngineApiMessageVersion::V3 => {
-            provider
-                .fork_choice_updated_v3_wait(forkchoice_state, payload_attributes)
-                .await
-        }
-        EngineApiMessageVersion::V2 => {
-            provider
-                .fork_choice_updated_v2_wait(forkchoice_state, payload_attributes)
-                .await
-        }
-        EngineApiMessageVersion::V1 => {
-            provider
-                .fork_choice_updated_v1_wait(forkchoice_state, payload_attributes)
-                .await
-        }
     }
 }

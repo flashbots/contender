@@ -7,7 +7,10 @@ use alloy::{
     rpc::client::ClientBuilder,
     transports::{http::reqwest::Url, TransportResult},
 };
-use alloy_rpc_types_engine::{ForkchoiceState, ForkchoiceUpdated, JwtSecret, PayloadAttributes};
+use alloy_rpc_types_engine::{
+    ExecutionPayload, ExecutionPayloadInputV2, ForkchoiceState, ForkchoiceUpdated, JwtSecret,
+    PayloadAttributes,
+};
 use async_trait::async_trait;
 use op_alloy_consensus::{OpTypedTransaction, TxDeposit};
 use op_alloy_network::{primitives::HeaderResponse, BlockResponse, Network, Optimism};
@@ -16,11 +19,8 @@ use reth_optimism_node::OpPayloadAttributes;
 use std::path::PathBuf;
 use tracing::{debug, info};
 
-use crate::{
-    engine::Signer,
-    read_jwt_file,
-    valid_payload::{call_forkchoice_updated, call_new_payload},
-};
+use crate::valid_payload::EngineApiValidWaitExt;
+use crate::{engine::Signer, read_jwt_file};
 
 use super::{auth_transport::AuthenticatedTransportConnect, AdvanceChain};
 
@@ -141,6 +141,33 @@ where
         Self::new(auth_rpc_url, jwt).await
     }
 
+    pub async fn call_forkchoice_updated(
+        &self,
+        message_version: EngineApiMessageVersion,
+        forkchoice_state: ForkchoiceState,
+        payload_attributes: Option<N::PayloadAttributes>,
+    ) -> TransportResult<ForkchoiceUpdated> {
+        match message_version {
+            EngineApiMessageVersion::V5 => todo!("V5 payloads not supported yet"),
+            EngineApiMessageVersion::V4 => todo!("V4 payloads not supported yet"),
+            EngineApiMessageVersion::V3 => {
+                self.inner
+                    .fork_choice_updated_v3_wait(forkchoice_state, payload_attributes)
+                    .await
+            }
+            EngineApiMessageVersion::V2 => {
+                self.inner
+                    .fork_choice_updated_v2_wait(forkchoice_state, payload_attributes)
+                    .await
+            }
+            EngineApiMessageVersion::V1 => {
+                self.inner
+                    .fork_choice_updated_v1_wait(forkchoice_state, payload_attributes)
+                    .await
+            }
+        }
+    }
+
     async fn call_fcu_default(
         &self,
         current_head: BlockHash,
@@ -164,8 +191,7 @@ where
             None
         };
 
-        call_forkchoice_updated(
-            &self.inner,
+        self.call_forkchoice_updated(
             EngineApiMessageVersion::V3,
             ForkchoiceState {
                 head_block_hash: new_head,
@@ -177,6 +203,46 @@ where
             }),
         )
         .await
+    }
+
+    /// Calls the correct `engine_newPayload` method depending on the given [`ExecutionPayload`] and its
+    /// versioned variant. Returns the [`EngineApiMessageVersion`] depending on the payload's version.
+    ///
+    /// # Panics
+    /// If the given payload is a V3 payload, but a parent beacon block root is provided as `None`.
+    pub async fn call_new_payload(
+        &self,
+        payload: ExecutionPayload,
+        parent_beacon_block_root: Option<B256>,
+        versioned_hashes: Vec<B256>,
+    ) -> TransportResult<EngineApiMessageVersion> {
+        match payload {
+            ExecutionPayload::V3(payload) => {
+                // We expect the caller
+                let parent_beacon_block_root = parent_beacon_block_root
+                    .expect("parent_beacon_block_root is required for V3 payloads");
+                self.inner
+                    .new_payload_v3_wait(payload, versioned_hashes, parent_beacon_block_root)
+                    .await?;
+
+                Ok(EngineApiMessageVersion::V3)
+            }
+            ExecutionPayload::V2(payload) => {
+                let input = ExecutionPayloadInputV2 {
+                    execution_payload: payload.payload_inner,
+                    withdrawals: Some(payload.withdrawals),
+                };
+
+                self.inner.new_payload_v2_wait(input).await?;
+
+                Ok(EngineApiMessageVersion::V2)
+            }
+            ExecutionPayload::V1(payload) => {
+                self.inner.new_payload_v1_wait(payload).await?;
+
+                Ok(EngineApiMessageVersion::V1)
+            }
+        }
     }
 }
 
@@ -225,14 +291,14 @@ impl<N: Network + NetworkAttributes> AdvanceChain for AuthProvider<N> {
         //
         // newPayload with fresh payload from target
         //
-        let _res = call_new_payload::<N>(
-            &engine_client,
-            payload.execution_payload.to_owned().into(),
-            Some(B256::ZERO),
-            vec![],
-        )
-        .await
-        .expect("failed to call newPayload");
+        let _res = self
+            .call_new_payload(
+                payload.execution_payload.to_owned().into(),
+                Some(B256::ZERO),
+                vec![],
+            )
+            .await
+            .expect("failed to call newPayload");
         info!("new payload sent.");
 
         //
