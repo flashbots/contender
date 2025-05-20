@@ -743,6 +743,8 @@ where
         let gas_sender = Arc::new(context_handler.add_gas);
         // counts number of txs that were sent successfully
         let success_sender = Arc::new(context_handler.success_send_tx);
+        let bundle_type = self.bundle_type;
+
         for payload in payloads {
             let rpc_client = self.rpc_client.clone();
             let bundle_client = self.bundle_client.clone();
@@ -848,7 +850,6 @@ where
                                 .expect("failed to get block number"),
                         };
 
-                        let bundle_type = BundleType::L1;
                         let rpc_bundle = match bundle_type {
                             BundleType::L1 => new_basic_bundle(bundle_txs, block_num),
                             BundleType::Revertable => RevertProtectBundleRequest::new()
