@@ -25,7 +25,7 @@ use contender_core::{
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
 };
-use contender_engine_provider::{AdvanceChain, AuthProviderEth};
+use contender_engine_provider::{AdvanceChain, AuthProvider};
 use contender_testfile::TestConfig;
 use op_alloy_network::Optimism;
 use std::sync::Arc;
@@ -45,12 +45,12 @@ impl EngineArgs {
     ) -> Result<Arc<dyn AdvanceChain + Send + Sync + 'static>, Box<dyn std::error::Error>> {
         if self.use_op {
             Ok(Arc::new(
-                AuthProviderEth::<Optimism>::from_jwt_file(&self.auth_rpc_url, &self.jwt_secret)
+                AuthProvider::<Optimism>::from_jwt_file(&self.auth_rpc_url, &self.jwt_secret)
                     .await?,
             ))
         } else {
             Ok(Arc::new(
-                AuthProviderEth::<AnyNetwork>::from_jwt_file(&self.auth_rpc_url, &self.jwt_secret)
+                AuthProvider::<AnyNetwork>::from_jwt_file(&self.auth_rpc_url, &self.jwt_secret)
                     .await?,
             ))
         }
