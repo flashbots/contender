@@ -22,7 +22,6 @@ alloy = { workspace = true, features = [
     "provider-engine-api",
 ] }
 alloy-rpc-types-engine = { workspace = true, features = ["std", "jwt"] }
-alloy-chains = { workspace = true }
 alloy-json-rpc = { workspace = true }
 tracing = { workspace = true }
 futures = { workspace = true }
@@ -31,7 +30,6 @@ tokio = { workspace = true }
 thiserror = { workspace = true }
 tower = { workspace = true }
 eyre = { workspace = true }
-jsonrpsee = { workspace = true }
 
 # engine provider
 reth-node-api = { workspace = true }

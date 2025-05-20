@@ -54,7 +54,6 @@ pub struct OpPayloadParams {
     pub eip_1559_params: Option<FixedBytes<8>>,
 }
 
-
 pub trait FcuDefault: reth_node_api::PayloadAttributes + Send + Sync {
     fn fcu_payload_attributes(timestamp: u64, op_params: Option<OpPayloadParams>) -> Self;
 }
