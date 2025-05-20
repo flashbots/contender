@@ -80,11 +80,10 @@ where
                         let is_sending_done =
                             is_sending_done.load(std::sync::atomic::Ordering::SeqCst);
                         if is_fcu_done {
-                            warn!("FCU is done, stopping spammer");
+                            info!("FCU is done, stopping block production...");
                             break;
                         }
                         if is_sending_done {
-                            warn!("sending is done, advancing chain");
                             let res = auth_client.advance_chain(DEFAULT_BLOCK_TIME).await;
                             if let Err(e) = res {
                                 warn!("Error advancing chain: {e}");
