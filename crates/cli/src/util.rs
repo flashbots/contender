@@ -497,7 +497,7 @@ mod test {
         let rpc_client = DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
-                .on_http(anvil.endpoint_url()),
+                .connect_http(anvil.endpoint_url()),
         );
         let min_balance = U256::from(ETH_TO_WEI);
         let default_signer = PrivateKeySigner::from_str(super::DEFAULT_PRV_KEYS[0]).unwrap();

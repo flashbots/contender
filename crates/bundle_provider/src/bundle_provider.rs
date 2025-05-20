@@ -15,7 +15,7 @@ pub struct BundleClient {
 impl BundleClient {
     /// Creates a new [`BundleClient`] with the given URL.
     pub fn new(url: impl IntoUrl) -> Self {
-        let provider = ProviderBuilder::default().on_http(url.into_url().unwrap());
+        let provider = ProviderBuilder::default().connect_http(url.into_url().unwrap());
         Self { client: provider }
     }
 

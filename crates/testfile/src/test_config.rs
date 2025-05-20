@@ -25,7 +25,7 @@ pub struct TestConfig {
     pub setup: Option<Vec<FunctionCallDefinition>>,
 
     /// Function to call in spam txs.
-    pub spam: Option<Vec<SpamRequest>>, // TODO: figure out how to implement BundleCallDefinition alongside FunctionCallDefinition
+    pub spam: Option<Vec<SpamRequest>>,
 }
 
 impl TestConfig {
