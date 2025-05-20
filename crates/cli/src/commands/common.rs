@@ -1,6 +1,6 @@
 //! This file contains type definition for CLI arguments.
 
-use crate::util::{EngineParams, TxTypeCli};
+use crate::util::{BundleTypeCli, EngineParams, TxTypeCli};
 
 use super::EngineArgs;
 
@@ -52,6 +52,16 @@ May be specified multiple times."
             default_value_t = TxTypeCli::Eip1559,
         )]
     pub tx_type: TxTypeCli,
+
+    /// Bundle type
+    #[arg(
+        long,
+        long_help = "Bundle type for generated transactions.",
+        value_enum,
+        default_value_t = crate::util::BundleTypeCli::default(),
+        visible_aliases = &["bt"]
+    )]
+    pub bundle_type: BundleTypeCli,
 
     #[command(flatten)]
     pub auth_args: AuthCliArgs,

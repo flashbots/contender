@@ -24,6 +24,7 @@ use contender_core::{
     generator::{seeder::Seeder, templater::Templater, PlanConfig, RandSeed},
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
+    BundleType,
 };
 use contender_engine_provider::{AdvanceChain, AuthProvider};
 use contender_testfile::TestConfig;
@@ -134,9 +135,9 @@ pub struct SpamCommandArgs {
     pub disable_reporting: bool,
     pub min_balance: String,
     pub tx_type: TxType,
+    pub bundle_type: BundleType,
     /// Provide to enable engine calls (required to use `call_forkchoice`)
     pub engine_params: EngineParams,
-    pub gas_price_percent_add: Option<u64>,
     pub timeout_secs: u64,
     pub env: Option<Vec<(String, String)>>,
     pub loops: Option<u64>,
@@ -159,7 +160,7 @@ impl SpamCommandArgs {
             min_balance,
             private_keys,
             tx_type,
-            gas_price_percent_add,
+            bundle_type,
             timeout_secs,
             engine_params,
             loops,
@@ -247,7 +248,7 @@ impl SpamCommandArgs {
             signers: user_signers.to_owned(),
             agent_store: agents.to_owned(),
             tx_type: *tx_type,
-            gas_price_percent_add: *gas_price_percent_add,
+            bundle_type: *bundle_type,
             pending_tx_timeout_secs: *timeout_secs,
         };
 

@@ -18,14 +18,16 @@ use alloy::eips::eip2718::Encodable2718;
 use alloy::hex::ToHexExt;
 use alloy::network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, TransactionBuilder};
 use alloy::node_bindings::Anvil;
-use alloy::primitives::{keccak256, Address, FixedBytes, U256};
+use alloy::primitives::{keccak256, Address, Bytes, FixedBytes, U256};
 use alloy::providers::{DynProvider, PendingTransactionConfig, Provider, ProviderBuilder};
 use alloy::rpc::client::ClientBuilder;
 use alloy::rpc::types::TransactionRequest;
 use alloy::serde::WithOtherFields;
 use alloy::signers::local::{LocalSigner, PrivateKeySigner};
 use alloy::transports::http::reqwest::Url;
+use contender_bundle_provider::bundle::{Bundle, BundleType};
 use contender_bundle_provider::bundle_provider::new_basic_bundle;
+use contender_bundle_provider::revert_bundle::RevertProtectBundleRequest;
 use contender_bundle_provider::BundleClient;
 use contender_engine_provider::AdvanceChain;
 use futures::{Stream, StreamExt};
@@ -68,7 +70,7 @@ where
     pub gas_limits: HashMap<FixedBytes<32>, u64>,
     pub msg_handle: Arc<TxActorHandle>,
     pub tx_type: TxType,
-    pub gas_price_percent_add: u64,
+    pub bundle_type: BundleType,
     pub pending_tx_timeout_secs: u64,
     pub ctx: ExecutionContext,
     pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
@@ -81,11 +83,11 @@ pub struct TestScenarioParams {
     pub signers: Vec<PrivateKeySigner>,
     pub agent_store: AgentStore,
     pub tx_type: TxType,
-    pub gas_price_percent_add: Option<u64>,
     pub pending_tx_timeout_secs: u64,
+    pub bundle_type: BundleType,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ExecutionContext {
     /// Adds this amount of wei per gas to the gas price given to each transaction. May be negative to subtract gas.
     /// This is not the same as the `gas_price_percent_add`, which is a percentage of the gas price provided by the user.
@@ -122,8 +124,8 @@ where
             signers,
             agent_store,
             tx_type,
-            gas_price_percent_add,
             pending_tx_timeout_secs,
+            bundle_type,
         } = params;
 
         // use custom logging layer to log sendRawTransaction request IDs
@@ -208,7 +210,7 @@ where
             gas_limits,
             msg_handle,
             tx_type,
-            gas_price_percent_add: gas_price_percent_add.unwrap_or(0),
+            bundle_type,
             pending_tx_timeout_secs,
             ctx: ExecutionContext {
                 gas_price_adder: 0,
@@ -261,7 +263,7 @@ where
                 signers: vec![admin_signer.to_owned()],
                 agent_store: self.agent_store.clone(),
                 tx_type: self.tx_type,
-                gas_price_percent_add: Some(self.gas_price_percent_add), // will be 0 if not specified
+                bundle_type: self.bundle_type,
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             },
             None,
@@ -621,7 +623,6 @@ where
             .get_gas_price()
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
-        let gas_price = gas_price + ((gas_price * self.gas_price_percent_add as u128) / 100);
         let gas_price = if self.ctx.gas_price_adder < 0 {
             gas_price - self.ctx.gas_price_adder.unsigned_abs()
         } else {
@@ -829,7 +830,7 @@ where
                         for tx in &signed_txs {
                             let mut raw_tx = vec![];
                             tx.encode_2718(&mut raw_tx);
-                            bundle_txs.push(raw_tx);
+                            bundle_txs.push(Bytes::from(raw_tx));
                         }
                         let block_num = match trigger {
                             SpamTrigger::BlockNumber(n) => n,
@@ -846,19 +847,34 @@ where
                                 .await
                                 .expect("failed to get block number"),
                         };
-                        let rpc_bundle = new_basic_bundle(
-                            bundle_txs.into_iter().map(|b| b.into()).collect(),
-                            block_num,
-                        );
+
+                        let bundle_type = BundleType::L1;
+                        let rpc_bundle = match bundle_type {
+                            BundleType::L1 => new_basic_bundle(bundle_txs, block_num),
+                            BundleType::Revertable => RevertProtectBundleRequest::new()
+                                .with_txs(bundle_txs)
+                                .prepare(),
+                        };
                         if let Some(bundle_client) = bundle_client {
                             info!("spamming bundle: {rpc_bundle:?}");
-                            for i in 1..4 {
-                                let mut rpc_bundle = rpc_bundle.clone();
-                                rpc_bundle.block_number = block_num + i as u64;
+                            match &rpc_bundle {
+                                Bundle::L1(bundle) => {
+                                    for i in 1..4 {
+                                        let mut bundle = bundle.to_owned();
+                                        bundle.block_number = block_num + i as u64;
+                                        let rpc_bundle = Bundle::L1(bundle);
 
-                                let res = bundle_client.send_bundle(rpc_bundle).await;
-                                if let Err(e) = res {
-                                    warn!("failed to send bundle: {e:?}");
+                                        let res = rpc_bundle.send(&bundle_client).await;
+                                        if let Err(e) = res {
+                                            warn!("failed to send bundle: {e:?}");
+                                        }
+                                    }
+                                }
+                                Bundle::Revertable(_) => {
+                                    let res = rpc_bundle.send(&bundle_client).await;
+                                    if let Err(e) = res {
+                                        warn!("failed to send bundle: {e:?}");
+                                    }
                                 }
                             }
                         }
@@ -1032,7 +1048,7 @@ where
                 signers: user_signers.to_owned(),
                 agent_store: self.agent_store.clone(),
                 tx_type: self.tx_type,
-                gas_price_percent_add: Some(self.gas_price_percent_add),
+                bundle_type: self.bundle_type,
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             },
             None,
@@ -1326,6 +1342,7 @@ pub mod tests {
     use alloy::hex::ToHexExt;
     use alloy::node_bindings::AnvilInstance;
     use alloy::primitives::{Address, U256};
+    use contender_bundle_provider::bundle::BundleType;
     use std::collections::HashMap;
     use tokio::sync::OnceCell;
     use tracing::{debug, info};
@@ -1546,6 +1563,7 @@ pub mod tests {
     ) -> TestScenario<MockDb, RandSeed, MockConfig> {
         let seed = RandSeed::seed_from_bytes(&[0x01; 32]);
         let tx_type = alloy::consensus::TxType::Eip1559;
+        let bundle_type = BundleType::default();
         let signers = get_test_signers();
 
         let mut agents = AgentStore::new();
@@ -1573,7 +1591,7 @@ pub mod tests {
                 signers,
                 agent_store: agents,
                 tx_type,
-                gas_price_percent_add: None,
+                bundle_type,
                 pending_tx_timeout_secs: 12,
             },
             None,

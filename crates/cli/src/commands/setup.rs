@@ -14,6 +14,7 @@ use alloy::{
     transports::http::reqwest::Url,
 };
 use contender_core::generator::PlanConfig;
+use contender_core::BundleType;
 use contender_core::{
     agent_controller::{AgentStore, SignerStore},
     error::ContenderError,
@@ -52,6 +53,7 @@ pub async fn setup(
         tx_type,
         engine_params,
         env,
+        bundle_type,
     } = args;
 
     let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
@@ -133,7 +135,7 @@ pub async fn setup(
         signers: user_signers_with_defaults,
         agent_store: agents,
         tx_type,
-        gas_price_percent_add: None,
+        bundle_type,
         pending_tx_timeout_secs: 12,
     };
 
@@ -246,6 +248,7 @@ pub struct SetupCommandArgs {
     pub min_balance: String,
     pub seed: RandSeed,
     pub tx_type: TxType,
+    pub bundle_type: BundleType,
     pub engine_params: EngineParams,
     pub env: Option<Vec<(String, String)>>,
 }
