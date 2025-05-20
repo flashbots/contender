@@ -5,16 +5,11 @@ use crate::{
     BundleClient,
 };
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub enum BundleType {
+    #[default]
     L1,
     Revertable,
-}
-
-impl Default for BundleType {
-    fn default() -> Self {
-        BundleType::L1
-    }
 }
 
 #[derive(Clone, Debug)]

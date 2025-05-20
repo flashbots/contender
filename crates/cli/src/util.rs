@@ -50,7 +50,16 @@ pub enum BundleTypeCli {
 
 impl Default for BundleTypeCli {
     fn default() -> Self {
-        BundleTypeCli::L1
+        BundleType::default().into()
+    }
+}
+
+impl From<BundleType> for BundleTypeCli {
+    fn from(value: BundleType) -> Self {
+        match value {
+            BundleType::L1 => BundleTypeCli::L1,
+            BundleType::Revertable => BundleTypeCli::Revertable,
+        }
     }
 }
 

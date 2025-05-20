@@ -10,7 +10,7 @@ pub struct RevertProtectBundle {
     block_number_max: Option<u64>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct RevertProtectBundleRequest {
     pub txs: Vec<Bytes>,
     pub block_number_min: Option<u64>,
@@ -19,11 +19,7 @@ pub struct RevertProtectBundleRequest {
 
 impl RevertProtectBundleRequest {
     pub fn new() -> Self {
-        Self {
-            txs: vec![],
-            block_number_min: None,
-            block_number_max: None,
-        }
+        Self::default()
     }
 
     pub fn with_txs(self, txs: Vec<Bytes>) -> Self {
