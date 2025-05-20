@@ -37,5 +37,8 @@ jsonrpsee = { workspace = true }
 reth-node-api = { workspace = true }
 reth-rpc-layer = { workspace = true }
 reth-optimism-node = { workspace = true }
+reth-optimism-primitives = { workspace = true }
 op-alloy-consensus = { workspace = true }
 op-alloy-network = { workspace = true }
+op-alloy-rpc-types = { workspace = true }
+secp256k1 = { version = "0.30" }

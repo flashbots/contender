@@ -1,5 +1,6 @@
 mod auth_provider_eth;
 mod auth_transport;
+pub mod engine;
 mod traits;
 mod util;
 mod valid_payload;
