@@ -90,7 +90,6 @@ where
                                 warn!("Error advancing chain: {e}");
                             }
                         }
-                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                     }
                 }
             });
@@ -104,6 +103,7 @@ where
                 .await
                 .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
             let mut cursor = self.on_spam(scenario).await?.take(num_periods as usize);
+            scenario.sync_nonces().await?;
 
             // calling cancel() on cancel_token should stop all running tasks
             // (as long as each task checks for it)

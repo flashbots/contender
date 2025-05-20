@@ -28,8 +28,8 @@ use contender_core::{
 use contender_engine_provider::{AdvanceChain, AuthProviderEth};
 use contender_testfile::TestConfig;
 use op_alloy_network::Optimism;
-use std::path::PathBuf;
 use std::sync::Arc;
+use std::{path::PathBuf, sync::atomic::AtomicBool};
 use tracing::{info, warn};
 
 #[derive(Debug)]
@@ -261,6 +261,23 @@ impl SpamCommandArgs {
         )
         .await?;
 
+        let done_fcu = Arc::new(AtomicBool::new(false));
+        if let Some(auth_provider) = &engine_params.engine_provider {
+            let auth_provider = auth_provider.clone();
+            let done_fcu = done_fcu.clone();
+            tokio::task::spawn(async move {
+                loop {
+                    if done_fcu.load(std::sync::atomic::Ordering::SeqCst) {
+                        break;
+                    }
+                    auth_provider
+                        .advance_chain(1)
+                        .await
+                        .expect("Failed to advance chain");
+                }
+            });
+        }
+
         let mut scenario = TestScenario::new(
             testconfig,
             db.clone().into(),
@@ -275,6 +292,7 @@ impl SpamCommandArgs {
             scenario.deploy_contracts().await?;
             scenario.run_setup().await?;
         }
+        done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
 
         if loops.is_none() {
             warn!(

@@ -9,7 +9,7 @@ use alloy::{
 };
 use alloy_rpc_types_engine::JwtSecret;
 use async_trait::async_trait;
-use op_alloy_network::{primitives::HeaderResponse, BlockResponse, Network};
+use op_alloy_network::{primitives::HeaderResponse, BlockResponse, Network, Optimism};
 use std::path::PathBuf;
 use tracing::{debug, info};
 
@@ -25,9 +25,35 @@ pub struct AuthProvider<Network = AnyNetwork> {
     inner: DynProvider<Network>,
 }
 
+pub trait NetworkExt {
+    fn is_op() -> bool;
+}
+
+impl NetworkExt for Optimism {
+    fn is_op() -> bool {
+        true
+    }
+}
+
+impl NetworkExt for AnyNetwork {
+    fn is_op() -> bool {
+        false
+    }
+}
+
+pub trait ProviderExt {
+    fn is_op(&self) -> bool;
+}
+
+impl<N: NetworkExt> ProviderExt for AuthProvider<N> {
+    fn is_op(&self) -> bool {
+        N::is_op()
+    }
+}
+
 impl<N> AuthProvider<N>
 where
-    N: Network,
+    N: Network + NetworkExt,
 {
     /// Create a new AuthProvider instance.
     /// This will create a new authenticated transport connected to `auth_rpc_url` using `jwt_secret`.
@@ -59,7 +85,7 @@ where
 }
 
 #[async_trait]
-impl<N: Network> AdvanceChain for AuthProvider<N> {
+impl<N: Network + NetworkExt> AdvanceChain for AuthProvider<N> {
     /// Advance the chain by calling `engine_forkchoiceUpdated` (FCU) and `engine_newPayload` methods.
     async fn advance_chain(&self, block_time_secs: u64) -> Result<(), Box<dyn std::error::Error>> {
         info!("advancing chain...");
@@ -84,6 +110,13 @@ impl<N: Network> AdvanceChain for AuthProvider<N> {
         .await?;
         debug!("FCU call sent. Payload ID: {:?}", res.payload_id);
         let payload_id = res.payload_id.expect("need payload ID");
+
+        // wait for builder to build
+        if self.is_op() {
+            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        } else {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
 
         //
         // getPayload with new payload ID
