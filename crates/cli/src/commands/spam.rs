@@ -248,11 +248,7 @@ impl SpamCommandArgs {
             pending_tx_timeout_secs: *timeout_secs,
         };
 
-        let done_fcu = Arc::new(AtomicBool::new(false));
-        let (error_sender, mut error_receiver) = tokio::sync::mpsc::channel::<String>(1);
-        let error_sender = Arc::new(error_sender);
-
-        let fund_res = fund_accounts(
+        fund_accounts(
             &all_signer_addrs,
             &user_signers[0],
             &rpc_client,
@@ -260,10 +256,11 @@ impl SpamCommandArgs {
             *tx_type,
             engine_params,
         )
-        .await;
-        if let Err(e) = fund_res {
-            error_sender.send(e.to_string()).await?;
-        }
+        .await?;
+
+        let done_fcu = Arc::new(AtomicBool::new(false));
+        let (error_sender, mut error_receiver) = tokio::sync::mpsc::channel::<String>(1);
+        let error_sender = Arc::new(error_sender);
 
         if let Some(auth_provider) = engine_params.engine_provider.to_owned() {
             let auth_provider = auth_provider.clone();
