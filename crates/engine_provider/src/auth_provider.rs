@@ -19,14 +19,16 @@ use reth_optimism_node::OpPayloadAttributes;
 use std::path::PathBuf;
 use tracing::{debug, info};
 
-use crate::valid_payload::EngineApiValidWaitExt;
 use crate::{engine::Signer, read_jwt_file};
+use crate::{error::AuthProviderError, valid_payload::EngineApiValidWaitExt};
 
 use super::{auth_transport::AuthenticatedTransportConnect, AdvanceChain};
 
 pub const FJORD_DATA: &[u8] = &alloy::hex!(
     "440a5e200000146b000f79c500000000000000040000000066d052e700000000013ad8a3000000000000000000000000000000000000000000000000000000003ef1278700000000000000000000000000000000000000000000000000000000000000012fdf87b89884a61e74b322bbcf60386f543bfae7827725efaaf0ab1de2294a590000000000000000000000006887246668a3b87f54deb3b94ba47a6f63f32985"
 );
+
+pub type AuthResult<T> = std::result::Result<T, AuthProviderError>;
 
 #[derive(Clone)]
 pub struct AuthProvider<Net = AnyNetwork>
@@ -99,19 +101,20 @@ where
 {
     /// Create a new AuthProvider instance.
     /// This will create a new authenticated transport connected to `auth_rpc_url` using `jwt_secret`.
-    pub async fn new(
-        auth_rpc_url: &str,
-        jwt_secret: JwtSecret,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new(auth_rpc_url: &str, jwt_secret: JwtSecret) -> AuthResult<Self> {
         let auth_url = Url::parse(auth_rpc_url).expect("Invalid auth RPC URL");
         let auth_transport = AuthenticatedTransportConnect::new(auth_url, jwt_secret);
         let client = ClientBuilder::default()
             .connect_with(auth_transport)
-            .await?;
+            .await
+            .map_err(|e| AuthProviderError::ConnectionFailed(e.into()))?;
         let auth_provider = DynProvider::new(RootProvider::<N>::new(client));
         let genesis_block = auth_provider
             .get_block_by_number(alloy::eips::BlockNumberOrTag::Earliest)
-            .await?
+            .await
+            .map_err(|e| {
+                AuthProviderError::InternalError("failed to get genesis block".into(), e.into())
+            })?
             .expect("no genesis block found")
             .header()
             .to_owned();
@@ -123,13 +126,12 @@ where
 
     /// Create a new AuthProvider instance from a JWT secret file.
     /// The JWT secret is hex encoded and will be decoded after reading the file.
-    pub async fn from_jwt_file(
-        auth_rpc_url: &str,
-        jwt_secret_file: &PathBuf,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn from_jwt_file(auth_rpc_url: &str, jwt_secret_file: &PathBuf) -> AuthResult<Self> {
         // fetch jwt from file
-        let jwt = read_jwt_file(jwt_secret_file)?;
-        Self::new(auth_rpc_url, jwt).await
+        let jwt = read_jwt_file(jwt_secret_file).map_err(|e| {
+            AuthProviderError::InternalError("failed to read jwt file".into(), e.into())
+        })?;
+        Ok(Self::new(auth_rpc_url, jwt).await?)
     }
 
     pub async fn call_forkchoice_updated(
@@ -164,12 +166,15 @@ where
         current_head: BlockHash,
         new_head: BlockHash,
         timestamp: Option<u64>,
-    ) -> TransportResult<ForkchoiceUpdated> {
+    ) -> AuthResult<ForkchoiceUpdated> {
         let op_params = if self.is_op() {
             // insert OP block info tx
             let txs = vec![get_op_block_info_tx()];
 
             // Parse the last 8 bytes of extra_data as a FixedBytes<8>
+            if self.genesis_block.extra_data().len() < 9 {
+                return Err(AuthProviderError::ExtraDataTooShort);
+            }
             let params = FixedBytes::<8>::from_slice(&self.genesis_block.extra_data()[1..]);
             Some(OpPayloadParams {
                 transactions: Some(txs),
@@ -192,6 +197,7 @@ where
             }),
         )
         .await
+        .map_err(|e| AuthProviderError::from(e))
     }
 
     /// Calls the correct `engine_newPayload` method depending on the given [`ExecutionPayload`] and its
@@ -238,7 +244,7 @@ where
 #[async_trait]
 impl<N: Network + NetworkAttributes> AdvanceChain for AuthProvider<N> {
     /// Advance the chain by calling `engine_forkchoiceUpdated` (FCU) and `engine_newPayload` methods.
-    async fn advance_chain(&self, block_time_secs: u64) -> Result<(), Box<dyn std::error::Error>> {
+    async fn advance_chain(&self, block_time_secs: u64) -> AuthResult<()> {
         info!("advancing chain...");
         let engine_client = &self.inner;
 
@@ -272,10 +278,7 @@ impl<N: Network + NetworkAttributes> AdvanceChain for AuthProvider<N> {
         //
         // getPayload with new payload ID
         //
-        let payload = engine_client
-            .get_payload_v3(payload_id)
-            .await
-            .expect("failed to call getPayload");
+        let payload = engine_client.get_payload_v3(payload_id).await?;
 
         //
         // newPayload with fresh payload from target
@@ -286,8 +289,7 @@ impl<N: Network + NetworkAttributes> AdvanceChain for AuthProvider<N> {
                 Some(B256::ZERO),
                 vec![],
             )
-            .await
-            .expect("failed to call newPayload");
+            .await?;
         info!("new payload sent.");
 
         //
