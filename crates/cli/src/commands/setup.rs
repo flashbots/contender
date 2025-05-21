@@ -1,7 +1,7 @@
 use crate::{
     util::{
         check_private_keys_fns, find_insufficient_balances, fund_accounts,
-        get_signers_with_defaults, EngineParams,
+        get_signers_with_defaults, load_testconfig, EngineParams,
     },
     LATENCY_HIST as HIST, PROM,
 };
@@ -21,7 +21,6 @@ use contender_core::{
     test_scenario::{TestScenario, TestScenarioParams},
 };
 use contender_engine_provider::DEFAULT_BLOCK_TIME;
-use contender_testfile::TestConfig;
 use std::{
     str::FromStr,
     sync::{
@@ -59,14 +58,14 @@ pub async fn setup(
     let rpc_client = DynProvider::new(
         ProviderBuilder::new()
             .network::<AnyNetwork>()
-            .on_http(url.to_owned()),
+            .connect_http(url.to_owned()),
     );
-    let mut testconfig: TestConfig = TestConfig::from_file(testfile.as_ref()).await?;
+    let mut testconfig = load_testconfig(&testfile).await?;
 
     // Setup env variables
     let mut env_variables = testconfig.env.clone().unwrap_or_default();
-    if env.is_some() {
-        for (key, value) in env.unwrap() {
+    if let Some(env) = env {
+        for (key, value) in env {
             let _ = &env_variables.insert(key.to_string(), value.to_string());
         }
     }

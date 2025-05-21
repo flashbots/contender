@@ -1,6 +1,6 @@
 [package]
 name = "contender_core"
-version = "0.1.2"
+version = "0.1.4"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true

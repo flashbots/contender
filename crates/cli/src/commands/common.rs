@@ -4,10 +4,10 @@ use crate::util::{EngineParams, TxTypeCli};
 
 use super::EngineArgs;
 
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 pub struct ScenarioSendTxsCliArgs {
     /// The path to the test file to use for spamming/setup.
-    pub testfile: String,
+    pub testfile: Option<String>,
 
     /// The HTTP JSON-RPC URL to spam with requests.
     #[arg(
@@ -67,7 +67,7 @@ May be specified multiple times."
     pub env: Option<Vec<(String, String)>>,
 }
 
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 pub struct AuthCliArgs {
     /// Auth RPC URL for `engine_` calls
     #[arg(
@@ -124,7 +124,7 @@ impl AuthCliArgs {
     }
 }
 
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 pub struct SendSpamCliArgs {
     /// HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`).
     #[arg(

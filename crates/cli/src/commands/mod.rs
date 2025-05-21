@@ -4,7 +4,6 @@ pub mod composite;
 mod contender_subcommand;
 pub mod db;
 mod report;
-mod run;
 mod setup;
 mod spam;
 mod spamd;
@@ -14,12 +13,17 @@ use clap::Parser;
 pub use composite::composite;
 pub use contender_subcommand::{ContenderSubcommand, DbCommand};
 pub use report::report;
-pub use run::{run, RunCommandArgs};
 pub use setup::{setup, SetupCliArgs, SetupCommandArgs};
-pub use spam::{spam, EngineArgs, SpamCliArgs, SpamCommandArgs};
+pub use spam::{spam, EngineArgs, SpamCliArgs, SpamCommandArgs, SpamScenario};
 pub use spamd::spamd;
 
 #[derive(Parser, Debug)]
+#[command(
+    name = "contender",
+    version,
+    author = "Flashbots",
+    about = "A flexible JSON-RPC spammer for EVM chains."
+)]
 pub struct ContenderCli {
     #[command(subcommand)]
     pub command: ContenderSubcommand,

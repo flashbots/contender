@@ -1,6 +1,6 @@
 [package]
 name = "contender_engine_provider"
-version = "0.1.2"
+version = "0.1.4"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -22,7 +22,6 @@ alloy = { workspace = true, features = [
     "provider-engine-api",
 ] }
 alloy-rpc-types-engine = { workspace = true, features = ["std", "jwt"] }
-alloy-chains = { version = "0.1.64", default-features = false }
 alloy-json-rpc = { workspace = true }
 tracing = { workspace = true }
 futures = { workspace = true }
@@ -32,7 +31,12 @@ thiserror = { workspace = true }
 tower = { workspace = true }
 eyre = { workspace = true }
 
-reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.3.4", default-features = false }
-reth-optimism-node = { git = "https://github.com/paradigmxyz/reth", tag = "v1.3.4" }
-op-rbuilder = { git = "https://github.com/flashbots/rbuilder", branch = "brock/tester-engine-api", default-features = false }
-op-alloy-consensus = { version = "0.11.2", default-features = false }
+# engine provider
+reth-node-api = { workspace = true }
+reth-rpc-layer = { workspace = true }
+reth-optimism-node = { workspace = true }
+reth-optimism-primitives = { workspace = true }
+op-alloy-consensus = { workspace = true }
+op-alloy-network = { workspace = true }
+op-alloy-rpc-types = { workspace = true }
+secp256k1 = { version = "0.30" }

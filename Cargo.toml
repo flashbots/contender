@@ -28,7 +28,7 @@ contender_engine_provider = { path = "crates/engine_provider/" }
 eyre = "0.6.12"
 tokio = { version = "1.40.0" }
 tokio-util = "0.7"
-alloy = { version = "0.12.5" }
+alloy = { version = "1.0.3" }
 alloy-signer = { version = "0.14.0", features = ["wallet"] }
 serde = "1.0.209"
 rand = "0.8.5"
@@ -52,8 +52,16 @@ alloy-serde = "0.5.4"
 serde_json = "1.0.132"
 thiserror = "2.0.12"
 tower = "0.5.2"
-alloy-rpc-types-engine = { version = "0.12.5", default-features = false }
-alloy-json-rpc = { version = "0.12.5", default-features = false }
+alloy-rpc-types-engine = { version = "1.0.3", default-features = false }
+alloy-json-rpc = { version = "1.0.3", default-features = false }
+alloy-chains = { version = "0.1.64", default-features = false }
+reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.4.0", default-features = false }
+reth-rpc-layer = { git = "https://github.com/paradigmxyz/reth", tag = "v1.4.0", default-features = false }
+reth-optimism-node = { git = "https://github.com/paradigmxyz/reth", tag = "v1.4.0" }
+reth-optimism-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v1.4.0" }
+op-alloy-consensus = { version = "0.16.0", default-features = false }
+op-alloy-network = { version = "0.16.0", default-features = false }
+op-alloy-rpc-types = { version = "0.16.0", default-features = false }
 
 ## sqlite
 r2d2_sqlite = "0.25.0"

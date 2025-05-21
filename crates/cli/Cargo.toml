@@ -1,6 +1,6 @@
 [package]
 name = "contender_cli"
-version = "0.1.2"
+version = "0.1.4"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -43,6 +43,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 webbrowser = { workspace = true }
 yaml-rust2 = "0.10.2"
+op-alloy-network = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.15.0"

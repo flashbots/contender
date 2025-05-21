@@ -66,6 +66,25 @@ pub const DEFAULT_PRV_KEYS: [&str; 10] = [
     "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6",
 ];
 
+const DEFAULT_SCENARIOS_URL: &str =
+    "https://raw.githubusercontent.com/flashbots/contender/refs/heads/main/scenarios";
+
+/// Takes a testfile path or a builtin scenario and returns a TestConfig.
+/// If the testfile starts with `scenario:`, it is treated as a builtin scenario.
+/// Otherwise, it is treated as a file path.
+/// Built-in scenarios are fetched relative to the default URL: [`DEFAULT_SCENARIOS_URL`](crate::util::DEFAULT_SCENARIOS_URL).
+pub async fn load_testconfig(testfile: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
+    if testfile.starts_with("scenario:") {
+        let remote_url = format!(
+            "{DEFAULT_SCENARIOS_URL}/{}",
+            testfile.replace("scenario:", "")
+        );
+        TestConfig::from_remote_url(&remote_url).await
+    } else {
+        TestConfig::from_file(testfile)
+    }
+}
+
 pub fn get_signers_with_defaults(private_keys: Option<Vec<String>>) -> Vec<PrivateKeySigner> {
     if private_keys.is_none() {
         warn!("No private keys provided. Using default private keys.");
@@ -435,8 +454,8 @@ pub fn db_file() -> Result<String, Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
-
+    use super::fund_accounts;
+    use super::load_testconfig;
     use alloy::{
         consensus::constants::ETH_TO_WEI,
         network::AnyNetwork,
@@ -445,11 +464,31 @@ mod test {
         providers::{DynProvider, Provider, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
-
-    use super::fund_accounts;
+    use std::str::FromStr;
 
     pub fn spawn_anvil() -> AnvilInstance {
         Anvil::new().block_time(1).spawn()
+    }
+
+    #[tokio::test]
+    async fn fetch_bad_url() {
+        let testconfig = load_testconfig("scenario:bad_path.toml").await;
+        assert!(
+            testconfig.is_err(),
+            "Expected error when fetching non-existent URL"
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_correct_url_when_prefix_added() {
+        let testconfig = load_testconfig("scenario:simpler.toml").await;
+        assert!(testconfig.is_ok(), "Can't fetch this URL");
+    }
+
+    #[tokio::test]
+    async fn dont_fetch_remote_scenario_without_prefix() {
+        let testconfig = load_testconfig("bad_prefix:simpler.toml").await;
+        assert!(testconfig.is_err(), "URL fetched even without prefix");
     }
 
     #[tokio::test]
@@ -458,7 +497,7 @@ mod test {
         let rpc_client = DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
-                .on_http(anvil.endpoint_url()),
+                .connect_http(anvil.endpoint_url()),
         );
         let min_balance = U256::from(ETH_TO_WEI);
         let default_signer = PrivateKeySigner::from_str(super::DEFAULT_PRV_KEYS[0]).unwrap();
