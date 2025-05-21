@@ -1,15 +1,12 @@
-use std::{error::Error, fs, future::Future, io::Read, str::FromStr, vec};
+use std::{error::Error, fs, vec};
 
-use alloy::rpc;
 use contender_core::generator::RandSeed;
-use futures::future::join_all;
 use tracing::info;
-use tracing_subscriber::fmt::format;
 use yaml_rust2::{Yaml, YamlLoader};
 
 use crate::{commands::common::cli_env_vars_parser, util::EngineParams};
 
-use super::{common::AuthCliArgs, setup, SetupCliArgs, SetupCommandArgs};
+use super::{setup, SetupCommandArgs};
 
 #[derive(Debug, clap::Args)]
 pub struct CompositeScenarioArgs {
@@ -71,7 +68,7 @@ fn get_setup_from_compose_file(
         let scenario_object = setup_command_params
             .clone()
             .into_hash()
-            .ok_or(format!("Malformed scenario {:?}", setup_command_params))?;
+            .ok_or(format!("Malformed scenario {setup_command_params:?}"))?;
 
         let testfile = String::from(
             setup_command_params["testfile"]
@@ -101,66 +98,60 @@ fn get_setup_from_compose_file(
                         if str_val.parse::<f64>().is_ok() {
                             Ok(str_val.clone())
                         } else {
-                            Err(format!("Invalid min_balance string value: {:?}", str_val))
+                            Err(format!("Invalid min_balance string value: {str_val:?}"))
                         }
                     }
-                    _ => Err(format!("Invalid min_balance type: {:?}", min_balance_value)),
+                    _ => Err(format!("Invalid min_balance type: {min_balance_value:?}")),
                 }
             }
             None => Ok("0.01".to_string()),
         }?;
 
         let env_variables = match scenario_object.get(&Yaml::String("env".into())) {
-            Some(value) => {
-                match value {
-                    Yaml::Array(env_vars) => {
-                        let mut temp_env_variables = vec![];
-                        for item in env_vars {
-                            if let Some(env_value_pair) = item.as_str() {
-                                temp_env_variables.push(cli_env_vars_parser(env_value_pair)?);
-                            }
+            Some(value) => match value {
+                Yaml::Array(env_vars) => {
+                    let mut temp_env_variables = vec![];
+                    for item in env_vars {
+                        if let Some(env_value_pair) = item.as_str() {
+                            temp_env_variables.push(cli_env_vars_parser(env_value_pair)?);
                         }
-                        Ok(Some(temp_env_variables))
-                    },
-                    _ => Err(format!("Invalid env_value type: {:?}", &value)),
+                    }
+                    Ok(Some(temp_env_variables))
                 }
+                _ => Err(format!("Invalid env_value type: {:?}", &value)),
             },
-            None => Ok(None)
+            None => Ok(None),
         }?;
 
         let private_keys = match scenario_object.get(&Yaml::String("private_keys".into())) {
-            Some(value) => {
-                match value {
-                    Yaml::Array(priv_keys) => {
-                        let mut temp_private_keys = vec![];
-                        for item in priv_keys {
-                            if let Some(p_key) = item.as_str() {
-                                temp_private_keys.push(p_key.to_string());
-                            }
+            Some(value) => match value {
+                Yaml::Array(priv_keys) => {
+                    let mut temp_private_keys = vec![];
+                    for item in priv_keys {
+                        if let Some(p_key) = item.as_str() {
+                            temp_private_keys.push(p_key.to_string());
                         }
-                        Ok(Some(temp_private_keys))
-                    },
-                    _ => Err(format!("Invalid env_value type: {:?}", &value)),
+                    }
+                    Ok(Some(temp_private_keys))
                 }
+                _ => Err(format!("Invalid env_value type: {:?}", &value)),
             },
-            None => Ok(None)
+            None => Ok(None),
         }?;
 
-
         let tx_type = match scenario_object.get(&Yaml::String("tx_type".into())) {
-            Some(value) => {
-                match value {
-                    Yaml::String(tx_type_string) => {
-                        match tx_type_string.as_str() {
-                            "legacy" => Ok(alloy::consensus::TxType::Legacy),
-                            "eip1559" => Ok(alloy::consensus::TxType::Eip1559),
-                            _ => Err(format!("Invalid Value for 'tx_type' = {}", tx_type_string.as_str()))
-                        }
-                    },
-                    _ => Err(format!("Invalid type value for 'tx_type' = {:?}", value))
-                }
+            Some(value) => match value {
+                Yaml::String(tx_type_string) => match tx_type_string.as_str() {
+                    "legacy" => Ok(alloy::consensus::TxType::Legacy),
+                    "eip1559" => Ok(alloy::consensus::TxType::Eip1559),
+                    _ => Err(format!(
+                        "Invalid Value for 'tx_type' = {}",
+                        tx_type_string.as_str()
+                    )),
+                },
+                _ => Err(format!("Invalid type value for 'tx_type' = {value:?}")),
             },
-            None => Ok(alloy::consensus::TxType::Eip1559 )
+            None => Ok(alloy::consensus::TxType::Eip1559),
         }?;
 
         setup_scenarios.push(ComposeFileScenario {
@@ -292,7 +283,10 @@ setup:
         assert_eq!(scenarios[0].config.testfile, "./tests/test1.js");
         assert_eq!(scenarios[0].config.rpc_url, "http://localhost:8545");
         assert_eq!(scenarios[0].config.min_balance, "0.01"); // Default value
-        assert_eq!(scenarios[0].config.tx_type, alloy::consensus::TxType::Eip1559);
+        assert_eq!(
+            scenarios[0].config.tx_type,
+            alloy::consensus::TxType::Eip1559
+        );
         assert_eq!(scenarios[0].config.env, None);
         assert_eq!(scenarios[0].config.private_keys, None);
         Ok(())
@@ -320,7 +314,7 @@ setup:
         Ok(())
     }
 
-        // Done
+    // Done
     #[test]
     fn test_eip1559_tx_type() -> Result<(), Box<dyn Error>> {
         let yaml_content = r#"
@@ -354,13 +348,16 @@ setup:
         let result = get_setup_from_compose_file(temp_file.path().to_string_lossy().to_string());
 
         assert!(result.is_err());
-        assert_eq!(result.err().unwrap().to_string(), "Invalid Value for 'tx_type' = invalid_type".to_string())
+        assert_eq!(
+            result.err().unwrap().to_string(),
+            "Invalid Value for 'tx_type' = invalid_type".to_string()
+        )
     }
 
     // Done
     #[test]
-    fn test_valid_env_variables() -> Result<(), Box<dyn std::error::Error>>{
-                let yaml_content = r#"
+    fn test_valid_env_variables() -> Result<(), Box<dyn std::error::Error>> {
+        let yaml_content = r#"
 setup:
   invalid_scenario:
     testfile: "./tests/some.toml"
@@ -371,15 +368,25 @@ setup:
         let temp_file = create_temp_yaml_file(yaml_content).unwrap();
         let result = get_setup_from_compose_file(temp_file.path().to_string_lossy().to_string())?;
 
-        assert_eq!(result[0].config.env.as_ref().unwrap()[0].0.to_string(), "KEY1".to_string());
-        assert_eq!(result[0].config.env.as_ref().unwrap()[0].1, "VALUE1".to_string());
-        assert_eq!(result[0].config.env.as_ref().unwrap()[1].0, "KEY2".to_string());
-        assert_eq!(result[0].config.env.as_ref().unwrap()[1].1, "VALUE2".to_string());
-        
+        assert_eq!(
+            result[0].config.env.as_ref().unwrap()[0].0.to_string(),
+            "KEY1".to_string()
+        );
+        assert_eq!(
+            result[0].config.env.as_ref().unwrap()[0].1,
+            "VALUE1".to_string()
+        );
+        assert_eq!(
+            result[0].config.env.as_ref().unwrap()[1].0,
+            "KEY2".to_string()
+        );
+        assert_eq!(
+            result[0].config.env.as_ref().unwrap()[1].1,
+            "VALUE2".to_string()
+        );
+
         Ok(())
     }
-
-
 
     #[test]
     fn test_non_existent_file() -> Result<(), Box<dyn Error>> {

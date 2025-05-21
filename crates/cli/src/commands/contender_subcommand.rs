@@ -9,7 +9,10 @@ use super::spam::SpamCliArgs;
 
 #[derive(Debug, Subcommand)]
 pub enum ContenderSubcommand {
-    #[command(name = "compose", about = "Composite scenario execution, setup and spam multiple contracts from a single YML file.")]
+    #[command(
+        name = "compose",
+        about = "Composite scenario execution, setup and spam multiple contracts from a single YML file."
+    )]
     Composite {
         #[arg(
             short,
