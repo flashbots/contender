@@ -55,9 +55,10 @@ where
     pub config: P,
     pub db: Arc<D>,
     pub rpc_url: Url,
-    pub rpc_client: Arc<AnyProvider>,
-    pub bundle_client: Option<Arc<BundleClient>>,
     pub builder_rpc_url: Option<Url>,
+    pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    pub bundle_client: Option<Arc<BundleClient>>,
+    pub rpc_client: Arc<AnyProvider>,
     pub rand_seed: S,
     /// Wallets explicitly given by the user
     pub wallet_map: HashMap<Address, EthereumWallet>,
@@ -71,7 +72,6 @@ where
     pub gas_price_percent_add: u64,
     pub pending_tx_timeout_secs: u64,
     pub ctx: ExecutionContext,
-    pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
     prometheus: PrometheusCollector,
 }
 
@@ -170,7 +170,7 @@ where
             wallet_map.insert(addr, wallet);
         }
         for (name, signers) in agent_store.all_agents() {
-            info!("adding '{name}' signers to wallet map");
+            debug!("adding '{name}' signers to wallet map");
             for signer in signers.signers.iter() {
                 wallet_map.insert(signer.address(), EthereumWallet::new(signer.clone()));
             }
@@ -940,7 +940,8 @@ where
             // wait for the on_batch_sent callback to finish
             if let Some(task) = sent_tx_callback.on_batch_sent() {
                 task.await
-                    .map_err(|e| ContenderError::with_err(e, "on_batch_sent callback failed"))?;
+                    .map_err(|e| ContenderError::with_err(e, "on_batch_sent callback failed"))?
+                    .map_err(|e| ContenderError::SpamError("failed to send batch", Some(e)))?;
             }
 
             info!("[{tick}] executed {num_tasks} spam tasks");

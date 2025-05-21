@@ -4,6 +4,7 @@ use alloy::providers::PendingTransactionConfig;
 use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
+use tracing::debug;
 
 pub trait OnTxSent<K = String, V = String>
 where
@@ -20,7 +21,7 @@ where
 }
 
 pub trait OnBatchSent {
-    fn on_batch_sent(&self) -> Option<JoinHandle<()>>;
+    fn on_batch_sent(&self) -> Option<JoinHandle<Result<(), String>>>;
 }
 
 #[derive(Clone)]
@@ -100,7 +101,8 @@ impl OnTxSent for LogCallback {
 }
 
 impl OnBatchSent for LogCallback {
-    fn on_batch_sent(&self) -> Option<JoinHandle<()>> {
+    fn on_batch_sent(&self) -> Option<JoinHandle<Result<(), String>>> {
+        debug!("on_batch_sent called");
         if !self.send_fcu {
             // maybe do something metrics-related here
             return None;
@@ -108,10 +110,8 @@ impl OnBatchSent for LogCallback {
         if let Some(provider) = &self.auth_provider {
             let provider = provider.clone();
             return Some(tokio::task::spawn(async move {
-                provider
-                    .advance_chain(DEFAULT_BLOCK_TIME)
-                    .await
-                    .expect("failed to advance chain");
+                let res = provider.advance_chain(DEFAULT_BLOCK_TIME).await;
+                res.map_err(|e| e.to_string())
             }));
         }
         None
@@ -119,7 +119,7 @@ impl OnBatchSent for LogCallback {
 }
 
 impl OnBatchSent for NilCallback {
-    fn on_batch_sent(&self) -> Option<JoinHandle<()>> {
+    fn on_batch_sent(&self) -> Option<JoinHandle<Result<(), String>>> {
         // do nothing
         None
     }

@@ -33,7 +33,7 @@ pub mod test {
     }
 
     impl OnBatchSent for MockCallback {
-        fn on_batch_sent(&self) -> Option<JoinHandle<()>> {
+        fn on_batch_sent(&self) -> Option<JoinHandle<Result<(), String>>> {
             info!("MockCallback::on_batch_sent");
             None
         }

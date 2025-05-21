@@ -72,26 +72,38 @@ where
             let is_fcu_done = self.context().done_fcu.clone();
             let is_sending_done = self.context().done_sending.clone();
             let auth_provider = scenario.auth_provider.clone();
+            let (error_sender, mut error_receiver) = tokio::sync::mpsc::channel::<String>(1);
             // run loop in background to call fcu when spamming is done
-            tokio::task::spawn(async move {
-                if let Some(auth_client) = &auth_provider {
-                    loop {
-                        let is_fcu_done = is_fcu_done.load(std::sync::atomic::Ordering::SeqCst);
-                        let is_sending_done =
-                            is_sending_done.load(std::sync::atomic::Ordering::SeqCst);
-                        if is_fcu_done {
-                            info!("FCU is done, stopping block production...");
-                            break;
-                        }
-                        if is_sending_done {
-                            let res = auth_client.advance_chain(DEFAULT_BLOCK_TIME).await;
-                            if let Err(e) = res {
-                                warn!("Error advancing chain: {e}");
+            let error_sender = Arc::new(error_sender);
+            {
+                let error_sender = error_sender.clone();
+                tokio::task::spawn(async move {
+                    if let Some(auth_client) = &auth_provider {
+                        loop {
+                            let is_fcu_done = is_fcu_done.load(std::sync::atomic::Ordering::SeqCst);
+                            let is_sending_done =
+                                is_sending_done.load(std::sync::atomic::Ordering::SeqCst);
+                            if is_fcu_done {
+                                info!("FCU is done, stopping block production...");
+                                break;
+                            }
+                            if is_sending_done {
+                                let res = auth_client.advance_chain(DEFAULT_BLOCK_TIME).await;
+                                let mut err = String::new();
+                                res.unwrap_or_else(|e| {
+                                    err = e.to_string();
+                                });
+                                if !err.is_empty() {
+                                    error_sender
+                                        .send(err)
+                                        .await
+                                        .expect("failed to send error from task");
+                                }
                             }
                         }
                     }
-                }
-            });
+                });
+            }
 
             let tx_req_chunks = scenario
                 .get_spam_tx_chunks(txs_per_period, num_periods)
@@ -116,6 +128,12 @@ where
 
                     false
                 },
+                Some(err) = error_receiver.recv() => {
+                    return Err(ContenderError::SpamError(
+                        "Spammer encountered a critical error.",
+                        Some(err),
+                    ));
+                }
                 _ = scenario.execute_spammer(&mut cursor, &tx_req_chunks, sent_tx_callback) => {
                     true
                 }
