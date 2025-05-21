@@ -10,6 +10,17 @@ use crate::util::TxTypeCli;
 
 #[derive(Debug, Subcommand)]
 pub enum ContenderSubcommand {
+    #[command(name = "compose", about = "Composite scenario")]
+    Composite {
+        #[arg(
+            short,
+            long,
+            long_help = "File path for composite scenario file",
+            default_value = "./contender-compose.yml"
+        )]
+        filename: Option<String>,
+    },
+
     #[command(name = "admin", about = "Admin commands")]
     Admin {
         #[command(subcommand)]

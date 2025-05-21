@@ -1,0 +1,23 @@
+setup:
+  simpler:
+    testfile: ./scenarios/simpler.toml
+    min_balance: 12.1
+
+  uniV2:
+    testfile: ./scenarios/uniV2.toml
+    rpc_url: http://localhost:8545 # Optional
+    min_balance: "11"
+    env:
+      - Key1=Valu1
+      - Key2=Valu2
+    private_keys: # Optional
+      - 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+      - 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+    tx_type: eip1559  # Optional
+
+  uniV3:
+    testfile: ./scenarios/simple.toml
+    rpc_url:  http://localhost:8545 # Optional
+    min_balance: 0.01  # Optional
+    tx_type: eip1559  # Optional
+
