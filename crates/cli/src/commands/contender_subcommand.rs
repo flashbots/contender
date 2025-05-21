@@ -10,7 +10,7 @@ use crate::util::TxTypeCli;
 
 #[derive(Debug, Subcommand)]
 pub enum ContenderSubcommand {
-    #[command(name = "compose", about = "Composite scenario")]
+    #[command(name = "compose", about = "Composite scenario execution, setup and spam multiple contracts from a single YML file.")]
     Composite {
         #[arg(
             short,
