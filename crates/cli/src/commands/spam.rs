@@ -217,15 +217,13 @@ impl SpamCommandArgs {
         let all_agents = agents.all_agents().collect::<Vec<_>>();
         if (txs_per_duration as usize) < all_agents.len() {
             return Err(ContenderError::SpamError(
-            "Not enough signers to cover all agent pools. Set --tps or --tpb to a higher value.",
-            format!(
-                "signers_per_period: {}, agents: {}",
-                signers_per_period,
-                all_agents.len()
-            )
-            .into(),
-        )
-        .into());
+                "Not enough signers to cover all agent pools. Set --tps or --tpb to a higher value.",
+                Some(format!(
+                    "signers_per_period: {}, agents: {}",
+                    signers_per_period,
+                    all_agents.len()
+                )),
+            ).into());
         }
 
         check_private_keys(&testconfig, &user_signers);
@@ -263,11 +261,12 @@ impl SpamCommandArgs {
 
         let done_fcu = Arc::new(AtomicBool::new(false));
         let (error_sender, mut error_receiver) = tokio::sync::mpsc::channel::<String>(1);
-        let error_s = Arc::new(error_sender);
+        let error_sender = Arc::new(error_sender);
+
         if let Some(auth_provider) = engine_params.engine_provider.to_owned() {
             let auth_provider = auth_provider.clone();
             let done_fcu = done_fcu.clone();
-            let err_s = error_s.clone();
+            let error_sender = error_sender.clone();
             tokio::task::spawn(async move {
                 loop {
                     if done_fcu.load(std::sync::atomic::Ordering::SeqCst) {
@@ -279,7 +278,7 @@ impl SpamCommandArgs {
                         err = format!("Error advancing chain: {e}");
                     });
                     if !err.is_empty() {
-                        err_s
+                        error_sender
                             .send(err)
                             .await
                             .expect("failed to send error from task");
