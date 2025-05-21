@@ -128,10 +128,9 @@ where
     /// The JWT secret is hex encoded and will be decoded after reading the file.
     pub async fn from_jwt_file(auth_rpc_url: &str, jwt_secret_file: &PathBuf) -> AuthResult<Self> {
         // fetch jwt from file
-        let jwt = read_jwt_file(jwt_secret_file).map_err(|e| {
-            AuthProviderError::InternalError("failed to read jwt file".into(), e.into())
-        })?;
-        Ok(Self::new(auth_rpc_url, jwt).await?)
+        let jwt = read_jwt_file(jwt_secret_file)
+            .map_err(|e| AuthProviderError::InternalError("failed to read jwt file".into(), e))?;
+        Self::new(auth_rpc_url, jwt).await
     }
 
     pub async fn call_forkchoice_updated(
@@ -197,7 +196,7 @@ where
             }),
         )
         .await
-        .map_err(|e| AuthProviderError::from(e))
+        .map_err(AuthProviderError::from)
     }
 
     /// Calls the correct `engine_newPayload` method depending on the given [`ExecutionPayload`] and its
