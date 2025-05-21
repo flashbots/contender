@@ -55,9 +55,10 @@ where
     pub config: P,
     pub db: Arc<D>,
     pub rpc_url: Url,
-    pub rpc_client: Arc<AnyProvider>,
-    pub bundle_client: Option<Arc<BundleClient>>,
     pub builder_rpc_url: Option<Url>,
+    pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    pub bundle_client: Option<Arc<BundleClient>>,
+    pub rpc_client: Arc<AnyProvider>,
     pub rand_seed: S,
     /// Wallets explicitly given by the user
     pub wallet_map: HashMap<Address, EthereumWallet>,
@@ -71,7 +72,6 @@ where
     pub gas_price_percent_add: u64,
     pub pending_tx_timeout_secs: u64,
     pub ctx: ExecutionContext,
-    pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
     prometheus: PrometheusCollector,
 }
 

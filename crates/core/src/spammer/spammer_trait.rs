@@ -129,13 +129,10 @@ where
                     false
                 },
                 Some(err) = error_receiver.recv() => {
-                    if err.contains("gasLimit parameter is required") {
-                        return Err(ContenderError::SpamError(
-                            "Invalid RPC params. You may need to set the --op flag to target this chain.",
-                            Some(err),
-                        ));
-                    }
-                    false
+                    return Err(ContenderError::SpamError(
+                        "Spammer encountered a critical error.",
+                        Some(err),
+                    ));
                 }
                 _ = scenario.execute_spammer(&mut cursor, &tx_req_chunks, sent_tx_callback) => {
                     true

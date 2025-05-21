@@ -3,7 +3,7 @@ use crate::{
     default_scenarios::BuiltinScenario,
     util::{
         check_private_keys, fund_accounts, get_signers_with_defaults, load_testconfig,
-        spam_callback_default, EngineParams, SpamCallbackType,
+        provider::AuthClient, spam_callback_default, EngineParams, SpamCallbackType,
     },
     LATENCY_HIST as HIST, PROM,
 };
@@ -40,20 +40,19 @@ pub struct EngineArgs {
 }
 
 impl EngineArgs {
-    pub async fn new_provider(
-        &self,
-    ) -> Result<Arc<dyn AdvanceChain + Send + Sync + 'static>, Box<dyn std::error::Error>> {
-        if self.use_op {
-            Ok(Arc::new(
+    pub async fn new_provider(&self) -> Result<AuthClient, Box<dyn std::error::Error>> {
+        let provider: Box<dyn AdvanceChain + Send + Sync + 'static> = if self.use_op {
+            Box::new(
                 AuthProvider::<Optimism>::from_jwt_file(&self.auth_rpc_url, &self.jwt_secret)
                     .await?,
-            ))
+            )
         } else {
-            Ok(Arc::new(
+            Box::new(
                 AuthProvider::<AnyNetwork>::from_jwt_file(&self.auth_rpc_url, &self.jwt_secret)
                     .await?,
-            ))
-        }
+            )
+        };
+        Ok(AuthClient::new(provider))
     }
 }
 
@@ -278,7 +277,7 @@ impl SpamCommandArgs {
 
                     let mut err = String::new();
                     auth_provider.advance_chain(1).await.unwrap_or_else(|e| {
-                        err = format!("Error advancing chain: {e}");
+                        err = e.to_string();
                     });
                     if !err.is_empty() {
                         error_sender
@@ -317,12 +316,9 @@ impl SpamCommandArgs {
                 }
             };
             if let Err(e) = setup_res {
-                if e.to_string().contains("gasLimit parameter is required") {
-                    return Err(
-                        ContenderError::SpamError("failed to advance chain. You may need to pass the --op flag to target this chain.", Some(e)).into(),
-                    );
-                }
-                return Err(e.into());
+                return Err(
+                    ContenderError::SpamError("Builtin scenario setup failed.", Some(e)).into(),
+                );
             }
         }
         done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);

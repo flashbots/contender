@@ -279,12 +279,7 @@ pub async fn setup(
         },
 
         Some(error) = error_receiver.recv() => {
-            warn!(error);
-            let mut help = String::new();
-            if error.contains("gasLimit parameter is required") {
-                help = format!("{help}You may need to set the --op flag to target this node.")
-            }
-            return Err(ContenderError::SetupError("Setup failed.", Some(help)).into()) // Err( format!("Setup failed. {help}").into());
+            return Err(ContenderError::SetupError("Setup failed.", Some(error)).into())
         }
     }
 
