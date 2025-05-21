@@ -4,6 +4,7 @@ use alloy::providers::PendingTransactionConfig;
 use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
+use tracing::debug;
 
 pub trait OnTxSent<K = String, V = String>
 where
@@ -101,6 +102,7 @@ impl OnTxSent for LogCallback {
 
 impl OnBatchSent for LogCallback {
     fn on_batch_sent(&self) -> Option<JoinHandle<Result<(), String>>> {
+        debug!("on_batch_sent called");
         if !self.send_fcu {
             // maybe do something metrics-related here
             return None;

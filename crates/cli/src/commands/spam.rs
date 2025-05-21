@@ -249,7 +249,11 @@ impl SpamCommandArgs {
             pending_tx_timeout_secs: *timeout_secs,
         };
 
-        fund_accounts(
+        let done_fcu = Arc::new(AtomicBool::new(false));
+        let (error_sender, mut error_receiver) = tokio::sync::mpsc::channel::<String>(1);
+        let error_sender = Arc::new(error_sender);
+
+        let fund_res = fund_accounts(
             &all_signer_addrs,
             &user_signers[0],
             &rpc_client,
@@ -257,11 +261,10 @@ impl SpamCommandArgs {
             *tx_type,
             engine_params,
         )
-        .await?;
-
-        let done_fcu = Arc::new(AtomicBool::new(false));
-        let (error_sender, mut error_receiver) = tokio::sync::mpsc::channel::<String>(1);
-        let error_sender = Arc::new(error_sender);
+        .await;
+        if let Err(e) = fund_res {
+            error_sender.send(e.to_string()).await?;
+        }
 
         if let Some(auth_provider) = engine_params.engine_provider.to_owned() {
             let auth_provider = auth_provider.clone();
@@ -283,7 +286,7 @@ impl SpamCommandArgs {
                             .await
                             .expect("failed to send error from task");
                     }
-                    tokio::time::sleep(Duration::from_millis(42)).await;
+                    tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             });
         };
@@ -299,14 +302,13 @@ impl SpamCommandArgs {
         .await?;
 
         if self.scenario.is_builtin() {
-            println!("builtin scenario");
             let scenario = &mut scenario;
             let setup_res = tokio::select! {
                 Some(err) = error_receiver.recv() => {
                     Err(err)
                 }
                 res = async move {
-                    let str_err = |e| format!("Error: {e}");
+                    let str_err = |e| format!("Setup error: {e}");
                     scenario.deploy_contracts().await.map_err(str_err)?;
                     scenario.run_setup().await.map_err(str_err)?;
                     Ok::<(), String>(())

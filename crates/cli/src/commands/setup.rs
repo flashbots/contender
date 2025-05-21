@@ -269,7 +269,7 @@ pub async fn setup(
         task_res = setup_task => {
             let res = task_res?;
             if let Err(e) = res {
-                return Err(e.into());
+                error_sender.send(e).await.expect("failed to send error from task");
             }
         }
 

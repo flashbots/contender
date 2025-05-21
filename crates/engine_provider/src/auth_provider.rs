@@ -167,9 +167,7 @@ where
     ) -> TransportResult<ForkchoiceUpdated> {
         let op_params = if self.is_op() {
             // insert OP block info tx
-            let txs = vec![get_op_block_info_tx()
-                .await
-                .expect("failed to get block info tx")];
+            let txs = vec![get_op_block_info_tx()];
 
             // Parse the last 8 bytes of extra_data as a FixedBytes<8>
             let params = FixedBytes::<8>::from_slice(&self.genesis_block.extra_data()[1..]);
@@ -334,7 +332,7 @@ impl<N: Network + NetworkAttributes> ProviderExt for AuthProvider<N> {
     type PayloadAttributes = N::PayloadAttributes;
 }
 
-async fn get_op_block_info_tx() -> Result<Bytes, Box<dyn std::error::Error>> {
+fn get_op_block_info_tx() -> Bytes {
     let deposit_tx = TxDeposit {
         source_hash: B256::default(),
         from: address!("DeaDDEaDDeAdDeAdDEAdDEaddeAddEAdDEAd0001"),
@@ -348,6 +346,12 @@ async fn get_op_block_info_tx() -> Result<Bytes, Box<dyn std::error::Error>> {
 
     // Create a temporary signer for the deposit
     let signer = Signer::random();
-    let signed_tx = signer.sign_tx(OpTypedTransaction::Deposit(deposit_tx))?;
-    Ok(signed_tx.encoded_2718().into())
+
+    // sign tx
+    let signed_tx = signer
+        .sign_tx(OpTypedTransaction::Deposit(deposit_tx))
+        .expect("failed to sign tx");
+
+    // convert tx to bytes
+    signed_tx.encoded_2718().into()
 }
