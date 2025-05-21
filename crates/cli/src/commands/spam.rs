@@ -28,8 +28,8 @@ use contender_core::{
 use contender_engine_provider::{AdvanceChain, AuthProvider};
 use contender_testfile::TestConfig;
 use op_alloy_network::Optimism;
-use std::sync::Arc;
 use std::{path::PathBuf, sync::atomic::AtomicBool};
+use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
 
 #[derive(Debug)]
@@ -262,21 +262,32 @@ impl SpamCommandArgs {
         .await?;
 
         let done_fcu = Arc::new(AtomicBool::new(false));
-        if let Some(auth_provider) = &engine_params.engine_provider {
+        let (error_sender, mut error_receiver) = tokio::sync::mpsc::channel::<String>(1);
+        let error_s = Arc::new(error_sender);
+        if let Some(auth_provider) = engine_params.engine_provider.to_owned() {
             let auth_provider = auth_provider.clone();
             let done_fcu = done_fcu.clone();
+            let err_s = error_s.clone();
             tokio::task::spawn(async move {
                 loop {
                     if done_fcu.load(std::sync::atomic::Ordering::SeqCst) {
                         break;
                     }
-                    auth_provider
-                        .advance_chain(1)
-                        .await
-                        .expect("Failed to advance chain");
+
+                    let mut err = String::new();
+                    auth_provider.advance_chain(1).await.unwrap_or_else(|e| {
+                        err = format!("Error advancing chain: {e}");
+                    });
+                    if !err.is_empty() {
+                        err_s
+                            .send(err)
+                            .await
+                            .expect("failed to send error from task");
+                    }
+                    tokio::time::sleep(Duration::from_millis(42)).await;
                 }
             });
-        }
+        };
 
         let mut scenario = TestScenario::new(
             testconfig,
@@ -289,8 +300,29 @@ impl SpamCommandArgs {
         .await?;
 
         if self.scenario.is_builtin() {
-            scenario.deploy_contracts().await?;
-            scenario.run_setup().await?;
+            println!("builtin scenario");
+            let scenario = &mut scenario;
+            let setup_res = tokio::select! {
+                Some(err) = error_receiver.recv() => {
+                    Err(err)
+                }
+                res = async move {
+                    let str_err = |e| format!("Error: {e}");
+                    scenario.deploy_contracts().await.map_err(str_err)?;
+                    scenario.run_setup().await.map_err(str_err)?;
+                    Ok::<(), String>(())
+                } => {
+                    res
+                }
+            };
+            if let Err(e) = setup_res {
+                if e.to_string().contains("gasLimit parameter is required") {
+                    return Err(
+                        ContenderError::SpamError("failed to advance chain. You may need to pass the --op flag to target this chain.", Some(e)).into(),
+                    );
+                }
+                return Err(e.into());
+            }
         }
         done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
 
