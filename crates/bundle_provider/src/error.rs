@@ -14,3 +14,12 @@ impl Display for BundleProviderError {
         }
     }
 }
+
+impl std::error::Error for BundleProviderError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            BundleProviderError::InvalidUrl => None,
+            BundleProviderError::SendBundleError(e) => Some(e.as_ref()),
+        }
+    }
+}

@@ -5,7 +5,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 /// Runs spam in a loop, potentially executing multiple spam runs.
 ///
@@ -61,7 +61,8 @@ pub async fn spamd(
         let db = db.clone();
         let spam_res = commands::spam(&db, &args, &mut scenario).await;
         if let Err(e) = spam_res {
-            warn!("spam run failed: {e:?}");
+            error!("spam run failed: {e:?}");
+            break;
         } else {
             let run_id = spam_res.expect("spam");
             if let Some(run_id) = run_id {
