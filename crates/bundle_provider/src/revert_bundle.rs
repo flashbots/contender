@@ -8,7 +8,7 @@ pub struct RevertProtectBundle {
     #[serde(rename = "txs")]
     transactions: Vec<Bytes>,
     #[serde(rename = "maxBlockNumber")]
-    pub block_number_max: Option<u64>,
+    block_number_max: Option<u64>,
 }
 
 impl RevertProtectBundle {
