@@ -1,4 +1,4 @@
-use alloy::rpc::types::mev::EthSendBundle;
+use alloy::rpc::types::mev::{EthBundleHash, EthSendBundle};
 
 use crate::{
     revert_bundle::{RevertProtectBundle, RevertProtectBundleRequest},
@@ -21,8 +21,18 @@ pub enum Bundle {
 impl Bundle {
     pub async fn send(&self, client: &BundleClient) -> Result<(), Box<dyn std::error::Error>> {
         match self {
-            Bundle::L1(b) => client.send_bundle(b).await,
-            Bundle::Revertable(b) => client.send_bundle(RevertProtectBundle::from(b)).await,
+            Bundle::L1(b) => client.send_bundle::<_, EthBundleHash>(b).await,
+            Bundle::Revertable(b) => {
+                // make a RevertProtectBundle from each tx in the bundle
+                // and send it to the client
+                for tx in b.txs.to_owned() {
+                    let req = RevertProtectBundleRequest::new().with_txs(vec![tx]);
+                    client
+                        .send_bundle::<_, String>(RevertProtectBundle::from(req))
+                        .await?;
+                }
+                Ok(())
+            }
         }
     }
 }

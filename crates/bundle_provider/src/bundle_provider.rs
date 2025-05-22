@@ -3,8 +3,8 @@ use alloy::{
     primitives::Bytes,
     providers::{Provider, ProviderBuilder, RootProvider},
     rpc::{
-        json_rpc::RpcSend,
-        types::mev::{EthBundleHash, EthSendBundle},
+        json_rpc::{RpcRecv, RpcSend},
+        types::mev::EthSendBundle,
     },
     transports::http::reqwest::IntoUrl,
 };
@@ -25,13 +25,13 @@ impl BundleClient {
     }
 
     /// Sends a bundle using `eth_sendBundle`, discarding the response.
-    pub async fn send_bundle<Bundle: RpcSend>(
+    pub async fn send_bundle<'a, Bundle: RpcSend, Response: RpcRecv>(
         &self,
         bundle: Bundle,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Result contents optional because some endpoints don't return this response
         self.client
-            .raw_request::<_, Option<EthBundleHash>>("eth_sendBundle".into(), [bundle])
+            .raw_request::<_, Option<Response>>("eth_sendBundle".into(), [bundle])
             .await
             .map_err(|e| format!("Failed to send bundle: {e:?}"))?;
 

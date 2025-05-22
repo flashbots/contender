@@ -856,6 +856,7 @@ where
                                 .with_txs(bundle_txs)
                                 .prepare(),
                         };
+                        let success_sender = success_sender.clone();
                         if let Some(bundle_client) = bundle_client {
                             info!("spamming bundle: {rpc_bundle:?}");
                             match &rpc_bundle {
@@ -865,17 +866,38 @@ where
                                         bundle.block_number = block_num + i as u64;
                                         let rpc_bundle = Bundle::L1(bundle);
 
-                                        let res = rpc_bundle.send(&bundle_client).await;
+                                        let res =
+                                            rpc_bundle.send(&bundle_client).await.map_err(|e| {
+                                                ContenderError::with_err(
+                                                    e.as_ref(),
+                                                    "failed to send bundle",
+                                                )
+                                            });
                                         if let Err(e) = res {
-                                            warn!("failed to send bundle: {e:?}");
+                                            warn!("{e:?}");
                                         }
+
+                                        success_sender
+                                            .send(())
+                                            .await
+                                            .expect("failed to send success signal");
                                     }
                                 }
-                                Bundle::Revertable(_) => {
-                                    let res = rpc_bundle.send(&bundle_client).await;
+                                Bundle::Revertable(bundle) => {
+                                    let bundle = Bundle::Revertable(bundle.to_owned());
+                                    let res = bundle.send(&bundle_client).await.map_err(|e| {
+                                        ContenderError::with_err(
+                                            e.as_ref(),
+                                            "failed to send bundle",
+                                        )
+                                    });
                                     if let Err(e) = res {
-                                        warn!("failed to send bundle: {e:?}");
+                                        warn!("{e:?}");
                                     }
+                                    success_sender
+                                        .send(())
+                                        .await
+                                        .expect("failed to send success signal");
                                 }
                             }
                         }

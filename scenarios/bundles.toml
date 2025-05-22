@@ -10,7 +10,7 @@ from_pool = "admin"
 [spam.tx]
 to = "{_sender}"
 from_pool = "redpool"
-signature = "_()" # signature can be anything here; recipient is not a contract
+signature = "_()"     # signature can be anything here; recipient is not a contract
 
 [[spam.tx.fuzz]]
 value = true
