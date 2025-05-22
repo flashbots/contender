@@ -3,7 +3,7 @@ use crate::{
     default_scenarios::BuiltinScenario,
     util::{
         check_private_keys, fund_accounts, get_signers_with_defaults, load_testconfig,
-        spam_callback_default, EngineParams, SpamCallbackType,
+        provider::AuthClient, spam_callback_default, EngineParams, SpamCallbackType,
     },
     LATENCY_HIST as HIST, PROM,
 };
@@ -29,8 +29,8 @@ use contender_core::{
 use contender_engine_provider::{AdvanceChain, AuthProvider};
 use contender_testfile::TestConfig;
 use op_alloy_network::Optimism;
-use std::sync::Arc;
 use std::{path::PathBuf, sync::atomic::AtomicBool};
+use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
 
 #[derive(Debug)]
@@ -41,20 +41,19 @@ pub struct EngineArgs {
 }
 
 impl EngineArgs {
-    pub async fn new_provider(
-        &self,
-    ) -> Result<Arc<dyn AdvanceChain + Send + Sync + 'static>, Box<dyn std::error::Error>> {
-        if self.use_op {
-            Ok(Arc::new(
+    pub async fn new_provider(&self) -> Result<AuthClient, Box<dyn std::error::Error>> {
+        let provider: Box<dyn AdvanceChain + Send + Sync + 'static> = if self.use_op {
+            Box::new(
                 AuthProvider::<Optimism>::from_jwt_file(&self.auth_rpc_url, &self.jwt_secret)
                     .await?,
-            ))
+            )
         } else {
-            Ok(Arc::new(
+            Box::new(
                 AuthProvider::<AnyNetwork>::from_jwt_file(&self.auth_rpc_url, &self.jwt_secret)
                     .await?,
-            ))
-        }
+            )
+        };
+        Ok(AuthClient::new(provider))
     }
 }
 
@@ -198,15 +197,13 @@ impl SpamCommandArgs {
         let all_agents = agents.all_agents().collect::<Vec<_>>();
         if (txs_per_duration as usize) < all_agents.len() {
             return Err(ContenderError::SpamError(
-            "Not enough signers to cover all agent pools. Set --tps or --tpb to a higher value.",
-            format!(
-                "signers_per_period: {}, agents: {}",
-                signers_per_period,
-                all_agents.len()
-            )
-            .into(),
-        )
-        .into());
+                "Not enough signers to cover all agent pools. Set --tps or --tpb to a higher value.",
+                Some(format!(
+                    "signers_per_period: {}, agents: {}",
+                    signers_per_period,
+                    all_agents.len()
+                )),
+            ).into());
         }
 
         check_private_keys(&testconfig, &user_signers);
@@ -243,21 +240,33 @@ impl SpamCommandArgs {
         .await?;
 
         let done_fcu = Arc::new(AtomicBool::new(false));
-        if let Some(auth_provider) = &engine_params.engine_provider {
+        let (error_sender, mut error_receiver) = tokio::sync::mpsc::channel::<String>(1);
+        let error_sender = Arc::new(error_sender);
+
+        if let Some(auth_provider) = engine_params.engine_provider.to_owned() {
             let auth_provider = auth_provider.clone();
             let done_fcu = done_fcu.clone();
+            let error_sender = error_sender.clone();
             tokio::task::spawn(async move {
                 loop {
                     if done_fcu.load(std::sync::atomic::Ordering::SeqCst) {
                         break;
                     }
-                    auth_provider
-                        .advance_chain(1)
-                        .await
-                        .expect("Failed to advance chain");
+
+                    let mut err = String::new();
+                    auth_provider.advance_chain(1).await.unwrap_or_else(|e| {
+                        err = e.to_string();
+                    });
+                    if !err.is_empty() {
+                        error_sender
+                            .send(err)
+                            .await
+                            .expect("failed to send error from task");
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             });
-        }
+        };
 
         let mut scenario = TestScenario::new(
             testconfig,
@@ -270,8 +279,25 @@ impl SpamCommandArgs {
         .await?;
 
         if self.scenario.is_builtin() {
-            scenario.deploy_contracts().await?;
-            scenario.run_setup().await?;
+            let scenario = &mut scenario;
+            let setup_res = tokio::select! {
+                Some(err) = error_receiver.recv() => {
+                    Err(err)
+                }
+                res = async move {
+                    let str_err = |e| format!("Setup error: {e}");
+                    scenario.deploy_contracts().await.map_err(str_err)?;
+                    scenario.run_setup().await.map_err(str_err)?;
+                    Ok::<(), String>(())
+                } => {
+                    res
+                }
+            };
+            if let Err(e) = setup_res {
+                return Err(
+                    ContenderError::SpamError("Builtin scenario setup failed.", Some(e)).into(),
+                );
+            }
         }
         done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
 

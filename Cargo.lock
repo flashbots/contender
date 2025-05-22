@@ -2017,6 +2017,7 @@ version = "0.1.4"
 dependencies = [
  "alloy",
  "ansi_term",
+ "async-trait",
  "chrono",
  "clap",
  "contender_core",

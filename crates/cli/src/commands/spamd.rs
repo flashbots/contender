@@ -20,21 +20,25 @@ pub async fn spamd(
     gen_report: bool,
     limit_loops: Option<u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let finished = Arc::new(AtomicBool::new(false));
+    let is_done = Arc::new(AtomicBool::new(false));
     let mut scenario = args.init_scenario(db).await?;
 
     // collects run IDs from the spam command
     let mut run_ids = vec![];
 
-    // if CTRL-C signal is received, set `finished` to true
-    let is_finished = finished.clone();
-    tokio::task::spawn(async move {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("Failed to listen for CTRL-C");
-        info!("CTRL-C received. Spam daemon will shut down as soon as current batch finishes...");
-        is_finished.store(true, Ordering::SeqCst);
-    });
+    // if CTRL-C signal is received, set `is_done` to true
+    {
+        let is_done = is_done.clone();
+        tokio::task::spawn(async move {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("Failed to listen for CTRL-C");
+            info!(
+                "CTRL-C received. Spam daemon will shut down as soon as current batch finishes..."
+            );
+            is_done.store(true, Ordering::SeqCst);
+        });
+    }
 
     // runs spam command in a loop
     let mut i = 0;
@@ -46,7 +50,7 @@ pub async fn spamd(
             }
             i += 1;
         }
-        if finished.load(Ordering::SeqCst) {
+        if is_done.load(Ordering::SeqCst) {
             do_finish = true;
         }
         if do_finish {

@@ -1,8 +1,8 @@
 //! This file contains type definition for CLI arguments.
 
-use crate::util::{BundleTypeCli, EngineParams, TxTypeCli};
-
 use super::EngineArgs;
+use crate::util::{BundleTypeCli, EngineParams, TxTypeCli};
+use std::sync::Arc;
 
 #[derive(Clone, Debug, clap::Args)]
 pub struct ScenarioSendTxsCliArgs {
@@ -128,7 +128,7 @@ impl AuthCliArgs {
                 jwt_secret: self.jwt_secret.to_owned().expect("jwt_secret").into(),
                 use_op: self.use_op,
             };
-            EngineParams::new(args.new_provider().await?, self.call_forkchoice)
+            EngineParams::new(Arc::new(args.new_provider().await?), self.call_forkchoice)
         } else {
             EngineParams::default()
         };

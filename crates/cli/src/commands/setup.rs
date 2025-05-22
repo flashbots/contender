@@ -30,6 +30,7 @@ use std::{
     },
     time::Duration,
 };
+use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
 use super::common::ScenarioSendTxsCliArgs;
@@ -205,38 +206,84 @@ pub async fn setup(
         tokio::time::sleep(Duration::from_secs(safe_time)).await;
         warn!("Contract deployment has been waiting for more than {timeout_blocks} blocks... Press Ctrl+C to cancel.");
     });
-    let done = AtomicBool::new(false);
-    let is_done = Arc::new(done);
+    let is_done = Arc::new(AtomicBool::new(false));
+    let (error_sender, mut error_receiver) = tokio::sync::mpsc::channel::<String>(1);
+    let error_sender = Arc::new(error_sender);
 
     if engine_params.call_fcu && scenario.auth_provider.is_some() {
+        // spawn a task to advance the chain periodically while setup is running
         let auth_client = scenario.auth_provider.clone().expect("auth provider");
         let is_done = is_done.clone();
-
-        // spawn a task to advance the chain periodically while setup is running
+        let error_sender = error_sender.clone();
         tokio::task::spawn(async move {
             loop {
                 if is_done.load(Ordering::SeqCst) {
                     break;
                 }
 
+                let mut err = String::new();
                 auth_client
                     .advance_chain(DEFAULT_BLOCK_TIME)
                     .await
-                    .expect("failed to advance chain");
+                    .unwrap_or_else(|e| {
+                        err = e.to_string();
+                    });
+                if !err.is_empty() {
+                    error_sender
+                        .send(err)
+                        .await
+                        .expect("failed to send error from task");
+                }
 
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         });
     }
+    let setup_task: JoinHandle<Result<(), String>> = {
+        let is_done = is_done.clone();
+        tokio::task::spawn(async move {
+            let str_err = |e| format!("Error: {e}");
+            scenario.deploy_contracts().await.map_err(str_err)?;
+            timekeeper_handle.abort();
+            info!("Finished deploying contracts. Running setup txs...");
+            scenario.run_setup().await.map_err(str_err)?;
+            info!("Setup complete. To run the scenario, use the `spam` command.");
 
-    scenario.deploy_contracts().await?;
-    timekeeper_handle.abort();
-    info!("Finished deploying contracts. Running setup txs...");
-    scenario.run_setup().await?;
-    info!("Setup complete. To run the scenario, use the `spam` command.");
+            // stop advancing the chain
+            is_done.store(true, Ordering::SeqCst);
 
-    // stop advancing the chain
-    is_done.store(true, Ordering::SeqCst);
+            Ok(())
+        })
+    };
+
+    let cancel_task = {
+        let is_done = is_done.clone();
+        tokio::task::spawn(async move {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("failed to listen for ctrl-c");
+            warn!("CTRL-C received, stopping setup...");
+            is_done.store(true, Ordering::SeqCst);
+        })
+    };
+
+    tokio::select! {
+        task_res = setup_task => {
+            let res = task_res?;
+            if let Err(e) = res {
+                error_sender.send(e).await.expect("failed to send error from task");
+            }
+        }
+
+        _ = cancel_task => {
+            warn!("Setup cancelled.");
+            is_done.store(true, Ordering::SeqCst);
+        },
+
+        Some(error) = error_receiver.recv() => {
+            return Err(ContenderError::SetupError("Setup failed.", Some(error)).into())
+        }
+    }
 
     Ok(())
 }
