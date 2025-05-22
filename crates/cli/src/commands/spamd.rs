@@ -5,7 +5,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 /// Runs spam in a loop, potentially executing multiple spam runs.
 ///
@@ -19,7 +19,7 @@ pub async fn spamd(
     args: SpamCommandArgs,
     gen_report: bool,
     limit_loops: Option<u64>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), ContenderError> {
     let is_done = Arc::new(AtomicBool::new(false));
     let mut scenario = args.init_scenario(db).await?;
 
@@ -61,7 +61,8 @@ pub async fn spamd(
         let db = db.clone();
         let spam_res = commands::spam(&db, &args, &mut scenario).await;
         if let Err(e) = spam_res {
-            warn!("spam failed: {e:?}");
+            error!("spam run failed: {e:?}");
+            break;
         } else {
             let run_id = spam_res.expect("spam");
             if let Some(run_id) = run_id {
@@ -91,7 +92,7 @@ pub async fn spamd(
     tokio::select! {
         _ = run_report() => {},
         _ = tokio::signal::ctrl_c() => {
-            info!("CTRL-C received, shutting down...");
+            info!("CTRL-C received, cancelling report...");
         }
     }
 

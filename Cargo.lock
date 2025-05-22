@@ -2008,6 +2008,7 @@ name = "contender_bundle_provider"
 version = "0.1.4"
 dependencies = [
  "alloy",
+ "serde",
 ]
 
 [[package]]

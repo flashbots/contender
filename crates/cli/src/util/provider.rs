@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 use contender_engine_provider::{error::AuthProviderError, AdvanceChain, AuthResult};
-use tracing::warn;
+use tracing::error;
 
 pub struct AuthClient {
     auth_provider: Box<dyn AdvanceChain + Send + Sync + 'static>,
@@ -23,16 +23,16 @@ impl AdvanceChain for AuthClient {
             .map_err(|e| {
                 match e {
                     AuthProviderError::InternalError(_, _) => {
-                        warn!("AuthClient encountered an internal error. Please check contender_engine_provider debug logs for more details.");
+                        error!("AuthClient encountered an internal error. Please check contender_engine_provider debug logs for more details.");
                     }
                     AuthProviderError::ConnectionFailed(_) => {
-                        warn!("Please check the auth provider connection.");
+                        error!("Please check the auth provider connection.");
                     }
                     AuthProviderError::ExtraDataTooShort => {
-                        warn!("You may need to remove the --op flag to target this node.");
+                        error!("You may need to remove the --op flag to target this node.");
                     }
                     AuthProviderError::GasLimitRequired => {
-                        warn!("You may need to pass the --op flag to target this node.");
+                        error!("You may need to pass the --op flag to target this node.");
                     }
                 }
                 e
