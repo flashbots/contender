@@ -9,7 +9,7 @@ use alloy::{
     transports::http::reqwest::IntoUrl,
 };
 
-use crate::bundle::Bundle;
+use crate::{bundle::Bundle, error::BundleProviderError};
 
 /// A helper wrapper around a RPC client that can be used to call `eth_sendBundle`.
 #[derive(Debug)]
@@ -19,21 +19,24 @@ pub struct BundleClient {
 
 impl BundleClient {
     /// Creates a new [`BundleClient`] with the given URL.
-    pub fn new(url: impl IntoUrl) -> Self {
-        let provider = ProviderBuilder::default().connect_http(url.into_url().unwrap());
-        Self { client: provider }
+    pub fn new(url: impl IntoUrl) -> Result<Self, BundleProviderError> {
+        let provider = ProviderBuilder::default().connect_http(
+            url.into_url()
+                .map_err(|_| BundleProviderError::InvalidUrl)?,
+        );
+        Ok(Self { client: provider })
     }
 
     /// Sends a bundle using `eth_sendBundle`, discarding the response.
     pub async fn send_bundle<'a, Bundle: RpcSend, Response: RpcRecv>(
         &self,
         bundle: Bundle,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), BundleProviderError> {
         // Result contents optional because some endpoints don't return this response
         self.client
             .raw_request::<_, Option<Response>>("eth_sendBundle".into(), [bundle])
             .await
-            .map_err(|e| format!("Failed to send bundle: {e:?}"))?;
+            .map_err(|e| BundleProviderError::SendBundleError(e.into()))?;
 
         Ok(())
     }

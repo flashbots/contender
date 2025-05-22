@@ -1,7 +1,7 @@
 use crate::agent_controller::AgentStore;
 use crate::buckets::Bucket;
 use crate::db::{DbOps, NamedTx};
-use crate::error::ContenderError;
+use crate::error::{ContenderError, RuntimeParamErrorKind};
 use crate::generator::named_txs::ExecutionRequest;
 use crate::generator::templater::Templater;
 use crate::generator::types::AnyProvider;
@@ -188,9 +188,13 @@ where
 
         let gas_limits = HashMap::new();
 
-        let bundle_client = builder_rpc_url
-            .as_ref()
-            .map(|url| Arc::new(BundleClient::new(url.clone())));
+        let bundle_client = if let Some(url) = &builder_rpc_url {
+            Some(Arc::new(
+                BundleClient::new(url.clone()).map_err(|e| e.into())?,
+            ))
+        } else {
+            None
+        };
 
         let msg_handle = Arc::new(TxActorHandle::new(120, db.clone(), rpc_client.clone()));
         let cancel_token = CancellationToken::new();
@@ -633,13 +637,6 @@ where
         for tx in tx_requests {
             let payload = match tx {
                 ExecutionRequest::Bundle(reqs) => {
-                    if self.bundle_client.is_none() {
-                        return Err(ContenderError::SpamError(
-                            "Bundle client not found. Specify a builder url to send bundles.",
-                            None,
-                        ));
-                    }
-
                     // prepare each tx in the bundle (increment nonce, set gas price, etc)
                     let mut bundle_txs = vec![];
 
@@ -717,7 +714,10 @@ where
         payloads: Vec<ExecutionPayload>,
         callback_handler: Arc<impl OnTxSent + OnBatchSent + Send + Sync + 'static>,
         context_handler: SpamContextHandler,
-    ) -> Result<Vec<tokio::task::JoinHandle<()>>> {
+    ) -> Result<(
+        Vec<tokio::task::JoinHandle<()>>,
+        tokio::sync::mpsc::Receiver<ContenderError>,
+    )> {
         // sort payloads by nonce
         let mut payloads = payloads;
         payloads.sort_by(|a, b| {
@@ -744,6 +744,8 @@ where
         // counts number of txs that were sent successfully
         let success_sender = Arc::new(context_handler.success_send_tx);
         let bundle_type = self.bundle_type;
+        let (error_sender, error_receiver) = tokio::sync::mpsc::channel::<ContenderError>(1);
+        let error_sender = Arc::new(error_sender);
 
         for payload in payloads {
             let rpc_client = self.rpc_client.clone();
@@ -753,6 +755,7 @@ where
             let gas_sender = gas_sender.clone();
             let success_sender = success_sender.clone();
             let cancel_token = self.ctx.cancel_token.clone();
+            let error_sender = error_sender.clone();
 
             std::thread::sleep(Duration::from_micros(micros_per_task));
             tasks.push(tokio::task::spawn(async move {
@@ -828,6 +831,12 @@ where
                         }
                     }
                     ExecutionPayload::SignedTxBundle(signed_txs, reqs) => {
+                        if bundle_client.is_none() {
+                            error_sender
+                                .send(RuntimeParamErrorKind::BuilderUrlRequired.into())
+                                .await
+                                .expect("failed to send error signal");
+                        }
                         let mut bundle_txs = vec![];
                         for tx in &signed_txs {
                             let mut raw_tx = vec![];
@@ -858,25 +867,21 @@ where
                         };
                         let success_sender = success_sender.clone();
                         if let Some(bundle_client) = bundle_client {
-                            info!("spamming bundle: {rpc_bundle:?}");
+                            info!("sending bundle...");
+                            debug!("spamming bundle: {rpc_bundle:?}");
                             match &rpc_bundle {
                                 Bundle::L1(bundle) => {
-                                    for i in 1..4 {
-                                        let mut bundle = bundle.to_owned();
-                                        bundle.block_number = block_num + i as u64;
-                                        let rpc_bundle = Bundle::L1(bundle);
+                                    let mut bundle = bundle.to_owned();
+                                    bundle.block_number = block_num + 1 as u64;
+                                    let rpc_bundle = Bundle::L1(bundle);
 
-                                        let res =
-                                            rpc_bundle.send(&bundle_client).await.map_err(|e| {
-                                                ContenderError::with_err(
-                                                    e.as_ref(),
-                                                    "failed to send bundle",
-                                                )
-                                            });
-                                        if let Err(e) = res {
-                                            warn!("{e:?}");
-                                        }
-
+                                    let res =
+                                        rpc_bundle.send(&bundle_client).await.map_err(|e| e.into());
+                                    if let Err(e) = res {
+                                        error_sender.send(e).await.unwrap_or_else(|e| {
+                                            debug!("failed to send error signal: {e:?}")
+                                        });
+                                    } else {
                                         success_sender
                                             .send(())
                                             .await
@@ -885,19 +890,18 @@ where
                                 }
                                 Bundle::Revertable(bundle) => {
                                     let bundle = Bundle::Revertable(bundle.to_owned());
-                                    let res = bundle.send(&bundle_client).await.map_err(|e| {
-                                        ContenderError::with_err(
-                                            e.as_ref(),
-                                            "failed to send bundle",
-                                        )
-                                    });
+                                    let res =
+                                        bundle.send(&bundle_client).await.map_err(|e| e.into());
                                     if let Err(e) = res {
-                                        warn!("{e:?}");
+                                        error_sender.send(e).await.unwrap_or_else(|_| {
+                                            debug!("failed to send error signal");
+                                        });
+                                    } else {
+                                        success_sender
+                                            .send(())
+                                            .await
+                                            .expect("failed to send success signal");
                                     }
-                                    success_sender
-                                        .send(())
-                                        .await
-                                        .expect("failed to send success signal");
                                 }
                             }
                         }
@@ -930,7 +934,7 @@ where
             }));
         }
 
-        Ok(tasks)
+        Ok((tasks, error_receiver))
     }
 
     /// Send spam batches until the cursor is depleted.
@@ -956,7 +960,7 @@ where
             };
 
             // send this batch of spam txs
-            let spam_tasks = self
+            let (spam_tasks, mut error_receiver) = self
                 .execute_spam(trigger, payloads, sent_tx_callback.clone(), context)
                 .await?;
             let mut num_tasks = spam_tasks.len();
@@ -970,6 +974,9 @@ where
                             num_tasks -= 1;
                         }
                     },
+                    Some(err) = error_receiver.recv() => {
+                        return Err(err);
+                    }
                     _ = self.ctx.cancel_token.cancelled() => {
                         break;
                     }

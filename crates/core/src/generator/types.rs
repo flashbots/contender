@@ -67,6 +67,12 @@ pub enum SpamRequest {
     Bundle(BundleCallDefinition),
 }
 
+impl SpamRequest {
+    pub fn is_bundle(&self) -> bool {
+        matches!(self, SpamRequest::Bundle(_))
+    }
+}
+
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct CreateDefinition {
     /// Bytecode of the contract to deploy.

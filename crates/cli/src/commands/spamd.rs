@@ -19,9 +19,12 @@ pub async fn spamd(
     args: SpamCommandArgs,
     gen_report: bool,
     limit_loops: Option<u64>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), ContenderError> {
     let is_done = Arc::new(AtomicBool::new(false));
+    println!("scenario initializing...");
     let mut scenario = args.init_scenario(db).await?;
+
+    println!("scenario initialized");
 
     // collects run IDs from the spam command
     let mut run_ids = vec![];
@@ -61,7 +64,7 @@ pub async fn spamd(
         let db = db.clone();
         let spam_res = commands::spam(&db, &args, &mut scenario).await;
         if let Err(e) = spam_res {
-            warn!("spam failed: {e:?}");
+            warn!("spam run failed: {e:?}");
         } else {
             let run_id = spam_res.expect("spam");
             if let Some(run_id) = run_id {
@@ -91,7 +94,7 @@ pub async fn spamd(
     tokio::select! {
         _ = run_report() => {},
         _ = tokio::signal::ctrl_c() => {
-            info!("CTRL-C received, shutting down...");
+            info!("CTRL-C received, cancelling report...");
         }
     }
 

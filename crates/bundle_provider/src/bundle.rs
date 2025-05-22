@@ -1,6 +1,7 @@
 use alloy::rpc::types::mev::{EthBundleHash, EthSendBundle};
 
 use crate::{
+    error::BundleProviderError,
     revert_bundle::{RevertProtectBundle, RevertProtectBundleRequest},
     BundleClient,
 };
@@ -19,7 +20,7 @@ pub enum Bundle {
 }
 
 impl Bundle {
-    pub async fn send(&self, client: &BundleClient) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn send(&self, client: &BundleClient) -> Result<(), BundleProviderError> {
         match self {
             Bundle::L1(b) => client.send_bundle::<_, EthBundleHash>(b).await,
             Bundle::Revertable(b) => {
