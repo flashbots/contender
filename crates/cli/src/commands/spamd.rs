@@ -21,10 +21,7 @@ pub async fn spamd(
     limit_loops: Option<u64>,
 ) -> Result<(), ContenderError> {
     let is_done = Arc::new(AtomicBool::new(false));
-    println!("scenario initializing...");
     let mut scenario = args.init_scenario(db).await?;
-
-    println!("scenario initialized");
 
     // collects run IDs from the spam command
     let mut run_ids = vec![];
