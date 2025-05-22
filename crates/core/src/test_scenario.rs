@@ -27,7 +27,7 @@ use alloy::signers::local::{LocalSigner, PrivateKeySigner};
 use alloy::transports::http::reqwest::Url;
 use contender_bundle_provider::bundle::{Bundle, BundleType};
 use contender_bundle_provider::bundle_provider::new_basic_bundle;
-use contender_bundle_provider::revert_bundle::RevertProtectBundleRequest;
+use contender_bundle_provider::revert_bundle::RevertProtectBundle;
 use contender_bundle_provider::BundleClient;
 use contender_engine_provider::AdvanceChain;
 use futures::{Stream, StreamExt};
@@ -852,9 +852,9 @@ where
 
                         let rpc_bundle = match bundle_type {
                             BundleType::L1 => new_basic_bundle(bundle_txs, block_num),
-                            BundleType::Revertable => RevertProtectBundleRequest::new()
-                                .with_txs(bundle_txs)
-                                .prepare(),
+                            BundleType::Revertable => {
+                                RevertProtectBundle::new().with_txs(bundle_txs).prepare()
+                            }
                         };
                         if let Some(bundle_client) = bundle_client {
                             info!("spamming bundle: {rpc_bundle:?}");
