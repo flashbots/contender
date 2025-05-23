@@ -1,7 +1,8 @@
-use std::{error::Error, fs, vec};
+use std::{error::Error, fs, sync::Arc, vec};
 
 use contender_core::generator::RandSeed;
-use tracing::info;
+use tokio::{sync::Mutex, task};
+use tracing::{error, info};
 use yaml_rust2::{Yaml, YamlLoader};
 
 use crate::{commands::common::cli_env_vars_parser, util::EngineParams};
@@ -24,18 +25,33 @@ pub async fn composite(
         None => String::from("./contender-compose.yml"),
     };
 
-    println!("Compose file {:?}", &compose_file_name);
-
     let scenarios = get_setup_from_compose_file(compose_file_name)?;
+    let sharable_db = Arc::new(Mutex::new(db.clone()));
 
-    for scenario in scenarios {
-        info!("================================================================================================= Setting up contract for: {} =================================================================================================", scenario.name);
-        setup(db, scenario.config).await?;
-    }
+    let tasks: Vec<_> = scenarios
+        .into_iter()
+        .enumerate()
+        .map(|(index, scenario)| {
+            let db_clone = sharable_db.clone();
+            let scenario_config = scenario.clone();
+
+            task::spawn(async move {
+                let result = setup(&*db_clone.lock().await, scenario_config.config).await;
+                match &result {
+                    Ok(_) => info!("Scenario [{index}] - {}: completed successfully", &scenario_config.name),
+                    Err(err) => error!("Scenario [{index}] - {} failed: {err:?}", &scenario_config.name),
+                };
+            })
+        })
+        .collect();
+    futures::future::join_all(tasks).await;
+    info!("================================================================================================= Done Composite run for setup =================================================================================================");
+   
 
     Ok(())
 }
 
+#[derive(Clone)]
 pub struct ComposeFileScenario {
     pub name: String,
     pub config: SetupCommandArgs,

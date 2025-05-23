@@ -154,6 +154,7 @@ async fn is_balance_sufficient(
     Ok((balance >= min_balance, balance))
 }
 
+#[derive(Clone)]
 pub struct EngineParams {
     pub engine_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
     pub call_fcu: bool,

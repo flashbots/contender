@@ -239,6 +239,7 @@ pub async fn setup(
     Ok(())
 }
 
+#[derive(Clone)]
 pub struct SetupCommandArgs {
     pub testfile: String,
     pub rpc_url: String,
