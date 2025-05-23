@@ -12,6 +12,7 @@ use alloy::{
 use commands::{
     admin::handle_admin_command,
     common::{ScenarioSendTxsCliArgs, SendSpamCliArgs},
+    composite::CompositeScenarioArgs,
     db::{drop_db, export_db, import_db, reset_db},
     ContenderCli, ContenderSubcommand, DbCommand, SetupCliArgs, SetupCommandArgs, SpamCliArgs,
     SpamCommandArgs, SpamScenario,
@@ -96,6 +97,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             DbCommand::Export { out_path } => export_db(&db_path, out_path).await?,
             DbCommand::Import { src_path } => import_db(src_path, &db_path).await?,
         },
+        ContenderSubcommand::Composite { filename } => {
+            commands::composite(&db, CompositeScenarioArgs { filename }).await?;
+        }
 
         ContenderSubcommand::Setup {
             args:

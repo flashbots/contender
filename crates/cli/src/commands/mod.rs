@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod common;
+pub mod composite;
 mod contender_subcommand;
 pub mod db;
 mod report;
@@ -9,6 +10,7 @@ mod spamd;
 
 use clap::Parser;
 
+pub use composite::composite;
 pub use contender_subcommand::{ContenderSubcommand, DbCommand};
 pub use report::report;
 pub use setup::{setup, SetupCliArgs, SetupCommandArgs};
