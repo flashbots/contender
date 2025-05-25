@@ -20,12 +20,12 @@ use alloy::{
 use contender_core::{
     agent_controller::AgentStore,
     db::{DbOps, SpamDuration, SpamRunRequest},
+    engine_provider::{AdvanceChain, AuthProvider},
     error::ContenderError,
     generator::{seeder::Seeder, templater::Templater, PlanConfig, RandSeed},
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
 };
-use contender_engine_provider::{AdvanceChain, AuthProvider};
 use contender_testfile::TestConfig;
 use op_alloy_network::Optimism;
 use std::{path::PathBuf, sync::atomic::AtomicBool};

@@ -1971,13 +1971,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c74b8349d32d297c9134b8c88677813a227df8f779daa29bfc29c183fe3dca6"
 
 [[package]]
-name = "contender_bundle_provider"
-version = "0.1.5"
-dependencies = [
- "alloy",
-]
-
-[[package]]
 name = "contender_cli"
 version = "0.1.5"
 dependencies = [
@@ -1987,7 +1980,6 @@ dependencies = [
  "chrono",
  "clap",
  "contender_core",
- "contender_engine_provider",
  "contender_sqlite",
  "contender_testfile",
  "csv",
@@ -2013,27 +2005,6 @@ name = "contender_core"
 version = "0.1.5"
 dependencies = [
  "alloy",
- "async-trait",
- "contender_bundle_provider",
- "contender_engine_provider",
- "eyre",
- "futures",
- "prometheus",
- "rand 0.8.5",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
- "tower",
- "tracing",
- "tracing-subscriber 0.3.19",
-]
-
-[[package]]
-name = "contender_engine_provider"
-version = "0.1.5"
-dependencies = [
- "alloy",
  "alloy-json-rpc",
  "alloy-rpc-types-engine",
  "async-trait",
@@ -2042,15 +2013,21 @@ dependencies = [
  "op-alloy-consensus",
  "op-alloy-network",
  "op-alloy-rpc-types",
+ "prometheus",
+ "rand 0.8.5",
  "reth-node-api",
  "reth-optimism-node",
  "reth-optimism-primitives",
  "reth-rpc-layer",
  "secp256k1",
+ "serde",
+ "serde_json",
  "thiserror 2.0.12",
  "tokio",
+ "tokio-util",
  "tower",
  "tracing",
+ "tracing-subscriber 0.3.19",
 ]
 
 [[package]]

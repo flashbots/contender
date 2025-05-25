@@ -1,8 +1,8 @@
 use std::sync::atomic::AtomicBool;
 use std::{pin::Pin, sync::Arc};
 
+use crate::engine_provider::DEFAULT_BLOCK_TIME;
 use alloy::providers::Provider;
-use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use futures::Stream;
 use futures::StreamExt;
 use tracing::{info, warn};

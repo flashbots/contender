@@ -16,11 +16,12 @@ use alloy::{
 use contender_core::generator::PlanConfig;
 use contender_core::{
     agent_controller::{AgentStore, SignerStore},
+    engine_provider::DEFAULT_BLOCK_TIME,
     error::ContenderError,
     generator::RandSeed,
     test_scenario::{TestScenario, TestScenarioParams},
 };
-use contender_engine_provider::DEFAULT_BLOCK_TIME;
+
 use std::{
     str::FromStr,
     sync::{

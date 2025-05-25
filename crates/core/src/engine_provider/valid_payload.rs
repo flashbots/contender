@@ -2,7 +2,7 @@
 //! response. This is useful for benchmarking, as it allows us to wait for a payload to be valid
 //! before sending additional calls.
 
-use crate::{auth_provider::NetworkAttributes, engine::EngineApi};
+use crate::engine_provider::{auth_provider::NetworkAttributes, engine::EngineApi};
 use alloy::primitives::B256;
 use alloy::providers::Network;
 use alloy::transports::TransportResult;

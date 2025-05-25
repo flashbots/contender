@@ -19,8 +19,8 @@ use reth_optimism_node::OpPayloadAttributes;
 use std::path::PathBuf;
 use tracing::{debug, info};
 
-use crate::{engine::Signer, read_jwt_file};
-use crate::{error::AuthProviderError, valid_payload::EngineApiValidWaitExt};
+use crate::engine_provider::{engine::Signer, read_jwt_file};
+use crate::engine_provider::{error::AuthProviderError, valid_payload::EngineApiValidWaitExt};
 
 use super::{auth_transport::AuthenticatedTransportConnect, AdvanceChain};
 

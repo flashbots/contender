@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use crate::auth_provider::AuthResult;
+use crate::engine_provider::auth_provider::AuthResult;
 
 #[async_trait]
 pub trait AdvanceChain {

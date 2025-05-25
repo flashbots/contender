@@ -1,7 +1,7 @@
 //! Contains a wrapper for auth_provider to handle errors in the cli context.
 
 use async_trait::async_trait;
-use contender_engine_provider::{error::AuthProviderError, AdvanceChain, AuthResult};
+use contender_core::engine_provider::{error::AuthProviderError, AdvanceChain, AuthResult};
 use tracing::warn;
 
 pub struct AuthClient {
@@ -23,7 +23,7 @@ impl AdvanceChain for AuthClient {
             .map_err(|e| {
                 match e {
                     AuthProviderError::InternalError(_, _) => {
-                        warn!("AuthClient encountered an internal error. Please check contender_engine_provider debug logs for more details.");
+                        warn!("AuthClient encountered an internal error. Please check contender_core::engine_provider debug logs for more details.");
                     }
                     AuthProviderError::ConnectionFailed(_) => {
                         warn!("Please check the auth provider connection.");
