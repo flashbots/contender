@@ -2,7 +2,6 @@
 members = [
     "crates/cli/",
     "crates/core/",
-    "crates/engine_provider",
     "crates/sqlite_db/",
     "crates/testfile/",
 ]
@@ -21,7 +20,6 @@ repository = "https://github.com/flashbots/contender"
 contender_core = { path = "crates/core/" }
 contender_sqlite = { path = "crates/sqlite_db/" }
 contender_testfile = { path = "crates/testfile/" }
-contender_engine_provider = { path = "crates/engine_provider/" }
 
 eyre = "0.6.12"
 tokio = { version = "1.40.0" }

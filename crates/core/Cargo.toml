@@ -10,9 +10,18 @@ repository.workspace = true
 description = "Contender core library"
 
 [dependencies]
-contender_engine_provider = { workspace = true }
 
-alloy = { workspace = true, features = ["full", "node-bindings"] }
+alloy = { workspace = true, features = [
+    "full",
+    "node-bindings",
+    "rpc-types-mev",
+    "json-rpc",
+    "provider-engine-api",
+] }
+alloy-rpc-types-engine = { workspace = true, features = ["std", "jwt"] }
+alloy-chains = { version = "0.1.64", default-features = false }
+alloy-json-rpc = { workspace = true }
+
 async-trait.workspace = true
 eyre = { workspace = true }
 futures = { workspace = true }
@@ -20,8 +29,14 @@ prometheus = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["signal"] }
 tokio-util = { workspace = true }
 tower = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+
+reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.3.4", default-features = false }
+reth-optimism-node = { git = "https://github.com/paradigmxyz/reth", tag = "v1.3.4" }
+op-rbuilder = { git = "https://github.com/flashbots/rbuilder", branch = "brock/tester-engine-api", default-features = false }
+op-alloy-consensus = { version = "0.11.2", default-features = false }

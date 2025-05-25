@@ -8,6 +8,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use ansi_term::Color;
+use contender_core::engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use contender_core::{
     db::RunTx,
     generator::{
@@ -16,7 +17,6 @@ use contender_core::{
     },
     spammer::{LogCallback, NilCallback},
 };
-use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
 use csv::Writer;
 use std::{str::FromStr, sync::Arc, time::Duration};

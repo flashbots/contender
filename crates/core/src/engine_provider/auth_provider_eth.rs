@@ -12,7 +12,7 @@ use alloy_rpc_types_engine::JwtSecret;
 use async_trait::async_trait;
 use tracing::{debug, info};
 
-use crate::{
+use crate::engine_provider::{
     read_jwt_file,
     valid_payload::{call_fcu_default, call_new_payload},
 };
