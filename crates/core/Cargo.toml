@@ -1,6 +1,6 @@
 [package]
 name = "contender_core"
-version = "0.1.2"
+version = "0.1.4"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -10,7 +10,6 @@ repository.workspace = true
 description = "Contender core library"
 
 [dependencies]
-contender_bundle_provider = { workspace = true }
 contender_engine_provider = { workspace = true }
 
 alloy = { workspace = true, features = ["full", "node-bindings"] }
