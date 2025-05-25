@@ -99,7 +99,6 @@ pub struct SpamCliArgs {
     )]
     pub skip_deploy_prompt: bool,
 }
-
 pub enum SpamScenario {
     Testfile(String),
     Builtin(BuiltinScenario),
