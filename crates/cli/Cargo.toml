@@ -44,6 +44,7 @@ tracing-subscriber = { workspace = true }
 webbrowser = { workspace = true }
 yaml-rust2 = "0.10.2"
 op-alloy-network = { workspace = true }
+hashlink = "0.10.0"
 
 [dev-dependencies]
 tempfile = "3.15.0"

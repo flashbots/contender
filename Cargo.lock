@@ -2031,6 +2031,7 @@ dependencies = [
  "csv",
  "futures",
  "handlebars",
+ "hashlink 0.10.0",
  "op-alloy-network",
  "plotters",
  "prometheus",

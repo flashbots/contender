@@ -17,22 +17,22 @@ setup:
 spam:
   stages:
     warmup:
-      - scenario: ./scenarios/simpler.toml
+      - testfile: ./scenarios/simpler.toml
         tps: 3
         duration: 3
         loop: 2
-      - scenario: ./scenarios/simpler.toml
+      - testfile: ./scenarios/simpler.toml
         tps: 3
         duration: 3
         loop: 2
-      - scenario: ./scenarios/simpler.toml
+      - testfile: ./testfiles/simpler.toml
         tps: 3
         duration: 3
         loop: 2
-      - scenario: ./scenarios/uniV2.toml
+      - testfile: ./testfiles/uniV2.toml
         tps: 2
         duration: 3
     medium:
-      - scenario: ./scenarios/simpler.toml
+      - testfile: ./testfiles/simpler.toml
         tps: 10
         duration: 2

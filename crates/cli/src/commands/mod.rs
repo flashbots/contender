@@ -2,6 +2,7 @@ pub mod admin;
 pub mod common;
 pub mod composite;
 mod contender_subcommand;
+mod composefile;
 pub mod db;
 mod report;
 mod setup;
