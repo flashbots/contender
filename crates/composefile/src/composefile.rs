@@ -1,22 +1,21 @@
-use contender_core::generator::RandSeed;
 use hashlink::LinkedHashMap;
 use yaml_rust2::{Yaml, YamlLoader};
-
-use crate::util::EngineParams;
-
-use super::{common::cli_env_vars_parser, spam, SetupCommandArgs, SpamCommandArgs};
 use std::{error::Error, fs, str::FromStr};
 
+use crate::{
+    types::{SetupCommandArgsJsonAdapter, SpamCommandArgsJsonAdapter},
+    utils::cli_env_vars_parser,
+};
 
 #[derive(Clone)]
 pub struct ComposeFileScenario {
     pub name: String,
-    pub config: SetupCommandArgs,
+    pub config: SetupCommandArgsJsonAdapter,
 }
 
 pub struct CompositeSpamConfiguration {
     pub stage_name: String,
-    pub spam_configs: Vec<SpamCommandArgs>,
+    pub spam_configs: Vec<SpamCommandArgsJsonAdapter>,
 }
 
 fn get_setup_from_compose_file(
@@ -62,26 +61,19 @@ fn get_setup_from_compose_file(
 
         setup_scenarios.push(ComposeFileScenario {
             name: scenario_name.as_str().unwrap().to_owned(),
-            config: SetupCommandArgs {
+            config: SetupCommandArgsJsonAdapter {
                 testfile,
                 rpc_url,
                 min_balance,
                 env: env_variables,
                 tx_type,
                 private_keys,
-
                 // TODO: Hardcoded parameters for now, need more understanding on where to get these from
-                seed: RandSeed::new(),
-                engine_params: EngineParams {
-                    engine_provider: None,
-                    call_fcu: false,
-                },
             },
         });
     }
     Ok(setup_scenarios)
 }
-
 
 fn get_spam_configuration_from_compose_file(
     compose_file_path: String,
@@ -113,7 +105,7 @@ fn get_spam_configuration_from_compose_file(
                     .unwrap()
                     .iter()
                     .map(|i| get_spam_object(i).unwrap())
-                    .collect::<Vec<SpamCommandArgs>>(),
+                    .collect::<Vec<SpamCommandArgsJsonAdapter>>(),
             }
         })
         .collect();
@@ -121,13 +113,12 @@ fn get_spam_configuration_from_compose_file(
     Ok(spam_stages_and_scenarios)
 }
 
-fn get_spam_object(spam_object_yaml: &Yaml) -> Result<SpamCommandArgs, Box<dyn Error>> {
+fn get_spam_object(spam_object_yaml: &Yaml) -> Result<SpamCommandArgsJsonAdapter, Box<dyn Error>> {
     // One of TPS or TPB should exist. need one of these for sure else an error.
     let spam_object = spam_object_yaml
         .clone()
         .into_hash()
         .ok_or(format!("Malformed scenario {spam_object_yaml:?}"))?;
-
 
     let testfile_path = get_testfile(&spam_object)?;
 
@@ -140,7 +131,6 @@ fn get_spam_object(spam_object_yaml: &Yaml) -> Result<SpamCommandArgs, Box<dyn E
     let private_keys = get_private_keys(&spam_object)?;
 
     let tx_type = get_tx_type(&spam_object)?;
-
 
     let txs_per_second = match spam_object.get(&Yaml::String("tps".into())) {
         Some(tps_value) => tps_value.as_i64().map(|value| value as u64),
@@ -159,7 +149,6 @@ fn get_spam_object(spam_object_yaml: &Yaml) -> Result<SpamCommandArgs, Box<dyn E
     if txs_per_second.is_none() && txs_per_block.is_none() {
         return Err("Neither tps nor tpb is specified.".into());
     }
-
 
     let timeout_secs = match spam_object.get(&Yaml::String("timeout".into())) {
         Some(timeout_value) => match timeout_value.as_i64() {
@@ -193,8 +182,8 @@ fn get_spam_object(spam_object_yaml: &Yaml) -> Result<SpamCommandArgs, Box<dyn E
         None => Some(1),
     };
 
-    let spam_command_args = SpamCommandArgs {
-        scenario: spam::SpamScenario::Testfile(testfile_path),
+    let spam_command_args = SpamCommandArgsJsonAdapter {
+        scenario: testfile_path,
         txs_per_block,
         txs_per_second,
         rpc_url,
@@ -206,15 +195,6 @@ fn get_spam_object(spam_object_yaml: &Yaml) -> Result<SpamCommandArgs, Box<dyn E
         min_balance,
         tx_type,
         loops,
-
-        // TODO: Need more knowledge
-        seed: "0x01".into(),
-        disable_reporting: true,
-        engine_params: EngineParams {
-            engine_provider: None,
-            call_fcu: false,
-        },
-        gas_price_percent_add: None,
     };
     Ok(spam_command_args)
 }
@@ -274,21 +254,19 @@ pub fn get_private_keys(
     }
 }
 
-pub fn get_tx_type(
-    yaml_object: &LinkedHashMap<Yaml, Yaml>,
-) -> Result<alloy::consensus::TxType, Box<dyn Error>> {
+pub fn get_tx_type(yaml_object: &LinkedHashMap<Yaml, Yaml>) -> Result<String, Box<dyn Error>> {
     match yaml_object.get(&Yaml::String("tx_type".into())) {
         Some(value) => match value {
             Yaml::String(tx_type_string) => match tx_type_string.as_str() {
-                "legacy" => Ok(alloy::consensus::TxType::Legacy),
-                "eip1559" => Ok(alloy::consensus::TxType::Eip1559),
+                "legacy" => Ok("legacy".into()),
+                "eip1559" => Ok("eip1559".into()),
                 _ => {
                     Err(format!("Invalid Value for 'tx_type' = {}", tx_type_string.as_str()).into())
                 }
             },
             _ => Err(format!("Invalid type value for 'tx_type' = {value:?}").into()),
         },
-        None => Ok(alloy::consensus::TxType::Eip1559),
+        None => Ok("eip1559".into()),
     }
 }
 
@@ -337,9 +315,6 @@ impl ComposeFile {
         })
     }
 }
-
-
-
 
 #[cfg(test)]
 mod test {
@@ -390,10 +365,7 @@ setup:
         assert_eq!(scenarios[0].config.testfile, "./tests/test1.js");
         assert_eq!(scenarios[0].config.rpc_url, "http://localhost:9545");
         assert_eq!(scenarios[0].config.min_balance, "5");
-        assert_eq!(
-            scenarios[0].config.tx_type,
-            alloy::consensus::TxType::Eip1559
-        );
+        assert_eq!(scenarios[0].config.tx_type, "eip1559".to_string());
 
         let private_keys = scenarios[0].config.private_keys.as_ref().unwrap();
         assert_eq!(private_keys.len(), 2);
@@ -448,10 +420,7 @@ setup:
         assert_eq!(scenarios[0].config.testfile, "./tests/test1.js");
         assert_eq!(scenarios[0].config.rpc_url, "http://localhost:8545");
         assert_eq!(scenarios[0].config.min_balance, "0.01"); // Default value
-        assert_eq!(
-            scenarios[0].config.tx_type,
-            alloy::consensus::TxType::Eip1559
-        );
+        assert_eq!(scenarios[0].config.tx_type, "eip1559".to_string());
         assert_eq!(scenarios[0].config.env, None);
         assert_eq!(scenarios[0].config.private_keys, None);
         Ok(())
@@ -471,10 +440,7 @@ setup:
             get_setup_from_compose_file(temp_file.path().to_string_lossy().to_string())?;
 
         assert_eq!(scenarios.len(), 1);
-        assert_eq!(
-            scenarios[0].config.tx_type,
-            alloy::consensus::TxType::Legacy
-        );
+        assert_eq!(scenarios[0].config.tx_type, "legacy".to_string());
 
         Ok(())
     }
@@ -492,10 +458,7 @@ setup:
         let scenarios =
             get_setup_from_compose_file(temp_file.path().to_string_lossy().to_string())?;
 
-        assert_eq!(
-            scenarios[0].config.tx_type,
-            alloy::consensus::TxType::Eip1559
-        );
+        assert_eq!(scenarios[0].config.tx_type, "eip1559".to_string());
 
         Ok(())
     }

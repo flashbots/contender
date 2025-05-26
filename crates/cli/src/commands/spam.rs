@@ -7,6 +7,8 @@ use crate::{
     },
     LATENCY_HIST as HIST, PROM,
 };
+use contender_composefile::types::SpamCommandArgsJsonAdapter;
+
 use alloy::{
     consensus::TxType,
     network::AnyNetwork,
@@ -21,7 +23,11 @@ use contender_core::{
     agent_controller::AgentStore,
     db::{DbOps, SpamDuration, SpamRunRequest},
     error::ContenderError,
-    generator::{seeder::Seeder, templater::Templater, PlanConfig, RandSeed},
+    generator::{
+        seeder::{SeedValue, Seeder},
+        templater::Templater,
+        PlanConfig, RandSeed,
+    },
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
 };
@@ -323,7 +329,38 @@ impl SpamCommandArgs {
     }
 }
 
-/// Runs spammer and returns run ID.
+impl From<SpamCommandArgsJsonAdapter> for SpamCommandArgs {
+    fn from(spam_object: SpamCommandArgsJsonAdapter) -> Self {
+        SpamCommandArgs {
+            scenario: SpamScenario::Testfile(spam_object.scenario),
+            txs_per_block: spam_object.txs_per_block,
+            txs_per_second: spam_object.txs_per_second,
+            rpc_url: spam_object.rpc_url,
+            builder_url: spam_object.builder_url,
+            timeout_secs: spam_object.timeout_secs,
+            duration: spam_object.duration,
+            env: spam_object.env,
+            private_keys: spam_object.private_keys,
+            min_balance: spam_object.min_balance,
+            tx_type: if spam_object.tx_type == *"eip1559" {
+                alloy::consensus::TxType::Eip1559
+            } else {
+                alloy::consensus::TxType::Legacy
+            },
+            loops: spam_object.loops,
+
+            // TODO: Need more knowledge, hence hardcoding them for now
+            seed: "0x01".into(),
+            disable_reporting: true,
+            engine_params: EngineParams {
+                engine_provider: None,
+                call_fcu: false,
+            },
+            gas_price_percent_add: None,
+        }
+    }
+}
+
 pub async fn spam<
     D: DbOps + Clone + Send + Sync + 'static,
     S: Seeder + Send + Sync + Clone,

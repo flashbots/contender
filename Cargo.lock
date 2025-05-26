@@ -2024,6 +2024,7 @@ dependencies = [
  "ansi_term",
  "chrono",
  "clap",
+ "contender_composefile",
  "contender_core",
  "contender_engine_provider",
  "contender_sqlite",
@@ -2045,6 +2046,18 @@ dependencies = [
  "tracing",
  "tracing-subscriber 0.3.19",
  "webbrowser",
+ "yaml-rust2",
+]
+
+[[package]]
+name = "contender_composefile"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "contender_core",
+ "hashlink 0.10.0",
+ "serde",
+ "tempfile",
  "yaml-rust2",
 ]
 

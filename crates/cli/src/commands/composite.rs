@@ -1,11 +1,10 @@
 use std::{fmt::Debug, sync::Arc};
 
+use contender_composefile::composefile::{ComposeFile, CompositeSpamConfiguration};
 use tokio::{sync::Mutex, task};
 use tracing::{error, info};
 
-use crate::commands::{composefile::CompositeSpamConfiguration};
-
-use super::{composefile::{ComposeFile}, setup, spam};
+use crate::commands::{setup, spam, SetupCommandArgs, SpamCommandArgs};
 
 #[derive(Debug, clap::Args)]
 pub struct CompositeScenarioArgs {
@@ -31,9 +30,10 @@ pub async fn composite(
             .map(|(index, scenario)| {
                 let db_clone = sharable_db.clone();
                 let scenario_config = scenario.clone();
+                let setup_command_args = SetupCommandArgs::from(scenario_config.config);
 
                 task::spawn(async move {
-                    let result = setup(&*db_clone.lock().await, scenario_config.config).await;
+                    let result = setup(&*db_clone.lock().await, setup_command_args).await;
                     match &result {
                         Ok(_) => info!(
                             "Scenario [{index}] - {}: completed successfully",
@@ -68,12 +68,17 @@ pub async fn composite(
                 info!("Starting scenario [{spam_scenario_index:?}]");
                 let db_clone = sharable_db.clone();
                 let task = task::spawn(async move {
-                    let mut test_scenario = spam_command
+                    let spam_command_args = SpamCommandArgs::from(spam_command);
+                    let mut test_scenario = spam_command_args
                         .init_scenario(&*db_clone.lock().await)
                         .await
                         .unwrap();
-                    let spam_result =
-                        spam(&*db_clone.lock().await, &spam_command, &mut test_scenario).await;
+                    let spam_result = spam(
+                        &*db_clone.lock().await,
+                        &spam_command_args,
+                        &mut test_scenario,
+                    )
+                    .await;
                     match spam_result {
                         Ok(run_id) => {
                             if let Some(run_id_value) = run_id {
@@ -98,4 +103,3 @@ pub async fn composite(
     }
     Ok(())
 }
-

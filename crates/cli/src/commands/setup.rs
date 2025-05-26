@@ -13,6 +13,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
     transports::http::reqwest::Url,
 };
+use contender_composefile::types::SetupCommandArgsJsonAdapter;
 use contender_core::generator::PlanConfig;
 use contender_core::{
     agent_controller::{AgentStore, SignerStore},
@@ -249,4 +250,28 @@ pub struct SetupCommandArgs {
     pub tx_type: TxType,
     pub engine_params: EngineParams,
     pub env: Option<Vec<(String, String)>>,
+}
+
+impl From<SetupCommandArgsJsonAdapter> for SetupCommandArgs {
+    fn from(setup_object: SetupCommandArgsJsonAdapter) -> Self {
+        SetupCommandArgs {
+            testfile: setup_object.testfile,
+            rpc_url: setup_object.rpc_url,
+            private_keys: setup_object.private_keys,
+            env: setup_object.env,
+            min_balance: setup_object.min_balance,
+            tx_type: if setup_object.tx_type == *"eip1559" {
+                alloy::consensus::TxType::Eip1559
+            } else {
+                alloy::consensus::TxType::Legacy
+            },
+
+            // TODO: Hardcoded parameters for now, need more understanding on where to get these from
+            seed: RandSeed::new(),
+            engine_params: EngineParams {
+                engine_provider: None,
+                call_fcu: false,
+            },
+        }
+    }
 }

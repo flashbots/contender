@@ -22,17 +22,20 @@ spam:
         duration: 3
         loop: 2
       - testfile: ./scenarios/simpler.toml
-        tps: 3
+        tps: 1
         duration: 3
         loop: 2
-      - testfile: ./testfiles/simpler.toml
-        tps: 3
+      - testfile: ./scenarios/simpler.toml
+        tps: 4
         duration: 3
         loop: 2
-      - testfile: ./testfiles/uniV2.toml
-        tps: 2
-        duration: 3
     medium:
-      - testfile: ./testfiles/simpler.toml
+      - testfile: ./scenarios/uniV2.toml
         tps: 10
+        min_balance: 20
+        loop: 1
         duration: 2
+      - testfile: ./scenarios/simpler.toml
+        tps: 14
+        duration: 3
+        loop: 2

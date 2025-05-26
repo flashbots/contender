@@ -1,7 +1,8 @@
 [workspace]
 members = [
     "crates/bundle_provider",
-    "crates/cli/",
+    "crates/cli/", 
+    "crates/composefile/",
     "crates/core/",
     "crates/engine_provider",
     "crates/sqlite_db/",
@@ -20,6 +21,7 @@ repository = "https://github.com/flashbots/contender"
 
 [workspace.dependencies]
 contender_core = { path = "crates/core/" }
+contender_composefile = { path = "crates/composefile/" }
 contender_sqlite = { path = "crates/sqlite_db/" }
 contender_testfile = { path = "crates/testfile/" }
 contender_bundle_provider = { path = "crates/bundle_provider/" }
