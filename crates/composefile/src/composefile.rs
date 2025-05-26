@@ -1,6 +1,6 @@
 use hashlink::LinkedHashMap;
-use yaml_rust2::{Yaml, YamlLoader};
 use std::{error::Error, fs, str::FromStr};
+use yaml_rust2::{Yaml, YamlLoader};
 
 use crate::{
     types::{SetupCommandArgsJsonAdapter, SpamCommandArgsJsonAdapter},
@@ -301,14 +301,14 @@ pub fn get_testfile(yaml_object: &LinkedHashMap<Yaml, Yaml>) -> Result<String, B
 }
 
 pub struct ComposeFile {
-    pub setup: Option<Vec<ComposeFileScenario>>,
-    pub spam: Option<Vec<CompositeSpamConfiguration>>,
+    pub setup: Vec<ComposeFileScenario>,
+    pub spam: Vec<CompositeSpamConfiguration>,
 }
 
 impl ComposeFile {
     pub fn init_from_path(file_path: String) -> Result<Self, Box<dyn Error>> {
-        let setup_config = Some(get_setup_from_compose_file(file_path.clone())?);
-        let spam_config = Some(get_spam_configuration_from_compose_file(file_path.clone())?);
+        let setup_config = get_setup_from_compose_file(file_path.clone())?;
+        let spam_config = get_spam_configuration_from_compose_file(file_path.clone())?;
         Ok(ComposeFile {
             setup: setup_config,
             spam: spam_config,
