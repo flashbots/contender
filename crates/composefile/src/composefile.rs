@@ -69,6 +69,8 @@ fn get_setup_from_compose_file(
                 tx_type,
                 private_keys,
                 // TODO: Hardcoded parameters for now, need more understanding on where to get these from
+                // seed,
+                // engine_params
             },
         });
     }
