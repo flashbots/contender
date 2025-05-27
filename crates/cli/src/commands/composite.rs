@@ -69,26 +69,25 @@ pub async fn composite(
             let task = task::spawn(async move {
                 let spam_command_args = SpamCommandArgs::from(spam_command);
 
-                let mut test_scenario = spam_command_args
-                    .init_scenario(&*db_clone.lock().await)
-                    .await
-                    .unwrap();
-                let spam_result = spam(
-                    &*db_clone.lock().await,
-                    &spam_command_args,
-                    &mut test_scenario,
-                )
-                .await;
-                match spam_result {
-                    Ok(run_id) => {
-                        if let Some(run_id_value) = run_id {
-                            info!("Successful: Scenario [{spam_scenario_index:?}] Run ID: [{run_id_value:?}]");
-                        } else {
-                            info!("Successful: Scenario [{spam_scenario_index:?}] No run ID");
-                        }
+                let spam_call = async || -> Result<(), Box<dyn std::error::Error>> {
+                    let mut test_scenario = spam_command_args
+                        .init_scenario(&*db_clone.lock().await)
+                        .await?;
+                    spam(
+                        &*db_clone.lock().await,
+                        &spam_command_args,
+                        &mut test_scenario,
+                    )
+                    .await?;
+                    Ok(())
+                };
+
+                match spam_call().await {
+                    Ok(()) => {
+                        info!("Successful: Scenario [{spam_scenario_index:?}]");
                     }
-                    Err(e) => {
-                        error!("Error: Scenario [{spam_scenario_index:?}]: {e:?}");
+                    Err(err) => {
+                        error!("Error occured while Scenario [{spam_scenario_index:?}]: {err:?}")
                     }
                 };
             });
