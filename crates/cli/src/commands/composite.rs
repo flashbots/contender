@@ -23,7 +23,7 @@ pub async fn composite(
     let compose_file = ComposeFile::init_from_path(compose_file_name)?;
     let sharable_db = Arc::new(Mutex::new(db.clone()));
 
-    let setup_scenarios = compose_file.setup;
+    let setup_scenarios = compose_file.get_setup_config()?;
     let setup_tasks: Vec<_> = setup_scenarios
         .into_iter()
         .enumerate()
@@ -53,7 +53,7 @@ pub async fn composite(
 
     info!("================================================================================================= Done Composite run for setup =================================================================================================");
 
-    let spam_scenarios = compose_file.spam;
+    let spam_scenarios = compose_file.get_spam_config()?;
     for scenario in spam_scenarios {
         let CompositeSpamConfiguration {
             stage_name,
