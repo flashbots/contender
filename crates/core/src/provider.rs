@@ -163,7 +163,7 @@ pub mod tests {
     async fn bad_request_logs_error() -> Result<()> {
         TRACING_INIT.call_once(|| {
             let subscriber = FmtSubscriber::builder()
-                .with_env_filter("contender_core=debug")
+                .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
                 .finish();
             tracing::subscriber::set_global_default(subscriber)
                 .expect("setting default subscriber failed");
