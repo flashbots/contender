@@ -138,7 +138,7 @@ where
                 .connect_client(client),
         ));
 
-        // derive block time from last two blocks. if two blocks don't exist, assume block time is 1s
+        // derive block time from first two blocks. if two blocks don't exist, assume block time is 1s
         let block_num = rpc_client
             .get_block_number()
             .await
@@ -146,8 +146,9 @@ where
         let block_time_secs = if block_num > 0 {
             let mut timestamps = vec![];
             for i in [0_u64, 1] {
+                debug!("getting timestamp for block {i}");
                 let block = rpc_client
-                    .get_block_by_number((block_num - i).into())
+                    .get_block_by_number(i.into())
                     .await
                     .map_err(|e| ContenderError::with_err(e, "failed to get block"))?;
                 if let Some(block) = block {
@@ -155,7 +156,7 @@ where
                 }
             }
             if timestamps.len() == 2 {
-                (timestamps[0] - timestamps[1]).max(1)
+                (timestamps[1] - timestamps[0]).max(1)
             } else {
                 1
             }
@@ -849,7 +850,7 @@ where
                                 let block = rpc_client
                                     .get_block_by_hash(h)
                                     .await
-                                    .expect("failed to get block")
+                                    .expect("failed to get block by hash")
                                     .expect("block not found");
                                 block.header.number
                             }
