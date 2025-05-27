@@ -69,7 +69,6 @@ mod tests {
     };
     use contender_bundle_provider::bundle::BundleType;
     use tokio::sync::OnceCell;
-    use tracing::debug;
 
     use crate::{
         agent_controller::{AgentStore, SignerStore},
@@ -95,7 +94,7 @@ mod tests {
                 .network::<AnyNetwork>()
                 .connect_http(anvil.endpoint_url().to_owned()),
         );
-        debug!("anvil url: {}", anvil.endpoint_url());
+        println!("anvil url: {}", anvil.endpoint_url());
         let seed = crate::generator::RandSeed::seed_from_str("444444444444");
         let mut agents = AgentStore::new();
         let txs_per_period = 10u64;
@@ -123,7 +122,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-                debug!("funded signer: {res:?}");
+                println!("funded signer: {res:?}");
                 provider.watch_pending_transaction(res).await.unwrap();
                 nonce += 1;
             }
@@ -179,7 +178,7 @@ mod tests {
         }
 
         for addr in unique_addresses.iter() {
-            debug!("unique address: {addr}");
+            println!("unique address: {addr}");
         }
 
         assert!(unique_addresses.len() >= (txs_per_period / periods) as usize);

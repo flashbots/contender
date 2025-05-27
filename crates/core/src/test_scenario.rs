@@ -1377,7 +1377,6 @@ pub mod tests {
     use contender_bundle_provider::bundle::BundleType;
     use std::collections::HashMap;
     use tokio::sync::OnceCell;
-    use tracing::{debug, info};
 
     use super::TestScenarioParams;
 
@@ -1601,7 +1600,7 @@ pub mod tests {
         let mut agents = AgentStore::new();
         let config = MockConfig;
         let num_pools = config.get_spam_pools().len().max(1) as u64;
-        info!("spam pools: {num_pools}, txs_per_duration: {txs_per_duration}");
+        println!("spam pools: {num_pools}, txs_per_duration: {txs_per_duration}");
         agents.init(
             &["pool1", "pool2"],
             (txs_per_duration / num_pools) as usize,
@@ -1633,8 +1632,8 @@ pub mod tests {
         .unwrap();
 
         let fund_amount_wei = U256::from(fund_amount_eth * 1e18);
-        debug!("fund_amount_wei: {fund_amount_wei}");
-        debug!("fund_amount_eth: {fund_amount_eth}");
+        println!("fund_amount_wei: {fund_amount_wei}");
+        println!("fund_amount_eth: {fund_amount_eth}");
 
         let all_agent_names = scenario
             .agent_store
@@ -1642,7 +1641,7 @@ pub mod tests {
             .map(|(name, _)| name.to_owned())
             .collect::<Vec<_>>();
         for agent_name in &all_agent_names {
-            info!(
+            println!(
                 "funding agent: {agent_name} (num signers: {})",
                 scenario
                     .agent_store
@@ -1667,7 +1666,7 @@ pub mod tests {
 
         let create_txs = scenario
             .load_txs(PlanType::Create(|tx| {
-                info!("create tx callback triggered! {tx:?}\n");
+                println!("create tx callback triggered! {tx:?}\n");
                 Ok(None)
             }))
             .await?;
@@ -1675,7 +1674,7 @@ pub mod tests {
 
         let setup_txs = scenario
             .load_txs(PlanType::Setup(|tx| {
-                info!("setup tx callback triggered! {tx:?}\n");
+                println!("setup tx callback triggered! {tx:?}\n");
                 Ok(None)
             }))
             .await?;
@@ -1683,7 +1682,7 @@ pub mod tests {
 
         let spam_txs = scenario
             .load_txs(PlanType::Spam(20, |tx| {
-                info!("spam tx callback triggered! {tx:?}\n");
+                println!("spam tx callback triggered! {tx:?}\n");
                 Ok(None)
             }))
             .await?;
@@ -1699,7 +1698,7 @@ pub mod tests {
         let scenario = get_test_scenario(&anvil, 10, 10.0).await;
         let spam_txs = scenario
             .load_txs(PlanType::Spam(20, |tx| {
-                info!("spam tx callback triggered! {tx:?}\n");
+                println!("spam tx callback triggered! {tx:?}\n");
                 Ok(None)
             }))
             .await
@@ -1731,7 +1730,7 @@ pub mod tests {
 
         let spam_txs = scenario
             .load_txs(PlanType::Spam(10, |tx| {
-                info!("spam tx callback triggered! {tx:?}\n");
+                println!("spam tx callback triggered! {tx:?}\n");
                 Ok(None)
             }))
             .await
@@ -1743,8 +1742,8 @@ pub mod tests {
         };
         let from = tx.tx.from.unwrap();
         let input = tx.tx.input.input.as_ref().unwrap();
-        debug!("input: {input}");
-        debug!("from: {}", from.encode_hex());
+        println!("input: {input}");
+        println!("from: {}", from.encode_hex());
         assert!(input.encode_hex().contains(&from.encode_hex()));
     }
 
@@ -1755,7 +1754,7 @@ pub mod tests {
 
         let txs = scenario
             .load_txs(PlanType::Create(|tx| {
-                info!("create tx callback triggered! {tx:?}\n");
+                println!("create tx callback triggered! {tx:?}\n");
                 Ok(None)
             }))
             .await
@@ -1767,8 +1766,8 @@ pub mod tests {
             };
             let from = tx.tx.from.unwrap();
             let input = tx.tx.input.input.as_ref().unwrap();
-            debug!("input: {input}");
-            debug!("from: {}", from.encode_hex());
+            println!("input: {input}");
+            println!("from: {}", from.encode_hex());
             assert!(input.encode_hex().contains(&from.encode_hex()));
         }
     }
@@ -1862,7 +1861,7 @@ pub mod tests {
         let mut scenario = get_test_scenario(&anvil, 10, 10.0).await;
         scenario.deploy_contracts().await.unwrap();
         let res = scenario.run_setup().await;
-        info!("{res:?}");
+        println!("{res:?}");
         assert!(res.is_ok());
     }
 
@@ -1935,7 +1934,7 @@ pub mod tests {
                     max_nonce = *nonce;
                 }
             }
-            debug!("({from}) min_nonce: {min_nonce}, max_nonce: {max_nonce}");
+            println!("({from}) min_nonce: {min_nonce}, max_nonce: {max_nonce}");
         }
 
         Ok(())
