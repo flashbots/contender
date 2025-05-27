@@ -8,7 +8,7 @@ use crate::{
 use alloy::{
     consensus::TxType,
     network::AnyNetwork,
-    primitives::utils::{format_ether, parse_ether},
+    primitives::{utils::format_ether, U256},
     providers::{DynProvider, Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
     transports::http::reqwest::Url,
@@ -73,8 +73,6 @@ pub async fn setup(
         }
     }
     testconfig.env = Some(env_variables.clone());
-
-    let min_balance = parse_ether(&min_balance)?;
 
     let user_signers = private_keys
         .as_ref()
@@ -292,7 +290,7 @@ pub struct SetupCommandArgs {
     pub testfile: String,
     pub rpc_url: String,
     pub private_keys: Option<Vec<String>>,
-    pub min_balance: String,
+    pub min_balance: U256,
     pub seed: RandSeed,
     pub tx_type: TxType,
     pub bundle_type: BundleType,

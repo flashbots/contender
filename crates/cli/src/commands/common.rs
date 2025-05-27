@@ -2,6 +2,8 @@
 
 use super::EngineArgs;
 use crate::util::{BundleTypeCli, EngineParams, TxTypeCli};
+use alloy::primitives::utils::parse_units;
+use alloy::primitives::U256;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, clap::Args)]
@@ -41,9 +43,10 @@ May be specified multiple times."
     #[arg(
         long,
         long_help = "The minimum balance to check for each private key in decimal-ETH format (`--min-balance 1.5` means 1.5 * 1e18 wei).",
-        default_value = "0.01"
+        default_value = "0.01 ether",
+        value_parser = parse_amount,
     )]
-    pub min_balance: String,
+    pub min_balance: U256,
 
     /// Transaction type
     #[arg(
@@ -168,7 +171,7 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         default_value = "1",
         long_help = "Duration of the spamming run in seconds or blocks, depending on whether --txs-per-second or --txs-per-block is set."
     )]
-    pub duration: u64,
+    pub duration: u64, // TODO: make a new enum to represent seconds or blocks
 
     /// The time to wait for pending transactions to land, in seconds.
     #[arg(
@@ -204,6 +207,21 @@ pub fn cli_env_vars_parser(s: &str) -> Result<(String, String), String> {
         s[..equal_sign_index].to_string(),
         s[equal_sign_index + 1..].to_string(),
     ))
+}
+
+pub fn parse_amount(input: &str) -> Result<U256, String> {
+    let input = input.trim().to_lowercase();
+    let (num_str, unit) = input.trim().split_at(
+        input
+            .find(|c: char| !c.is_numeric() && c != '.')
+            .ok_or("Missing unit in amount")?,
+    );
+    let unit = unit.trim();
+    let value: U256 = parse_units(num_str, unit)
+        .map_err(|e| format!("Failed to parse units: {e}"))?
+        .into();
+
+    Ok(value)
 }
 
 #[cfg(test)]

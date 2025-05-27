@@ -10,10 +10,7 @@ use crate::{
 use alloy::{
     consensus::TxType,
     network::AnyNetwork,
-    primitives::{
-        utils::{format_ether, parse_ether},
-        U256,
-    },
+    primitives::{utils::format_ether, U256},
     providers::{DynProvider, ProviderBuilder},
     transports::http::reqwest::Url,
 };
@@ -114,7 +111,7 @@ pub struct SpamCommandArgs {
     pub seed: String,
     pub private_keys: Option<Vec<String>>,
     pub disable_reporting: bool,
-    pub min_balance: String,
+    pub min_balance: U256,
     pub tx_type: TxType,
     pub bundle_type: BundleType,
     /// Provide to enable engine calls (required to use `call_forkchoice`)
@@ -183,9 +180,6 @@ impl SpamCommandArgs {
                 .connect_http(url.to_owned()),
         );
 
-        let min_balance = parse_ether(min_balance)
-            .map_err(|e| ContenderError::with_err(e, "failed to parse min_balance"))?;
-
         let user_signers = get_signers_with_defaults(private_keys.to_owned());
 
         // distill all from_pool arguments from the spam requests
@@ -246,7 +240,7 @@ impl SpamCommandArgs {
             &all_signer_addrs,
             &user_signers[0],
             &rpc_client,
-            min_balance,
+            *min_balance,
             *tx_type,
             engine_params,
         )
@@ -325,12 +319,12 @@ impl SpamCommandArgs {
 
         let total_cost = U256::from(duration * loops.unwrap_or(1))
             * scenario.get_max_spam_cost(&user_signers).await?;
-        if min_balance < U256::from(total_cost) {
+        if *min_balance < U256::from(total_cost) {
             return Err(ContenderError::SpamError(
                 "min_balance is not enough to cover the cost of the spam transactions.",
                 format!(
                     "min_balance: {}, total_cost: {}\nUse {} to increase the amount of funds sent to agent wallets.",
-                    format_ether(min_balance),
+                    format_ether(*min_balance),
                     format_ether(total_cost),
                     ansi_term::Style::new()
                         .bold()
