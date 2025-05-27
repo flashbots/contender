@@ -53,7 +53,7 @@ impl Into<ContenderError> for BundleProviderError {
                 {
                     return RuntimeParamErrorKind::BundleTypeInvalid.into();
                 }
-                ContenderError::with_err(e.deref(), "generic bundle error")
+                ContenderError::with_err(e.deref(), "failed to send bundle")
             }
         }
     }

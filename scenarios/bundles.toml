@@ -11,7 +11,7 @@ to = "{SpamMe}"
 from_pool = "bluepool"
 signature = "consumeGas(uint256 gasAmount)"
 args = ["61000"]
-gas_limit = 62000
+gas_limit = 70000
 
 [[spam.bundle.tx]]
 to = "{SpamMe}"
