@@ -11,9 +11,11 @@ to = "{SpamMe}"
 from_pool = "bluepool"
 signature = "consumeGas(uint256 gasAmount)"
 args = ["61000"]
+gas_limit = 62000
 
 [[spam.bundle.tx]]
 to = "{SpamMe}"
 from_pool = "bluepool"
 signature = "tipCoinbase()"
 value = "10000000000000000"
+gas_limit = 42000
