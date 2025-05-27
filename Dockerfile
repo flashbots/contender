@@ -12,6 +12,11 @@ WORKDIR /app
 # Build contender cli from source
 RUN cargo install --path ./crates/cli --root /app/contender-dist
 
+# Install anvil (foundry)
+RUN curl -L https://foundry.paradigm.xyz | bash && \
+    /root/.foundry/bin/foundryup && \
+    cp /root/.foundry/bin/anvil /app/contender-dist/bin/
+
 # --- Runtime stage ---
 FROM debian:bookworm-slim
 
