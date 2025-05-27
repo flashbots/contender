@@ -69,12 +69,14 @@ where
 
     fn call(&mut self, req: RequestPacket) -> Self::Future {
         let mut id = 0;
-        let mut method: Option<String> = None;
+        let mut log_req = false;
+        let mut method = String::new();
         match &req {
             RequestPacket::Single(inner_req) => {
-                method = Some(inner_req.method().to_string());
+                method = inner_req.method().to_string();
+                id = inner_req.id().as_number().unwrap_or_default();
                 if inner_req.method() == "eth_sendRawTransaction" {
-                    id = inner_req.id().as_number().unwrap_or_default();
+                    log_req = true;
                 }
             }
             RequestPacket::Batch(_) => {}
@@ -89,11 +91,9 @@ where
             if let Ok(res) = &res {
                 let elapsed = start_time.elapsed().as_secs_f64();
                 if let Some(h) = latency_histogram {
-                    if let Some(method) = method {
-                        h.with_label_values(&[method.as_str()]).observe(elapsed);
-                    }
+                    h.with_label_values(&[method.as_str()]).observe(elapsed);
                 }
-                if id != 0 {
+                if log_req {
                     match res {
                         ResponsePacket::Single(inner_res) => {
                             if let Some(payload) = inner_res.payload.as_success() {
@@ -104,7 +104,7 @@ where
                     }
                 }
             } else if let Err(err) = &res {
-                debug!("RPC Error: {err}");
+                debug!("[{method}] RPC Error (id: {id}): {err}");
             }
 
             res
