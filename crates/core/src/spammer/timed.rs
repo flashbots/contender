@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use futures::Stream;
 use futures::StreamExt;
+use tracing::info;
 
 use crate::{
     db::DbOps,
@@ -40,6 +41,10 @@ where
         _scenario: &mut TestScenario<D, S, P>,
     ) -> impl std::future::Future<Output = crate::Result<Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>>>
     {
+        info!(
+            "Timed spammer started. Sending {} txs per second.",
+            self.context.txs_per_batch
+        );
         let interval = self.wait_interval;
         async move {
             let do_poll = move |tick| async move {

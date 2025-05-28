@@ -24,11 +24,21 @@ pub struct SpamRunContext {
     done_sending: Arc<AtomicBool>,
     done_fcu: Arc<AtomicBool>,
     do_quit: tokio_util::sync::CancellationToken,
+    pub txs_per_batch: u64,
 }
 
 impl SpamRunContext {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_txs_per_batch(self, txs_per_batch: u64) -> Self {
+        Self {
+            done_sending: self.done_sending,
+            done_fcu: self.done_fcu,
+            do_quit: self.do_quit,
+            txs_per_batch,
+        }
     }
 }
 
@@ -38,6 +48,7 @@ impl Default for SpamRunContext {
             done_sending: Arc::new(AtomicBool::new(false)),
             done_fcu: Arc::new(AtomicBool::new(false)),
             do_quit: tokio_util::sync::CancellationToken::new(),
+            txs_per_batch: 0,
         }
     }
 }
@@ -63,7 +74,6 @@ where
     fn spam_rpc(
         &self,
         scenario: &mut TestScenario<D, S, P>,
-        txs_per_period: u64,
         num_periods: u64,
         run_id: Option<u64>,
         sent_tx_callback: Arc<F>,
@@ -106,7 +116,7 @@ where
             }
 
             let tx_req_chunks = scenario
-                .get_spam_tx_chunks(txs_per_period, num_periods)
+                .get_spam_tx_chunks(self.context().txs_per_batch, num_periods)
                 .await?;
             let start_block = scenario
                 .rpc_client

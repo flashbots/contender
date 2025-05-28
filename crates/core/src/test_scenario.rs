@@ -10,7 +10,7 @@ use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use crate::provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID};
 use crate::spammer::tx_actor::TxActorHandle;
-use crate::spammer::{ExecutionPayload, OnBatchSent, OnTxSent, SpamTrigger};
+use crate::spammer::{ExecutionPayload, SpamCallback, SpamTrigger};
 use crate::Result;
 use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
 use alloy::consensus::{Transaction, TxType};
@@ -710,11 +710,11 @@ where
     }
 
     /// Send one batch of spam txs evenly over one second.
-    async fn execute_spam(
+    async fn execute_spam<F: SpamCallback + 'static>(
         &mut self,
         trigger: SpamTrigger,
         payloads: Vec<ExecutionPayload>,
-        callback_handler: Arc<impl OnTxSent + OnBatchSent + Send + Sync + 'static>,
+        callback_handler: Arc<F>,
         context_handler: SpamContextHandler,
     ) -> Result<(
         Vec<tokio::task::JoinHandle<()>>,
@@ -752,8 +752,8 @@ where
         for payload in payloads {
             let rpc_client = self.rpc_client.clone();
             let bundle_client = self.bundle_client.clone();
-            let callback_handler = callback_handler.clone();
             let tx_handler = self.msg_handle.clone();
+            let callback_handler = callback_handler.clone();
             let gas_sender = gas_sender.clone();
             let success_sender = success_sender.clone();
             let cancel_token = self.ctx.cancel_token.clone();
@@ -911,7 +911,7 @@ where
     }
 
     /// Send spam batches until the cursor is depleted.
-    pub async fn execute_spammer<F: OnTxSent + OnBatchSent + Send + Sync + 'static>(
+    pub async fn execute_spammer<F: SpamCallback + 'static>(
         &mut self,
         cursor: &mut futures::stream::Take<Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>>,
         tx_req_chunks: &[Vec<ExecutionRequest>],

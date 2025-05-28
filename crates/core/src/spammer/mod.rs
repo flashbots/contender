@@ -7,7 +7,7 @@ mod types;
 pub mod util;
 
 pub use blockwise::BlockwiseSpammer;
-pub use spammer_trait::Spammer;
+pub use spammer_trait::{SpamRunContext, Spammer};
 pub use timed::TimedSpammer;
-pub use tx_callback::{LogCallback, NilCallback, OnBatchSent, OnTxSent};
+pub use tx_callback::{LogCallback, NilCallback, OnBatchSent, OnTxSent, SpamCallback};
 pub use types::{ExecutionPayload, SpamTrigger};

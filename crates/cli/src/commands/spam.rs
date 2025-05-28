@@ -3,7 +3,7 @@ use crate::{
     default_scenarios::BuiltinScenario,
     util::{
         check_private_keys, fund_accounts, get_signers_with_defaults, load_testconfig,
-        provider::AuthClient, spam_callback_default, EngineParams, SpamCallbackType,
+        provider::AuthClient, spam_callback_default, EngineParams, TypedSpamCallback,
     },
     LATENCY_HIST as HIST, PROM,
 };
@@ -339,6 +339,54 @@ impl SpamCommandArgs {
     }
 }
 
+enum TypedSpammer {
+    Blockwise(BlockwiseSpammer),
+    Timed(TimedSpammer),
+}
+
+impl TypedSpammer {
+    async fn spam_rpc<D, S, P>(
+        &self,
+        test_scenario: &mut TestScenario<D, S, P>,
+        duration: u64,
+        run_id: Option<u64>,
+        tx_callback: TypedSpamCallback,
+    ) -> Result<(), ContenderError>
+    where
+        D: DbOps + Clone + Send + Sync + 'static,
+        S: Seeder + Send + Sync + Clone,
+        P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+    {
+        match self {
+            TypedSpammer::Blockwise(spammer) => match tx_callback {
+                TypedSpamCallback::Log(tx_callback) => {
+                    spammer
+                        .spam_rpc(test_scenario, duration, run_id, Arc::new(tx_callback))
+                        .await?;
+                }
+                TypedSpamCallback::Nil(tx_callback) => {
+                    spammer
+                        .spam_rpc(test_scenario, duration, run_id, Arc::new(tx_callback))
+                        .await?;
+                }
+            },
+            TypedSpammer::Timed(spammer) => match tx_callback {
+                TypedSpamCallback::Log(tx_callback) => {
+                    spammer
+                        .spam_rpc(test_scenario, duration, run_id, Arc::new(tx_callback))
+                        .await?;
+                }
+                TypedSpamCallback::Nil(tx_callback) => {
+                    spammer
+                        .spam_rpc(test_scenario, duration, run_id, Arc::new(tx_callback))
+                        .await?;
+                }
+            },
+        }
+        Ok(())
+    }
+}
+
 /// Runs spammer and returns run ID.
 pub async fn spam<
     D: DbOps + Clone + Send + Sync + 'static,
@@ -383,102 +431,52 @@ pub async fn spam<
         err => err,
     };
 
-    // trigger blockwise spammer
-    if let Some(txs_per_block) = txs_per_block {
-        info!("Blockwise spamming with {txs_per_block} txs per block");
-        let spammer = BlockwiseSpammer::new();
-
-        match spam_callback_default(
-            !disable_reporting,
-            engine_params.call_fcu,
-            Some(rpc_client.clone()),
-            auth_client,
-            test_scenario.ctx.cancel_token.clone(),
+    let (spammer, txs_per_batch) = if let Some(txs_per_block) = txs_per_block {
+        (
+            TypedSpammer::Blockwise(BlockwiseSpammer::new(*txs_per_block)),
+            *txs_per_block,
         )
-        .await
-        {
-            SpamCallbackType::Log(tx_callback) => {
-                let timestamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("Time went backwards")
-                    .as_millis();
-                let run = SpamRunRequest {
-                    timestamp: timestamp as usize,
-                    tx_count: (*txs_per_block * duration) as usize,
-                    scenario_name,
-                    rpc_url: test_scenario.rpc_url.to_string(),
-                    txs_per_duration: *txs_per_block,
-                    duration: SpamDuration::Blocks(*duration),
-                    timeout: *timeout_secs,
-                };
-                run_id = Some(db.insert_run(&run)?);
-                spammer
-                    .spam_rpc(
-                        test_scenario,
-                        *txs_per_block,
-                        *duration,
-                        run_id,
-                        tx_callback.into(),
-                    )
-                    .await
-                    .map_err(err_parse)?;
-            }
-            SpamCallbackType::Nil(tx_callback) => {
-                spammer
-                    .spam_rpc(
-                        test_scenario,
-                        *txs_per_block,
-                        *duration,
-                        None,
-                        tx_callback.into(),
-                    )
-                    .await
-                    .map_err(err_parse)?;
-            }
-        };
-        return Ok(run_id);
-    }
+    } else if let Some(txs_per_second) = txs_per_second {
+        (
+            TypedSpammer::Timed(TimedSpammer::new(std::time::Duration::from_secs(1))),
+            *txs_per_second,
+        )
+    } else {
+        return Err(Box::new(ContenderError::SpamError(
+            "Either --txs-per-block or --txs-per-second must be set.",
+            None,
+        )));
+    };
 
-    // trigger timed spammer
-    let tps = txs_per_second.unwrap_or(10);
-    info!("Timed spamming with {tps} txs per second");
-    let spammer = TimedSpammer::new(std::time::Duration::from_secs(1));
-    match spam_callback_default(
+    let callback = spam_callback_default(
         !disable_reporting,
         engine_params.call_fcu,
-        rpc_client.into(),
+        Some(rpc_client),
         auth_client,
         test_scenario.ctx.cancel_token.clone(),
-    )
-    .await
-    {
-        SpamCallbackType::Log(tx_callback) => {
-            let timestamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("Time went backwards")
-                .as_millis();
-            let run = SpamRunRequest {
-                timestamp: timestamp as usize,
-                tx_count: (tps * duration) as usize,
-                scenario_name,
-                rpc_url: test_scenario.rpc_url.to_string(),
-                txs_per_duration: tps,
-                duration: SpamDuration::Seconds(*duration),
-                timeout: *timeout_secs,
-            };
-            run_id = Some(db.insert_run(&run)?);
-            spammer
-                .spam_rpc(test_scenario, tps, *duration, run_id, tx_callback.into())
-                .await
-                .map_err(err_parse)?;
-        }
-        SpamCallbackType::Nil(tx_callback) => {
-            spammer
-                .spam_rpc(test_scenario, tps, *duration, None, tx_callback.into())
-                .await
-                .map_err(err_parse)?;
-        }
-    };
+    );
+
+    if callback.is_log() {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_millis();
+        let run = SpamRunRequest {
+            timestamp: timestamp as usize,
+            tx_count: (txs_per_batch * duration) as usize,
+            scenario_name,
+            rpc_url: test_scenario.rpc_url.to_string(),
+            txs_per_duration: txs_per_batch,
+            duration: SpamDuration::Blocks(*duration),
+            timeout: *timeout_secs,
+        };
+        run_id = Some(db.insert_run(&run)?);
+    }
+
+    spammer
+        .spam_rpc(test_scenario, *duration, run_id, callback)
+        .await
+        .map_err(err_parse)?;
 
     Ok(run_id)
 }
