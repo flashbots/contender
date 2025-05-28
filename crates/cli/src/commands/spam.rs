@@ -348,7 +348,8 @@ impl TypedSpammer {
     async fn spam_rpc<D, S, P>(
         &self,
         test_scenario: &mut TestScenario<D, S, P>,
-        duration: u64,
+        txs_per_period: u64,
+        num_periods: u64,
         run_id: Option<u64>,
         tx_callback: TypedSpamCallback,
     ) -> Result<(), ContenderError>
@@ -361,24 +362,48 @@ impl TypedSpammer {
             TypedSpammer::Blockwise(spammer) => match tx_callback {
                 TypedSpamCallback::Log(tx_callback) => {
                     spammer
-                        .spam_rpc(test_scenario, duration, run_id, Arc::new(tx_callback))
+                        .spam_rpc(
+                            test_scenario,
+                            txs_per_period,
+                            num_periods,
+                            run_id,
+                            Arc::new(tx_callback),
+                        )
                         .await?;
                 }
                 TypedSpamCallback::Nil(tx_callback) => {
                     spammer
-                        .spam_rpc(test_scenario, duration, run_id, Arc::new(tx_callback))
+                        .spam_rpc(
+                            test_scenario,
+                            txs_per_period,
+                            num_periods,
+                            run_id,
+                            Arc::new(tx_callback),
+                        )
                         .await?;
                 }
             },
             TypedSpammer::Timed(spammer) => match tx_callback {
                 TypedSpamCallback::Log(tx_callback) => {
                     spammer
-                        .spam_rpc(test_scenario, duration, run_id, Arc::new(tx_callback))
+                        .spam_rpc(
+                            test_scenario,
+                            txs_per_period,
+                            num_periods,
+                            run_id,
+                            Arc::new(tx_callback),
+                        )
                         .await?;
                 }
                 TypedSpamCallback::Nil(tx_callback) => {
                     spammer
-                        .spam_rpc(test_scenario, duration, run_id, Arc::new(tx_callback))
+                        .spam_rpc(
+                            test_scenario,
+                            txs_per_period,
+                            num_periods,
+                            run_id,
+                            Arc::new(tx_callback),
+                        )
                         .await?;
                 }
             },
@@ -432,11 +457,13 @@ pub async fn spam<
     };
 
     let (spammer, txs_per_batch) = if let Some(txs_per_block) = txs_per_block {
+        info!("Blockwise spammer starting. Sending {txs_per_block} txs per block.");
         (
-            TypedSpammer::Blockwise(BlockwiseSpammer::new(*txs_per_block)),
+            TypedSpammer::Blockwise(BlockwiseSpammer::new()),
             *txs_per_block,
         )
     } else if let Some(txs_per_second) = txs_per_second {
+        info!("Timed spammer starting. Sending {txs_per_second} txs per second.");
         (
             TypedSpammer::Timed(TimedSpammer::new(std::time::Duration::from_secs(1))),
             *txs_per_second,
@@ -474,7 +501,7 @@ pub async fn spam<
     }
 
     spammer
-        .spam_rpc(test_scenario, *duration, run_id, callback)
+        .spam_rpc(test_scenario, txs_per_batch, *duration, run_id, callback)
         .await
         .map_err(err_parse)?;
 

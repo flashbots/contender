@@ -21,9 +21,9 @@ pub struct BlockwiseSpammer {
 }
 
 impl BlockwiseSpammer {
-    pub fn new(txs_per_block: u64) -> Self {
+    pub fn new() -> Self {
         Self {
-            context: SpamRunContext::new().with_txs_per_batch(txs_per_block),
+            context: SpamRunContext::new(),
         }
     }
 }
@@ -39,10 +39,6 @@ where
         &self,
         scenario: &mut TestScenario<D, S, P>,
     ) -> crate::Result<Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>> {
-        info!(
-            "Blockwise spammer started. Sending {} txs per block.",
-            self.context.txs_per_batch
-        );
         let poller = scenario
             .rpc_client
             .watch_blocks()
@@ -154,9 +150,15 @@ mod tests {
         let start_block = provider.get_block_number().await.unwrap();
 
         let callback_handler = MockCallback;
-        let spammer = BlockwiseSpammer::new(txs_per_period);
+        let spammer = BlockwiseSpammer::new();
         let result = spammer
-            .spam_rpc(&mut scenario, periods, None, Arc::new(callback_handler))
+            .spam_rpc(
+                &mut scenario,
+                txs_per_period,
+                periods,
+                None,
+                Arc::new(callback_handler),
+            )
             .await;
         assert!(result.is_ok());
 
