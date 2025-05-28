@@ -26,8 +26,8 @@ impl Bundle {
             Bundle::Revertable(b) => {
                 // make a RevertProtectBundle from each tx in the bundle
                 // and send it to the client
-                for tx in b.txs.to_owned() {
-                    let req = RevertProtectBundleRequest::new().with_txs(vec![tx]);
+                for tx in &b.txs {
+                    let req = RevertProtectBundleRequest::new().with_txs(vec![tx.to_owned()]);
                     client
                         .send_bundle::<_, String>(RevertProtectBundle::from(req))
                         .await?;

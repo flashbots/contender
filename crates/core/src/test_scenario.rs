@@ -190,9 +190,7 @@ where
         let gas_limits = HashMap::new();
 
         let bundle_client = if let Some(url) = &builder_rpc_url {
-            Some(Arc::new(
-                BundleClient::new(url.clone()).map_err(|e| e.into())?,
-            ))
+            Some(Arc::new(BundleClient::new(url.clone())?))
         } else {
             None
         };
@@ -873,7 +871,7 @@ where
                             match &rpc_bundle {
                                 Bundle::L1(bundle) => {
                                     let mut bundle = bundle.to_owned();
-                                    bundle.block_number = block_num + 1 as u64;
+                                    bundle.block_number = block_num + 1;
                                     let rpc_bundle = Bundle::L1(bundle);
 
                                     let res =

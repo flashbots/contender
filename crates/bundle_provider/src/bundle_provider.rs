@@ -28,7 +28,7 @@ impl BundleClient {
     }
 
     /// Sends a bundle using `eth_sendBundle`, discarding the response.
-    pub async fn send_bundle<'a, Bundle: RpcSend, Response: RpcRecv>(
+    pub async fn send_bundle<Bundle: RpcSend, Response: RpcRecv>(
         &self,
         bundle: Bundle,
     ) -> Result<(), BundleProviderError> {

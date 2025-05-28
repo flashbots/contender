@@ -302,9 +302,10 @@ impl SpamCommandArgs {
                 }
             };
             if let Err(e) = setup_res {
-                return Err(
-                    ContenderError::SpamError("Builtin scenario setup failed.", Some(e)),
-                );
+                return Err(ContenderError::SpamError(
+                    "Builtin scenario setup failed.",
+                    Some(e),
+                ));
             }
         }
         done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);

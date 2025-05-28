@@ -135,7 +135,7 @@ where
                     ));
                 }
                 res = scenario.execute_spammer(&mut cursor, &tx_req_chunks, sent_tx_callback) => {
-                    if res.is_err() {
+                    if res.as_ref().is_err() {
                         return res;
                     }
                     true

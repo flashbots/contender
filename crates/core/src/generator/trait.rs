@@ -329,7 +329,7 @@ where
                     let fuzz_args = req.fuzz.to_owned().unwrap_or_default();
                     let fuzz_map = self.create_fuzz_map(num_txs as usize, &fuzz_args)?; // this may create more values than needed, but it's fine
                     canonical_fuzz_map.extend(fuzz_map);
-                    Ok(())
+                    Ok::<_, ContenderError>(())
                 };
 
                 // finds placeholders in a function call definition and populates `placeholder_map` and `canonical_fuzz_map` with injectable values.
@@ -384,7 +384,8 @@ where
                                 None,
                                 req.kind.to_owned(),
                             );
-                            Ok((on_spam_setup(tx.to_owned())?, tx))
+                            let setup_res = on_spam_setup(tx.to_owned())?;
+                            Ok::<_, ContenderError>((setup_res, tx))
                         };
 
                         match step {

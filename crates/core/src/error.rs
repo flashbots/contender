@@ -35,15 +35,15 @@ impl Display for RuntimeParamErrorKind {
     }
 }
 
-impl Into<ContenderError> for RuntimeParamErrorKind {
-    fn into(self) -> ContenderError {
-        ContenderError::InvalidRuntimeParams(self)
+impl From<RuntimeParamErrorKind> for ContenderError {
+    fn from(err: RuntimeParamErrorKind) -> ContenderError {
+        ContenderError::InvalidRuntimeParams(err)
     }
 }
 
-impl Into<ContenderError> for BundleProviderError {
-    fn into(self) -> ContenderError {
-        match self {
+impl From<BundleProviderError> for ContenderError {
+    fn from(err: BundleProviderError) -> ContenderError {
+        match err {
             BundleProviderError::InvalidUrl => {
                 ContenderError::InvalidRuntimeParams(RuntimeParamErrorKind::BuilderUrlInvalid)
             }
