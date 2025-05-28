@@ -29,7 +29,7 @@ impl Bundle {
                 for tx in &b.txs {
                     let req = RevertProtectBundleRequest::new().with_txs(vec![tx.to_owned()]);
                     client
-                        .send_bundle::<_, String>(RevertProtectBundle::from(req))
+                        .send_bundle::<_, EthBundleHash>(RevertProtectBundle::from(req))
                         .await?;
                 }
                 Ok(())
