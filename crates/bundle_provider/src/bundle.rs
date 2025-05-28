@@ -2,7 +2,7 @@ use alloy::rpc::types::mev::{EthBundleHash, EthSendBundle};
 
 use crate::{
     error::BundleProviderError,
-    revert_bundle::{RevertProtectBundle, RevertProtectBundleRequest},
+    revert_bundle::{BundlesFromRequest, RevertProtectBundleRequest},
     BundleClient,
 };
 
@@ -26,11 +26,8 @@ impl TypedBundle {
             TypedBundle::RevertProtected(b) => {
                 // make a RevertProtectBundle from each tx in the bundle
                 // and send it to the client
-                for tx in &b.txs {
-                    let req = RevertProtectBundleRequest::new().with_txs(vec![tx.to_owned()]);
-                    client
-                        .send_bundle::<_, EthBundleHash>(RevertProtectBundle::from(req))
-                        .await?;
+                for bundle in b.to_bundles() {
+                    client.send_bundle::<_, EthBundleHash>(bundle).await?;
                 }
                 Ok(())
             }

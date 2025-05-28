@@ -66,3 +66,21 @@ impl From<RevertProtectBundleRequest> for RevertProtectBundle {
         }
     }
 }
+
+// temporary until revert-protect bundles support multiple transactions
+pub trait BundlesFromRequest {
+    fn to_bundles(&self) -> Vec<RevertProtectBundle>;
+}
+
+impl BundlesFromRequest for RevertProtectBundleRequest {
+    /// Converts a reference to a RevertProtectBundleRequest into a Vec<RevertProtectBundle>.
+    fn to_bundles(&self) -> Vec<RevertProtectBundle> {
+        self.txs
+            .iter()
+            .map(|tx| RevertProtectBundle {
+                transaction: vec![tx.to_owned()],
+                block_number_max: self.block_number_max,
+            })
+            .collect()
+    }
+}
