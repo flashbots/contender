@@ -36,7 +36,7 @@ impl RevertProtectBundleRequest {
     }
 
     pub fn prepare(self) -> Bundle {
-        Bundle::Revertable(self)
+        Bundle::RevertProtected(self)
     }
 }
 

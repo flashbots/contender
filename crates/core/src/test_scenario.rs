@@ -860,7 +860,7 @@ where
 
                         let rpc_bundle = match bundle_type {
                             BundleType::L1 => new_basic_bundle(bundle_txs, block_num),
-                            BundleType::Revertable => RevertProtectBundleRequest::new()
+                            BundleType::RevertProtected => RevertProtectBundleRequest::new()
                                 .with_txs(bundle_txs)
                                 .prepare(),
                         };
@@ -887,8 +887,8 @@ where
                                             .expect("failed to send success signal");
                                     }
                                 }
-                                Bundle::Revertable(bundle) => {
-                                    let bundle = Bundle::Revertable(bundle.to_owned());
+                                Bundle::RevertProtected(bundle) => {
+                                    let bundle = Bundle::RevertProtected(bundle.to_owned());
                                     let res =
                                         bundle.send(&bundle_client).await.map_err(|e| e.into());
                                     if let Err(e) = res {

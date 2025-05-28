@@ -10,20 +10,20 @@ use crate::{
 pub enum BundleType {
     #[default]
     L1,
-    Revertable,
+    RevertProtected,
 }
 
 #[derive(Clone, Debug)]
 pub enum Bundle {
     L1(EthSendBundle),
-    Revertable(RevertProtectBundleRequest),
+    RevertProtected(RevertProtectBundleRequest),
 }
 
 impl Bundle {
     pub async fn send(&self, client: &BundleClient) -> Result<(), BundleProviderError> {
         match self {
             Bundle::L1(b) => client.send_bundle::<_, EthBundleHash>(b).await,
-            Bundle::Revertable(b) => {
+            Bundle::RevertProtected(b) => {
                 // make a RevertProtectBundle from each tx in the bundle
                 // and send it to the client
                 for tx in &b.txs {

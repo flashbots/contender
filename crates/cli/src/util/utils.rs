@@ -45,7 +45,8 @@ pub enum TxTypeCli {
 #[derive(Copy, Debug, Clone, clap::ValueEnum)]
 pub enum BundleTypeCli {
     L1,
-    Revertable,
+    #[clap(name = "no-revert")]
+    RevertProtected,
 }
 
 impl Default for BundleTypeCli {
@@ -58,7 +59,7 @@ impl From<BundleType> for BundleTypeCli {
     fn from(value: BundleType) -> Self {
         match value {
             BundleType::L1 => BundleTypeCli::L1,
-            BundleType::Revertable => BundleTypeCli::Revertable,
+            BundleType::RevertProtected => BundleTypeCli::RevertProtected,
         }
     }
 }
@@ -67,7 +68,7 @@ impl From<BundleTypeCli> for BundleType {
     fn from(value: BundleTypeCli) -> Self {
         match value {
             BundleTypeCli::L1 => BundleType::L1,
-            BundleTypeCli::Revertable => BundleType::Revertable,
+            BundleTypeCli::RevertProtected => BundleType::RevertProtected,
         }
     }
 }
