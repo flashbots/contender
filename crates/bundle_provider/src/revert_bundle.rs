@@ -40,40 +40,42 @@ impl RevertProtectBundleRequest {
     }
 }
 
-impl From<&RevertProtectBundleRequest> for RevertProtectBundle {
-    fn from(value: &RevertProtectBundleRequest) -> Self {
-        value.to_owned().into()
+impl AsRef<RevertProtectBundleRequest> for RevertProtectBundleRequest {
+    fn as_ref(&self) -> &RevertProtectBundleRequest {
+        self
     }
 }
 
-impl From<RevertProtectBundleRequest> for RevertProtectBundle {
-    fn from(value: RevertProtectBundleRequest) -> Self {
+impl<T: AsRef<RevertProtectBundleRequest>> From<T> for RevertProtectBundle {
+    fn from(req: T) -> Self {
         let RevertProtectBundleRequest {
             txs,
             block_number_max,
-        } = value;
+        } = req.as_ref();
 
         if txs.is_empty() {
             panic!("RevertProtectBundleRequest must have at least one transaction");
         }
+        // temporary until revert-protect bundles support multiple transactions
         if txs.len() > 1 {
             panic!("RevertProtectBundleRequest can only contain one transaction");
         }
 
         Self {
-            transaction: txs,
-            block_number_max,
+            transaction: txs.to_owned(),
+            block_number_max: block_number_max.to_owned(),
         }
     }
 }
 
-// temporary until revert-protect bundles support multiple transactions
+/// Temporary until revert-protect bundles support multiple transactions.
+/// Once that is supported, this trait can be removed and `RevertProtectBundleRequest::into::<RevertProtectBundle>()` can be used instead.
 pub trait BundlesFromRequest {
     fn to_bundles(&self) -> Vec<RevertProtectBundle>;
 }
 
 impl BundlesFromRequest for RevertProtectBundleRequest {
-    /// Converts a reference to a RevertProtectBundleRequest into a Vec<RevertProtectBundle>.
+    /// Converts a RevertProtectBundleRequest into Vec<RevertProtectBundle>.
     fn to_bundles(&self) -> Vec<RevertProtectBundle> {
         self.txs
             .iter()
