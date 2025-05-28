@@ -1,27 +1,28 @@
 //! This file contains type definition for CLI arguments.
 
+use super::EngineArgs;
+use crate::util::{BundleTypeCli, EngineParams, TxTypeCli};
 use alloy::primitives::utils::parse_units;
 use alloy::primitives::U256;
-
-use super::EngineArgs;
-use crate::util::{EngineParams, TxTypeCli};
 use std::sync::Arc;
 
 #[derive(Clone, Debug, clap::Args)]
 pub struct ScenarioSendTxsCliArgs {
-    /// The path to the test file to use for spamming/setup.
+    /// The path to the test file to use for spamming/setup. Use default scenarios with "scenario:<filename>".
+    /// Default scenarios can be found at https://github.com/flashbots/contender/tree/main/scenarios
+    /// Example: `scenario:simple.toml` or `scenario:precompiles/modexp.toml`
     pub testfile: Option<String>,
 
-    /// The HTTP JSON-RPC URL to spam with requests.
+    /// RPC URL to send requests.
     #[arg(
         short,
         long,
-        long_help = "RPC URL to test the scenario.",
+        long_help = "RPC URL to send requests from the `eth_` namespace. Set --builder-url or --auth-rpc-url to enable other namespaces.",
         default_value = "http://localhost:8545"
     )]
     pub rpc_url: String,
 
-    /// The seed to use for generating spam transactions & accounts.
+    /// The seed to use for generating spam transactions.
     #[arg(
         short,
         long,
@@ -29,11 +30,11 @@ pub struct ScenarioSendTxsCliArgs {
     )]
     pub seed: Option<String>,
 
-    /// The private keys to use for funding agent accounts or signing transactions.
+    /// Private key(s) to use for funding agent accounts or signing transactions.
     #[arg(
         short,
         long = "priv-key",
-        long_help = "Add private keys to wallet map. Used to fund agent accounts or sign transactions.
+        long_help = "Add private keys to fund agent accounts. Scenarios with hard-coded `from` addresses may also use these to sign transactions.
 May be specified multiple times."
     )]
     pub private_keys: Option<Vec<String>>,
@@ -56,6 +57,16 @@ May be specified multiple times."
             default_value_t = TxTypeCli::Eip1559,
         )]
     pub tx_type: TxTypeCli,
+
+    /// Bundle type
+    #[arg(
+        long,
+        long_help = "Bundle type for generated bundles.",
+        value_enum,
+        default_value_t = crate::util::BundleTypeCli::default(),
+        visible_aliases = &["bt"]
+    )]
+    pub bundle_type: BundleTypeCli,
 
     #[command(flatten)]
     pub auth_args: AuthCliArgs,
@@ -102,7 +113,7 @@ Requires --auth-rpc-url and --jwt-secret to be set.",
     /// Use OP engine provider
     #[arg(
         long = "optimism",
-        long_help = "Set this flag when targeting an OP node.",
+        long_help = "Use OP types in the engine provider. Set this flag when targeting an OP node.",
         visible_aliases = &["op"]
     )]
     pub use_op: bool,

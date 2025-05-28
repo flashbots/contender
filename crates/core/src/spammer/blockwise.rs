@@ -67,6 +67,7 @@ mod tests {
         primitives::U256,
         providers::{DynProvider, ProviderBuilder},
     };
+    use contender_bundle_provider::bundle::BundleType;
     use tokio::sync::OnceCell;
 
     use crate::{
@@ -137,7 +138,7 @@ mod tests {
                 signers: user_signers,
                 agent_store: agents,
                 tx_type,
-                gas_price_percent_add: None,
+                bundle_type: BundleType::default(),
                 pending_tx_timeout_secs: 12,
             },
             None,

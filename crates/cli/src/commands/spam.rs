@@ -17,15 +17,16 @@ use alloy::{
 use contender_core::{
     agent_controller::AgentStore,
     db::{DbOps, SpamDuration, SpamRunRequest},
-    error::ContenderError,
+    error::{ContenderError, RuntimeParamErrorKind},
     generator::{seeder::Seeder, templater::Templater, PlanConfig, RandSeed},
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
+    BundleType,
 };
 use contender_engine_provider::{AdvanceChain, AuthProvider};
 use contender_testfile::TestConfig;
 use op_alloy_network::Optimism;
-use std::{path::PathBuf, sync::atomic::AtomicBool};
+use std::{ops::Deref, path::PathBuf, sync::atomic::AtomicBool};
 use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
 
@@ -61,7 +62,6 @@ pub struct SpamCliArgs {
     #[command(flatten)]
     pub spam_args: SendSpamCliArgs,
 
-    /// Whether to log reports for the spamming run.
     #[arg(
             long,
             long_help = "Prevent tx results from being saved to DB.",
@@ -69,31 +69,12 @@ pub struct SpamCliArgs {
         )]
     pub disable_reporting: bool,
 
-    /// The path to save the report to.
-    /// If not provided, the report can be generated with the `report` subcommand.
-    /// If provided, the report is saved to the given path.
     #[arg(
         long,
         long_help = "Set this to generate a report for the spam run(s) after spamming.",
         visible_aliases = &["report"]
     )]
     pub gen_report: bool,
-
-    /// Adds (gas_price * percent) / 100 to the standard gas price of the transactions.
-    #[arg(
-        short,
-        long,
-        long_help = "Adds given percent increase to the standard gas price of the transactions."
-    )]
-    pub gas_price_percent_add: Option<u64>,
-
-    /// Skip deploy prompt that appears when running a builtin scenario.
-    #[arg(
-        long,
-        long_help = "Skip deploy prompt that appears when running a builtin scenario.",
-        default_value_t = false
-    )]
-    pub skip_deploy_prompt: bool,
 }
 
 pub enum SpamScenario {
@@ -102,9 +83,11 @@ pub enum SpamScenario {
 }
 
 impl SpamScenario {
-    pub async fn testconfig(&self) -> Result<TestConfig, Box<dyn std::error::Error>> {
+    pub async fn testconfig(&self) -> Result<TestConfig, ContenderError> {
         let config: TestConfig = match self {
-            SpamScenario::Testfile(testfile) => load_testconfig(testfile).await?,
+            SpamScenario::Testfile(testfile) => load_testconfig(testfile)
+                .await
+                .map_err(|e| ContenderError::with_err(e.deref(), "failed to load testconfig"))?,
             SpamScenario::Builtin(scenario) => TestConfig::from(scenario.to_owned()),
         };
         Ok(config)
@@ -130,9 +113,9 @@ pub struct SpamCommandArgs {
     pub disable_reporting: bool,
     pub min_balance: U256,
     pub tx_type: TxType,
+    pub bundle_type: BundleType,
     /// Provide to enable engine calls (required to use `call_forkchoice`)
     pub engine_params: EngineParams,
-    pub gas_price_percent_add: Option<u64>,
     pub timeout_secs: u64,
     pub env: Option<Vec<(String, String)>>,
     pub loops: Option<u64>,
@@ -142,7 +125,7 @@ impl SpamCommandArgs {
     pub async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
         &self,
         db: &D,
-    ) -> Result<TestScenario<D, RandSeed, TestConfig>, Box<dyn std::error::Error>> {
+    ) -> Result<TestScenario<D, RandSeed, TestConfig>, ContenderError> {
         info!("Initializing spammer...");
         let SpamCommandArgs {
             txs_per_block,
@@ -155,7 +138,7 @@ impl SpamCommandArgs {
             min_balance,
             private_keys,
             tx_type,
-            gas_price_percent_add,
+            bundle_type,
             timeout_secs,
             engine_params,
             loops,
@@ -163,6 +146,24 @@ impl SpamCommandArgs {
         } = self;
 
         let mut testconfig = scenario.testconfig().await?;
+        let spam_len = testconfig.spam.as_ref().map(|s| s.len()).unwrap_or(0);
+
+        if let Some(spam) = &testconfig.spam {
+            if spam.is_empty() {
+                return Err(ContenderError::SpamError(
+                    "No spam calls found in testfile",
+                    None,
+                ));
+            } else if builder_url.is_none() && spam.iter().any(|s| s.is_bundle()) {
+                return Err(ContenderError::SpamError(
+                    "Builder URL is required to send bundles.",
+                    Some(format!(
+                        "Pass the builder's URL with {}",
+                        ansi_term::Style::new().bold().paint("--builder-url <URL>")
+                    )),
+                ));
+            }
+        }
 
         // Setup env variables
         let mut env_variables = testconfig.env.clone().unwrap_or_default();
@@ -180,20 +181,12 @@ impl SpamCommandArgs {
         );
 
         let user_signers = get_signers_with_defaults(private_keys.to_owned());
-        let spam = testconfig
-            .spam
-            .as_ref()
-            .expect("No spam function calls found in testfile");
-
-        if spam.is_empty() {
-            return Err(ContenderError::SpamError("No spam calls found in testfile", None).into());
-        }
 
         // distill all from_pool arguments from the spam requests
         let from_pool_declarations = testconfig.get_spam_pools();
 
         let mut agents = AgentStore::new();
-        let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam.len() as u64));
+        let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam_len as u64));
         let signers_per_period = txs_per_duration / from_pool_declarations.len().max(1) as u64;
         agents.init(
             &from_pool_declarations,
@@ -217,7 +210,7 @@ impl SpamCommandArgs {
                     signers_per_period,
                     all_agents.len()
                 )),
-            ).into());
+            ));
         }
 
         check_private_keys(&testconfig, &user_signers);
@@ -239,7 +232,7 @@ impl SpamCommandArgs {
             signers: user_signers.to_owned(),
             agent_store: agents.to_owned(),
             tx_type: *tx_type,
-            gas_price_percent_add: *gas_price_percent_add,
+            bundle_type: *bundle_type,
             pending_tx_timeout_secs: *timeout_secs,
         };
 
@@ -251,7 +244,8 @@ impl SpamCommandArgs {
             *tx_type,
             engine_params,
         )
-        .await?;
+        .await
+        .map_err(|e| ContenderError::with_err(e.deref(), "failed to fund accounts"))?;
 
         let done_fcu = Arc::new(AtomicBool::new(false));
         let (error_sender, mut error_receiver) = tokio::sync::mpsc::channel::<String>(1);
@@ -308,9 +302,10 @@ impl SpamCommandArgs {
                 }
             };
             if let Err(e) = setup_res {
-                return Err(
-                    ContenderError::SpamError("Builtin scenario setup failed.", Some(e)).into(),
-                );
+                return Err(ContenderError::SpamError(
+                    "Builtin scenario setup failed.",
+                    Some(e),
+                ));
             }
         }
         done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -337,8 +332,7 @@ impl SpamCommandArgs {
                         .paint("spam --min-balance <ETH amount>"),
                 )
                 .into(),
-            )
-            .into());
+            ));
         }
 
         Ok(scenario)
@@ -374,6 +368,20 @@ pub async fn spam<
 
     let rpc_client = test_scenario.rpc_client.clone();
     let auth_client = test_scenario.auth_provider.to_owned();
+
+    let err_parse = |e: ContenderError| match e {
+        ContenderError::InvalidRuntimeParams(kind) => match kind {
+            RuntimeParamErrorKind::BundleTypeInvalid => ContenderError::SpamError(
+                "Invalid bundle type.",
+                Some(format!(
+                    "Set a different bundle type with {}",
+                    ansi_term::Style::new().bold().paint("--bundle-type")
+                )),
+            ),
+            err => err.into(),
+        },
+        err => err,
+    };
 
     // trigger blockwise spammer
     if let Some(txs_per_block) = txs_per_block {
@@ -412,7 +420,8 @@ pub async fn spam<
                         run_id,
                         tx_callback.into(),
                     )
-                    .await?;
+                    .await
+                    .map_err(err_parse)?;
             }
             SpamCallbackType::Nil(tx_callback) => {
                 spammer
@@ -423,7 +432,8 @@ pub async fn spam<
                         None,
                         tx_callback.into(),
                     )
-                    .await?;
+                    .await
+                    .map_err(err_parse)?;
             }
         };
         return Ok(run_id);
@@ -459,12 +469,14 @@ pub async fn spam<
             run_id = Some(db.insert_run(&run)?);
             spammer
                 .spam_rpc(test_scenario, tps, *duration, run_id, tx_callback.into())
-                .await?;
+                .await
+                .map_err(err_parse)?;
         }
         SpamCallbackType::Nil(tx_callback) => {
             spammer
                 .spam_rpc(test_scenario, tps, *duration, None, tx_callback.into())
-                .await?;
+                .await
+                .map_err(err_parse)?;
         }
     };
 

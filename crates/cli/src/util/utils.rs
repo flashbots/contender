@@ -15,6 +15,7 @@ use contender_core::{
         util::complete_tx_request,
     },
     spammer::{LogCallback, NilCallback},
+    BundleType,
 };
 use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
@@ -39,6 +40,37 @@ pub enum TxTypeCli {
     // Eip4844,
     // /// EOA Set Code Transactions ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)), type `0x4`
     // Eip7702,
+}
+
+#[derive(Copy, Debug, Clone, clap::ValueEnum)]
+pub enum BundleTypeCli {
+    L1,
+    #[clap(name = "no-revert")]
+    RevertProtected,
+}
+
+impl Default for BundleTypeCli {
+    fn default() -> Self {
+        BundleType::default().into()
+    }
+}
+
+impl From<BundleType> for BundleTypeCli {
+    fn from(value: BundleType) -> Self {
+        match value {
+            BundleType::L1 => BundleTypeCli::L1,
+            BundleType::RevertProtected => BundleTypeCli::RevertProtected,
+        }
+    }
+}
+
+impl From<BundleTypeCli> for BundleType {
+    fn from(value: BundleTypeCli) -> Self {
+        match value {
+            BundleTypeCli::L1 => BundleType::L1,
+            BundleTypeCli::RevertProtected => BundleType::RevertProtected,
+        }
+    }
 }
 
 impl From<TxTypeCli> for TxType {

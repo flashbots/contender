@@ -14,6 +14,7 @@ use alloy::{
     transports::http::reqwest::Url,
 };
 use contender_core::generator::PlanConfig;
+use contender_core::BundleType;
 use contender_core::{
     agent_controller::{AgentStore, SignerStore},
     error::ContenderError,
@@ -53,6 +54,7 @@ pub async fn setup(
         tx_type,
         engine_params,
         env,
+        bundle_type,
     } = args;
 
     let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
@@ -132,7 +134,7 @@ pub async fn setup(
         signers: user_signers_with_defaults,
         agent_store: agents,
         tx_type,
-        gas_price_percent_add: None,
+        bundle_type,
         pending_tx_timeout_secs: 12,
     };
 
@@ -180,7 +182,7 @@ pub async fn setup(
         let mut timestamps = vec![];
         for i in [0_u64, 1] {
             let block = rpc_client
-                .get_block_by_number((block_num - i).into())
+                .get_block_by_number(i.into())
                 .await
                 .map_err(|e| ContenderError::with_err(e, "failed to get block"))?;
             if let Some(block) = block {
@@ -188,7 +190,7 @@ pub async fn setup(
             }
         }
         if timestamps.len() == 2 {
-            (timestamps[0] - timestamps[1]).max(1)
+            (timestamps[1] - timestamps[0]).max(1)
         } else {
             1
         }
@@ -291,6 +293,7 @@ pub struct SetupCommandArgs {
     pub min_balance: U256,
     pub seed: RandSeed,
     pub tx_type: TxType,
+    pub bundle_type: BundleType,
     pub engine_params: EngineParams,
     pub env: Option<Vec<(String, String)>>,
 }

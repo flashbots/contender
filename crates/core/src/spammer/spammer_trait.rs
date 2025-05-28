@@ -134,7 +134,10 @@ where
                         Some(err),
                     ));
                 }
-                _ = scenario.execute_spammer(&mut cursor, &tx_req_chunks, sent_tx_callback) => {
+                res = scenario.execute_spammer(&mut cursor, &tx_req_chunks, sent_tx_callback) => {
+                    if res.as_ref().is_err() {
+                        return res;
+                    }
                     true
                 }
             };

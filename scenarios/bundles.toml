@@ -3,21 +3,6 @@ bytecode = "0x6080604052348015600f57600080fd5b506105668061001f6000396000f3fe6080
 name = "SpamMe"
 from_pool = "admin"
 
-# spam mempool tx
-[[spam]]
-
-# send self some ether
-[spam.tx]
-to = "{_sender}"
-from_pool = "redpool"
-signature = "_()" # signature can be anything here; recipient is not a contract
-
-[[spam.tx.fuzz]]
-value = true
-min = "10000000000000"
-max = "100000000000000"
-
-
 # spam bundle
 [[spam]]
 
@@ -25,11 +10,12 @@ max = "100000000000000"
 to = "{SpamMe}"
 from_pool = "bluepool"
 signature = "consumeGas(uint256 gasAmount)"
-args = ["51000"]
-fuzz = [{ param = "gasAmount", min = "22000", max = "69000" }]
+args = ["61000"]
+gas_limit = 70000
 
 [[spam.bundle.tx]]
 to = "{SpamMe}"
 from_pool = "bluepool"
 signature = "tipCoinbase()"
 value = "10000000000000000"
+gas_limit = 42000
