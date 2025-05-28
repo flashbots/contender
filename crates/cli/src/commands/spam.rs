@@ -210,7 +210,7 @@ impl SpamCommandArgs {
                     signers_per_period,
                     all_agents.len()
                 )),
-            ).into());
+            ));
         }
 
         check_private_keys(&testconfig, &user_signers);
@@ -303,7 +303,7 @@ impl SpamCommandArgs {
             };
             if let Err(e) = setup_res {
                 return Err(
-                    ContenderError::SpamError("Builtin scenario setup failed.", Some(e)).into(),
+                    ContenderError::SpamError("Builtin scenario setup failed.", Some(e)),
                 );
             }
         }
@@ -331,8 +331,7 @@ impl SpamCommandArgs {
                         .paint("spam --min-balance <ETH amount>"),
                 )
                 .into(),
-            )
-            .into());
+            ));
         }
 
         Ok(scenario)
