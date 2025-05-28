@@ -358,55 +358,36 @@ impl TypedSpammer {
         S: Seeder + Send + Sync + Clone,
         P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
     {
+        macro_rules! spammit {
+            ($spammer:expr, $tx_callback:expr) => {
+                $spammer
+                    .spam_rpc(
+                        test_scenario,
+                        txs_per_period,
+                        num_periods,
+                        run_id,
+                        Arc::new($tx_callback),
+                    )
+                    .await?
+            };
+        }
+
+        macro_rules! callback_match {
+            ($spammer:expr) => {
+                match tx_callback {
+                    TypedSpamCallback::Log(tx_callback) => {
+                        spammit!($spammer, tx_callback);
+                    }
+                    TypedSpamCallback::Nil(tx_callback) => {
+                        spammit!($spammer, tx_callback);
+                    }
+                }
+            };
+        }
+
         match self {
-            TypedSpammer::Blockwise(spammer) => match tx_callback {
-                TypedSpamCallback::Log(tx_callback) => {
-                    spammer
-                        .spam_rpc(
-                            test_scenario,
-                            txs_per_period,
-                            num_periods,
-                            run_id,
-                            Arc::new(tx_callback),
-                        )
-                        .await?;
-                }
-                TypedSpamCallback::Nil(tx_callback) => {
-                    spammer
-                        .spam_rpc(
-                            test_scenario,
-                            txs_per_period,
-                            num_periods,
-                            run_id,
-                            Arc::new(tx_callback),
-                        )
-                        .await?;
-                }
-            },
-            TypedSpammer::Timed(spammer) => match tx_callback {
-                TypedSpamCallback::Log(tx_callback) => {
-                    spammer
-                        .spam_rpc(
-                            test_scenario,
-                            txs_per_period,
-                            num_periods,
-                            run_id,
-                            Arc::new(tx_callback),
-                        )
-                        .await?;
-                }
-                TypedSpamCallback::Nil(tx_callback) => {
-                    spammer
-                        .spam_rpc(
-                            test_scenario,
-                            txs_per_period,
-                            num_periods,
-                            run_id,
-                            Arc::new(tx_callback),
-                        )
-                        .await?;
-                }
-            },
+            TypedSpammer::Blockwise(spammer) => callback_match!(spammer),
+            TypedSpammer::Timed(spammer) => callback_match!(spammer),
         }
         Ok(())
     }
