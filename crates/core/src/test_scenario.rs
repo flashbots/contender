@@ -638,6 +638,9 @@ where
                 ExecutionRequest::Bundle(reqs) => {
                     // prepare each tx in the bundle (increment nonce, set gas price, etc)
                     let mut bundle_txs = vec![];
+                    if self.bundle_client.is_none() {
+                        return Err(RuntimeParamErrorKind::BuilderUrlRequired.into());
+                    }
 
                     for req in reqs {
                         let (tx_req, signer) = self
@@ -830,12 +833,6 @@ where
                         }
                     }
                     ExecutionPayload::SignedTxBundle(signed_txs, reqs) => {
-                        if bundle_client.is_none() {
-                            error_sender
-                                .send(RuntimeParamErrorKind::BuilderUrlRequired.into())
-                                .await
-                                .expect("failed to send error signal");
-                        }
                         let mut bundle_txs = vec![];
                         for tx in &signed_txs {
                             let mut raw_tx = vec![];
@@ -865,20 +862,21 @@ where
                                 .prepare(),
                         };
                         let success_sender = success_sender.clone();
-                        if let Some(bundle_client) = bundle_client {
-                            info!("sending bundle...");
-                            debug!("bundle: {rpc_bundle:?}");
+                        let bundle_client = bundle_client.expect("test_scenario must be initialized with a bundle client to send bundles");
+                        info!("sending bundle...");
+                        debug!("bundle: {rpc_bundle:?}");
 
-                            let res = rpc_bundle.send(&bundle_client).await.map_err(|e| e.into());
-                            if let Err(e) = res {
-                                error_sender.send(e).await.unwrap_or_else(|e| {
-                                    trace!("failed to send error signal: {e:?}")
-                                });
-                            } else {
-                                success_sender.send(()).await.unwrap_or_else(|e| {
-                                    trace!("failed to send success signal: {e:?}")
-                                });
-                            }
+                        let res = rpc_bundle.send(&bundle_client).await.map_err(|e| e.into());
+                        if let Err(e) = res {
+                            error_sender
+                                .send(e)
+                                .await
+                                .unwrap_or_else(|e| trace!("failed to send error signal: {e:?}"));
+                        } else {
+                            success_sender
+                                .send(())
+                                .await
+                                .unwrap_or_else(|e| trace!("failed to send success signal: {e:?}"));
                         }
 
                         let mut tx_handles = vec![];

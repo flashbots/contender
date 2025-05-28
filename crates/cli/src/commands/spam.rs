@@ -158,7 +158,7 @@ impl SpamCommandArgs {
                 return Err(ContenderError::SpamError(
                     "Builder URL is required to send bundles.",
                     Some(format!(
-                        "Pass {} to send bundles.",
+                        "Pass the builder's URL with {}",
                         ansi_term::Style::new().bold().paint("--builder-url <URL>")
                     )),
                 ));
