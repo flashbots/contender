@@ -9,7 +9,7 @@ use alloy::{
     transports::http::reqwest::IntoUrl,
 };
 
-use crate::{bundle::Bundle, error::BundleProviderError};
+use crate::{bundle::TypedBundle, error::BundleProviderError};
 
 /// A helper wrapper around a RPC client that can be used to call `eth_sendBundle`.
 #[derive(Debug)]
@@ -45,8 +45,8 @@ impl BundleClient {
 /// Creates a new bundle with the given transactions and block number, setting the rest of the
 /// fields to default values.
 #[inline]
-pub fn new_basic_bundle(txs: Vec<Bytes>, block_number: u64) -> Bundle {
-    Bundle::L1(EthSendBundle {
+pub fn new_basic_bundle(txs: Vec<Bytes>, block_number: u64) -> TypedBundle {
+    TypedBundle::L1(EthSendBundle {
         txs,
         block_number,
         ..Default::default()

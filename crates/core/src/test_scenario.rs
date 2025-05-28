@@ -25,7 +25,7 @@ use alloy::rpc::types::TransactionRequest;
 use alloy::serde::WithOtherFields;
 use alloy::signers::local::{LocalSigner, PrivateKeySigner};
 use alloy::transports::http::reqwest::Url;
-use contender_bundle_provider::bundle::{Bundle, BundleType};
+use contender_bundle_provider::bundle::BundleType;
 use contender_bundle_provider::bundle_provider::new_basic_bundle;
 use contender_bundle_provider::revert_bundle::RevertProtectBundleRequest;
 use contender_bundle_provider::BundleClient;
@@ -39,7 +39,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 type PrometheusCollector = (
     &'static OnceCell<prometheus::Registry>,
@@ -859,7 +859,7 @@ where
                         };
 
                         let rpc_bundle = match bundle_type {
-                            BundleType::L1 => new_basic_bundle(bundle_txs, block_num),
+                            BundleType::L1 => new_basic_bundle(bundle_txs, block_num + 1),
                             BundleType::RevertProtected => RevertProtectBundleRequest::new()
                                 .with_txs(bundle_txs)
                                 .prepare(),
@@ -867,41 +867,17 @@ where
                         let success_sender = success_sender.clone();
                         if let Some(bundle_client) = bundle_client {
                             info!("sending bundle...");
-                            debug!("spamming bundle: {rpc_bundle:?}");
-                            match &rpc_bundle {
-                                Bundle::L1(bundle) => {
-                                    let mut bundle = bundle.to_owned();
-                                    bundle.block_number = block_num + 1;
-                                    let rpc_bundle = Bundle::L1(bundle);
+                            debug!("bundle: {rpc_bundle:?}");
 
-                                    let res =
-                                        rpc_bundle.send(&bundle_client).await.map_err(|e| e.into());
-                                    if let Err(e) = res {
-                                        error_sender.send(e).await.unwrap_or_else(|e| {
-                                            debug!("failed to send error signal: {e:?}")
-                                        });
-                                    } else {
-                                        success_sender
-                                            .send(())
-                                            .await
-                                            .expect("failed to send success signal");
-                                    }
-                                }
-                                Bundle::RevertProtected(bundle) => {
-                                    let bundle = Bundle::RevertProtected(bundle.to_owned());
-                                    let res =
-                                        bundle.send(&bundle_client).await.map_err(|e| e.into());
-                                    if let Err(e) = res {
-                                        error_sender.send(e).await.unwrap_or_else(|_| {
-                                            debug!("failed to send error signal");
-                                        });
-                                    } else {
-                                        success_sender
-                                            .send(())
-                                            .await
-                                            .expect("failed to send success signal");
-                                    }
-                                }
+                            let res = rpc_bundle.send(&bundle_client).await.map_err(|e| e.into());
+                            if let Err(e) = res {
+                                error_sender.send(e).await.unwrap_or_else(|e| {
+                                    trace!("failed to send error signal: {e:?}")
+                                });
+                            } else {
+                                success_sender.send(()).await.unwrap_or_else(|e| {
+                                    trace!("failed to send success signal: {e:?}")
+                                });
                             }
                         }
 

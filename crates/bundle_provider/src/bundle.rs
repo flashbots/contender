@@ -14,16 +14,16 @@ pub enum BundleType {
 }
 
 #[derive(Clone, Debug)]
-pub enum Bundle {
+pub enum TypedBundle {
     L1(EthSendBundle),
     RevertProtected(RevertProtectBundleRequest),
 }
 
-impl Bundle {
+impl TypedBundle {
     pub async fn send(&self, client: &BundleClient) -> Result<(), BundleProviderError> {
         match self {
-            Bundle::L1(b) => client.send_bundle::<_, EthBundleHash>(b).await,
-            Bundle::RevertProtected(b) => {
+            TypedBundle::L1(b) => client.send_bundle::<_, EthBundleHash>(b).await,
+            TypedBundle::RevertProtected(b) => {
                 // make a RevertProtectBundle from each tx in the bundle
                 // and send it to the client
                 for tx in &b.txs {
