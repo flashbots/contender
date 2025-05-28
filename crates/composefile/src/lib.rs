@@ -1,4 +1,4 @@
 pub mod composefile;
 pub mod types;
 
-mod utils;
+pub mod utils;

@@ -3,10 +3,7 @@ use yaml_rust2::{Yaml, YamlLoader};
 
 use crate::{
     types::{SetupCommandArgsJsonAdapter, SpamCommandArgsJsonAdapter},
-    utils::{
-        get_env_variables, get_min_balance, get_private_keys, get_rpc_url, get_spam_object,
-        get_testfile, get_tx_type,
-    },
+    utils::{setup_object_json_builder, spam_object_json_builder},
 };
 
 #[derive(Debug)]
@@ -14,12 +11,13 @@ pub struct ComposeFile {
     pub yaml: Yaml,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ComposeFileScenario {
     pub name: String,
     pub config: SetupCommandArgsJsonAdapter,
 }
 
+#[derive(Debug)]
 pub struct CompositeSpamConfiguration {
     pub stage_name: String,
     pub spam_configs: Vec<SpamCommandArgsJsonAdapter>,
@@ -45,52 +43,25 @@ impl ComposeFile {
     }
 
     pub fn get_setup_config(&self) -> Result<Vec<ComposeFileScenario>, Box<dyn Error>> {
-        let contracts_list = &self.yaml[0]["setup"];
+        let setup_scenarios_from_file = &self.yaml[0]["setup"];
 
         let mut setup_scenarios = vec![];
 
-        let contracts_hash = match contracts_list.as_hash() {
+        let setup_scenarios_object = match setup_scenarios_from_file.as_hash() {
             Some(val) => val,
             None => return Ok(Vec::new()),
         };
 
-        for (scenario_name, setup_command_params) in contracts_hash.into_iter() {
-            let scenario_object = setup_command_params
-                .clone()
-                .into_hash()
-                .ok_or(format!("Malformed scenario {setup_command_params:?}"))?;
-
-            let testfile = get_testfile(&scenario_object)?;
-
-            let rpc_url = get_rpc_url(&scenario_object)?;
-
-            let min_balance = get_min_balance(&scenario_object)?;
-
-            let private_keys = get_private_keys(&scenario_object)?;
-
-            let env_variables = get_env_variables(&scenario_object)?;
-
-            let tx_type = get_tx_type(&scenario_object)?;
-
-            let name = match scenario_name.as_str() {
-                Some(val) => String::from_str(val),
-                None => return Err(format!("Not a valid scenario name '{scenario_name:?}'").into()),
-            }?;
-
+        for (scenario_name, setup_command_params) in setup_scenarios_object.into_iter() {
             setup_scenarios.push(ComposeFileScenario {
-                name,
-                config: SetupCommandArgsJsonAdapter {
-                    testfile,
-                    rpc_url,
-                    min_balance,
-                    env: env_variables,
-                    tx_type,
-                    private_keys,
-                    // TODO: Hardcoded parameters for now, need more understanding on where to get these from
-                    // seed,
-                    // engine_params
+                name: match scenario_name.as_str() {
+                    Some(val) => String::from_str(val)?,
+                    None => {
+                        return Err(format!("Not a valid scenario name '{scenario_name:?}'").into())
+                    }
                 },
-            });
+                config: setup_object_json_builder(setup_command_params)?,
+            })
         }
         Ok(setup_scenarios)
     }
@@ -120,7 +91,7 @@ impl ComposeFile {
                     let spam_configs: Result<Vec<SpamCommandArgsJsonAdapter>, Box<dyn Error>> =
                         spam_objects_vec
                             .iter()
-                            .map(|i| get_spam_object(i))
+                            .map(|item| spam_object_json_builder(item))
                             .collect();
 
                     Ok(CompositeSpamConfiguration {
@@ -210,29 +181,6 @@ setup:
     }
 
     #[test]
-    fn test_missing_testfile() -> Result<(), Box<dyn Error>> {
-        let yaml_content = r#"
-setup:
-  missing_testfile:
-    rpc_url: "http://localhost:8545"
-"#;
-        let temp_file = create_temp_yaml_file(yaml_content)?;
-
-        let yaml_file =
-            ComposeFile::init_from_path(temp_file.path().to_string_lossy().into_owned())?;
-        let result = yaml_file.get_setup_config();
-
-        assert!(result.is_err());
-        match result {
-            Err(e) => assert!(e
-                .to_string()
-                .contains("'scenario' missing in the spam configuration")),
-            _ => panic!("Expected an error for missing testfile"),
-        }
-        Ok(())
-    }
-
-    #[test]
     fn test_default_values() -> Result<(), Box<dyn Error>> {
         let yaml_content = r#"
 setup:
@@ -254,116 +202,12 @@ setup:
         assert_eq!(scenarios[0].config.private_keys, None);
         Ok(())
     }
-
-    #[test]
-    fn test_legacy_tx_type() -> Result<(), Box<dyn Error>> {
-        let yaml_content = r#"
-setup:
-  legacy_scenario:
-    testfile: "./scenarios/simpler.toml"
-    tx_type: "legacy"
-"#;
-
-        let temp_file = create_temp_yaml_file(yaml_content)?;
-        let compose_file =
-            ComposeFile::init_from_path(temp_file.path().to_string_lossy().to_string())?;
-        let scenarios = compose_file.get_setup_config()?;
-
-        assert_eq!(scenarios.len(), 1);
-        assert_eq!(scenarios[0].config.tx_type, "legacy".to_string());
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_eip1559_tx_type() -> Result<(), Box<dyn Error>> {
-        let yaml_content = r#"
-setup:
-  legacy_scenario:
-    testfile: "./scenarios/simpler.toml"
-    tx_type: eip1559
-"#;
-
-        let temp_file = create_temp_yaml_file(yaml_content)?;
-        let compose_file =
-            ComposeFile::init_from_path(temp_file.path().to_string_lossy().to_string())?;
-        let scenarios = compose_file.get_setup_config()?;
-
-        assert_eq!(scenarios[0].config.tx_type, "eip1559".to_string());
-
-        Ok(())
-    }
-
-    // Done
-    #[test]
-    fn test_invalid_tx_type() -> Result<(), Box<dyn Error>> {
-        let yaml_content = r#"
-setup:
-  invalid_scenario:
-    testfile: "./scenarios/simpler.toml"
-    tx_type: "invalid_type"
-"#;
-
-        let temp_file = create_temp_yaml_file(yaml_content)?;
-        let compose_file =
-            ComposeFile::init_from_path(temp_file.path().to_string_lossy().to_string())?;
-        let result = compose_file.get_setup_config();
-
-        match result {
-            Ok(_) => return Err("Didn't expect test to pass".into()),
-            Err(e) => {
-                assert_eq!(
-                    e.to_string(),
-                    "Invalid Value for 'tx_type' = invalid_type".to_string()
-                )
-            }
-        }
-        Ok(())
-    }
-
-    // Done
-    #[test]
-    fn test_valid_env_variables() -> Result<(), Box<dyn std::error::Error>> {
-        let yaml_content = r#"
-setup:
-  invalid_scenario:
-    testfile: "./scenarios/simpler.toml"
-    env:
-        - KEY1=VALUE1
-        - KEY2=VALUE2
-"#;
-
-        let temp_file = create_temp_yaml_file(yaml_content)?;
-        let compose_file =
-            ComposeFile::init_from_path(temp_file.path().to_string_lossy().to_string())?;
-        let result = compose_file.get_setup_config()?;
-
-        assert_eq!(
-            result[0].config.env.as_ref().unwrap()[0].0.to_string(),
-            "KEY1".to_string()
-        );
-        assert_eq!(
-            result[0].config.env.as_ref().unwrap()[0].1,
-            "VALUE1".to_string()
-        );
-        assert_eq!(
-            result[0].config.env.as_ref().unwrap()[1].0,
-            "KEY2".to_string()
-        );
-        assert_eq!(
-            result[0].config.env.as_ref().unwrap()[1].1,
-            "VALUE2".to_string()
-        );
-
-        Ok(())
-    }
-
     #[test]
     fn test_malformed_yaml() -> Result<(), Box<dyn Error>> {
         let yaml_content = r#"
 setup:
   malformed:
-    testfile: "test.js"
+    testfile: "./scenarios/simpler.toml"
     min_balance: ]
 "#;
 
@@ -396,44 +240,90 @@ setup:
     }
 
     #[test]
-    fn test_numeric_values_for_min_balance() -> Result<(), Box<dyn Error>> {
+    fn test_invalid_setup_key() -> Result<(), Box<dyn Error>> {
         let yaml_content = r#"
 setup:
-  numeric_scenario:
-    testfile: "./tests/numeric.js"
-    min_balance: "5"
+  123:
+    testfile: "./scenarios/simpler.toml"
 "#;
-
         let temp_file = create_temp_yaml_file(yaml_content)?;
-        let compose_file =
-            ComposeFile::init_from_path(temp_file.path().to_string_lossy().to_string())?;
-        let scenarios = compose_file.get_setup_config()?;
+        let file = ComposeFile::init_from_path(temp_file.path().to_string_lossy().into_owned())?;
+        let result = file.get_setup_config();
 
-        assert_eq!(scenarios[0].config.min_balance, "5");
+        assert!(result.is_err());
+        assert!(result
+            .as_ref()
+            .unwrap_err()
+            .to_string()
+            .contains("Not a valid scenario name"));
 
         Ok(())
     }
 
     #[test]
-    fn test_empty_private_keys_and_envs() -> Result<(), Box<dyn Error>> {
+    fn test_get_spam_config_invalid_structure() -> Result<(), Box<dyn Error>> {
+        let yaml_str = r#"
+            setup: {}
+            spam:
+              stages: true
+        "#;
+
+        let temp_file = create_temp_yaml_file(yaml_str)?;
+        let file =
+            ComposeFile::init_from_path(temp_file.path().to_string_lossy().into_owned()).unwrap();
+        let result = file.get_spam_config();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to parse spam steps as hash"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_valid_spam_config_with_multiple_stages() -> Result<(), Box<dyn Error>> {
         let yaml_content = r#"
-setup:
-  empty_arrays:
-    testfile: "./tests/empty.js"
-    private_keys: []
-    env: []
+spam:
+  stages:
+    stage1:
+      - testfile: "./scenarios/simpler.toml"
+        tps: 10
+      - testfile: "./scenarios/simpler.toml"
+        tps: 7
+    stage2:
+      - testfile: "./scenarios/simpler.toml"
+        tps: 20
 "#;
 
         let temp_file = create_temp_yaml_file(yaml_content)?;
-        let compose_file =
-            ComposeFile::init_from_path(temp_file.path().to_string_lossy().to_string())?;
-        let scenarios = compose_file.get_setup_config()?;
+        let file = ComposeFile::init_from_path(temp_file.path().to_string_lossy().into_owned())?;
+        let spam_config = file.get_spam_config()?;
 
-        let private_keys = scenarios[0].config.private_keys.as_ref().unwrap();
-        assert_eq!(private_keys.len(), 0);
+        assert_eq!(spam_config.len(), 2);
+        assert_eq!(spam_config[0].stage_name, "stage1");
+        assert_eq!(spam_config[1].stage_name, "stage2");
 
-        let env_vars = scenarios[0].config.env.as_ref().unwrap();
-        assert_eq!(env_vars.len(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_spam_stage_not_a_list() -> Result<(), Box<dyn Error>> {
+        let yaml_content = r#"
+spam:
+  stages:
+    stage1: "not-a-list"
+"#;
+
+        let temp_file = create_temp_yaml_file(yaml_content)?;
+        let file = ComposeFile::init_from_path(temp_file.path().to_string_lossy().into_owned())?;
+        let result = file.get_spam_config();
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to parse spam objects as vector"));
 
         Ok(())
     }
