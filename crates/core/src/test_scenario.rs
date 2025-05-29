@@ -1,6 +1,11 @@
 use crate::agent_controller::AgentStore;
 use crate::buckets::Bucket;
+use crate::bundle_provider::bundle::BundleType;
+use crate::bundle_provider::provider::new_basic_bundle;
+use crate::bundle_provider::revert_bundle::RevertProtectBundleRequest;
+use crate::bundle_provider::BundleClient;
 use crate::db::{DbOps, NamedTx};
+use crate::engine_provider::AdvanceChain;
 use crate::error::{ContenderError, RuntimeParamErrorKind};
 use crate::generator::named_txs::ExecutionRequest;
 use crate::generator::templater::Templater;
@@ -25,11 +30,6 @@ use alloy::rpc::types::TransactionRequest;
 use alloy::serde::WithOtherFields;
 use alloy::signers::local::{LocalSigner, PrivateKeySigner};
 use alloy::transports::http::reqwest::Url;
-use contender_bundle_provider::bundle::BundleType;
-use contender_bundle_provider::bundle_provider::new_basic_bundle;
-use contender_bundle_provider::revert_bundle::RevertProtectBundleRequest;
-use contender_bundle_provider::BundleClient;
-use contender_engine_provider::AdvanceChain;
 use futures::{Stream, StreamExt};
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Deref;
@@ -1331,6 +1331,7 @@ struct SpamContextHandler {
 #[cfg(test)]
 pub mod tests {
     use crate::agent_controller::{AgentStore, SignerStore};
+    use crate::bundle_provider::bundle::BundleType;
     use crate::db::MockDb;
     use crate::generator::named_txs::ExecutionRequest;
     use crate::generator::templater::Templater;
@@ -1346,7 +1347,6 @@ pub mod tests {
     use alloy::hex::ToHexExt;
     use alloy::node_bindings::AnvilInstance;
     use alloy::primitives::{Address, U256};
-    use contender_bundle_provider::bundle::BundleType;
     use std::collections::HashMap;
     use tokio::sync::OnceCell;
 

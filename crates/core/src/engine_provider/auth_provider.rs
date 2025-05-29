@@ -19,10 +19,10 @@ use reth_optimism_node::OpPayloadAttributes;
 use std::path::PathBuf;
 use tracing::{debug, info};
 
-use crate::{engine::Signer, read_jwt_file};
-use crate::{error::AuthProviderError, valid_payload::EngineApiValidWaitExt};
+use crate::engine_provider::{engine::Signer, read_jwt_file};
+use crate::engine_provider::{error::AuthProviderError, valid_payload::EngineApiValidWaitExt};
 
-use super::{auth_transport::AuthenticatedTransportConnect, AdvanceChain};
+use crate::engine_provider::{auth_transport::AuthenticatedTransportConnect, AdvanceChain};
 
 pub const FJORD_DATA: &[u8] = &alloy::hex!(
     "440a5e200000146b000f79c500000000000000040000000066d052e700000000013ad8a3000000000000000000000000000000000000000000000000000000003ef1278700000000000000000000000000000000000000000000000000000000000000012fdf87b89884a61e74b322bbcf60386f543bfae7827725efaaf0ab1de2294a590000000000000000000000006887246668a3b87f54deb3b94ba47a6f63f32985"

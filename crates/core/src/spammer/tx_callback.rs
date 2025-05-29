@@ -1,7 +1,7 @@
 use super::tx_actor::{CacheTx, TxActorHandle};
+use crate::engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use crate::generator::{types::AnyProvider, NamedTxRequest};
 use alloy::providers::PendingTransactionConfig;
-use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
 use tracing::debug;
