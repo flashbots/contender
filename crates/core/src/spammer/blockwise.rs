@@ -61,13 +61,13 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::bundle_provider::bundle::BundleType;
     use alloy::{
         consensus::constants::ETH_TO_WEI,
         network::AnyNetwork,
         primitives::U256,
         providers::{DynProvider, ProviderBuilder},
     };
-    use contender_bundle_provider::bundle::BundleType;
     use tokio::sync::OnceCell;
 
     use crate::{

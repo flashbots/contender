@@ -1,7 +1,7 @@
 use std::ops::Deref;
 use std::{error::Error, fmt::Display};
 
-use contender_bundle_provider::error::BundleProviderError;
+use crate::bundle_provider::error::BundleProviderError;
 
 pub enum ContenderError {
     DbError(&'static str, Option<String>),

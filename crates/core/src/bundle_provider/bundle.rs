@@ -1,6 +1,6 @@
 use alloy::rpc::types::mev::{EthBundleHash, EthSendBundle};
 
-use crate::{
+use crate::bundle_provider::{
     error::BundleProviderError,
     revert_bundle::{BundlesFromRequest, RevertProtectBundleRequest},
     BundleClient,
