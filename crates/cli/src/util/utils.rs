@@ -23,9 +23,15 @@ use csv::Writer;
 use std::{str::FromStr, sync::Arc, time::Duration};
 use tracing::{debug, info, warn};
 
-pub enum SpamCallbackType {
+pub enum TypedSpamCallback {
     Log(LogCallback),
     Nil(NilCallback),
+}
+
+impl TypedSpamCallback {
+    pub fn is_log(&self) -> bool {
+        matches!(self, TypedSpamCallback::Log(_))
+    }
 }
 
 #[derive(Copy, Debug, Clone, clap::ValueEnum)]
@@ -409,21 +415,21 @@ pub async fn find_insufficient_balances(
     Ok(insufficient_balances)
 }
 
-pub async fn spam_callback_default(
+pub fn spam_callback_default(
     log_txs: bool,
     send_fcu: bool,
     rpc_client: Option<Arc<AnyProvider>>,
     auth_client: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
     cancel_token: tokio_util::sync::CancellationToken,
-) -> SpamCallbackType {
+) -> TypedSpamCallback {
     if let Some(rpc_client) = rpc_client {
         if log_txs {
             let log_callback =
                 LogCallback::new(rpc_client.clone(), auth_client, send_fcu, cancel_token);
-            return SpamCallbackType::Log(log_callback);
+            return TypedSpamCallback::Log(log_callback);
         }
     }
-    SpamCallbackType::Nil(NilCallback)
+    TypedSpamCallback::Nil(NilCallback)
 }
 
 pub fn write_run_txs<T: std::io::Write>(
