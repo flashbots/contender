@@ -1,7 +1,7 @@
 use crate::agent_controller::AgentStore;
 use crate::buckets::Bucket;
 use crate::db::{DbOps, NamedTx};
-use crate::error::{ContenderError, RuntimeParamErrorKind};
+use crate::error::{ContenderError, RpcErrorKind, RuntimeParamErrorKind};
 use crate::generator::named_txs::ExecutionRequest;
 use crate::generator::templater::Templater;
 use crate::generator::types::AnyProvider;
@@ -24,7 +24,7 @@ use alloy::rpc::client::ClientBuilder;
 use alloy::rpc::types::TransactionRequest;
 use alloy::serde::WithOtherFields;
 use alloy::signers::local::{LocalSigner, PrivateKeySigner};
-pub use alloy::transports::http::reqwest::Url;
+use alloy::transports::http::reqwest::Url;
 use contender_bundle_provider::bundle::BundleType;
 use contender_bundle_provider::bundle_provider::new_basic_bundle;
 use contender_bundle_provider::revert_bundle::RevertProtectBundleRequest;
@@ -41,10 +41,38 @@ use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
 
-type PrometheusCollector = (
-    &'static OnceCell<prometheus::Registry>,
-    &'static OnceCell<prometheus::HistogramVec>,
-);
+#[derive(Clone)]
+pub struct PrometheusCollector {
+    prom: &'static OnceCell<prometheus::Registry>,
+    hist: &'static OnceCell<prometheus::HistogramVec>,
+}
+
+impl Default for PrometheusCollector {
+    fn default() -> Self {
+        static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
+        static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
+        Self {
+            prom: &PROM,
+            hist: &HIST,
+        }
+    }
+}
+
+impl
+    From<(
+        &'static OnceCell<prometheus::Registry>,
+        &'static OnceCell<prometheus::HistogramVec>,
+    )> for PrometheusCollector
+{
+    fn from(
+        (prom, hist): (
+            &'static OnceCell<prometheus::Registry>,
+            &'static OnceCell<prometheus::HistogramVec>,
+        ),
+    ) -> Self {
+        Self { prom, hist }
+    }
+}
 
 /// A test scenario can be used to run a test with a specific configuration, database, and RPC provider.
 #[derive(Clone)]
@@ -130,7 +158,7 @@ where
 
         // use custom logging layer to log sendRawTransaction request IDs
         let client = ClientBuilder::default()
-            .layer(LoggingLayer::new(prometheus.0, prometheus.1).await)
+            .layer(LoggingLayer::new(prometheus.prom, prometheus.hist).await)
             .http(rpc_url.to_owned());
         let rpc_client = Arc::new(DynProvider::new(
             ProviderBuilder::new()
@@ -270,7 +298,7 @@ where
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             },
             None,
-            (&PROM, &HIST),
+            (&PROM, &HIST).into(),
         )
         .await?;
 
@@ -386,12 +414,14 @@ where
             .get_chain_id()
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get chain id"))?;
+        let db = &self.db;
 
         // we do everything in the callback so no need to actually capture the returned txs
-        self.load_txs(PlanType::Create(|tx_req| {
-            /* callback */
-            // copy data/refs from self before spawning the task
-            let db = self.db.clone();
+        for tx_req in self.load_txs(PlanType::Create(|_| Ok(None))).await? {
+            let tx_req = match tx_req {
+                ExecutionRequest::Tx(req) => req,
+                _ => continue, // we only handle single tx requests here
+            };
             let from = tx_req.tx.from.to_owned().ok_or(ContenderError::SetupError(
                 "failed to get 'from' address",
                 None,
@@ -412,53 +442,60 @@ where
             );
             let rpc_url = self.rpc_url.to_owned();
             let tx_type = self.tx_type;
-            let handle = tokio::task::spawn(async move {
-                // estimate gas limit
-                let gas_limit = wallet
-                    .estimate_gas(WithOtherFields::new(tx_req.tx.to_owned()))
-                    .await
-                    .expect("failed to estimate gas");
+            // estimate gas limit
+            let gas_limit = wallet
+                .estimate_gas(WithOtherFields::new(tx_req.tx.to_owned()))
+                .await
+                .expect("failed to estimate gas");
 
-                // inject missing fields into tx_req.tx
-                let mut tx = tx_req.tx;
-                complete_tx_request(&mut tx, tx_type, gas_price, gas_price / 10, gas_limit, chain_id);
+            // inject missing fields into tx_req.tx
+            let mut tx = tx_req.tx;
+            complete_tx_request(
+                &mut tx,
+                tx_type,
+                gas_price,
+                gas_price / 10,
+                gas_limit,
+                chain_id,
+            );
 
-                let res = wallet.send_transaction(WithOtherFields::new(tx)).await;
-                if let Err(err) = res {
-                    let err = err.to_string();
-                    if err.to_lowercase().contains("already known") {
-                        warn!("Transaction already known. You may be using the same seed (or private key) as another spammer. Try modifying seed with `-s`, or waiting if you set `-p`. JSON-RPC Error: {err:?}");
-                    } else if err.to_lowercase().contains("insufficient funds") {
-                        warn!(
-                            "Insufficient funds for transaction (account: {from}). Try passing a funded private key with `-p`. JSON-RPC Error: {err:?}"
-                        );
-                    } else if err.to_lowercase().contains("replacement transaction underpriced") {
-                        warn!("Replacement transaction underpriced. You may have to wait, or replace the currently-pending transactions manually. JSON-RPC Error: {err:?}");
+            let res = wallet
+                .send_transaction(WithOtherFields::new(tx))
+                .await
+                .map_err(|err| {
+                    let e = err.to_string().to_lowercase();
+                    if e.contains("already known") {
+                        ContenderError::RpcError(crate::error::RpcErrorKind::TxAlreadyKnown, err)
+                    } else if e.contains("insufficient funds") {
+                        ContenderError::RpcError(RpcErrorKind::InsufficientFunds(from), err)
+                    } else if e.contains("replacement transaction underpriced") {
+                        ContenderError::RpcError(
+                            RpcErrorKind::ReplacementTransactionUnderpriced,
+                            err,
+                        )
                     } else {
-                        warn!("failed to send tx: {err:?}");
+                        RpcErrorKind::GenericSendTxError.to_error(err)
                     }
-                    return;
-                }
-                let res =
-                    res.expect("this will never happen. If it does, I'm a terrible programmer.");
-                let receipt = res.get_receipt().await.expect("failed to get receipt");
-                debug!(
-                    "contract address: {}",
-                    receipt.contract_address.unwrap_or_default()
-                );
+                })?;
+            // watch pending transaction
+            let receipt = res.get_receipt().await.expect("failed to get receipt");
+            debug!(
+                "contract address: {}",
+                receipt.contract_address.unwrap_or_default()
+            );
+            if let Some(name) = tx_req.name {
                 db.insert_named_txs(
                     &[NamedTx::new(
-                        tx_req.name.unwrap_or_default(),
+                        name,
                         receipt.transaction_hash,
                         receipt.contract_address,
                     )],
                     rpc_url.as_str(),
-                )
-                .expect("failed to insert tx into db");
-            });
-            Ok(Some(handle))
-        }))
-        .await?;
+                )?;
+            } else {
+                warn!("No name provided for named transaction. This may cause issues with tracking the entry in the database.");
+            }
+        }
 
         self.sync_nonces().await?;
 
@@ -1056,7 +1093,7 @@ where
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             },
             None,
-            (&PROM, &HIST),
+            (&PROM, &HIST).into(),
         )
         .await?;
 
@@ -1218,7 +1255,7 @@ where
     /// Collects latency metrics from the prometheus registry.
     /// Returns a map of RPC method names to a vector of latency buckets which represent (upper_bound_secs, cumulative_count).
     pub fn collect_latency_metrics(&self) -> BTreeMap<String, Vec<Bucket>> {
-        let registry = self.prometheus.0.get();
+        let registry = self.prometheus.prom.get();
         let mut latency_map = BTreeMap::new();
         if let Some(registry) = registry {
             let metric_families = registry.gather();
@@ -1598,7 +1635,7 @@ pub mod tests {
                 pending_tx_timeout_secs: 12,
             },
             None,
-            (&PROM, &HIST),
+            (&PROM, &HIST).into(),
         )
         .await
         .unwrap();

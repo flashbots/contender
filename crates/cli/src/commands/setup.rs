@@ -154,7 +154,7 @@ pub async fn setup(
         seed,
         params,
         engine_params.engine_provider,
-        (&PROM, &HIST),
+        (&PROM, &HIST).into(),
     )
     .await?;
 

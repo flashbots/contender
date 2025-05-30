@@ -142,7 +142,7 @@ mod tests {
                 pending_tx_timeout_secs: 12,
             },
             None,
-            (&PROM, &HIST),
+            (&PROM, &HIST).into(),
         )
         .await
         .unwrap();

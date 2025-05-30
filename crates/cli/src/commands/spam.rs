@@ -282,7 +282,7 @@ impl SpamCommandArgs {
             rand_seed,
             params,
             engine_params.engine_provider.to_owned(),
-            (&PROM, &HIST),
+            (&PROM, &HIST).into(),
         )
         .await?;
 

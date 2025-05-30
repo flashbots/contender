@@ -31,14 +31,13 @@ impl BundleClient {
     pub async fn send_bundle<Bundle: RpcSend, Response: RpcRecv>(
         &self,
         bundle: Bundle,
-    ) -> Result<(), BundleProviderError> {
+    ) -> Result<Option<Response>, BundleProviderError> {
         // Result contents optional because some endpoints don't return this response
-        self.client
+        Ok(self
+            .client
             .raw_request::<_, Option<Response>>("eth_sendBundle".into(), [bundle])
             .await
-            .map_err(|e| BundleProviderError::SendBundleError(e.into()))?;
-
-        Ok(())
+            .map_err(|e| BundleProviderError::SendBundleError(e.into()))?)
     }
 }
 
