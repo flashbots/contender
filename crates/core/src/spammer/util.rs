@@ -1,6 +1,6 @@
 #[cfg(test)]
 pub mod test {
-    use std::{str::FromStr, sync::Arc};
+    use std::{collections::HashMap, str::FromStr, sync::Arc};
 
     use alloy::{
         consensus::TxType,
@@ -25,7 +25,7 @@ pub mod test {
             _tx_res: PendingTransactionConfig,
             _req: &NamedTxRequest,
             _extra: RuntimeTxInfo,
-            _tx_handler: Option<Arc<TxActorHandle>>,
+            _tx_handler: Option<HashMap<String, Arc<TxActorHandle>>>,
         ) -> Option<JoinHandle<()>> {
             info!("MockCallback::on_tx_sent: tx_hash={}", _tx_res.tx_hash());
             None
