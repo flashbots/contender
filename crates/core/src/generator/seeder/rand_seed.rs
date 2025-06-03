@@ -98,7 +98,23 @@ impl Seeder for RandSeed {
         });
         Box::new(vals)
     }
+
+    fn seed_from_u256(seed: U256) -> Self {
+        Self::seed_from_u256(seed)
+    }
+
+    fn seed_from_bytes(seed: &[u8]) -> Self {
+        Self::seed_from_bytes(seed)
+    }
+
+    fn seed_from_str(seed: &str) -> Self {
+        Self::seed_from_str(seed)
+    }
 }
+
+pub trait SeedGenerator: Seeder + SeedValue {}
+
+impl<T> SeedGenerator for T where T: Seeder + SeedValue + Clone + Send + Sync + 'static {}
 
 impl Default for RandSeed {
     fn default() -> Self {

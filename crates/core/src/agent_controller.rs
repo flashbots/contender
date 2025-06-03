@@ -5,10 +5,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 
-use crate::generator::{
-    seeder::{SeedValue, Seeder},
-    RandSeed,
-};
+use crate::generator::seeder::{rand_seed::SeedGenerator, SeedValue};
 
 pub trait SignerRegistry<Index: Ord> {
     fn get_signer(&self, idx: Index) -> Option<&PrivateKeySigner>;
@@ -46,7 +43,7 @@ impl AgentStore {
         &mut self,
         agent_names: &[impl AsRef<str>],
         signers_per_agent: usize,
-        seed: &RandSeed,
+        seed: &impl SeedGenerator,
     ) {
         for agent in agent_names {
             if self.has_agent(agent) {
@@ -64,7 +61,7 @@ impl AgentStore {
         &mut self,
         name: impl AsRef<str>,
         num_signers: usize,
-        rand_seeder: &RandSeed,
+        rand_seeder: &impl SeedGenerator,
     ) {
         let signers = SignerStore::new(num_signers, rand_seeder, name.as_ref());
         self.add_agent(name, signers);
@@ -112,10 +109,10 @@ where
 }
 
 impl SignerStore {
-    pub fn new(num_signers: usize, rand_seeder: &RandSeed, acct_seed: &str) -> Self {
+    pub fn new<S: SeedGenerator>(num_signers: usize, rand_seeder: &S, acct_seed: &str) -> Self {
         // add numerical value of acct_seed to given seed
         let new_seed = rand_seeder.as_u256() + U256::from_be_slice(acct_seed.as_bytes());
-        let rand_seeder = RandSeed::seed_from_u256(new_seed);
+        let rand_seeder = S::seed_from_u256(new_seed);
 
         // generate random private keys with new seed
         let prv_keys = rand_seeder
