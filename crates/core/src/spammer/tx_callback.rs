@@ -2,7 +2,7 @@ use super::tx_actor::{CacheTx, TxActorHandle};
 use crate::generator::{types::AnyProvider, NamedTxRequest};
 use alloy::providers::PendingTransactionConfig;
 use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
 use tracing::debug;
 
@@ -16,7 +16,7 @@ where
         tx_response: PendingTransactionConfig,
         req: &NamedTxRequest,
         extra: RuntimeTxInfo,
-        tx_handler: Option<Arc<TxActorHandle>>,
+        tx_handlers: Option<HashMap<String, Arc<TxActorHandle>>>,
     ) -> Option<JoinHandle<()>>;
 }
 
@@ -118,7 +118,7 @@ impl OnTxSent for NilCallback {
         _tx_res: PendingTransactionConfig,
         _req: &NamedTxRequest,
         _extra: RuntimeTxInfo,
-        _tx_handler: Option<Arc<TxActorHandle>>,
+        _tx_handlers: Option<HashMap<String, Arc<TxActorHandle>>>,
     ) -> Option<JoinHandle<()>> {
         // do nothing
         None
@@ -131,11 +131,12 @@ impl OnTxSent for LogCallback {
         tx_response: PendingTransactionConfig,
         _req: &NamedTxRequest,
         extra: RuntimeTxInfo,
-        tx_actor: Option<Arc<TxActorHandle>>,
+        tx_actors: Option<HashMap<String, Arc<TxActorHandle>>>,
     ) -> Option<JoinHandle<()>> {
         let cancel_token = self.cancel_token.clone();
         let handle = tokio::task::spawn(async move {
-            if let Some(tx_actor) = tx_actor {
+            if let Some(tx_actors) = tx_actors {
+                let tx_actor = tx_actors["default"].clone();
                 let tx = CacheTx {
                     tx_hash: *tx_response.tx_hash(),
                     start_timestamp_ms: extra.start_timestamp_ms,

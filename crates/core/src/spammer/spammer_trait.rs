@@ -152,7 +152,9 @@ where
             let flush_finished: bool = tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
                     warn!("CTRL-C received, stopping result collection...");
-                    let _ = scenario.msg_handle.stop().await;
+                    for (_rpc_url, msg_handle) in &scenario.msg_handles {
+                        let _ = msg_handle.stop().await;
+                    }
                     cancel_token.cancel();
                     self.context().done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
                     false

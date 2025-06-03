@@ -234,6 +234,7 @@ impl SpamCommandArgs {
             tx_type: *tx_type,
             bundle_type: *bundle_type,
             pending_tx_timeout_secs: *timeout_secs,
+            extra_msg_handles: None,
         };
 
         fund_accounts(

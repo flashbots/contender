@@ -97,7 +97,7 @@ where
     pub nonces: HashMap<Address, u64>,
     pub chain_id: u64,
     pub gas_limits: HashMap<FixedBytes<32>, u64>,
-    pub msg_handle: Arc<TxActorHandle>,
+    pub msg_handles: HashMap<String, Arc<TxActorHandle>>,
     pub tx_type: TxType,
     pub bundle_type: BundleType,
     pub pending_tx_timeout_secs: u64,
@@ -113,6 +113,7 @@ pub struct TestScenarioParams {
     pub tx_type: TxType,
     pub pending_tx_timeout_secs: u64,
     pub bundle_type: BundleType,
+    pub extra_msg_handles: Option<HashMap<String, Arc<TxActorHandle>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -154,6 +155,7 @@ where
             tx_type,
             pending_tx_timeout_secs,
             bundle_type,
+            extra_msg_handles,
         } = params;
 
         // use custom logging layer to log sendRawTransaction request IDs
@@ -223,8 +225,13 @@ where
             None
         };
 
-        let msg_handle = Arc::new(TxActorHandle::new(120, db.clone(), rpc_client.clone()));
         let cancel_token = CancellationToken::new();
+
+        // default msg_handle to handle txs sent on rpc_url
+        let msg_handle = Arc::new(TxActorHandle::new(120, db.clone(), rpc_client.clone()));
+        let mut msg_handles = HashMap::new();
+        msg_handles.insert("default".to_owned(), msg_handle);
+        msg_handles.extend(extra_msg_handles.unwrap_or_default());
 
         Ok(Self {
             config,
@@ -239,7 +246,7 @@ where
             chain_id,
             nonces,
             gas_limits,
-            msg_handle,
+            msg_handles,
             tx_type,
             bundle_type,
             pending_tx_timeout_secs,
@@ -296,6 +303,7 @@ where
                 tx_type: self.tx_type,
                 bundle_type: self.bundle_type,
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
+                extra_msg_handles: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -789,7 +797,7 @@ where
         for payload in payloads {
             let rpc_client = self.rpc_client.clone();
             let bundle_client = self.bundle_client.clone();
-            let tx_handler = self.msg_handle.clone();
+            let tx_handlers = self.msg_handles.clone();
             let callback_handler = callback_handler.clone();
             let gas_sender = gas_sender.clone();
             let success_sender = success_sender.clone();
@@ -812,7 +820,7 @@ where
                                     res.into_inner(),
                                     &req,
                                     extra,
-                                    Some(tx_handler.clone()),
+                                    Some(tx_handlers),
                                 );
 
                                 tokio::select! {
@@ -854,7 +862,7 @@ where
                                         PendingTransactionConfig::new(tx_hash),
                                         &req,
                                         extra,
-                                        Some(tx_handler.clone()),
+                                        Some(tx_handlers),
                                     )]
                                 } else {
                                     // ignore errors that can't be decoded
@@ -917,7 +925,7 @@ where
                                 PendingTransactionConfig::new(*tx.tx_hash()),
                                 &req,
                                 extra.clone(),
-                                Some(tx_handler.clone()),
+                                Some(tx_handlers.clone()),
                             );
                             tx_handles.push(maybe_handle);
                         }
@@ -1086,6 +1094,7 @@ where
                 tx_type: self.tx_type,
                 bundle_type: self.bundle_type,
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
+                extra_msg_handles: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -1179,51 +1188,49 @@ where
             .max(2);
         let mut cache_size_queue = vec![];
         cache_size_queue.resize(block_timeout as usize, 1);
-        loop {
-            let pending_txs = self
-                .msg_handle
-                .flush_cache(run_id, block_start + block_counter as u64)
-                .await
-                .map_err(|e| ContenderError::with_err(e.deref(), "failed to flush cache"))?;
-            cache_size_queue.rotate_right(1);
-            cache_size_queue[0] = pending_txs.len();
+        for (_rpc_url, msg_handle) in &self.msg_handles {
+            loop {
+                let pending_txs = msg_handle
+                    .flush_cache(run_id, block_start + block_counter as u64)
+                    .await
+                    .map_err(|e| ContenderError::with_err(e.deref(), "failed to flush cache"))?;
+                cache_size_queue.rotate_right(1);
+                cache_size_queue[0] = pending_txs.len();
 
-            if pending_txs.is_empty() {
-                break;
-            }
+                if pending_txs.is_empty() {
+                    break;
+                }
 
-            let current_timestamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("time went backwards")
-                .as_millis();
+                let current_timestamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("time went backwards")
+                    .as_millis();
 
-            // remove cached txs if the size hasn't changed for the last N blocks
-            if cache_size_queue
-                .iter()
-                .all(|&size| size == cache_size_queue[0])
-            {
-                debug!(
-                            "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
-                        );
-                for tx in &pending_txs {
-                    // only remove txs that have been waiting for > T seconds
-                    if current_timestamp
-                        > tx.start_timestamp_ms + (self.pending_tx_timeout_secs as u128 * 1000)
-                    {
-                        self.msg_handle
-                            .remove_cached_tx(tx.tx_hash)
-                            .await
-                            .map_err(|e| {
+                // remove cached txs if the size hasn't changed for the last N blocks
+                if cache_size_queue
+                    .iter()
+                    .all(|&size| size == cache_size_queue[0])
+                {
+                    debug!(
+                                "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
+                            );
+                    for tx in &pending_txs {
+                        // only remove txs that have been waiting for > T seconds
+                        if current_timestamp
+                            > tx.start_timestamp_ms + (self.pending_tx_timeout_secs as u128 * 1000)
+                        {
+                            msg_handle.remove_cached_tx(tx.tx_hash).await.map_err(|e| {
                                 ContenderError::with_err(
                                     e.deref(),
                                     "failed to remove tx from cache",
                                 )
                             })?;
+                        }
                     }
                 }
-            }
 
-            block_counter += 1;
+                block_counter += 1;
+            }
         }
 
         Ok(())
@@ -1232,16 +1239,17 @@ where
     pub async fn dump_tx_cache(&self, run_id: u64) -> Result<()> {
         debug!("dumping tx cache...");
 
-        let failed_txs = self
-            .msg_handle
-            .dump_cache(run_id)
-            .await
-            .map_err(|e| ContenderError::with_err(e.deref(), "failed to dump cache"))?;
-        if !failed_txs.is_empty() {
-            warn!(
-                "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
-                failed_txs.len()
-            );
+        for (_rpc_url, msg_handle) in &self.msg_handles {
+            let failed_txs = msg_handle
+                .dump_cache(run_id)
+                .await
+                .map_err(|e| ContenderError::with_err(e.deref(), "failed to dump cache"))?;
+            if !failed_txs.is_empty() {
+                warn!(
+                    "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
+                    failed_txs.len()
+                );
+            }
         }
 
         Ok(())
@@ -1628,6 +1636,7 @@ pub mod tests {
                 tx_type,
                 bundle_type,
                 pending_tx_timeout_secs: 12,
+                extra_msg_handles: None,
             },
             None,
             (&PROM, &HIST).into(),
