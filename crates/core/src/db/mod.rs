@@ -11,9 +11,9 @@ use serde::Serialize;
 pub struct RunTx {
     pub tx_hash: TxHash,
     #[serde(rename = "start_time")]
-    pub start_timestamp: u64,
+    pub start_timestamp_secs: u64,
     #[serde(rename = "end_time")]
-    pub end_timestamp: Option<u64>,
+    pub end_timestamp_secs: Option<u64>,
     pub block_number: Option<u64>,
     pub gas_used: Option<u64>,
     pub kind: Option<String>,

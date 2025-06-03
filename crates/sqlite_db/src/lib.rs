@@ -143,8 +143,8 @@ impl From<RunTxRow> for RunTx {
         let tx_hash = TxHash::from_hex(&row.tx_hash).expect("invalid tx hash");
         Self {
             tx_hash,
-            start_timestamp: row.start_timestamp,
-            end_timestamp: row.end_timestamp,
+            start_timestamp_secs: row.start_timestamp,
+            end_timestamp_secs: row.end_timestamp,
             block_number: row.block_number,
             gas_used: row.gas_used,
             kind: row.kind,
@@ -422,7 +422,7 @@ impl DbOps for SqliteDb {
             let val_or_null_str = |v: &Option<String>| v.to_owned().map(|v| format!("'{v}'")).unwrap_or("NULL".to_owned());
 
             let kind = val_or_null_str(&tx.kind);
-            let end_timestamp = val_or_null_u64(&tx.end_timestamp);
+            let end_timestamp = val_or_null_u64(&tx.end_timestamp_secs);
             let block_number = val_or_null_u64(&tx.block_number);
             let gas_used = val_or_null_u64(&tx.gas_used);
             let error = val_or_null_str(&tx.error);
@@ -431,7 +431,7 @@ impl DbOps for SqliteDb {
                 "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind, error) VALUES ({}, '{}', {}, {}, {}, {}, {}, {});",
                 run_id,
                 tx.tx_hash.encode_hex(),
-                tx.start_timestamp,
+                tx.start_timestamp_secs,
                 end_timestamp,
                 block_number,
                 gas_used,
@@ -567,8 +567,8 @@ mod tests {
         let run_txs = vec![
             RunTx {
                 tx_hash: TxHash::from_slice(&[0u8; 32]),
-                start_timestamp: 100,
-                end_timestamp: Some(200),
+                start_timestamp_secs: 100,
+                end_timestamp_secs: Some(200),
                 block_number: Some(1),
                 gas_used: Some(100),
                 kind: Some("test".to_string()),
@@ -576,8 +576,8 @@ mod tests {
             },
             RunTx {
                 tx_hash: TxHash::from_slice(&[1u8; 32]),
-                start_timestamp: 200,
-                end_timestamp: Some(300),
+                start_timestamp_secs: 200,
+                end_timestamp_secs: Some(300),
                 block_number: Some(2),
                 gas_used: Some(200),
                 kind: Some("test".to_string()),

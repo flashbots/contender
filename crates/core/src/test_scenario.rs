@@ -10,7 +10,7 @@ use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use crate::provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID};
 use crate::spammer::tx_actor::TxActorHandle;
-use crate::spammer::{ExecutionPayload, SpamCallback, SpamTrigger};
+use crate::spammer::{ExecutionPayload, RuntimeTxInfo, SpamCallback, SpamTrigger};
 use crate::Result;
 use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
 use alloy::consensus::{Transaction, TxType};
@@ -798,12 +798,7 @@ where
 
             std::thread::sleep(Duration::from_micros(micros_per_task));
             tasks.push(tokio::task::spawn(async move {
-                let mut extra = HashMap::new();
-                let start_timestamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("time went backwards")
-                    .as_millis();
-                extra.insert("start_timestamp".to_owned(), start_timestamp.to_string());
+                let extra = RuntimeTxInfo::default();
                 let handles = match payload {
                     ExecutionPayload::SignedTx(signed_tx, req) => {
                         let tx_hash = signed_tx.tx_hash().to_owned();
@@ -816,7 +811,7 @@ where
                                 let maybe_handle = callback_handler.on_tx_sent(
                                     res.into_inner(),
                                     &req,
-                                    Some(extra),
+                                    extra,
                                     Some(tx_handler.clone()),
                                 );
 
@@ -854,11 +849,11 @@ where
                                     // if they are due to nonce issues, this will fail, but if they do land somehow,
                                     // they will be awaited in the post-spam loop
                                     warn!("error from tx {tx_hash}: {err:?}");
-                                    extra.insert("error".to_owned(), err.to_string());
+                                    let extra = extra.with_error(err.to_string());
                                     vec![callback_handler.on_tx_sent(
                                         PendingTransactionConfig::new(tx_hash),
                                         &req,
-                                        Some(extra),
+                                        extra,
                                         Some(tx_handler.clone()),
                                     )]
                                 } else {
@@ -921,7 +916,7 @@ where
                             let maybe_handle = callback_handler.on_tx_sent(
                                 PendingTransactionConfig::new(*tx.tx_hash()),
                                 &req,
-                                Some(extra.clone()),
+                                extra.clone(),
                                 Some(tx_handler.clone()),
                             );
                             tx_handles.push(maybe_handle);
@@ -1213,7 +1208,7 @@ where
                 for tx in &pending_txs {
                     // only remove txs that have been waiting for > T seconds
                     if current_timestamp
-                        > (tx.start_timestamp + (self.pending_tx_timeout_secs * 1000)) as u128
+                        > tx.start_timestamp_ms + (self.pending_tx_timeout_secs as u128 * 1000)
                     {
                         self.msg_handle
                             .remove_cached_tx(tx.tx_hash)

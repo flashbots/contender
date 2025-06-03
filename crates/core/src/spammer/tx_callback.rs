@@ -2,7 +2,7 @@ use super::tx_actor::{CacheTx, TxActorHandle};
 use crate::generator::{types::AnyProvider, NamedTxRequest};
 use alloy::providers::PendingTransactionConfig;
 use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::debug;
 
@@ -15,9 +15,67 @@ where
         &self,
         tx_response: PendingTransactionConfig,
         req: &NamedTxRequest,
-        extra: Option<HashMap<K, V>>,
+        extra: RuntimeTxInfo,
         tx_handler: Option<Arc<TxActorHandle>>,
     ) -> Option<JoinHandle<()>>;
+}
+
+#[derive(Clone, Debug)]
+pub struct RuntimeTxInfo {
+    start_timestamp_ms: u128,
+    kind: Option<String>,
+    error: Option<String>,
+}
+
+impl RuntimeTxInfo {
+    pub fn new(start_timestamp_ms: u128, kind: Option<String>, error: Option<String>) -> Self {
+        Self {
+            start_timestamp_ms,
+            kind,
+            error,
+        }
+    }
+
+    pub fn with_kind(mut self, kind: String) -> Self {
+        self.kind = Some(kind);
+        self
+    }
+
+    pub fn with_error(mut self, error: String) -> Self {
+        self.error = Some(error);
+        self
+    }
+
+    pub fn with_start_timestamp(mut self, start_timestamp_ms: u128) -> Self {
+        self.start_timestamp_ms = start_timestamp_ms;
+        self
+    }
+
+    pub fn start_timestamp_ms(&self) -> u128 {
+        self.start_timestamp_ms
+    }
+
+    pub fn kind(&self) -> Option<&String> {
+        self.kind.as_ref()
+    }
+
+    pub fn error(&self) -> Option<&String> {
+        self.error.as_ref()
+    }
+}
+
+impl Default for RuntimeTxInfo {
+    fn default() -> Self {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        Self {
+            start_timestamp_ms: now,
+            kind: None,
+            error: None,
+        }
+    }
 }
 
 pub trait OnBatchSent {
@@ -59,7 +117,7 @@ impl OnTxSent for NilCallback {
         &self,
         _tx_res: PendingTransactionConfig,
         _req: &NamedTxRequest,
-        _extra: Option<HashMap<String, String>>,
+        _extra: RuntimeTxInfo,
         _tx_handler: Option<Arc<TxActorHandle>>,
     ) -> Option<JoinHandle<()>> {
         // do nothing
@@ -72,27 +130,17 @@ impl OnTxSent for LogCallback {
         &self,
         tx_response: PendingTransactionConfig,
         _req: &NamedTxRequest,
-        extra: Option<HashMap<String, String>>,
+        extra: RuntimeTxInfo,
         tx_actor: Option<Arc<TxActorHandle>>,
     ) -> Option<JoinHandle<()>> {
-        let start_timestamp = extra
-            .as_ref()
-            .and_then(|e| e.get("start_timestamp").map(|t| t.parse::<u64>()))?
-            .unwrap_or(0);
-        let kind = extra
-            .as_ref()
-            .and_then(|e| e.get("kind").map(|k| k.to_owned()));
-        let error = extra
-            .as_ref()
-            .and_then(|e| e.get("error").map(|e| e.to_owned()));
         let cancel_token = self.cancel_token.clone();
         let handle = tokio::task::spawn(async move {
             if let Some(tx_actor) = tx_actor {
                 let tx = CacheTx {
                     tx_hash: *tx_response.tx_hash(),
-                    start_timestamp,
-                    kind,
-                    error,
+                    start_timestamp_ms: extra.start_timestamp_ms,
+                    kind: extra.kind,
+                    error: extra.error,
                 };
                 tokio::select! {
                     _ = cancel_token.cancelled() => {}
