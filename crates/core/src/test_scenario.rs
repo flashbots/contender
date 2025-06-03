@@ -370,7 +370,7 @@ where
         agent_name: impl AsRef<str>,
         funder: &EthereumWallet,
         amount: U256,
-    ) -> Result<()> {
+    ) -> Result<Vec<PendingTransactionConfig>> {
         let addresses = self
             .agent_store
             .get_agent(&agent_name)
@@ -385,6 +385,7 @@ where
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
 
+        let mut pending_txs = vec![];
         for addr in addresses {
             let tx_req = TransactionRequest::default()
                 .with_from(funder.default_signer().address())
@@ -407,9 +408,10 @@ where
                 addr.encode_hex(),
                 pending.tx_hash()
             );
+            pending_txs.push(pending.inner().to_owned());
         }
 
-        Ok(())
+        Ok(pending_txs)
     }
 
     pub async fn deploy_contracts(&mut self) -> Result<()> {
