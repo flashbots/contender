@@ -5,6 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Contender Report</title>
+
   <!--
 
     (¯`·¯`·.¸¸.·´¯`·.¸¸.·´¯`··´¯)
@@ -150,6 +151,11 @@
       font-size: .9rem;
       padding: 1rem;
     }
+
+    .chart {
+      width: 100%;
+      height: 420px;
+    }
   </style>
 
 </head>
@@ -250,10 +256,100 @@
   </section>
   {{/each}}
 
+  <section>
+    <div class="chart" id="heatmap"></div>
+  </section>
+
   <footer>
     <p>Flashbots 2025 ©</p>
   </footer>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.6.0/echarts.min.js" integrity="sha512-XSmbX3mhrD2ix5fXPTRQb2FwK22sRMVQTpBP2ac8hX7Dh/605hA2QDegVWiAvZPiXIxOV0CbkmUjGionDpbCmw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script type="text/javascript">
+    // Ensure echarts is loaded
+    if (typeof echarts === 'undefined') {
+      throw new Error('ECharts library is not loaded. Please include the ECharts script.');
+    }
+
+    async function renderHeatmap() {
+      // Initialize the echarts instance based on the prepared dom
+      var chart = echarts.init(document.getElementById('heatmap'));
+
+      const blocks = [101, 102, 103, 104, 105, 106, 107];
+      const storageSlots = ["0x0001", "0x0002", "0x0003", "0x0004", "0x0005"];
+      const data = [
+        [0, 0, 10], [0, 1, 20], [0, 2, 30], [0, 3, 24], [0, 4, 0], [0, 5, 13], [0, 6, 0],
+        [1, 0, 15], [1, 1, 25], [1, 2, 35], [1, 3, 0], [1, 4, 0], [1, 5, 0], [1, 6, 0],
+        [2, 0, 5], [2, 1, 15], [2, 2, 25], [2, 3, 0], [2, 4, 0], [2, 5, 0], [2, 6, 0],
+        [3, 0, 20], [3, 1, 30], [3, 2, 40], [3, 3, 0], [3, 4, 0], [3, 5, 0], [3, 6, 0],
+        [4, 0, 10], [4, 1, 20], [4, 2, 30], [4, 3, 0], [4, 4, 0], [4, 5, 0] , [4 ,6 ,0]
+      ]
+  
+      // Specify the configuration items and data for the chart
+      var option = {
+        title: {
+          text: 'ECharts Getting Started Example'
+        },
+        tooltip: {
+          position: 'top'
+        },
+        grid: {
+          height: '90%',
+          top: '5%'
+        },
+        xAxis: {
+          type: 'category',
+          label: 'blocks',
+          data: blocks,
+          splitArea: {
+            show: true
+          },
+        },
+        yAxis: {
+          type: 'category',
+          data: storageSlots,
+          splitArea: {
+            show: true
+          },
+        },
+        visualMap: {
+          min: 0,
+          max: 10,
+          calculable: true,
+          orient: 'horizontal',
+          left: 'center',
+          bottom: '15%',
+        },
+        series: [{
+          name: 'Storage Slot Usage',
+          type: 'heatmap',
+          data: data,
+          label: {
+            show: true,
+            formatter: function (params) {
+              return params.value[2] > 0 ? params.value[2] : '';
+            }
+          },
+          emphasis: {
+            itemStyle: {
+              shadowBlur: 10,
+              shadowColor: 'rgba(0, 0, 0, 0.5)'
+            }
+          }
+        }]
+      };
+
+      // Display the chart using the configuration items and data just specified.
+      chart.setOption(option);
+    }
+
+    let heatmapRes = renderHeatmap();
+    Promise.all([heatmapRes]).then(() => {
+      console.log('All charts rendered');
+    });
+  </script>
+
 </body>
+
 
 </html>
