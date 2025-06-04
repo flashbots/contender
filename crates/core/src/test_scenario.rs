@@ -473,7 +473,7 @@ where
         .await?;
 
         err_recv.close();
-        while let Some(err) = err_recv.recv().await {
+        if let Some(err) = err_recv.recv().await {
             return Err(err);
         }
 
