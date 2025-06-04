@@ -114,9 +114,16 @@ pub async fn report(
         (trace_data, block_data)
     };
 
+    if blocks.is_empty() {
+        return Err("cannot run report; blocks found on target RPC".into());
+    }
+
     // find peak gas usage
     let peak_gas = blocks.iter().map(|b| b.header.gas_used).max().unwrap_or(0);
-    let block_gas_limit = blocks[0].header.gas_limit;
+    let block_gas_limit = blocks
+        .get(0)
+        .map(|blk| blk.header.gas_limit)
+        .unwrap_or(30_000_000);
 
     // find peak tx count
     let peak_tx_count = blocks
@@ -237,13 +244,15 @@ pub async fn report(
     }
 
     // compile report
+    let mut blocks = cache_data.blocks;
+    blocks.sort_by(|a, b| a.header.number.cmp(&b.header.number));
     let report_path = build_html_report(
         ReportMetadata {
             scenario_name: scenario_title,
             start_run_id,
             end_run_id,
-            start_block: cache_data.blocks.first().unwrap().header.number,
-            end_block: cache_data.blocks.last().unwrap().header.number,
+            start_block: blocks.first().unwrap().header.number,
+            end_block: blocks.last().unwrap().header.number,
             rpc_url: rpc_url.to_string(),
             metrics,
             chart_ids,

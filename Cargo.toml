@@ -3,7 +3,8 @@ members = [
     "crates/bundle_provider",
     "crates/cli/",
     "crates/core/",
-    "crates/engine_provider", "crates/report",
+    "crates/engine_provider",
+    "crates/report",
     "crates/sqlite_db/",
     "crates/testfile/",
 ]

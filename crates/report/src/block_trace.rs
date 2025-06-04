@@ -89,6 +89,9 @@ pub async fn get_block_traces(
 ) -> Result<Vec<TxTraceReceipt>, Box<dyn std::error::Error>> {
     // get tx traces for all txs in all_blocks
     let mut all_traces = vec![];
+    if full_blocks.is_empty() {
+        return Ok(all_traces);
+    }
     let (sender, mut receiver) = tokio::sync::mpsc::channel::<TxTraceReceipt>(
         full_blocks.iter().map(|b| b.transactions.len()).sum(),
     );
