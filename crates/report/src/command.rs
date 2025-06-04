@@ -1,13 +1,13 @@
-use super::block_trace::{get_block_data, get_block_traces};
-use super::cache::CacheFile;
 use super::chart::{
     GasPerBlockChart, HeatMapChart, LatencyChart, PendingTxsChart, ReportChartId,
     TimeToInclusionChart, TxGasUsedChart,
 };
 use super::gen_html::{build_html_report, ReportMetadata};
 use super::util::std_deviation;
-use crate::commands::report::chart::DrawableChart;
-use crate::util::{report_dir, write_run_txs};
+use crate::block_trace::{get_block_data, get_block_traces};
+use crate::cache::CacheFile;
+use crate::chart::DrawableChart;
+use crate::util::write_run_txs;
 use alloy::network::AnyNetwork;
 use alloy::providers::DynProvider;
 use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
@@ -24,6 +24,7 @@ pub async fn report(
     last_run_id: Option<u64>,
     preceding_runs: u64,
     db: &(impl DbOps + Clone + Send + Sync + 'static),
+    data_dir: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let num_runs = db.num_runs()?;
 
@@ -56,7 +57,7 @@ pub async fn report(
     for id in start_run_id..=end_run_id {
         let txs = db.get_run_txs(id)?;
         all_txs.extend_from_slice(&txs);
-        save_csv_report(id, &txs)?;
+        save_csv_report(id, &txs, &format!("{data_dir}/reports"))?;
     }
 
     // get run data, filter by rpc_url
@@ -104,7 +105,7 @@ pub async fn report(
     let (trace_data, blocks) = if std::env::var("DEBUG_USEFILE").is_ok() {
         info!("DEBUG_USEFILE detected: using cached data");
         // load trace data from file
-        let cache_data = CacheFile::load()?;
+        let cache_data = CacheFile::load(data_dir)?;
         (cache_data.traces, cache_data.blocks)
     } else {
         // run traces on RPC
@@ -143,7 +144,7 @@ pub async fn report(
     );
 
     // cache data to file
-    let cache_data = CacheFile::new(trace_data, blocks);
+    let cache_data = CacheFile::new(trace_data, blocks, data_dir);
     cache_data.save()?;
 
     // collect latency data for all relevant methods
@@ -217,7 +218,8 @@ pub async fn report(
 
     // make relevant chart for each report_id
     for chart_id in &chart_ids {
-        let filename = chart_id.filename(start_run_id, end_run_id)?;
+        let filename =
+            chart_id.filename(start_run_id, end_run_id, &format!("{data_dir}/reports"))?;
         let chart: Box<dyn DrawableChart> = match *chart_id {
             ReportChartId::Heatmap => Box::new(HeatMapChart::new(&cache_data.traces)?),
             ReportChartId::GasPerBlock => Box::new(GasPerBlockChart::new(&cache_data.blocks)),
@@ -235,16 +237,19 @@ pub async fn report(
     }
 
     // compile report
-    let report_path = build_html_report(ReportMetadata {
-        scenario_name: scenario_title,
-        start_run_id,
-        end_run_id,
-        start_block: cache_data.blocks.first().unwrap().header.number,
-        end_block: cache_data.blocks.last().unwrap().header.number,
-        rpc_url: rpc_url.to_string(),
-        metrics,
-        chart_ids,
-    })?;
+    let report_path = build_html_report(
+        ReportMetadata {
+            scenario_name: scenario_title,
+            start_run_id,
+            end_run_id,
+            start_block: cache_data.blocks.first().unwrap().header.number,
+            end_block: cache_data.blocks.last().unwrap().header.number,
+            rpc_url: rpc_url.to_string(),
+            metrics,
+            chart_ids,
+        },
+        &format!("{data_dir}/reports"),
+    )?;
 
     // Open the report in the default web browser, skipping if "none" is set
     // in the BROWSER environment variable.
@@ -257,10 +262,13 @@ pub async fn report(
     Ok(())
 }
 
-/// Saves RunTxs to `{data_dir}/reports/{id}.csv`.
-fn save_csv_report(id: u64, txs: &[RunTx]) -> Result<(), Box<dyn std::error::Error>> {
-    let report_dir = report_dir()?;
-    let out_path = format!("{report_dir}/{id}.csv");
+/// Saves RunTxs to `{reports_dir}/{id}.csv`.
+fn save_csv_report(
+    id: u64,
+    txs: &[RunTx],
+    reports_dir: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let out_path = format!("{reports_dir}/{id}.csv");
 
     info!("Exporting report for run #{id:?} to {out_path:?}");
     let mut writer = WriterBuilder::new().has_headers(true).from_path(out_path)?;

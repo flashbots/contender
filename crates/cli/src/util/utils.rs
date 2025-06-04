@@ -9,7 +9,6 @@ use alloy::{
 };
 use ansi_term::Color;
 use contender_core::{
-    db::RunTx,
     generator::{
         types::{AnyProvider, FunctionCallDefinition, SpamRequest},
         util::complete_tx_request,
@@ -19,7 +18,6 @@ use contender_core::{
 };
 use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
-use csv::Writer;
 use std::{str::FromStr, sync::Arc, time::Duration};
 use tracing::{debug, info, warn};
 
@@ -432,17 +430,6 @@ pub fn spam_callback_default(
     TypedSpamCallback::Nil(NilCallback)
 }
 
-pub fn write_run_txs<T: std::io::Write>(
-    writer: &mut Writer<T>,
-    txs: &[RunTx],
-) -> Result<(), Box<dyn std::error::Error>> {
-    for tx in txs {
-        writer.serialize(tx)?;
-    }
-    writer.flush()?;
-    Ok(())
-}
-
 pub fn prompt_cli(msg: impl AsRef<str>) -> String {
     println!("{}", Color::RGB(252, 186, 3).paint(msg.as_ref()));
 
@@ -478,10 +465,10 @@ pub fn data_dir() -> Result<String, Box<dyn std::error::Error>> {
 }
 
 /// Returns the fully-qualified path to the report directory.
-pub fn report_dir() -> Result<String, Box<dyn std::error::Error>> {
-    let path = format!("{}/reports", data_dir()?);
-    std::fs::create_dir_all(&path)?;
-    Ok(path)
+pub fn report_dir() -> String {
+    let path = format!("{}/reports", data_dir().expect("invalid data directory"));
+    std::fs::create_dir_all(&path).expect("failed to create report directory");
+    path
 }
 
 /// Returns path to default contender DB file.

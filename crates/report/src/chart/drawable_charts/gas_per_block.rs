@@ -1,5 +1,5 @@
 use super::DrawableChart;
-use crate::commands::report::util::abbreviate_num;
+use crate::util::abbreviate_num;
 use alloy::network::AnyRpcBlock;
 use plotters::{
     backend::BitMapBackend,

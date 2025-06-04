@@ -1,0 +1,25 @@
+[package]
+name = "contender_report"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+contender_core = { workspace = true }
+
+alloy = { workspace = true }
+futures = { workspace = true }
+plotters = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+serde_json = { workspace = true }
+csv = { workspace = true }
+chrono = { workspace = true }
+handlebars = { workspace = true }
+webbrowser = { workspace = true }
+regex = { workspace = true }

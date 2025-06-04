@@ -26,6 +26,8 @@ use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 use util::{data_dir, db_file, prompt_continue};
 
+use crate::util::report_dir;
+
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     let path = db_file().expect("failed to get DB file path");
     debug!("opening DB at {path}");
@@ -241,7 +243,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             last_run_id,
             preceding_runs,
         } => {
-            commands::report(last_run_id, preceding_runs, &db).await?;
+            contender_report::command::report(last_run_id, preceding_runs, &db, &report_dir())
+                .await?;
         }
 
         ContenderSubcommand::Admin { command } => {

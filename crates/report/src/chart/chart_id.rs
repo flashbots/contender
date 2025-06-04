@@ -1,5 +1,3 @@
-use crate::util::report_dir;
-
 #[derive(Debug, Clone)]
 pub enum ReportChartId {
     Heatmap,
@@ -29,13 +27,10 @@ impl ReportChartId {
         &self,
         start_run_id: u64,
         end_run_id: u64,
+        reports_dir: &str,
     ) -> Result<String, Box<dyn std::error::Error>> {
         Ok(format!(
-            "{}/{}_run-{}-{}.png",
-            report_dir()?,
-            self,
-            start_run_id,
-            end_run_id
+            "{reports_dir}/{self}_run-{start_run_id}-{end_run_id}.png",
         ))
     }
 

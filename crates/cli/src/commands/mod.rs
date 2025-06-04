@@ -2,7 +2,6 @@ pub mod admin;
 pub mod common;
 mod contender_subcommand;
 pub mod db;
-mod report;
 mod setup;
 mod spam;
 mod spamd;
@@ -10,7 +9,6 @@ mod spamd;
 use clap::Parser;
 
 pub use contender_subcommand::{ContenderSubcommand, DbCommand};
-pub use report::report;
 pub use setup::{setup, SetupCliArgs, SetupCommandArgs};
 pub use spam::{spam, EngineArgs, SpamCliArgs, SpamCommandArgs, SpamScenario};
 pub use spamd::spamd;

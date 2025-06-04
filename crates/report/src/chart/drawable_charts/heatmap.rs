@@ -1,5 +1,5 @@
 use super::DrawableChart;
-use crate::commands::report::block_trace::TxTraceReceipt;
+use crate::block_trace::TxTraceReceipt;
 use alloy::primitives::FixedBytes;
 use plotters::prelude::*;
 use std::collections::BTreeMap;
