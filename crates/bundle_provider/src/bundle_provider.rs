@@ -33,11 +33,10 @@ impl BundleClient {
         bundle: Bundle,
     ) -> Result<Option<Response>, BundleProviderError> {
         // Result contents optional because some endpoints don't return this response
-        Ok(self
-            .client
+        self.client
             .raw_request::<_, Option<Response>>("eth_sendBundle".into(), [bundle])
             .await
-            .map_err(|e| BundleProviderError::SendBundleError(e.into()))?)
+            .map_err(|e| BundleProviderError::SendBundleError(e.into()))
     }
 }
 
