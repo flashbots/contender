@@ -465,7 +465,7 @@ pub fn data_dir() -> Result<String, Box<dyn std::error::Error>> {
 }
 
 /// Returns the fully-qualified path to the report directory.
-pub fn report_dir() -> String {
+pub fn init_reports_dir() -> String {
     let path = format!("{}/reports", data_dir().expect("invalid data directory"));
     std::fs::create_dir_all(&path).expect("failed to create report directory");
     path
