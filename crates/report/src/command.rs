@@ -120,7 +120,8 @@ pub async fn report(
 
     // find peak gas usage
     let peak_gas = blocks.iter().map(|b| b.header.gas_used).max().unwrap_or(0);
-    let block_gas_limit = blocks.first()
+    let block_gas_limit = blocks
+        .first()
         .map(|blk| blk.header.gas_limit)
         .unwrap_or(30_000_000);
 
