@@ -1671,6 +1671,8 @@ pub mod tests {
                 .unwrap();
         }
 
+        scenario.ctx.add_to_gas_price(GWEI_TO_WEI as i128 * 10);
+
         scenario
     }
 
