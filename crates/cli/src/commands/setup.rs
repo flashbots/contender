@@ -242,6 +242,7 @@ pub async fn setup(
         let is_done = is_done.clone();
         tokio::task::spawn(async move {
             let str_err = |e| format!("Error: {e}");
+            info!("Deploying contracts...");
             scenario.deploy_contracts().await.map_err(str_err)?;
             timekeeper_handle.abort();
             info!("Finished deploying contracts. Running setup txs...");

@@ -16,7 +16,9 @@ use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
 use alloy::consensus::{Transaction, TxType};
 use alloy::eips::eip2718::Encodable2718;
 use alloy::hex::ToHexExt;
-use alloy::network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, TransactionBuilder};
+use alloy::network::{
+    AnyNetwork, AnyTxEnvelope, EthereumWallet, NetworkWallet, TransactionBuilder,
+};
 use alloy::node_bindings::Anvil;
 use alloy::primitives::{keccak256, Address, Bytes, FixedBytes, U256};
 use alloy::providers::{DynProvider, PendingTransactionConfig, Provider, ProviderBuilder};
@@ -335,7 +337,9 @@ where
                 .await?;
         }
 
+        debug!("deploying sim contracts...");
         scenario.deploy_contracts().await?;
+        debug!("sim contracts deployed, running setup...");
         scenario.run_setup().await?;
 
         let mut total_cost = U256::ZERO;
@@ -424,91 +428,127 @@ where
             .get_chain_id()
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get chain id"))?;
-        let db = &self.db;
+
+        // capture errors from inside the callback
+        let (err_send, mut err_recv) = tokio::sync::mpsc::channel::<ContenderError>(100);
+        let error_sender = Arc::new(err_send);
 
         // we do everything in the callback so no need to actually capture the returned txs
-        for tx_req in self.load_txs(PlanType::Create(|_| Ok(None))).await? {
-            let tx_req = match tx_req {
-                ExecutionRequest::Tx(req) => req,
-                _ => continue, // we only handle single tx requests here
-            };
+        // we have to do this to populate the database with new named transaction after each deployment
+        self.load_txs(PlanType::Create(|tx_req| {
             let from = tx_req.tx.from.to_owned().ok_or(ContenderError::SetupError(
                 "failed to get 'from' address",
                 None,
             ))?;
-            let wallet_conf = self
-                .wallet_map
-                .get(&from)
-                .unwrap_or_else(|| panic!("couldn't find wallet for 'from' address {from}"))
-                .to_owned();
-            let wallet = ProviderBuilder::new()
-                .wallet(wallet_conf)
-                .network::<AnyNetwork>()
-                .connect_http(self.rpc_url.to_owned());
-
             info!(
                 "deploying contract: {:?}",
                 tx_req.name.as_ref().unwrap_or(&"".to_string())
             );
             let rpc_url = self.rpc_url.to_owned();
             let tx_type = self.tx_type;
-            // estimate gas limit
-            let gas_limit = wallet
-                .estimate_gas(WithOtherFields::new(tx_req.tx.to_owned()))
-                .await
-                .expect("failed to estimate gas");
+            let wallet = self
+                .wallet_map
+                .get(&from)
+                .unwrap_or_else(|| panic!("couldn't find wallet for 'from' address {from}"))
+                .to_owned();
+            let db = self.db.clone();
+            let error_sender = error_sender.clone();
 
-            // inject missing fields into tx_req.tx
-            let mut tx = tx_req.tx;
-            complete_tx_request(
-                &mut tx,
-                tx_type,
-                gas_price,
-                gas_price / 10,
-                gas_limit,
-                chain_id,
-            );
+            let handle = tokio::task::spawn(async move {
+                let res = Self::deploy_contract(
+                    &db, &tx_req, gas_price, chain_id, tx_type, &rpc_url, &wallet,
+                )
+                .await;
 
-            let res = wallet
-                .send_transaction(WithOtherFields::new(tx))
-                .await
-                .map_err(|err| {
-                    let e = err.to_string().to_lowercase();
-                    if e.contains("already known") {
-                        ContenderError::RpcError(crate::error::RpcErrorKind::TxAlreadyKnown, err)
-                    } else if e.contains("insufficient funds") {
-                        ContenderError::RpcError(RpcErrorKind::InsufficientFunds(from), err)
-                    } else if e.contains("replacement transaction underpriced") {
-                        ContenderError::RpcError(
-                            RpcErrorKind::ReplacementTransactionUnderpriced,
-                            err,
-                        )
-                    } else {
-                        RpcErrorKind::GenericSendTxError.to_error(err)
-                    }
-                })?;
-            // watch pending transaction
-            let receipt = res.get_receipt().await.expect("failed to get receipt");
-            debug!(
-                "contract address: {}",
-                receipt.contract_address.unwrap_or_default()
-            );
-            if let Some(name) = tx_req.name {
-                db.insert_named_txs(
-                    &[NamedTx::new(
-                        name,
-                        receipt.transaction_hash,
-                        receipt.contract_address,
-                    )],
-                    rpc_url.as_str(),
-                )?;
-            } else {
-                warn!("No name provided for named transaction. This may cause issues with tracking the entry in the database.");
-            }
+                if let Err(e) = res {
+                    error_sender
+                        .send(e)
+                        .await
+                        .expect("failed to send error from task");
+                }
+            });
+
+            Ok(Some(handle))
+        }))
+        .await?;
+
+        err_recv.close();
+        while let Some(err) = err_recv.recv().await {
+            return Err(err);
         }
 
         self.sync_nonces().await?;
 
+        Ok(())
+    }
+
+    async fn deploy_contract(
+        db: &D,
+        tx_req: &NamedTxRequest,
+        gas_price: u128,
+        chain_id: u64,
+        tx_type: TxType,
+        rpc_url: &Url,
+        wallet: &EthereumWallet,
+    ) -> Result<()> {
+        let wallet_client = ProviderBuilder::new()
+            .wallet(wallet)
+            .network::<AnyNetwork>()
+            .connect_http(rpc_url.to_owned());
+
+        // estimate gas limit
+        let gas_limit = wallet_client
+            .estimate_gas(WithOtherFields::new(tx_req.tx.to_owned()))
+            .await
+            .map_err(|e| {
+                ContenderError::with_err(e, "failed to estimate gas for contract deployment")
+            })?;
+
+        // inject missing fields into tx_req.tx
+        let mut tx = tx_req.tx.to_owned();
+        complete_tx_request(
+            &mut tx,
+            tx_type,
+            gas_price,
+            gas_price / 10,
+            gas_limit,
+            chain_id,
+        );
+        let from = <EthereumWallet as NetworkWallet<AnyNetwork>>::default_signer_address(wallet);
+
+        let res = wallet_client
+            .send_transaction(WithOtherFields::new(tx))
+            .await
+            .map_err(|err| {
+                let e = err.to_string().to_lowercase();
+                if e.contains("already known") {
+                    ContenderError::RpcError(crate::error::RpcErrorKind::TxAlreadyKnown, err)
+                } else if e.contains("insufficient funds") {
+                    ContenderError::RpcError(RpcErrorKind::InsufficientFunds(from), err)
+                } else if e.contains("replacement transaction underpriced") {
+                    ContenderError::RpcError(RpcErrorKind::ReplacementTransactionUnderpriced, err)
+                } else {
+                    RpcErrorKind::GenericSendTxError.to_error(err)
+                }
+            })?;
+        // watch pending transaction
+        let receipt = res.get_receipt().await.expect("failed to get receipt");
+        debug!(
+            "contract address: {}",
+            receipt.contract_address.unwrap_or_default()
+        );
+        if let Some(name) = &tx_req.name {
+            db.insert_named_txs(
+                &[NamedTx::new(
+                    name.to_owned(),
+                    receipt.transaction_hash,
+                    receipt.contract_address,
+                )],
+                rpc_url.as_str(),
+            )?;
+        } else {
+            warn!("No name provided for named transaction. This may cause issues with tracking the entry in the database.");
+        }
         Ok(())
     }
 
