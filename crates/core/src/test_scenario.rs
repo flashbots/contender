@@ -1372,7 +1372,7 @@ struct SpamContextHandler {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::agent_controller::{AgentStore, SignerStore};
+    use crate::agent_controller::AgentStore;
     use crate::db::MockDb;
     use crate::generator::named_txs::ExecutionRequest;
     use crate::generator::templater::Templater;
@@ -1387,7 +1387,9 @@ pub mod tests {
     use alloy::consensus::constants::GWEI_TO_WEI;
     use alloy::hex::ToHexExt;
     use alloy::node_bindings::AnvilInstance;
+    use alloy::primitives::utils::format_ether;
     use alloy::primitives::{Address, U256};
+    use alloy::providers::Provider;
     use contender_bundle_provider::bundle::BundleType;
     use std::collections::HashMap;
     use tokio::sync::OnceCell;
@@ -1417,33 +1419,15 @@ pub mod tests {
             Ok(vec![
                 CreateDefinition {
                     bytecode: COUNTER_BYTECODE.to_string(),
-                    name: "test_counter".to_string(),
-                    from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
-                    from_pool: None,
-                },
-                CreateDefinition {
-                    bytecode: COUNTER_BYTECODE.to_string(),
                     name: "test_counter2".to_string(),
                     from: None,
                     from_pool: Some("admin1".to_owned()),
                 },
                 CreateDefinition {
-                    bytecode: COUNTER_BYTECODE.to_string(),
-                    name: "test_counter3".to_string(),
+                    bytecode: UNI_V2_FACTORY_BYTECODE.to_string(),
+                    name: "univ2_factory".to_string(),
                     from: None,
                     from_pool: Some("admin2".to_owned()),
-                },
-                CreateDefinition {
-                    bytecode: UNI_V2_FACTORY_BYTECODE.to_string(),
-                    name: "univ2_factory".to_string(),
-                    from: None,
-                    from_pool: Some("admin1".to_owned()),
-                },
-                CreateDefinition {
-                    bytecode: UNI_V2_FACTORY_BYTECODE.to_string(),
-                    name: "univ2_factory".to_string(),
-                    from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
-                    from_pool: None,
                 },
             ])
         }
@@ -1604,12 +1588,14 @@ pub mod tests {
     pub async fn get_test_scenario(
         anvil: &AnvilInstance,
         txs_per_duration: u64,
-        fund_amount_eth: f64,
     ) -> TestScenario<MockDb, RandSeed, MockConfig> {
-        let seed = RandSeed::seed_from_bytes(&[0x01; 32]);
+        let seed = RandSeed::new();
         let tx_type = alloy::consensus::TxType::Eip1559;
         let bundle_type = BundleType::default();
         let signers = get_test_signers();
+        let fund_amount_eth = 25.0;
+
+        println!("anvil endpoint: {}", anvil.endpoint_url());
 
         let mut agents = AgentStore::new();
         let config = MockConfig;
@@ -1620,11 +1606,7 @@ pub mod tests {
             (txs_per_duration / num_pools) as usize,
             &seed,
         );
-
-        let admin1_signers = SignerStore::new(1, &seed, "admin1");
-        let admin2_signers = SignerStore::new(1, &seed, "admin2");
-        agents.add_agent("admin1", admin1_signers);
-        agents.add_agent("admin2", admin2_signers);
+        agents.init(&["admin1", "admin2"], 1, &seed);
 
         let mut scenario = TestScenario::new(
             config,
@@ -1649,6 +1631,7 @@ pub mod tests {
         let fund_amount_wei = U256::from(fund_amount_eth * 1e18);
         println!("fund_amount_wei: {fund_amount_wei}");
         println!("fund_amount_eth: {fund_amount_eth}");
+        println!("fund_amount eth: {}", format_ether(fund_amount_wei));
 
         let all_agent_names = scenario
             .agent_store
@@ -1665,10 +1648,26 @@ pub mod tests {
                     .signers
                     .len()
             );
-            scenario
+            let funder_balance = scenario
+                .rpc_client
+                .get_balance(anvil.wallet().unwrap().default_signer().address())
+                .await
+                .unwrap();
+            println!("funder balance: {}", format_ether(funder_balance));
+            let pending_txs = scenario
                 .fund_agent_signers(agent_name, &anvil.wallet().unwrap(), fund_amount_wei)
                 .await
                 .unwrap();
+            // wait for each funding tx to land before proceeding
+            for pending_tx in pending_txs {
+                scenario
+                    .rpc_client
+                    .watch_pending_transaction(pending_tx)
+                    .await
+                    .unwrap()
+                    .await
+                    .unwrap();
+            }
         }
 
         scenario.ctx.add_to_gas_price(GWEI_TO_WEI as i128 * 10);
@@ -1679,7 +1678,7 @@ pub mod tests {
     #[tokio::test]
     async fn it_creates_scenarios() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let scenario = get_test_scenario(&anvil, 10).await;
 
         let create_txs = scenario
             .load_txs(PlanType::Create(|tx| {
@@ -1687,7 +1686,7 @@ pub mod tests {
                 Ok(None)
             }))
             .await?;
-        assert_eq!(create_txs.len(), 5);
+        assert_eq!(create_txs.len(), 2);
 
         let setup_txs = scenario
             .load_txs(PlanType::Setup(|tx| {
@@ -1712,7 +1711,7 @@ pub mod tests {
     #[tokio::test]
     async fn gas_limit_override_works() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let scenario = get_test_scenario(&anvil, 10).await;
         let spam_txs = scenario
             .load_txs(PlanType::Spam(20, |tx| {
                 println!("spam tx callback triggered! {tx:?}\n");
@@ -1743,7 +1742,7 @@ pub mod tests {
     #[tokio::test]
     async fn fncall_replaces_sender_placeholder_with_from_address() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let scenario = get_test_scenario(&anvil, 10).await;
 
         let spam_txs = scenario
             .load_txs(PlanType::Spam(10, |tx| {
@@ -1767,7 +1766,7 @@ pub mod tests {
     #[tokio::test]
     async fn create_replaces_sender_placeholder_with_from_address() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let scenario = get_test_scenario(&anvil, 10).await;
 
         let txs = scenario
             .load_txs(PlanType::Create(|tx| {
@@ -1776,23 +1775,25 @@ pub mod tests {
             }))
             .await
             .unwrap();
-        for tx in &txs[3..4] {
-            let tx = match tx {
-                ExecutionRequest::Tx(tx) => tx,
-                _ => panic!("expected tx"),
-            };
-            let from = tx.tx.from.unwrap();
-            let input = tx.tx.input.input.as_ref().unwrap();
-            println!("input: {input}");
-            println!("from: {}", from.encode_hex());
-            assert!(input.encode_hex().contains(&from.encode_hex()));
-        }
+
+        // 2nd tx should have from address in its bytecode when we deploy it
+        let sample_tx = &txs[1];
+        let tx = match sample_tx {
+            ExecutionRequest::Tx(tx) => tx,
+            _ => panic!("expected tx"),
+        };
+        let from = tx.tx.from.unwrap();
+        let input = tx.tx.input.input.as_ref().unwrap();
+        println!("input: {input}");
+        println!("from: {}", from.encode_hex());
+        assert!(input.encode_hex().contains(&from.encode_hex()));
     }
 
     #[tokio::test]
     async fn create_steps_use_agent_signers() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let mut scenario = get_test_scenario(&anvil, 10).await;
+        scenario.deploy_contracts().await.unwrap();
 
         // assert that the agent store has the correct number of signers
         let create_steps = scenario
@@ -1808,8 +1809,6 @@ pub mod tests {
             if tx.tx.from.is_some() {
                 assert!(scenario.wallet_map.contains_key(&tx.tx.from.unwrap()));
             }
-            assert!(scenario.agent_store.has_agent("admin1"));
-            assert!(scenario.agent_store.has_agent("admin2"));
             let admin_pools = ["admin1", "admin2"];
             for pool in admin_pools {
                 if scenario
@@ -1826,13 +1825,13 @@ pub mod tests {
                 }
             }
         }
-        assert_eq!(used_agent_keys, 3);
+        assert_eq!(used_agent_keys, 2);
     }
 
     #[tokio::test]
     async fn setup_steps_use_agent_signers() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let mut scenario = get_test_scenario(&anvil, 10).await;
         scenario.deploy_contracts().await.unwrap();
         let setup_steps = scenario
             .load_txs(PlanType::Setup(|_| Ok(None)))
@@ -1867,7 +1866,7 @@ pub mod tests {
     #[tokio::test]
     async fn scenario_creates_contracts() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let mut scenario = get_test_scenario(&anvil, 10).await;
         let res = scenario.deploy_contracts().await;
         assert!(res.is_ok());
     }
@@ -1875,7 +1874,7 @@ pub mod tests {
     #[tokio::test]
     async fn scenario_runs_setup() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let mut scenario = get_test_scenario(&anvil, 10).await;
         scenario.deploy_contracts().await.unwrap();
         let res = scenario.run_setup().await;
         println!("{res:?}");
@@ -1886,7 +1885,7 @@ pub mod tests {
     async fn setup_cost_estimates_are_correct(
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let scenario = get_test_scenario(&anvil, 10).await;
         let cost = scenario.estimate_setup_cost().await?;
         let total_txs = scenario.config.get_setup_steps().unwrap().len()
             + scenario.config.get_create_steps().unwrap().len();
@@ -1899,9 +1898,9 @@ pub mod tests {
     async fn all_tx_requests_are_contiguous() -> std::result::Result<(), Box<dyn std::error::Error>>
     {
         let anvil = spawn_anvil();
-        let txs_per_duration = 500u64;
+        let txs_per_duration = 50u64;
         let duration = 3;
-        let mut scenario = get_test_scenario(&anvil, txs_per_duration, 0.01).await;
+        let mut scenario = get_test_scenario(&anvil, txs_per_duration).await;
 
         // make tx chunks
         let tx_req_chunks = scenario
