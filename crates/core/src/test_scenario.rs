@@ -24,7 +24,7 @@ use alloy::rpc::client::ClientBuilder;
 use alloy::rpc::types::TransactionRequest;
 use alloy::serde::WithOtherFields;
 use alloy::signers::local::{LocalSigner, PrivateKeySigner};
-use alloy::transports::http::reqwest::Url;
+pub use alloy::transports::http::reqwest::Url;
 use contender_bundle_provider::bundle::BundleType;
 use contender_bundle_provider::bundle_provider::new_basic_bundle;
 use contender_bundle_provider::revert_bundle::RevertProtectBundleRequest;
