@@ -18,13 +18,13 @@ impl TimeToInclusionChart {
         let mut inclusion_times = vec![];
         for tx in run_txs {
             let mut dumb_base = 0;
-            if let Some(end_timestamp) = tx.end_timestamp {
+            if let Some(end_timestamp) = tx.end_timestamp_secs {
                 // dumb_base prevents underflow in case system time doesn't match block timestamps
-                if dumb_base == 0 && end_timestamp < tx.start_timestamp {
-                    dumb_base += tx.start_timestamp - end_timestamp;
+                if dumb_base == 0 && end_timestamp < tx.start_timestamp_secs {
+                    dumb_base += tx.start_timestamp_secs - end_timestamp;
                 }
                 let end_timestamp = end_timestamp + dumb_base;
-                let tti = end_timestamp - tx.start_timestamp;
+                let tti = end_timestamp - tx.start_timestamp_secs;
                 inclusion_times.push(tti);
             }
         }

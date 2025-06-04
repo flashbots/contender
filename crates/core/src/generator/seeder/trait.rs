@@ -7,6 +7,10 @@ pub trait Seeder {
         min: Option<U256>,
         max: Option<U256>,
     ) -> Box<impl Iterator<Item = impl SeedValue>>;
+
+    fn seed_from_u256(seed: U256) -> Self;
+    fn seed_from_bytes(seed: &[u8]) -> Self;
+    fn seed_from_str(seed: &str) -> Self;
 }
 
 pub trait SeedValue {

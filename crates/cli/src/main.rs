@@ -26,6 +26,8 @@ use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 use util::{data_dir, db_file, prompt_continue};
 
+use crate::util::init_reports_dir;
+
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     let path = db_file().expect("failed to get DB file path");
     debug!("opening DB at {path}");
@@ -38,6 +40,7 @@ static LATENCY_HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing();
+    init_reports_dir();
 
     let args = ContenderCli::parse_args();
     if DB.table_exists("run_txs")? {
@@ -241,7 +244,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             last_run_id,
             preceding_runs,
         } => {
-            commands::report(last_run_id, preceding_runs, &db).await?;
+            contender_report::command::report(
+                last_run_id,
+                preceding_runs,
+                &db,
+                &data_dir().expect("invalid data dir"),
+            )
+            .await?;
         }
 
         ContenderSubcommand::Admin { command } => {

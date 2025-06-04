@@ -24,8 +24,8 @@ impl PendingTxsChart {
         // get min/max timestamps from run_txs; evaluate min start_timestamp and max end_timestamp
         let (min_timestamp, max_timestamp) =
             run_txs.iter().fold((u64::MAX, 0), |(min, max), tx| {
-                let start_timestamp = tx.start_timestamp;
-                let end_timestamp = tx.end_timestamp.unwrap_or_default();
+                let start_timestamp = tx.start_timestamp_secs;
+                let end_timestamp = tx.end_timestamp_secs.unwrap_or_default();
                 (min.min(start_timestamp), max.max(end_timestamp))
             });
 
@@ -34,8 +34,8 @@ impl PendingTxsChart {
             let pending_txs = run_txs
                 .iter()
                 .filter(|tx| {
-                    let start_timestamp = tx.start_timestamp;
-                    let end_timestamp = tx.end_timestamp.unwrap_or(u64::MAX);
+                    let start_timestamp = tx.start_timestamp_secs;
+                    let end_timestamp = tx.end_timestamp_secs.unwrap_or(u64::MAX);
                     start_timestamp <= t && t < end_timestamp
                 })
                 .count() as u64;

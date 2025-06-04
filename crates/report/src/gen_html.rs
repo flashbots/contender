@@ -1,5 +1,5 @@
-use super::command::SpamRunMetrics;
-use crate::{commands::report::chart::ReportChartId, util::report_dir};
+use crate::chart::ReportChartId;
+use crate::command::SpamRunMetrics;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::info;
@@ -41,11 +41,13 @@ impl TemplateData {
 }
 
 /// Builds an HTML report for the given run IDs. Returns the path to the report.
-pub fn build_html_report(meta: ReportMetadata) -> Result<String, Box<dyn std::error::Error>> {
-    let report_dir = report_dir()?;
+pub fn build_html_report(
+    meta: ReportMetadata,
+    reports_dir: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
     let mut charts = Vec::new();
     for chart_id in &meta.chart_ids {
-        let filename = chart_id.filename(meta.start_run_id, meta.end_run_id)?;
+        let filename = chart_id.filename(meta.start_run_id, meta.end_run_id, reports_dir)?;
         charts.push((chart_id.proper_name(), filename));
     }
 
@@ -58,7 +60,7 @@ pub fn build_html_report(meta: ReportMetadata) -> Result<String, Box<dyn std::er
 
     let path = format!(
         "{}/report-{}-{}.html",
-        report_dir, meta.start_run_id, meta.end_run_id
+        reports_dir, meta.start_run_id, meta.end_run_id
     );
     std::fs::write(&path, html)?;
     info!("saved report to {path}");

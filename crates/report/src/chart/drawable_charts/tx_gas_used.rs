@@ -5,7 +5,7 @@ use plotters::{
     style::{full_palette::BLUE, Color},
 };
 
-use crate::commands::report::{block_trace::TxTraceReceipt, util::abbreviate_num};
+use crate::{block_trace::TxTraceReceipt, util::abbreviate_num};
 
 use super::DrawableChart;
 

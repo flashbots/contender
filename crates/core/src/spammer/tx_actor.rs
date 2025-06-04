@@ -13,7 +13,7 @@ use crate::{
 enum TxActorMessage {
     SentRunTx {
         tx_hash: TxHash,
-        start_timestamp: u64,
+        start_timestamp_ms: u128,
         kind: Option<String>,
         error: Option<String>,
         on_receive: oneshot::Sender<()>,
@@ -49,7 +49,7 @@ where
 #[derive(Debug, Clone, PartialEq)]
 pub struct PendingRunTx {
     pub tx_hash: TxHash,
-    pub start_timestamp: u64,
+    pub start_timestamp_ms: u128,
     pub kind: Option<String>,
     pub error: Option<String>,
 }
@@ -57,13 +57,13 @@ pub struct PendingRunTx {
 impl PendingRunTx {
     pub fn new(
         tx_hash: TxHash,
-        start_timestamp: u64,
+        start_timestamp_ms: u128,
         kind: Option<&str>,
         error: Option<&str>,
     ) -> Self {
         Self {
             tx_hash,
-            start_timestamp,
+            start_timestamp_ms,
             kind: kind.map(|s| s.to_owned()),
             error: error.map(|s| s.to_owned()),
         }
@@ -173,8 +173,8 @@ where
                 }
                 RunTx {
                     tx_hash: pending_tx.tx_hash,
-                    start_timestamp: pending_tx.start_timestamp / 1000,
-                    end_timestamp: Some(target_block.header.timestamp),
+                    start_timestamp_secs: (pending_tx.start_timestamp_ms / 1000) as u64,
+                    end_timestamp_secs: Some(target_block.header.timestamp),
                     block_number: Some(target_block.header.number),
                     gas_used: Some(receipt.gas_used),
                     kind: pending_tx.kind,
@@ -199,8 +199,8 @@ where
             .iter()
             .map(|pending_tx| RunTx {
                 tx_hash: pending_tx.tx_hash,
-                start_timestamp: pending_tx.start_timestamp / 1000,
-                end_timestamp: None,
+                start_timestamp_secs: (pending_tx.start_timestamp_ms / 1000) as u64,
+                end_timestamp_secs: None,
                 block_number: None,
                 gas_used: None,
                 kind: pending_tx.kind.to_owned(),
@@ -242,14 +242,14 @@ where
             }
             TxActorMessage::SentRunTx {
                 tx_hash,
-                start_timestamp,
+                start_timestamp_ms,
                 kind,
                 error,
                 on_receive,
             } => {
                 let run_tx = PendingRunTx {
                     tx_hash,
-                    start_timestamp,
+                    start_timestamp_ms,
                     kind,
                     error,
                 };
@@ -322,7 +322,7 @@ where
                 }
                 TxActorMessage::SentRunTx {
                     tx_hash: _,
-                    start_timestamp: _,
+                    start_timestamp_ms: _,
                     kind: _,
                     on_receive: _,
                     error: _,
@@ -352,7 +352,7 @@ pub struct TxActorHandle {
 #[derive(Debug)]
 pub struct CacheTx {
     pub tx_hash: TxHash,
-    pub start_timestamp: u64,
+    pub start_timestamp_ms: u128,
     pub kind: Option<String>,
     pub error: Option<String>,
 }
@@ -375,7 +375,7 @@ impl TxActorHandle {
     pub async fn cache_run_tx(&self, params: CacheTx) -> Result<(), Box<dyn std::error::Error>> {
         let CacheTx {
             tx_hash,
-            start_timestamp,
+            start_timestamp_ms,
             kind,
             error,
         } = params;
@@ -383,7 +383,7 @@ impl TxActorHandle {
         self.sender
             .send(TxActorMessage::SentRunTx {
                 tx_hash,
-                start_timestamp,
+                start_timestamp_ms,
                 kind,
                 on_receive: sender,
                 error,

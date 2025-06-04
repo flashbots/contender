@@ -4,6 +4,7 @@ members = [
     "crates/cli/",
     "crates/core/",
     "crates/engine_provider",
+    "crates/report",
     "crates/sqlite_db/",
     "crates/testfile/",
 ]
@@ -24,6 +25,7 @@ contender_sqlite = { path = "crates/sqlite_db/" }
 contender_testfile = { path = "crates/testfile/" }
 contender_bundle_provider = { path = "crates/bundle_provider/" }
 contender_engine_provider = { path = "crates/engine_provider/" }
+contender_report = { path = "crates/report/" }
 
 eyre = "0.6.12"
 tokio = { version = "1.40.0" }
@@ -70,3 +72,7 @@ r2d2 = "0.8.10"
 
 ## testfile
 toml = "0.8.19"
+
+## report
+chrono = "0.4.39"
+regex = "1.11.1"

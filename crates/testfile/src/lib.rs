@@ -301,9 +301,10 @@ pub mod tests {
                 tx_type,
                 bundle_type: Default::default(),
                 pending_tx_timeout_secs: 12,
+                extra_msg_handles: None,
             },
             None,
-            (&PROM, &HIST),
+            (&PROM, &HIST).into(),
         )
         .await
         .unwrap();
@@ -349,9 +350,10 @@ pub mod tests {
                 tx_type,
                 bundle_type: Default::default(),
                 pending_tx_timeout_secs: 12,
+                extra_msg_handles: None,
             },
             None,
-            (&PROM, &HIST),
+            (&PROM, &HIST).into(),
         )
         .await
         .unwrap();
@@ -367,9 +369,10 @@ pub mod tests {
                 tx_type,
                 bundle_type: Default::default(),
                 pending_tx_timeout_secs: 12,
+                extra_msg_handles: None,
             },
             None,
-            (&PROM, &HIST),
+            (&PROM, &HIST).into(),
         )
         .await
         .unwrap();

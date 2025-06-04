@@ -136,6 +136,7 @@ pub async fn setup(
         tx_type,
         bundle_type,
         pending_tx_timeout_secs: 12,
+        extra_msg_handles: None,
     };
 
     fund_accounts(
@@ -154,7 +155,7 @@ pub async fn setup(
         seed,
         params,
         engine_params.engine_provider,
-        (&PROM, &HIST),
+        (&PROM, &HIST).into(),
     )
     .await?;
 

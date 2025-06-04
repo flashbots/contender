@@ -1,3 +1,5 @@
+use contender_core::db::RunTx;
+
 /// Abbreviates a number to a human-readable format.
 pub fn abbreviate_num(num: u64) -> String {
     if num >= 1_000_000 {
@@ -36,6 +38,17 @@ pub fn std_deviation(data: &[u64]) -> Option<f64> {
         }
         _ => None,
     }
+}
+
+pub fn write_run_txs<T: std::io::Write>(
+    writer: &mut csv::Writer<T>,
+    txs: &[RunTx],
+) -> Result<(), Box<dyn std::error::Error>> {
+    for tx in txs {
+        writer.serialize(tx)?;
+    }
+    writer.flush()?;
+    Ok(())
 }
 
 #[cfg(test)]

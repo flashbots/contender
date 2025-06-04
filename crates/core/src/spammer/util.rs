@@ -15,7 +15,7 @@ pub mod test {
 
     use crate::{
         generator::{types::AnyProvider, util::complete_tx_request, NamedTxRequest},
-        spammer::{tx_actor::TxActorHandle, tx_callback::OnBatchSent, OnTxSent},
+        spammer::{tx_actor::TxActorHandle, tx_callback::OnBatchSent, OnTxSent, RuntimeTxInfo},
     };
 
     pub struct MockCallback;
@@ -24,8 +24,8 @@ pub mod test {
             &self,
             _tx_res: PendingTransactionConfig,
             _req: &NamedTxRequest,
-            _extra: Option<HashMap<String, String>>,
-            _tx_handler: Option<Arc<TxActorHandle>>,
+            _extra: RuntimeTxInfo,
+            _tx_handler: Option<HashMap<String, Arc<TxActorHandle>>>,
         ) -> Option<JoinHandle<()>> {
             info!("MockCallback::on_tx_sent: tx_hash={}", _tx_res.tx_hash());
             None

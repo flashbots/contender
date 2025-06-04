@@ -1976,6 +1976,7 @@ version = "0.1.6"
 dependencies = [
  "alloy",
  "serde",
+ "tracing",
 ]
 
 [[package]]
@@ -1985,20 +1986,18 @@ dependencies = [
  "alloy",
  "ansi_term",
  "async-trait",
- "chrono",
  "clap",
  "contender_core",
  "contender_engine_provider",
+ "contender_report",
  "contender_sqlite",
  "contender_testfile",
- "csv",
  "futures",
  "handlebars",
  "op-alloy-network",
  "plotters",
  "prometheus",
  "rand 0.8.5",
- "regex",
  "serde",
  "serde_json",
  "tempfile",
@@ -2052,6 +2051,25 @@ dependencies = [
  "tokio",
  "tower",
  "tracing",
+]
+
+[[package]]
+name = "contender_report"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "chrono",
+ "contender_core",
+ "csv",
+ "futures",
+ "handlebars",
+ "plotters",
+ "regex",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "webbrowser",
 ]
 
 [[package]]

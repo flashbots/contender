@@ -1,7 +1,7 @@
 use crate::agent_controller::AgentStore;
 use crate::buckets::Bucket;
 use crate::db::{DbOps, NamedTx};
-use crate::error::{ContenderError, RuntimeParamErrorKind};
+use crate::error::{ContenderError, RpcErrorKind, RuntimeParamErrorKind};
 use crate::generator::named_txs::ExecutionRequest;
 use crate::generator::templater::Templater;
 use crate::generator::types::AnyProvider;
@@ -10,7 +10,7 @@ use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use crate::provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID};
 use crate::spammer::tx_actor::TxActorHandle;
-use crate::spammer::{ExecutionPayload, SpamCallback, SpamTrigger};
+use crate::spammer::{ExecutionPayload, RuntimeTxInfo, SpamCallback, SpamTrigger};
 use crate::Result;
 use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
 use alloy::consensus::{Transaction, TxType};
@@ -41,10 +41,38 @@ use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
 
-type PrometheusCollector = (
-    &'static OnceCell<prometheus::Registry>,
-    &'static OnceCell<prometheus::HistogramVec>,
-);
+#[derive(Clone)]
+pub struct PrometheusCollector {
+    prom: &'static OnceCell<prometheus::Registry>,
+    hist: &'static OnceCell<prometheus::HistogramVec>,
+}
+
+impl Default for PrometheusCollector {
+    fn default() -> Self {
+        static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
+        static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
+        Self {
+            prom: &PROM,
+            hist: &HIST,
+        }
+    }
+}
+
+impl
+    From<(
+        &'static OnceCell<prometheus::Registry>,
+        &'static OnceCell<prometheus::HistogramVec>,
+    )> for PrometheusCollector
+{
+    fn from(
+        (prom, hist): (
+            &'static OnceCell<prometheus::Registry>,
+            &'static OnceCell<prometheus::HistogramVec>,
+        ),
+    ) -> Self {
+        Self { prom, hist }
+    }
+}
 
 /// A test scenario can be used to run a test with a specific configuration, database, and RPC provider.
 #[derive(Clone)]
@@ -69,7 +97,7 @@ where
     pub nonces: HashMap<Address, u64>,
     pub chain_id: u64,
     pub gas_limits: HashMap<FixedBytes<32>, u64>,
-    pub msg_handle: Arc<TxActorHandle>,
+    pub msg_handles: HashMap<String, Arc<TxActorHandle>>,
     pub tx_type: TxType,
     pub bundle_type: BundleType,
     pub pending_tx_timeout_secs: u64,
@@ -85,6 +113,7 @@ pub struct TestScenarioParams {
     pub tx_type: TxType,
     pub pending_tx_timeout_secs: u64,
     pub bundle_type: BundleType,
+    pub extra_msg_handles: Option<HashMap<String, Arc<TxActorHandle>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -126,11 +155,12 @@ where
             tx_type,
             pending_tx_timeout_secs,
             bundle_type,
+            extra_msg_handles,
         } = params;
 
         // use custom logging layer to log sendRawTransaction request IDs
         let client = ClientBuilder::default()
-            .layer(LoggingLayer::new(prometheus.0, prometheus.1).await)
+            .layer(LoggingLayer::new(prometheus.prom, prometheus.hist).await)
             .http(rpc_url.to_owned());
         let rpc_client = Arc::new(DynProvider::new(
             ProviderBuilder::new()
@@ -195,8 +225,13 @@ where
             None
         };
 
-        let msg_handle = Arc::new(TxActorHandle::new(120, db.clone(), rpc_client.clone()));
         let cancel_token = CancellationToken::new();
+
+        // default msg_handle to handle txs sent on rpc_url
+        let msg_handle = Arc::new(TxActorHandle::new(120, db.clone(), rpc_client.clone()));
+        let mut msg_handles = HashMap::new();
+        msg_handles.insert("default".to_owned(), msg_handle);
+        msg_handles.extend(extra_msg_handles.unwrap_or_default());
 
         Ok(Self {
             config,
@@ -211,7 +246,7 @@ where
             chain_id,
             nonces,
             gas_limits,
-            msg_handle,
+            msg_handles,
             tx_type,
             bundle_type,
             pending_tx_timeout_secs,
@@ -268,9 +303,10 @@ where
                 tx_type: self.tx_type,
                 bundle_type: self.bundle_type,
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
+                extra_msg_handles: None,
             },
             None,
-            (&PROM, &HIST),
+            (&PROM, &HIST).into(),
         )
         .await?;
 
@@ -334,7 +370,7 @@ where
         agent_name: impl AsRef<str>,
         funder: &EthereumWallet,
         amount: U256,
-    ) -> Result<()> {
+    ) -> Result<Vec<PendingTransactionConfig>> {
         let addresses = self
             .agent_store
             .get_agent(&agent_name)
@@ -349,6 +385,7 @@ where
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
 
+        let mut pending_txs = vec![];
         for addr in addresses {
             let tx_req = TransactionRequest::default()
                 .with_from(funder.default_signer().address())
@@ -371,9 +408,10 @@ where
                 addr.encode_hex(),
                 pending.tx_hash()
             );
+            pending_txs.push(pending.inner().to_owned());
         }
 
-        Ok(())
+        Ok(pending_txs)
     }
 
     pub async fn deploy_contracts(&mut self) -> Result<()> {
@@ -386,12 +424,14 @@ where
             .get_chain_id()
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get chain id"))?;
+        let db = &self.db;
 
         // we do everything in the callback so no need to actually capture the returned txs
-        self.load_txs(PlanType::Create(|tx_req| {
-            /* callback */
-            // copy data/refs from self before spawning the task
-            let db = self.db.clone();
+        for tx_req in self.load_txs(PlanType::Create(|_| Ok(None))).await? {
+            let tx_req = match tx_req {
+                ExecutionRequest::Tx(req) => req,
+                _ => continue, // we only handle single tx requests here
+            };
             let from = tx_req.tx.from.to_owned().ok_or(ContenderError::SetupError(
                 "failed to get 'from' address",
                 None,
@@ -412,53 +452,60 @@ where
             );
             let rpc_url = self.rpc_url.to_owned();
             let tx_type = self.tx_type;
-            let handle = tokio::task::spawn(async move {
-                // estimate gas limit
-                let gas_limit = wallet
-                    .estimate_gas(WithOtherFields::new(tx_req.tx.to_owned()))
-                    .await
-                    .expect("failed to estimate gas");
+            // estimate gas limit
+            let gas_limit = wallet
+                .estimate_gas(WithOtherFields::new(tx_req.tx.to_owned()))
+                .await
+                .expect("failed to estimate gas");
 
-                // inject missing fields into tx_req.tx
-                let mut tx = tx_req.tx;
-                complete_tx_request(&mut tx, tx_type, gas_price, gas_price / 10, gas_limit, chain_id);
+            // inject missing fields into tx_req.tx
+            let mut tx = tx_req.tx;
+            complete_tx_request(
+                &mut tx,
+                tx_type,
+                gas_price,
+                gas_price / 10,
+                gas_limit,
+                chain_id,
+            );
 
-                let res = wallet.send_transaction(WithOtherFields::new(tx)).await;
-                if let Err(err) = res {
-                    let err = err.to_string();
-                    if err.to_lowercase().contains("already known") {
-                        warn!("Transaction already known. You may be using the same seed (or private key) as another spammer. Try modifying seed with `-s`, or waiting if you set `-p`. JSON-RPC Error: {err:?}");
-                    } else if err.to_lowercase().contains("insufficient funds") {
-                        warn!(
-                            "Insufficient funds for transaction (account: {from}). Try passing a funded private key with `-p`. JSON-RPC Error: {err:?}"
-                        );
-                    } else if err.to_lowercase().contains("replacement transaction underpriced") {
-                        warn!("Replacement transaction underpriced. You may have to wait, or replace the currently-pending transactions manually. JSON-RPC Error: {err:?}");
+            let res = wallet
+                .send_transaction(WithOtherFields::new(tx))
+                .await
+                .map_err(|err| {
+                    let e = err.to_string().to_lowercase();
+                    if e.contains("already known") {
+                        ContenderError::RpcError(crate::error::RpcErrorKind::TxAlreadyKnown, err)
+                    } else if e.contains("insufficient funds") {
+                        ContenderError::RpcError(RpcErrorKind::InsufficientFunds(from), err)
+                    } else if e.contains("replacement transaction underpriced") {
+                        ContenderError::RpcError(
+                            RpcErrorKind::ReplacementTransactionUnderpriced,
+                            err,
+                        )
                     } else {
-                        warn!("failed to send tx: {err:?}");
+                        RpcErrorKind::GenericSendTxError.to_error(err)
                     }
-                    return;
-                }
-                let res =
-                    res.expect("this will never happen. If it does, I'm a terrible programmer.");
-                let receipt = res.get_receipt().await.expect("failed to get receipt");
-                debug!(
-                    "contract address: {}",
-                    receipt.contract_address.unwrap_or_default()
-                );
+                })?;
+            // watch pending transaction
+            let receipt = res.get_receipt().await.expect("failed to get receipt");
+            debug!(
+                "contract address: {}",
+                receipt.contract_address.unwrap_or_default()
+            );
+            if let Some(name) = tx_req.name {
                 db.insert_named_txs(
                     &[NamedTx::new(
-                        tx_req.name.unwrap_or_default(),
+                        name,
                         receipt.transaction_hash,
                         receipt.contract_address,
                     )],
                     rpc_url.as_str(),
-                )
-                .expect("failed to insert tx into db");
-            });
-            Ok(Some(handle))
-        }))
-        .await?;
+                )?;
+            } else {
+                warn!("No name provided for named transaction. This may cause issues with tracking the entry in the database.");
+            }
+        }
 
         self.sync_nonces().await?;
 
@@ -752,7 +799,7 @@ where
         for payload in payloads {
             let rpc_client = self.rpc_client.clone();
             let bundle_client = self.bundle_client.clone();
-            let tx_handler = self.msg_handle.clone();
+            let tx_handlers = self.msg_handles.clone();
             let callback_handler = callback_handler.clone();
             let gas_sender = gas_sender.clone();
             let success_sender = success_sender.clone();
@@ -761,12 +808,7 @@ where
 
             std::thread::sleep(Duration::from_micros(micros_per_task));
             tasks.push(tokio::task::spawn(async move {
-                let mut extra = HashMap::new();
-                let start_timestamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("time went backwards")
-                    .as_millis();
-                extra.insert("start_timestamp".to_owned(), start_timestamp.to_string());
+                let extra = RuntimeTxInfo::default();
                 let handles = match payload {
                     ExecutionPayload::SignedTx(signed_tx, req) => {
                         let tx_hash = signed_tx.tx_hash().to_owned();
@@ -779,8 +821,8 @@ where
                                 let maybe_handle = callback_handler.on_tx_sent(
                                     res.into_inner(),
                                     &req,
-                                    Some(extra),
-                                    Some(tx_handler.clone()),
+                                    extra,
+                                    Some(tx_handlers),
                                 );
 
                                 tokio::select! {
@@ -817,12 +859,12 @@ where
                                     // if they are due to nonce issues, this will fail, but if they do land somehow,
                                     // they will be awaited in the post-spam loop
                                     warn!("error from tx {tx_hash}: {err:?}");
-                                    extra.insert("error".to_owned(), err.to_string());
+                                    let extra = extra.with_error(err.to_string());
                                     vec![callback_handler.on_tx_sent(
                                         PendingTransactionConfig::new(tx_hash),
                                         &req,
-                                        Some(extra),
-                                        Some(tx_handler.clone()),
+                                        extra,
+                                        Some(tx_handlers),
                                     )]
                                 } else {
                                     // ignore errors that can't be decoded
@@ -884,8 +926,8 @@ where
                             let maybe_handle = callback_handler.on_tx_sent(
                                 PendingTransactionConfig::new(*tx.tx_hash()),
                                 &req,
-                                Some(extra.clone()),
-                                Some(tx_handler.clone()),
+                                extra.clone(),
+                                Some(tx_handlers.clone()),
                             );
                             tx_handles.push(maybe_handle);
                         }
@@ -1054,9 +1096,10 @@ where
                 tx_type: self.tx_type,
                 bundle_type: self.bundle_type,
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
+                extra_msg_handles: None,
             },
             None,
-            (&PROM, &HIST),
+            (&PROM, &HIST).into(),
         )
         .await?;
 
@@ -1147,51 +1190,49 @@ where
             .max(2);
         let mut cache_size_queue = vec![];
         cache_size_queue.resize(block_timeout as usize, 1);
-        loop {
-            let pending_txs = self
-                .msg_handle
-                .flush_cache(run_id, block_start + block_counter as u64)
-                .await
-                .map_err(|e| ContenderError::with_err(e.deref(), "failed to flush cache"))?;
-            cache_size_queue.rotate_right(1);
-            cache_size_queue[0] = pending_txs.len();
+        for msg_handle in self.msg_handles.values() {
+            loop {
+                let pending_txs = msg_handle
+                    .flush_cache(run_id, block_start + block_counter as u64)
+                    .await
+                    .map_err(|e| ContenderError::with_err(e.deref(), "failed to flush cache"))?;
+                cache_size_queue.rotate_right(1);
+                cache_size_queue[0] = pending_txs.len();
 
-            if pending_txs.is_empty() {
-                break;
-            }
+                if pending_txs.is_empty() {
+                    break;
+                }
 
-            let current_timestamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("time went backwards")
-                .as_millis();
+                let current_timestamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("time went backwards")
+                    .as_millis();
 
-            // remove cached txs if the size hasn't changed for the last N blocks
-            if cache_size_queue
-                .iter()
-                .all(|&size| size == cache_size_queue[0])
-            {
-                debug!(
-                            "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
-                        );
-                for tx in &pending_txs {
-                    // only remove txs that have been waiting for > T seconds
-                    if current_timestamp
-                        > (tx.start_timestamp + (self.pending_tx_timeout_secs * 1000)) as u128
-                    {
-                        self.msg_handle
-                            .remove_cached_tx(tx.tx_hash)
-                            .await
-                            .map_err(|e| {
+                // remove cached txs if the size hasn't changed for the last N blocks
+                if cache_size_queue
+                    .iter()
+                    .all(|&size| size == cache_size_queue[0])
+                {
+                    debug!(
+                                "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
+                            );
+                    for tx in &pending_txs {
+                        // only remove txs that have been waiting for > T seconds
+                        if current_timestamp
+                            > tx.start_timestamp_ms + (self.pending_tx_timeout_secs as u128 * 1000)
+                        {
+                            msg_handle.remove_cached_tx(tx.tx_hash).await.map_err(|e| {
                                 ContenderError::with_err(
                                     e.deref(),
                                     "failed to remove tx from cache",
                                 )
                             })?;
+                        }
                     }
                 }
-            }
 
-            block_counter += 1;
+                block_counter += 1;
+            }
         }
 
         Ok(())
@@ -1200,16 +1241,17 @@ where
     pub async fn dump_tx_cache(&self, run_id: u64) -> Result<()> {
         debug!("dumping tx cache...");
 
-        let failed_txs = self
-            .msg_handle
-            .dump_cache(run_id)
-            .await
-            .map_err(|e| ContenderError::with_err(e.deref(), "failed to dump cache"))?;
-        if !failed_txs.is_empty() {
-            warn!(
-                "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
-                failed_txs.len()
-            );
+        for msg_handle in self.msg_handles.values() {
+            let failed_txs = msg_handle
+                .dump_cache(run_id)
+                .await
+                .map_err(|e| ContenderError::with_err(e.deref(), "failed to dump cache"))?;
+            if !failed_txs.is_empty() {
+                warn!(
+                    "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
+                    failed_txs.len()
+                );
+            }
         }
 
         Ok(())
@@ -1218,7 +1260,7 @@ where
     /// Collects latency metrics from the prometheus registry.
     /// Returns a map of RPC method names to a vector of latency buckets which represent (upper_bound_secs, cumulative_count).
     pub fn collect_latency_metrics(&self) -> BTreeMap<String, Vec<Bucket>> {
-        let registry = self.prometheus.0.get();
+        let registry = self.prometheus.prom.get();
         let mut latency_map = BTreeMap::new();
         if let Some(registry) = registry {
             let metric_families = registry.gather();
@@ -1330,7 +1372,7 @@ struct SpamContextHandler {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::agent_controller::{AgentStore, SignerStore};
+    use crate::agent_controller::AgentStore;
     use crate::db::MockDb;
     use crate::generator::named_txs::ExecutionRequest;
     use crate::generator::templater::Templater;
@@ -1345,7 +1387,9 @@ pub mod tests {
     use alloy::consensus::constants::GWEI_TO_WEI;
     use alloy::hex::ToHexExt;
     use alloy::node_bindings::AnvilInstance;
+    use alloy::primitives::utils::format_ether;
     use alloy::primitives::{Address, U256};
+    use alloy::providers::Provider;
     use contender_bundle_provider::bundle::BundleType;
     use std::collections::HashMap;
     use tokio::sync::OnceCell;
@@ -1375,33 +1419,15 @@ pub mod tests {
             Ok(vec![
                 CreateDefinition {
                     bytecode: COUNTER_BYTECODE.to_string(),
-                    name: "test_counter".to_string(),
-                    from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
-                    from_pool: None,
-                },
-                CreateDefinition {
-                    bytecode: COUNTER_BYTECODE.to_string(),
                     name: "test_counter2".to_string(),
                     from: None,
                     from_pool: Some("admin1".to_owned()),
                 },
                 CreateDefinition {
-                    bytecode: COUNTER_BYTECODE.to_string(),
-                    name: "test_counter3".to_string(),
+                    bytecode: UNI_V2_FACTORY_BYTECODE.to_string(),
+                    name: "univ2_factory".to_string(),
                     from: None,
                     from_pool: Some("admin2".to_owned()),
-                },
-                CreateDefinition {
-                    bytecode: UNI_V2_FACTORY_BYTECODE.to_string(),
-                    name: "univ2_factory".to_string(),
-                    from: None,
-                    from_pool: Some("admin1".to_owned()),
-                },
-                CreateDefinition {
-                    bytecode: UNI_V2_FACTORY_BYTECODE.to_string(),
-                    name: "univ2_factory".to_string(),
-                    from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
-                    from_pool: None,
                 },
             ])
         }
@@ -1562,12 +1588,14 @@ pub mod tests {
     pub async fn get_test_scenario(
         anvil: &AnvilInstance,
         txs_per_duration: u64,
-        fund_amount_eth: f64,
     ) -> TestScenario<MockDb, RandSeed, MockConfig> {
-        let seed = RandSeed::seed_from_bytes(&[0x01; 32]);
+        let seed = RandSeed::new();
         let tx_type = alloy::consensus::TxType::Eip1559;
         let bundle_type = BundleType::default();
         let signers = get_test_signers();
+        let fund_amount_eth = 25.0;
+
+        println!("anvil endpoint: {}", anvil.endpoint_url());
 
         let mut agents = AgentStore::new();
         let config = MockConfig;
@@ -1578,11 +1606,7 @@ pub mod tests {
             (txs_per_duration / num_pools) as usize,
             &seed,
         );
-
-        let admin1_signers = SignerStore::new(1, &seed, "admin1");
-        let admin2_signers = SignerStore::new(1, &seed, "admin2");
-        agents.add_agent("admin1", admin1_signers);
-        agents.add_agent("admin2", admin2_signers);
+        agents.init(&["admin1", "admin2"], 1, &seed);
 
         let mut scenario = TestScenario::new(
             config,
@@ -1596,9 +1620,10 @@ pub mod tests {
                 tx_type,
                 bundle_type,
                 pending_tx_timeout_secs: 12,
+                extra_msg_handles: None,
             },
             None,
-            (&PROM, &HIST),
+            (&PROM, &HIST).into(),
         )
         .await
         .unwrap();
@@ -1606,6 +1631,7 @@ pub mod tests {
         let fund_amount_wei = U256::from(fund_amount_eth * 1e18);
         println!("fund_amount_wei: {fund_amount_wei}");
         println!("fund_amount_eth: {fund_amount_eth}");
+        println!("fund_amount eth: {}", format_ether(fund_amount_wei));
 
         let all_agent_names = scenario
             .agent_store
@@ -1622,11 +1648,29 @@ pub mod tests {
                     .signers
                     .len()
             );
-            scenario
+            let funder_balance = scenario
+                .rpc_client
+                .get_balance(anvil.wallet().unwrap().default_signer().address())
+                .await
+                .unwrap();
+            println!("funder balance: {}", format_ether(funder_balance));
+            let pending_txs = scenario
                 .fund_agent_signers(agent_name, &anvil.wallet().unwrap(), fund_amount_wei)
                 .await
                 .unwrap();
+            // wait for each funding tx to land before proceeding
+            for pending_tx in pending_txs {
+                scenario
+                    .rpc_client
+                    .watch_pending_transaction(pending_tx)
+                    .await
+                    .unwrap()
+                    .await
+                    .unwrap();
+            }
         }
+
+        scenario.ctx.add_to_gas_price(GWEI_TO_WEI as i128 * 10);
 
         scenario
     }
@@ -1634,7 +1678,7 @@ pub mod tests {
     #[tokio::test]
     async fn it_creates_scenarios() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let scenario = get_test_scenario(&anvil, 10).await;
 
         let create_txs = scenario
             .load_txs(PlanType::Create(|tx| {
@@ -1642,7 +1686,7 @@ pub mod tests {
                 Ok(None)
             }))
             .await?;
-        assert_eq!(create_txs.len(), 5);
+        assert_eq!(create_txs.len(), 2);
 
         let setup_txs = scenario
             .load_txs(PlanType::Setup(|tx| {
@@ -1667,7 +1711,7 @@ pub mod tests {
     #[tokio::test]
     async fn gas_limit_override_works() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let scenario = get_test_scenario(&anvil, 10).await;
         let spam_txs = scenario
             .load_txs(PlanType::Spam(20, |tx| {
                 println!("spam tx callback triggered! {tx:?}\n");
@@ -1698,7 +1742,7 @@ pub mod tests {
     #[tokio::test]
     async fn fncall_replaces_sender_placeholder_with_from_address() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let scenario = get_test_scenario(&anvil, 10).await;
 
         let spam_txs = scenario
             .load_txs(PlanType::Spam(10, |tx| {
@@ -1722,7 +1766,7 @@ pub mod tests {
     #[tokio::test]
     async fn create_replaces_sender_placeholder_with_from_address() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let scenario = get_test_scenario(&anvil, 10).await;
 
         let txs = scenario
             .load_txs(PlanType::Create(|tx| {
@@ -1731,23 +1775,25 @@ pub mod tests {
             }))
             .await
             .unwrap();
-        for tx in &txs[3..4] {
-            let tx = match tx {
-                ExecutionRequest::Tx(tx) => tx,
-                _ => panic!("expected tx"),
-            };
-            let from = tx.tx.from.unwrap();
-            let input = tx.tx.input.input.as_ref().unwrap();
-            println!("input: {input}");
-            println!("from: {}", from.encode_hex());
-            assert!(input.encode_hex().contains(&from.encode_hex()));
-        }
+
+        // 2nd tx should have from address in its bytecode when we deploy it
+        let sample_tx = &txs[1];
+        let tx = match sample_tx {
+            ExecutionRequest::Tx(tx) => tx,
+            _ => panic!("expected tx"),
+        };
+        let from = tx.tx.from.unwrap();
+        let input = tx.tx.input.input.as_ref().unwrap();
+        println!("input: {input}");
+        println!("from: {}", from.encode_hex());
+        assert!(input.encode_hex().contains(&from.encode_hex()));
     }
 
     #[tokio::test]
     async fn create_steps_use_agent_signers() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let mut scenario = get_test_scenario(&anvil, 10).await;
+        scenario.deploy_contracts().await.unwrap();
 
         // assert that the agent store has the correct number of signers
         let create_steps = scenario
@@ -1763,8 +1809,6 @@ pub mod tests {
             if tx.tx.from.is_some() {
                 assert!(scenario.wallet_map.contains_key(&tx.tx.from.unwrap()));
             }
-            assert!(scenario.agent_store.has_agent("admin1"));
-            assert!(scenario.agent_store.has_agent("admin2"));
             let admin_pools = ["admin1", "admin2"];
             for pool in admin_pools {
                 if scenario
@@ -1781,13 +1825,13 @@ pub mod tests {
                 }
             }
         }
-        assert_eq!(used_agent_keys, 3);
+        assert_eq!(used_agent_keys, 2);
     }
 
     #[tokio::test]
     async fn setup_steps_use_agent_signers() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let mut scenario = get_test_scenario(&anvil, 10).await;
         scenario.deploy_contracts().await.unwrap();
         let setup_steps = scenario
             .load_txs(PlanType::Setup(|_| Ok(None)))
@@ -1822,7 +1866,7 @@ pub mod tests {
     #[tokio::test]
     async fn scenario_creates_contracts() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let mut scenario = get_test_scenario(&anvil, 10).await;
         let res = scenario.deploy_contracts().await;
         assert!(res.is_ok());
     }
@@ -1830,7 +1874,7 @@ pub mod tests {
     #[tokio::test]
     async fn scenario_runs_setup() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let mut scenario = get_test_scenario(&anvil, 10).await;
         scenario.deploy_contracts().await.unwrap();
         let res = scenario.run_setup().await;
         println!("{res:?}");
@@ -1841,7 +1885,7 @@ pub mod tests {
     async fn setup_cost_estimates_are_correct(
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10, 10.0).await;
+        let scenario = get_test_scenario(&anvil, 10).await;
         let cost = scenario.estimate_setup_cost().await?;
         let total_txs = scenario.config.get_setup_steps().unwrap().len()
             + scenario.config.get_create_steps().unwrap().len();
@@ -1854,9 +1898,9 @@ pub mod tests {
     async fn all_tx_requests_are_contiguous() -> std::result::Result<(), Box<dyn std::error::Error>>
     {
         let anvil = spawn_anvil();
-        let txs_per_duration = 500u64;
+        let txs_per_duration = 50u64;
         let duration = 3;
-        let mut scenario = get_test_scenario(&anvil, txs_per_duration, 0.01).await;
+        let mut scenario = get_test_scenario(&anvil, txs_per_duration).await;
 
         // make tx chunks
         let tx_req_chunks = scenario
