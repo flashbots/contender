@@ -1190,7 +1190,7 @@ where
             .max(2);
         let mut cache_size_queue = vec![];
         cache_size_queue.resize(block_timeout as usize, 1);
-        for (_rpc_url, msg_handle) in &self.msg_handles {
+        for msg_handle in self.msg_handles.values() {
             loop {
                 let pending_txs = msg_handle
                     .flush_cache(run_id, block_start + block_counter as u64)
@@ -1241,7 +1241,7 @@ where
     pub async fn dump_tx_cache(&self, run_id: u64) -> Result<()> {
         debug!("dumping tx cache...");
 
-        for (_rpc_url, msg_handle) in &self.msg_handles {
+        for msg_handle in self.msg_handles.values() {
             let failed_txs = msg_handle
                 .dump_cache(run_id)
                 .await

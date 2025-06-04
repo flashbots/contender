@@ -152,7 +152,7 @@ where
             let flush_finished: bool = tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
                     warn!("CTRL-C received, stopping result collection...");
-                    for (_rpc_url, msg_handle) in &scenario.msg_handles {
+                    for msg_handle in scenario.msg_handles.values() {
                         let _ = msg_handle.stop().await;
                     }
                     cancel_token.cancel();
