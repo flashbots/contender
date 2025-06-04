@@ -146,19 +146,18 @@ mod tests {
         )
         .await
         .unwrap();
-        let callback_handler = MockCallback;
-        let spammer = BlockwiseSpammer::new();
 
         let start_block = provider.get_block_number().await.unwrap();
-        let callback = Arc::new(callback_handler);
 
+        let callback_handler = MockCallback;
+        let spammer = BlockwiseSpammer::new();
         let result = spammer
             .spam_rpc(
                 &mut scenario,
                 txs_per_period,
                 periods,
                 None,
-                callback.clone(),
+                Arc::new(callback_handler),
             )
             .await;
         assert!(result.is_ok());

@@ -24,6 +24,10 @@ pub trait OnBatchSent {
     fn on_batch_sent(&self) -> Option<JoinHandle<Result<(), String>>>;
 }
 
+pub trait SpamCallback: OnTxSent + OnBatchSent + Send + Sync {}
+
+impl<T: OnTxSent + OnBatchSent + Sized + Send + Sync> SpamCallback for T {}
+
 #[derive(Clone)]
 pub struct NilCallback;
 
