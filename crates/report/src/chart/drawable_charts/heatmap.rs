@@ -42,7 +42,6 @@ impl TxTraceReceipt {
                 .expect("invalid key; this should never happen");
             // for every storage slot in this frame, increment the count for the slot at this block number
             update.storage.iter().for_each(|(slot, _)| {
-                println!("slot: {slot:?}");
                 if let Some(slot_map) = updates_per_slot_per_block.get_mut(&block_num) {
                     let value = slot_map.get(slot).map(|v| v + 1).unwrap_or(1);
                     slot_map.insert(*slot, value);

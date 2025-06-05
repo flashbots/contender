@@ -188,7 +188,6 @@ pub async fn report(
     }
 
     let chart_ids = vec![
-        ReportChartId::TxGasUsed,
         ReportChartId::PendingTxs,
         ReportChartId::RpcLatency("eth_sendRawTransaction"),
     ];
@@ -228,7 +227,6 @@ pub async fn report(
     for chart_id in &chart_ids {
         let filename = chart_id.filename(start_run_id, end_run_id, &reports_dir)?;
         let chart: Box<dyn DrawableChart> = match *chart_id {
-            ReportChartId::TxGasUsed => Box::new(TxGasUsedChart::new(&cache_data.traces)),
             ReportChartId::PendingTxs => Box::new(PendingTxsChart::new(&all_txs)),
             ReportChartId::RpcLatency(method) => Box::new(LatencyChart::new(
                 canonical_latency_map
@@ -243,6 +241,7 @@ pub async fn report(
     let heatmap = HeatMapChart::new(&cache_data.traces)?;
     let gas_per_block = GasPerBlockChart::new(&cache_data.blocks);
     let tti = TimeToInclusionChart::new(&all_txs);
+    let gas_used = TxGasUsedChart::new(&cache_data.traces, 4000);
 
     // compile report
     let mut blocks = cache_data.blocks;
@@ -261,6 +260,7 @@ pub async fn report(
                 heatmap: heatmap.echart_data(),
                 gas_per_block: gas_per_block.echart_data(),
                 time_to_inclusion: tti.echart_data(),
+                tx_gas_used: gas_used.echart_data(),
             },
         },
         &format!("{data_dir}/reports"),

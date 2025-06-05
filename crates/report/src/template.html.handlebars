@@ -263,6 +263,11 @@
     <div class="chart" id="time-to-inclusion"></div>
   </section>
 
+  <section>
+    <h2>Tx Gas Used</h2>
+    <div class="chart" id="tx-gas-used"></div>
+  </section>
+
   {{!-- ==================== ====== ==================== --}}
 
   {{#each data.charts}}
@@ -309,12 +314,14 @@
         grid: {
           height: '70%',
           top: '0%',
-          left: '15%',
-          right: '0%',
+          left: '18%',
         },
         xAxis: {
           type: 'category',
           data: blocks,
+          name: 'Block Number',
+          nameLocation: 'middle',
+          nameGap: 25,
           splitArea: {
             show: true
           },
@@ -322,6 +329,9 @@
         yAxis: {
           type: 'category',
           data: storageSlots,
+          name: 'Storage Slot',
+          nameLocation: 'middle',
+          nameGap: 90,
           splitArea: {
             show: true
           },
@@ -445,10 +455,58 @@
       chart.setOption(option);
     }
 
+    async function renderTxGasUsed() {
+      // Initialize the echarts instance based on the prepared dom
+      var chart = echarts.init(document.getElementById('tx-gas-used'));
+
+      const buckets = [{{#each data.chart_data.tx_gas_used.buckets}}"{{this}}"{{#if @last}}{{else}}, {{/if}}{{/each}}];
+      const gasUsed = {{data.chart_data.tx_gas_used.counts}};
+
+      // Specify the configuration items and data for the chart
+      var option = {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: {
+            type: 'shadow'
+          }
+        },
+        grid: {
+          right: '12%',
+        },
+        xAxis: {
+          type: 'category',
+          data: buckets,
+          name: 'Gas Used',
+          axisLabel: {
+            interval: 0,
+            rotate: 45
+          }
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Num. Transactions',
+          min: 0,
+          max: Math.max(...gasUsed),
+        },
+        series: [{
+          name: 'Txs',
+          type: 'bar',
+          data: gasUsed,
+          itemStyle: {
+            color: '#91cc75'
+          }
+        }]
+      };
+
+      // Display the chart using the configuration items and data just specified.
+      chart.setOption(option);
+    }
+
     Promise.all([
       renderHeatmap(),
       renderGasPerBlock(),
       renderTimeToInclusion(),
+      renderTxGasUsed(),
       // Add any other chart-rendering functions here
     ]).then(() => {
       console.log('All charts rendered');

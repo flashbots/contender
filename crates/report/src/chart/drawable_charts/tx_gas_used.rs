@@ -1,67 +1,57 @@
-use plotters::{
-    backend::BitMapBackend,
-    chart::ChartBuilder,
-    series::Histogram,
-    style::{full_palette::BLUE, Color},
-};
-
 use crate::{block_trace::TxTraceReceipt, util::abbreviate_num};
-
-use super::DrawableChart;
+use serde::{Deserialize, Serialize};
 
 pub struct TxGasUsedChart {
     gas_used: Vec<u64>,
+    bucket_width: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TxGasUsedData {
+    pub buckets: Vec<String>,
+    pub counts: Vec<u64>,
+    pub max_count: u64,
 }
 
 impl TxGasUsedChart {
-    pub fn new(trace_data: &[TxTraceReceipt]) -> Self {
+    pub fn new(trace_data: &[TxTraceReceipt], bucket_width: u64) -> Self {
         let mut gas_used = vec![];
         for t in trace_data {
-            let gas = t.receipt.gas_used;
-            gas_used.push(gas + (1000 - (gas % 1000)));
+            gas_used.push(t.receipt.gas_used);
         }
-        Self { gas_used }
+        Self {
+            gas_used,
+            bucket_width,
+        }
     }
-}
 
-impl DrawableChart for TxGasUsedChart {
-    fn define_chart(
-        &self,
-        root: &plotters::prelude::DrawingArea<BitMapBackend, plotters::coord::Shift>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let max_gas_used = self.gas_used.iter().max().copied().unwrap_or_default();
+    pub fn echart_data(&self) -> TxGasUsedData {
+        let mut buckets = vec![];
+        let mut counts = vec![];
+        let mut max_count = 0;
 
-        let mut gas_used_counts = std::collections::HashMap::new();
         for &gas in &self.gas_used {
-            *gas_used_counts.entry(gas).or_insert(0) += 1;
+            let gas = gas + (self.bucket_width - (gas % self.bucket_width));
+            let bucket_index = (gas / self.bucket_width) as usize;
+            if bucket_index >= buckets.len() {
+                buckets.resize(bucket_index + 1, "0".to_string());
+                counts.resize(bucket_index + 1, 0);
+            }
+            counts[bucket_index] += 1;
+            if counts[bucket_index] > max_count {
+                max_count = counts[bucket_index];
+            }
+            buckets[bucket_index] = format!(
+                "{} - {}",
+                abbreviate_num(bucket_index as u64 * self.bucket_width),
+                abbreviate_num((bucket_index + 1) as u64 * self.bucket_width)
+            );
         }
-        let highest_peak = gas_used_counts.values().max().unwrap_or(&0);
 
-        let mut chart = ChartBuilder::on(root)
-            .margin(15)
-            .x_label_area_size(40)
-            .y_label_area_size(60)
-            .build_cartesian_2d(
-                0..max_gas_used + (10_000 - (max_gas_used % 10_000)),
-                0..highest_peak + (5 - (highest_peak % 5)),
-            )?;
-
-        chart
-            .configure_mesh()
-            .disable_x_mesh()
-            .label_style(("sans-serif", 15))
-            .x_desc("Gas Used")
-            .x_labels(20)
-            .x_label_formatter(&|x| abbreviate_num(*x))
-            .y_desc("# Transactions")
-            .draw()?;
-
-        chart.draw_series(
-            Histogram::vertical(&chart)
-                .style(BLUE.filled())
-                .data(self.gas_used.iter().map(|&x| (x, 1))),
-        )?;
-
-        Ok(())
+        TxGasUsedData {
+            buckets,
+            counts,
+            max_count,
+        }
     }
 }
