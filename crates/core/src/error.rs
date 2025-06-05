@@ -1,9 +1,9 @@
 use std::ops::Deref;
 use std::{error::Error, fmt::Display};
 
+use crate::bundle_provider::error::BundleProviderError;
 use alloy::primitives::Address;
 use alloy::transports::{RpcError, TransportErrorKind};
-use crate::bundle_provider::error::BundleProviderError;
 
 pub enum ContenderError {
     DbError(&'static str, Option<String>),
