@@ -1,4 +1,5 @@
-use crate::chart::{HeatmapData, ReportChartId};
+use crate::chart::ReportChartId;
+use crate::chart::{gas_per_block::GasPerBlockData, heatmap::HeatmapData};
 use crate::command::SpamRunMetrics;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -13,7 +14,13 @@ pub struct ReportMetadata {
     pub rpc_url: String,
     pub metrics: SpamRunMetrics,
     pub chart_ids: Vec<ReportChartId>,
-    pub heatmap_data: HeatmapData,
+    pub chart_data: ChartData,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ChartData {
+    pub gas_per_block: GasPerBlockData,
+    pub heatmap: HeatmapData,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -25,7 +32,7 @@ struct TemplateData {
     end_block: String,
     metrics: SpamRunMetrics,
     charts: Vec<(String, String)>,
-    heatmap_data: HeatmapData,
+    chart_data: ChartData,
 }
 
 impl TemplateData {
@@ -38,7 +45,7 @@ impl TemplateData {
             end_block: meta.end_block.to_string(),
             metrics: meta.metrics.to_owned(),
             charts,
-            heatmap_data: meta.heatmap_data.to_owned(),
+            chart_data: meta.chart_data.to_owned(),
         }
     }
 }

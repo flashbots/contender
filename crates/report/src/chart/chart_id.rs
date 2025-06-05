@@ -1,6 +1,5 @@
 #[derive(Debug, Clone)]
 pub enum ReportChartId {
-    GasPerBlock,
     TimeToInclusion,
     TxGasUsed,
     PendingTxs,
@@ -10,7 +9,6 @@ pub enum ReportChartId {
 impl std::fmt::Display for ReportChartId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
-            ReportChartId::GasPerBlock => "gas_per_block",
             ReportChartId::TimeToInclusion => "time_to_inclusion",
             ReportChartId::TxGasUsed => "tx_gas_used",
             ReportChartId::PendingTxs => "pending_txs",
@@ -34,7 +32,6 @@ impl ReportChartId {
 
     pub fn proper_name(&self) -> String {
         match self {
-            ReportChartId::GasPerBlock => "Gas Per Block".to_owned(),
             ReportChartId::TimeToInclusion => "Time To Inclusion".to_owned(),
             ReportChartId::TxGasUsed => "Tx Gas Used".to_owned(),
             ReportChartId::PendingTxs => "Pending Transactions".to_owned(),

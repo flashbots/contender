@@ -1,12 +1,14 @@
-use super::chart::{
-    GasPerBlockChart, HeatMapChart, LatencyChart, PendingTxsChart, ReportChartId,
-    TimeToInclusionChart, TxGasUsedChart,
-};
+use super::chart::ReportChartId;
 use super::gen_html::{build_html_report, ReportMetadata};
 use super::util::std_deviation;
 use crate::block_trace::{get_block_data, get_block_traces};
 use crate::cache::CacheFile;
-use crate::chart::DrawableChart;
+use crate::chart::{
+    gas_per_block::GasPerBlockChart, heatmap::HeatMapChart, pending_txs::PendingTxsChart,
+    rpc_latency::LatencyChart, time_to_inclusion::TimeToInclusionChart,
+    tx_gas_used::TxGasUsedChart, DrawableChart,
+};
+use crate::gen_html::ChartData;
 use crate::util::write_run_txs;
 use alloy::network::AnyNetwork;
 use alloy::providers::DynProvider;
@@ -186,7 +188,6 @@ pub async fn report(
     }
 
     let chart_ids = vec![
-        ReportChartId::GasPerBlock,
         ReportChartId::TimeToInclusion,
         ReportChartId::TxGasUsed,
         ReportChartId::PendingTxs,
@@ -228,7 +229,6 @@ pub async fn report(
     for chart_id in &chart_ids {
         let filename = chart_id.filename(start_run_id, end_run_id, &reports_dir)?;
         let chart: Box<dyn DrawableChart> = match *chart_id {
-            ReportChartId::GasPerBlock => Box::new(GasPerBlockChart::new(&cache_data.blocks)),
             ReportChartId::TimeToInclusion => Box::new(TimeToInclusionChart::new(&all_txs)),
             ReportChartId::TxGasUsed => Box::new(TxGasUsedChart::new(&cache_data.traces)),
             ReportChartId::PendingTxs => Box::new(PendingTxsChart::new(&all_txs)),
@@ -243,6 +243,7 @@ pub async fn report(
     }
 
     let heatmap = HeatMapChart::new(&cache_data.traces)?;
+    let gas_per_block = GasPerBlockChart::new(&cache_data.blocks);
 
     // compile report
     let mut blocks = cache_data.blocks;
@@ -257,7 +258,10 @@ pub async fn report(
             rpc_url: rpc_url.to_string(),
             metrics,
             chart_ids,
-            heatmap_data: heatmap.echart_data(),
+            chart_data: ChartData {
+                heatmap: heatmap.echart_data(),
+                gas_per_block: gas_per_block.echart_data(),
+            },
         },
         &format!("{data_dir}/reports"),
     )?;

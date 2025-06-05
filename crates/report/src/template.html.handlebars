@@ -250,6 +250,10 @@
     <h2>Storage Slot Updates</h2>
     <div class="chart" id="heatmap"></div>
   </section>
+  <section>
+    <h2>Gas Per Block</h2>
+    <div class="chart" id="gas-per-block"></div>
+  </section>
 
   {{#each data.charts}}
   <section>
@@ -272,16 +276,20 @@
       throw new Error('ECharts library is not loaded. Please include the ECharts script.');
     }
 
+    function roundTo (num, roundness) {
+      num + (roundness - (num % roundness))
+    }
+
     async function renderHeatmap() {
       // Initialize the echarts instance based on the prepared dom
       var chart = echarts.init(document.getElementById('heatmap'));
 
-      const blocks = {{data.heatmap_data.blocks}};
+      const blocks = {{data.chart_data.heatmap.blocks}};
       const storageSlots = [
-        {{#each data.heatmap_data.slots}}"{{this}}"{{#if @last}}{{else}}, {{/if}}{{/each}}
+        {{#each data.chart_data.heatmap.slots}}"{{this}}"{{#if @last}}{{else}}, {{/if}}{{/each}}
       ]
       .map(slot => `0x${slot.slice(0,4)}...${slot.slice(-4)}`);
-      const data = {{data.heatmap_data.matrix}};
+      const data = {{data.chart_data.heatmap.matrix}};
   
       // Specify the configuration items and data for the chart
       var option = {
@@ -310,7 +318,7 @@
         },
         visualMap: {
           min: 0,
-          max: {{data.heatmap_data.max_accesses}},
+          max: {{data.chart_data.heatmap.max_accesses}},
           calculable: true,
           orient: 'horizontal',
           left: 'center',
@@ -339,12 +347,58 @@
       chart.setOption(option);
     }
 
+    async function renderGasPerBlock() {
+      // Initialize the echarts instance based on the prepared dom
+      var chart = echarts.init(document.getElementById('gas-per-block'));
+
+      const blocks = {{data.chart_data.gas_per_block.blocks}};
+      const gasValues = {{data.chart_data.gas_per_block.gas_used}};
+
+      // Specify the configuration items and data for the chart
+      const roundTo = (num, roundness) => {
+        num + (roundness - (num % roundness))
+      }
+      var option = {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: {
+            type: 'cross'
+          }
+        },
+        xAxis: {
+          type: 'category',
+          data: blocks,
+          boundaryGap: false
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Gas Used',
+          min: 0,
+          max: roundTo({{data.chart_data.gas_per_block.max_gas_used}}, 500000),
+        },
+        series: [{
+          name: 'Gas Used',
+          type: 'line',
+          data: gasValues,
+          smooth: true,
+          lineStyle: {
+            width: 2
+          }
+        }]
+      };
+
+      // Display the chart using the configuration items and data just specified.
+      chart.setOption(option);
+    }
+
     Promise.all([
       renderHeatmap(),
+      renderGasPerBlock(),
       // Add any other chart-rendering functions here
     ]).then(() => {
       console.log('All charts rendered');
     });
+
   </script>
 
 </body>
