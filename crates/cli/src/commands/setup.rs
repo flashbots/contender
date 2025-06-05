@@ -13,6 +13,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
     transports::http::reqwest::Url,
 };
+use contender_core::engine_provider::DEFAULT_BLOCK_TIME;
 use contender_core::generator::PlanConfig;
 use contender_core::BundleType;
 use contender_core::{
@@ -21,7 +22,6 @@ use contender_core::{
     generator::RandSeed,
     test_scenario::{TestScenario, TestScenarioParams},
 };
-use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use std::{
     str::FromStr,
     sync::{

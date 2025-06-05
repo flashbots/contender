@@ -9,7 +9,7 @@ use alloy::{
     transports::http::reqwest::IntoUrl,
 };
 
-use crate::{bundle::TypedBundle, error::BundleProviderError};
+use crate::bundle_provider::{bundle::TypedBundle, error::BundleProviderError};
 
 /// A helper wrapper around a RPC client that can be used to call `eth_sendBundle`.
 #[derive(Debug)]

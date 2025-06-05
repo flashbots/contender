@@ -3,7 +3,7 @@ use std::{error::Error, fmt::Display};
 
 use alloy::primitives::Address;
 use alloy::transports::{RpcError, TransportErrorKind};
-use contender_bundle_provider::error::BundleProviderError;
+use crate::bundle_provider::error::BundleProviderError;
 
 pub enum ContenderError {
     DbError(&'static str, Option<String>),

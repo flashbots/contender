@@ -1,7 +1,7 @@
 use alloy::rpc::types::mev::{EthBundleHash, EthSendBundle};
 use tracing::debug;
 
-use crate::{
+use crate::bundle_provider::{
     error::BundleProviderError,
     revert_bundle::{BundlesFromRequest, RevertProtectBundleRequest},
     BundleClient,

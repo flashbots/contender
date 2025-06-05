@@ -1,7 +1,7 @@
 use alloy::primitives::Bytes;
 use serde::{Deserialize, Serialize};
 
-use crate::bundle::TypedBundle;
+use crate::bundle_provider::bundle::TypedBundle;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RevertProtectBundle {

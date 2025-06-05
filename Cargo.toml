@@ -1,9 +1,7 @@
 [workspace]
 members = [
-    "crates/bundle_provider",
     "crates/cli/",
     "crates/core/",
-    "crates/engine_provider",
     "crates/report",
     "crates/sqlite_db/",
     "crates/testfile/",
@@ -23,8 +21,6 @@ repository = "https://github.com/flashbots/contender"
 contender_core = { path = "crates/core/" }
 contender_sqlite = { path = "crates/sqlite_db/" }
 contender_testfile = { path = "crates/testfile/" }
-contender_bundle_provider = { path = "crates/bundle_provider/" }
-contender_engine_provider = { path = "crates/engine_provider/" }
 contender_report = { path = "crates/report/" }
 
 eyre = "0.6.12"
