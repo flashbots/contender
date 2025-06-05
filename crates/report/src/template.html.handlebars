@@ -268,6 +268,11 @@
     <div class="chart" id="tx-gas-used"></div>
   </section>
 
+  <section>
+    <h2>Pending Transactions</h2>
+    <div class="chart" id="pending-txs"></div>
+  </section>
+
   {{!-- ==================== ====== ==================== --}}
 
   {{#each data.charts}}
@@ -502,11 +507,55 @@
       chart.setOption(option);
     }
 
+    // a line chart showing pending transactions over time
+    async function renderPendingTxs() {
+      // Initialize the echarts instance based on the prepared dom
+      var chart = echarts.init(document.getElementById('pending-txs'));
+
+      const timestamps = {{data.chart_data.pending_txs.timestamps}};
+      const pendingTxs = {{data.chart_data.pending_txs.pending_txs}};
+
+      // Specify the configuration items and data for the chart
+      var option = {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: {
+            type: 'cross'
+          }
+        },
+        xAxis: {
+          type: 'time',
+          name: 'Time',
+          nameLocation: 'middle',
+          nameGap: 25,
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Pending Transactions',
+          min: 0,
+          max: Math.max(...pendingTxs),
+        },
+        series: [{
+          name: 'Pending Txs',
+          type: 'line',
+            data: timestamps.map((time, index) => [time * 1000, pendingTxs[index]]),
+          smooth: true,
+          lineStyle: {
+            width: 2
+          }
+        }]
+      };
+
+      // Display the chart using the configuration items and data just specified.
+      chart.setOption(option);
+    }
+
     Promise.all([
       renderHeatmap(),
       renderGasPerBlock(),
       renderTimeToInclusion(),
       renderTxGasUsed(),
+      renderPendingTxs(),
       // Add any other chart-rendering functions here
     ]).then(() => {
       console.log('All charts rendered');

@@ -12,10 +12,17 @@ use plotters::{
         ShapeStyle,
     },
 };
+use serde::{Deserialize, Serialize};
 
 pub struct PendingTxsChart {
     /// Maps timestamp to number of pending txs
     pending_txs_per_second: BTreeMap<u64, u64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PendingTxsData {
+    pub timestamps: Vec<u64>,
+    pub pending_txs: Vec<u64>,
 }
 
 impl PendingTxsChart {
@@ -44,6 +51,21 @@ impl PendingTxsChart {
 
         Self {
             pending_txs_per_second,
+        }
+    }
+
+    pub fn echart_data(&self) -> PendingTxsData {
+        let mut timestamps = vec![];
+        let mut pending_txs = vec![];
+
+        for (timestamp, count) in &self.pending_txs_per_second {
+            timestamps.push(*timestamp);
+            pending_txs.push(*count);
+        }
+
+        PendingTxsData {
+            timestamps,
+            pending_txs,
         }
     }
 }

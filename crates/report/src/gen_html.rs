@@ -1,3 +1,4 @@
+use crate::chart::pending_txs::PendingTxsData;
 use crate::chart::time_to_inclusion::TimeToInclusionData;
 use crate::chart::tx_gas_used::TxGasUsedData;
 use crate::chart::ReportChartId;
@@ -25,6 +26,7 @@ pub struct ChartData {
     pub heatmap: HeatmapData,
     pub time_to_inclusion: TimeToInclusionData,
     pub tx_gas_used: TxGasUsedData,
+    pub pending_txs: PendingTxsData,
 }
 
 #[derive(Deserialize, Serialize)]

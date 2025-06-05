@@ -187,10 +187,7 @@ pub async fn report(
         canonical_latency_map.insert(method.to_string(), canonical_latency);
     }
 
-    let chart_ids = vec![
-        ReportChartId::PendingTxs,
-        ReportChartId::RpcLatency("eth_sendRawTransaction"),
-    ];
+    let chart_ids = vec![ReportChartId::RpcLatency("eth_sendRawTransaction")];
 
     let to_ms = |latency: f64| (latency * 1000.0).round_ties_even() as u64; // convert to ms
 
@@ -227,7 +224,6 @@ pub async fn report(
     for chart_id in &chart_ids {
         let filename = chart_id.filename(start_run_id, end_run_id, &reports_dir)?;
         let chart: Box<dyn DrawableChart> = match *chart_id {
-            ReportChartId::PendingTxs => Box::new(PendingTxsChart::new(&all_txs)),
             ReportChartId::RpcLatency(method) => Box::new(LatencyChart::new(
                 canonical_latency_map
                     .get(method)
@@ -242,6 +238,7 @@ pub async fn report(
     let gas_per_block = GasPerBlockChart::new(&cache_data.blocks);
     let tti = TimeToInclusionChart::new(&all_txs);
     let gas_used = TxGasUsedChart::new(&cache_data.traces, 4000);
+    let pending_txs = PendingTxsChart::new(&all_txs);
 
     // compile report
     let mut blocks = cache_data.blocks;
@@ -261,6 +258,7 @@ pub async fn report(
                 gas_per_block: gas_per_block.echart_data(),
                 time_to_inclusion: tti.echart_data(),
                 tx_gas_used: gas_used.echart_data(),
+                pending_txs: pending_txs.echart_data(),
             },
         },
         &format!("{data_dir}/reports"),
