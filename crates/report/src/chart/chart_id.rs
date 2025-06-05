@@ -1,6 +1,5 @@
 #[derive(Debug, Clone)]
 pub enum ReportChartId {
-    TimeToInclusion,
     TxGasUsed,
     PendingTxs,
     RpcLatency(&'static str),
@@ -9,7 +8,6 @@ pub enum ReportChartId {
 impl std::fmt::Display for ReportChartId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
-            ReportChartId::TimeToInclusion => "time_to_inclusion",
             ReportChartId::TxGasUsed => "tx_gas_used",
             ReportChartId::PendingTxs => "pending_txs",
             ReportChartId::RpcLatency(method) => &format!("{method}_latency"),
@@ -32,7 +30,6 @@ impl ReportChartId {
 
     pub fn proper_name(&self) -> String {
         match self {
-            ReportChartId::TimeToInclusion => "Time To Inclusion".to_owned(),
             ReportChartId::TxGasUsed => "Tx Gas Used".to_owned(),
             ReportChartId::PendingTxs => "Pending Transactions".to_owned(),
             ReportChartId::RpcLatency(method) => format!("{method} Latency"),

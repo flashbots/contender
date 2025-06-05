@@ -1,16 +1,16 @@
 use contender_core::db::RunTx;
-use plotters::{
-    backend::BitMapBackend,
-    chart::ChartBuilder,
-    series::Histogram,
-    style::{full_palette::BLUE, Color},
-};
-
-use super::DrawableChart;
+use serde::{Deserialize, Serialize};
 
 pub struct TimeToInclusionChart {
-    /// Maps number of times a block was included in a time period.
+    /// Contains each tx's time to inclusion in seconds.
     inclusion_times: Vec<u64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TimeToInclusionData {
+    pub buckets: Vec<String>,
+    pub counts: Vec<u64>,
+    pub max_count: u64,
 }
 
 impl TimeToInclusionChart {
@@ -30,45 +30,29 @@ impl TimeToInclusionChart {
         }
         Self { inclusion_times }
     }
-}
 
-impl DrawableChart for TimeToInclusionChart {
-    fn define_chart(
-        &self,
-        root: &plotters::prelude::DrawingArea<BitMapBackend, plotters::coord::Shift>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let min_tti = self
-            .inclusion_times
-            .iter()
-            .min()
-            .expect("no time-to-inclusion data found");
-        let max_tti = self
-            .inclusion_times
-            .iter()
-            .max()
-            .expect("no time-to-inclusion data found");
+    pub fn echart_data(&self) -> TimeToInclusionData {
+        let mut buckets = vec![];
+        let mut counts = vec![];
+        let mut max_count = 0;
 
-        let mut chart = ChartBuilder::on(root)
-            .margin(15)
-            .x_label_area_size(60)
-            .y_label_area_size(60)
-            .build_cartesian_2d(*min_tti..*max_tti + 1, 0..self.inclusion_times.len() as u32)?;
+        for &tti in &self.inclusion_times {
+            let bucket_index = tti as usize; // 1 bucket per second
+            if bucket_index >= buckets.len() {
+                buckets.resize(bucket_index + 1, "0".to_string());
+                counts.resize(bucket_index + 1, 0);
+            }
+            counts[bucket_index] += 1;
+            if counts[bucket_index] > max_count {
+                max_count = counts[bucket_index];
+            }
+            buckets[bucket_index] = format!("{bucket_index} - {} s", bucket_index + 1);
+        }
 
-        chart
-            .configure_mesh()
-            .label_style(("sans-serif", 15))
-            .x_label_offset(10)
-            .x_labels(20)
-            .x_desc("Time to Inclusion (seconds)")
-            .y_desc("# Transactions")
-            .draw()?;
-
-        chart.draw_series(
-            Histogram::vertical(&chart)
-                .style(BLUE.filled())
-                .data(self.inclusion_times.iter().map(|&x| (x, 1))),
-        )?;
-
-        Ok(())
+        TimeToInclusionData {
+            buckets,
+            counts,
+            max_count,
+        }
     }
 }

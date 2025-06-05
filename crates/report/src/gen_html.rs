@@ -1,3 +1,4 @@
+use crate::chart::time_to_inclusion::TimeToInclusionData;
 use crate::chart::ReportChartId;
 use crate::chart::{gas_per_block::GasPerBlockData, heatmap::HeatmapData};
 use crate::command::SpamRunMetrics;
@@ -21,6 +22,7 @@ pub struct ReportMetadata {
 pub struct ChartData {
     pub gas_per_block: GasPerBlockData,
     pub heatmap: HeatmapData,
+    pub time_to_inclusion: TimeToInclusionData,
 }
 
 #[derive(Deserialize, Serialize)]

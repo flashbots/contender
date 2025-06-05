@@ -246,14 +246,24 @@
     </table>
   </section>
 
+  {{!-- ==================== Charts ==================== --}}
+
   <section>
     <h2>Storage Slot Updates</h2>
     <div class="chart" id="heatmap"></div>
   </section>
+
   <section>
     <h2>Gas Per Block</h2>
     <div class="chart" id="gas-per-block"></div>
   </section>
+
+  <section>
+    <h2>Time to Inclusion</h2>
+    <div class="chart" id="time-to-inclusion"></div>
+  </section>
+
+  {{!-- ==================== ====== ==================== --}}
 
   {{#each data.charts}}
   <section>
@@ -391,9 +401,54 @@
       chart.setOption(option);
     }
 
+    // a histogram showing number of txs in buckets of time to inclusion
+    async function renderTimeToInclusion() {
+      // Initialize the echarts instance based on the prepared dom
+      var chart = echarts.init(document.getElementById('time-to-inclusion'));
+
+      const buckets = [{{#each data.chart_data.time_to_inclusion.buckets}}"{{this}}"{{#if @last}}{{else}}, {{/if}}{{/each}}];
+      const counts = {{data.chart_data.time_to_inclusion.counts}};
+
+      // Specify the configuration items and data for the chart
+      var option = {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: {
+            type: 'shadow'
+          }
+        },
+        xAxis: {
+          type: 'category',
+          data: buckets,
+          axisLabel: {
+            interval: 0,
+            rotate: 45
+          }
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Num. Transactions',
+          min: 0,
+          max: {{data.chart_data.time_to_inclusion.max_count}},
+        },
+        series: [{
+          name: 'Txs',
+          type: 'bar',
+          data: counts,
+          itemStyle: {
+            color: '#5470C6'
+          }
+        }]
+      };
+
+      // Display the chart using the configuration items and data just specified.
+      chart.setOption(option);
+    }
+
     Promise.all([
       renderHeatmap(),
       renderGasPerBlock(),
+      renderTimeToInclusion(),
       // Add any other chart-rendering functions here
     ]).then(() => {
       console.log('All charts rendered');
@@ -402,6 +457,4 @@
   </script>
 
 </body>
-
-
 </html>

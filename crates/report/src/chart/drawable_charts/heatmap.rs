@@ -18,7 +18,10 @@ impl TxTraceReceipt {
         let block_num = self
             .receipt
             .block_number
-            .expect("block number not found in receipt");
+            .ok_or(ContenderError::GenericError(
+                "Block number not found in receipt.",
+                "".to_string(),
+            ))?;
         let trace_frame = self
             .trace
             .to_owned()
