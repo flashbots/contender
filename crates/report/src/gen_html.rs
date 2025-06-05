@@ -1,4 +1,4 @@
-use crate::chart::ReportChartId;
+use crate::chart::{HeatmapData, ReportChartId};
 use crate::command::SpamRunMetrics;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -13,6 +13,7 @@ pub struct ReportMetadata {
     pub rpc_url: String,
     pub metrics: SpamRunMetrics,
     pub chart_ids: Vec<ReportChartId>,
+    pub heatmap_data: HeatmapData,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -24,18 +25,20 @@ struct TemplateData {
     end_block: String,
     metrics: SpamRunMetrics,
     charts: Vec<(String, String)>,
+    heatmap_data: HeatmapData,
 }
 
 impl TemplateData {
     pub fn new(meta: &ReportMetadata, charts: Vec<(String, String)>) -> Self {
         Self {
-            scenario_name: meta.scenario_name.clone(),
+            scenario_name: meta.scenario_name.to_owned(),
             date: chrono::Local::now().to_rfc2822(),
-            rpc_url: meta.rpc_url.clone(),
+            rpc_url: meta.rpc_url.to_owned(),
             start_block: meta.start_block.to_string(),
             end_block: meta.end_block.to_string(),
             metrics: meta.metrics.to_owned(),
             charts,
+            heatmap_data: meta.heatmap_data.to_owned(),
         }
     }
 }
@@ -51,7 +54,7 @@ pub fn build_html_report(
         charts.push((chart_id.proper_name(), filename));
     }
 
-    let template = include_str!("template.html");
+    let template = include_str!("template.html.handlebars");
 
     let mut data = HashMap::new();
     let template_data = TemplateData::new(&meta, charts);

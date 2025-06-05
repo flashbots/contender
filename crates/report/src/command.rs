@@ -186,7 +186,6 @@ pub async fn report(
     }
 
     let chart_ids = vec![
-        ReportChartId::Heatmap,
         ReportChartId::GasPerBlock,
         ReportChartId::TimeToInclusion,
         ReportChartId::TxGasUsed,
@@ -223,12 +222,12 @@ pub async fn report(
         runtime_params: runtime_params_list,
     };
 
+    let reports_dir = format!("{data_dir}/reports");
+
     // make relevant chart for each report_id
     for chart_id in &chart_ids {
-        let filename =
-            chart_id.filename(start_run_id, end_run_id, &format!("{data_dir}/reports"))?;
+        let filename = chart_id.filename(start_run_id, end_run_id, &reports_dir)?;
         let chart: Box<dyn DrawableChart> = match *chart_id {
-            ReportChartId::Heatmap => Box::new(HeatMapChart::new(&cache_data.traces)?),
             ReportChartId::GasPerBlock => Box::new(GasPerBlockChart::new(&cache_data.blocks)),
             ReportChartId::TimeToInclusion => Box::new(TimeToInclusionChart::new(&all_txs)),
             ReportChartId::TxGasUsed => Box::new(TxGasUsedChart::new(&cache_data.traces)),
@@ -243,6 +242,8 @@ pub async fn report(
         chart.draw(&filename)?;
     }
 
+    let heatmap = HeatMapChart::new(&cache_data.traces)?;
+
     // compile report
     let mut blocks = cache_data.blocks;
     blocks.sort_by(|a, b| a.header.number.cmp(&b.header.number));
@@ -256,6 +257,7 @@ pub async fn report(
             rpc_url: rpc_url.to_string(),
             metrics,
             chart_ids,
+            heatmap_data: heatmap.echart_data(),
         },
         &format!("{data_dir}/reports"),
     )?;

@@ -246,6 +246,11 @@
     </table>
   </section>
 
+  <section>
+    <h2>Storage Slot Updates</h2>
+    <div class="chart" id="heatmap"></div>
+  </section>
+
   {{#each data.charts}}
   <section>
     <h2>
@@ -255,10 +260,6 @@
     <div style="page-break-after: always;"></div>
   </section>
   {{/each}}
-
-  <section>
-    <div class="chart" id="heatmap"></div>
-  </section>
 
   <footer>
     <p>Flashbots 2025 ©</p>
@@ -275,31 +276,26 @@
       // Initialize the echarts instance based on the prepared dom
       var chart = echarts.init(document.getElementById('heatmap'));
 
-      const blocks = [101, 102, 103, 104, 105, 106, 107];
-      const storageSlots = ["0x0001", "0x0002", "0x0003", "0x0004", "0x0005"];
-      const data = [
-        [0, 0, 10], [0, 1, 20], [0, 2, 30], [0, 3, 24], [0, 4, 0], [0, 5, 13], [0, 6, 0],
-        [1, 0, 15], [1, 1, 25], [1, 2, 35], [1, 3, 0], [1, 4, 0], [1, 5, 0], [1, 6, 0],
-        [2, 0, 5], [2, 1, 15], [2, 2, 25], [2, 3, 0], [2, 4, 0], [2, 5, 0], [2, 6, 0],
-        [3, 0, 20], [3, 1, 30], [3, 2, 40], [3, 3, 0], [3, 4, 0], [3, 5, 0], [3, 6, 0],
-        [4, 0, 10], [4, 1, 20], [4, 2, 30], [4, 3, 0], [4, 4, 0], [4, 5, 0] , [4 ,6 ,0]
+      const blocks = {{data.heatmap_data.blocks}};
+      const storageSlots = [
+        {{#each data.heatmap_data.slots}}"{{this}}"{{#if @last}}{{else}}, {{/if}}{{/each}}
       ]
+      .map(slot => `0x${slot.slice(0,4)}...${slot.slice(-4)}`);
+      const data = {{data.heatmap_data.matrix}};
   
       // Specify the configuration items and data for the chart
       var option = {
-        title: {
-          text: 'ECharts Getting Started Example'
-        },
         tooltip: {
           position: 'top'
         },
         grid: {
-          height: '90%',
-          top: '5%'
+          height: '70%',
+          top: '0%',
+          left: '15%',
+          right: '0%',
         },
         xAxis: {
           type: 'category',
-          label: 'blocks',
           data: blocks,
           splitArea: {
             show: true
@@ -314,20 +310,20 @@
         },
         visualMap: {
           min: 0,
-          max: 10,
+          max: {{data.heatmap_data.max_accesses}},
           calculable: true,
           orient: 'horizontal',
           left: 'center',
-          bottom: '15%',
+          bottom: '0%',
         },
         series: [{
-          name: 'Storage Slot Usage',
+          name: 'Storage Slot Writes',
           type: 'heatmap',
           data: data,
           label: {
             show: true,
             formatter: function (params) {
-              return params.value[2] > 0 ? params.value[2] : '';
+              return params.value[2] > 0 ? params.value[2] : '-';
             }
           },
           emphasis: {
@@ -343,8 +339,10 @@
       chart.setOption(option);
     }
 
-    let heatmapRes = renderHeatmap();
-    Promise.all([heatmapRes]).then(() => {
+    Promise.all([
+      renderHeatmap(),
+      // Add any other chart-rendering functions here
+    ]).then(() => {
       console.log('All charts rendered');
     });
   </script>
