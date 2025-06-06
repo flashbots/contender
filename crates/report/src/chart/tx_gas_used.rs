@@ -49,7 +49,7 @@ impl TxGasUsedChart {
         }
         let (buckets, counts): (Vec<_>, Vec<_>) = buckets
             .into_iter()
-            .zip(counts.into_iter())
+            .zip(counts)
             .filter(|(_, count)| *count != 0)
             .unzip();
 

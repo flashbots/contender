@@ -96,11 +96,11 @@ impl HeatMapChart {
         let slots = self.get_hex_slots();
         let mut matrix = vec![];
         let mut max_accesses = 0;
-        for i in 0..blocks.len() {
-            for j in 0..slots.len() {
+        for (i, block) in blocks.iter().enumerate() {
+            for (j, slot) in slots.iter().enumerate() {
                 let count = self
-                    .get_slot_map(blocks[i])
-                    .and_then(|slot_map| slot_map.get(&slots[j]))
+                    .get_slot_map(*block)
+                    .and_then(|slot_map| slot_map.get(slot))
                     .cloned()
                     .unwrap_or(0);
                 if count > max_accesses {
