@@ -1,7 +1,7 @@
 use crate::chart::pending_txs::PendingTxsData;
+use crate::chart::rpc_latency::LatencyData;
 use crate::chart::time_to_inclusion::TimeToInclusionData;
 use crate::chart::tx_gas_used::TxGasUsedData;
-use crate::chart::ReportChartId;
 use crate::chart::{gas_per_block::GasPerBlockData, heatmap::HeatmapData};
 use crate::command::SpamRunMetrics;
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,6 @@ pub struct ReportMetadata {
     pub end_block: u64,
     pub rpc_url: String,
     pub metrics: SpamRunMetrics,
-    pub chart_ids: Vec<ReportChartId>,
     pub chart_data: ChartData,
 }
 
@@ -27,6 +26,7 @@ pub struct ChartData {
     pub time_to_inclusion: TimeToInclusionData,
     pub tx_gas_used: TxGasUsedData,
     pub pending_txs: PendingTxsData,
+    pub latency_data_sendrawtransaction: LatencyData,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -37,12 +37,11 @@ struct TemplateData {
     start_block: String,
     end_block: String,
     metrics: SpamRunMetrics,
-    charts: Vec<(String, String)>,
     chart_data: ChartData,
 }
 
 impl TemplateData {
-    pub fn new(meta: &ReportMetadata, charts: Vec<(String, String)>) -> Self {
+    pub fn new(meta: &ReportMetadata) -> Self {
         Self {
             scenario_name: meta.scenario_name.to_owned(),
             date: chrono::Local::now().to_rfc2822(),
@@ -50,7 +49,6 @@ impl TemplateData {
             start_block: meta.start_block.to_string(),
             end_block: meta.end_block.to_string(),
             metrics: meta.metrics.to_owned(),
-            charts,
             chart_data: meta.chart_data.to_owned(),
         }
     }
@@ -61,16 +59,10 @@ pub fn build_html_report(
     meta: ReportMetadata,
     reports_dir: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let mut charts = Vec::new();
-    for chart_id in &meta.chart_ids {
-        let filename = chart_id.filename(meta.start_run_id, meta.end_run_id, reports_dir)?;
-        charts.push((chart_id.proper_name(), filename));
-    }
-
     let template = include_str!("template.html.handlebars");
 
     let mut data = HashMap::new();
-    let template_data = TemplateData::new(&meta, charts);
+    let template_data = TemplateData::new(&meta);
     data.insert("data", template_data);
     let html = handlebars::Handlebars::new().render_template(template, &data)?;
 

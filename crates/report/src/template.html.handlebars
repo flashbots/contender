@@ -273,6 +273,11 @@
     <div class="chart" id="pending-txs"></div>
   </section>
 
+  <section>
+    <h2>eth_sendRawTransaction Latency</h2>
+    <div class="chart" id="eth_sendRawTransaction-latency"></div>
+  </section>
+
   {{!-- ==================== ====== ==================== --}}
 
   {{#each data.charts}}
@@ -526,8 +531,11 @@
         xAxis: {
           type: 'time',
           name: 'Time',
-          nameLocation: 'middle',
           nameGap: 25,
+          axisLabel: {
+            interval: 0,
+            rotate: 45
+          }
         },
         yAxis: {
           type: 'value',
@@ -550,12 +558,98 @@
       chart.setOption(option);
     }
 
+    // histogram showing latency for given RPC method
+    async function renderMethodLatency(method) {
+      // Initialize the echarts instance based on the prepared dom
+      var chart = echarts.init(document.getElementById(`${method}-latency`));
+
+      const buckets = [{{#each data.chart_data.latency_data_sendrawtransaction.buckets}}"{{this}}"{{#if @last}}{{else}}, {{/if}}{{/each}}];
+      const counts = {{data.chart_data.latency_data_sendrawtransaction.counts}};
+      const p50 = {{data.chart_data.latency_data_sendrawtransaction.quantiles.p50}}.toPrecision(3);
+      const p90 = {{data.chart_data.latency_data_sendrawtransaction.quantiles.p90}}.toPrecision(3);
+      const p99 = {{data.chart_data.latency_data_sendrawtransaction.quantiles.p99}}.toPrecision(3);
+
+      // Specify the configuration items and data for the chart
+      var option = {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: {
+            type: 'shadow'
+          }
+        },
+        grid: {
+          right: '15%',
+        },
+        xAxis: {
+          type: 'category',
+          data: buckets,
+          name: 'Latency (ms)',
+          axisLabel: {
+            interval: 0,
+            rotate: 45
+          }
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Num. Requests',
+          min: 0,
+          max: Math.max(...counts),
+        },
+        visualMap: false,
+        graphic: [
+          {
+            type: 'group',
+            left: '75%',
+            top: '10%',
+            draggable: true,
+            children: [
+              {
+                type: 'rect',
+                shape: { width: 110, height: 65 },
+                z: 10,
+                style: {
+                  fill: '#fffbe6',
+                  stroke: '#fac858',
+                  lineWidth: 1,
+                  shadowBlur: 4,
+                  shadowColor: 'rgba(250,200,88,0.2)'
+                }
+              },
+              {
+                type: 'text',
+                left: 10,
+                top: 10,
+                z: 11,
+                style: {
+                  text: `p50: ${p50} ms\np90: ${p90} ms\np99: ${p99} ms`,
+                  font: '14px CMU-Serif, serif',
+                  fill: '#333'
+                }
+              }
+            ]
+          }
+        ],
+        series: [{
+          name: method,
+          type: 'bar',
+          data: counts,
+          itemStyle: {
+            color: '#fac858'
+          }
+        }]
+      };
+
+      // Display the chart using the configuration items and data just specified.
+      chart.setOption(option);
+    }
+
     Promise.all([
       renderHeatmap(),
       renderGasPerBlock(),
       renderTimeToInclusion(),
       renderTxGasUsed(),
       renderPendingTxs(),
+      renderMethodLatency('eth_sendRawTransaction'),
       // Add any other chart-rendering functions here
     ]).then(() => {
       console.log('All charts rendered');

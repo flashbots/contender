@@ -47,6 +47,11 @@ impl TxGasUsedChart {
                 abbreviate_num((bucket_index + 1) as u64 * self.bucket_width)
             );
         }
+        let (buckets, counts): (Vec<_>, Vec<_>) = buckets
+            .into_iter()
+            .zip(counts.into_iter())
+            .filter(|(_, count)| *count != 0)
+            .unzip();
 
         TxGasUsedData {
             buckets,
