@@ -332,7 +332,6 @@ where
             .map(|(name, _)| name.to_owned())
             .collect();
         for agent_name in all_pools {
-            println!("funding agent signers for agent: {agent_name}");
             scenario
                 .fund_agent_signers(agent_name, &admin_wallet, fund_amount)
                 .await?;
