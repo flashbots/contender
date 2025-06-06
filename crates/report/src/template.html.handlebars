@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contender Report</title>
+
+  <!--
+
+    (¯`·¯`·.¸¸.·´¯`·.¸¸.·´¯`··´¯)
+    ( \                       / )
+     ( ) Design by @deadpine ( ) 
+      (/                     \)  
+       (.·´¯`·.¸¸.·´¯`·.¸¸.·´)
+
+    -->
+  
+  <style>
+    @font-face {
+      font-family: 'CMU-Serif';
+      src: url('https://fonts.cdnfonts.com/s/19926/cmunbx.woff') format('woff');
+      font-style: normal;
+      font-weight: bold;
+      font-stretch: normal;
+    }
+    @font-face {
+      font-family: 'CMU-Serif';
+      src: url('https://fonts.cdnfonts.com/s/19926/cmunci.woff') format('woff');
+      font-style: italic;
+      font-weight: 400; 
+      font-stretch: normal;
+    }
+    @font-face {
+      font-family: 'CMU-Serif';
+      src: url('https://fonts.cdnfonts.com/s/19926/cmunrm.woff') format('woff');
+      font-style: normal;
+      font-weight: 400; 
+      font-stretch: normal;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body,
+    html {
+      padding: 0;
+      margin: 0;
+    }
+
+    body {
+      font-family: 'CMU-Serif', serif;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      color: #0D0D0D;
+    }
+
+    header {
+      padding: 4rem 1rem 2rem;
+      text-align: center;
+    }
+
+    header p {
+      margin: 0;
+      line-height: 1.6;
+    }
+
+    header p:first-of-type {
+      margin-bottom: 1rem;
+    }
+    
+    section {
+      width: 100%;
+      max-width: 40rem;
+      padding: 2rem 1rem;
+    }
+
+    h1 {
+      color: #0D0D0D;
+      text-align: center;
+      font-size: 2.5rem;
+      font-style: normal;
+      font-weight: 500;
+      line-height: 1.2;
+    }
+
+    h2 {
+      font-size: 1.1rem;
+      text-align: center;
+      text-transform: uppercase;
+      padding: 1rem 0 .5rem;
+    }
+
+    a {
+      color: blue;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .source {
+      display: block;
+      width: 100%;
+      padding: .5rem;
+      text-align: center;
+      font-style: italic;
+    }
+
+    img {
+      max-width: 100%;
+    }
+
+    .metrics {
+      display: flex; 
+      justify-content: space-between;
+      margin-top: 2rem;
+    }
+
+    .metrics p b {
+      font-size: 1.1rem;
+    }
+
+    .label {
+      font-size: .9rem;
+      font-style: italic;
+      color: #3c3c3c;
+    }
+    
+    table {
+      width: 100%;
+    }
+
+    th {
+      text-align: left;
+      font-weight: bold;
+      line-height: 1.8;
+      border-bottom: solid 1px #d7d7d7;
+    }
+
+    td {
+      line-height: 1.5;
+    }
+
+    footer p {
+      text-align: center;
+      font-size: .9rem;
+      padding: 1rem;
+    }
+
+    .chart {
+      width: 100%;
+      height: 420px;
+    }
+  </style>
+
+</head>
+
+<body>
+  <header>
+    <h1>Flashbots <br /> Chain Performance Report</h1>
+    <p><i>{{data.date}}</i></p>
+    <br />
+    <p>Scenario: {{data.scenario_name}}</p>
+    <p>Block Range: {{data.start_block}} - {{data.end_block}}</p>
+    <a href="{{data.rpc_url}}" target="_blank">
+      <p>Target Chain</p>
+    </a>
+  </header>
+
+  <section>
+    <h2>Chain Metrics</h2>
+      <div style="display: flex; justify-content: space-between;">
+        <div>
+          <h4>⛽</h4>
+          <p>Peak Gas Usage Per Block:</p>
+          <p><b>{{data.metrics.peak_gas.value}} gas</b>
+            - <span class="label">{{data.metrics.peak_gas.description}}</span>
+          </p>
+        </div>
+        <div>
+          <h4>🗃️</h4>
+          <p>Peak Txs Per Block:</p>
+          <p><b>{{data.metrics.peak_tx_count.value}} txs</b>
+            <!-- - <span class="label">medium</span> -->
+          </p>
+        </div>
+        <div>
+          <h4>⏳</h4>
+          <p>Average Block Time:</p>
+          <p><b>{{data.metrics.average_block_time_secs.value}} seconds</b>
+            - <span class="label">{{data.metrics.average_block_time_secs.description}}</span>
+          </p>
+        </div>
+      </div>
+  </section>
+
+  <section>
+    <h2>RPC Response Latency</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>p50 (ms)</th>
+          <th>p90 (ms)</th>
+          <th>p99 (ms)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each data.metrics.latency_quantiles}}
+        <tr>
+          <td>{{this.method}}</td>
+          <td>{{this.p50}}</td>
+          <td>{{this.p90}}</td>
+          <td>{{this.p99}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  </section>
+
+
+  <section>
+    <h2>Runtime Parameters</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Txs Per Duration</th>
+          <th>Run Duration</th>
+          <th>Timeout</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each data.metrics.runtime_params}}
+        <tr>
+          <td>{{this.txs_per_duration}}</td>
+          <td>{{this.duration_value}} {{this.duration_unit}}</td>
+          <td>{{this.timeout}} {{this.duration_unit}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  </section>
+
+  {{!-- ==================== Charts ==================== --}}
+
+  <section>
+    <h2>Storage Slot Updates</h2>
+    <div class="chart" id="heatmap"></div>
+  </section>
+
+  <section>
+    <h2>Gas Per Block</h2>
+    <div class="chart" id="gas-per-block"></div>
+  </section>
+
+  <section>
+    <h2>Time to Inclusion</h2>
+    <div class="chart" id="time-to-inclusion"></div>
+  </section>
+
+  <section>
+    <h2>Tx Gas Used</h2>
+    <div class="chart" id="tx-gas-used"></div>
+  </section>
+
+  <section>
+    <h2>Pending Transactions</h2>
+    <div class="chart" id="pending-txs"></div>
+  </section>
+
+  <section>
+    <h2>eth_sendRawTransaction Latency</h2>
+    <div class="chart" id="eth_sendRawTransaction-latency"></div>
+  </section>
+
+  {{!-- ==================== ====== ==================== --}}
+
+  {{#each data.charts}}
+  <section>
+    <h2>
+      {{this.0}}
+    </h2>
+    <img src="{{this.1}}" alt="{{this.0}}">
+    <div style="page-break-after: always;"></div>
+  </section>
+  {{/each}}
+
+  <footer>
+    <p>Flashbots 2025 ©</p>
+  </footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.6.0/echarts.min.js" integrity="sha512-XSmbX3mhrD2ix5fXPTRQb2FwK22sRMVQTpBP2ac8hX7Dh/605hA2QDegVWiAvZPiXIxOV0CbkmUjGionDpbCmw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script type="text/javascript">
+    // Ensure echarts is loaded
+    if (typeof echarts === 'undefined') {
+      throw new Error('ECharts library is not loaded. Please include the ECharts script.');
+    }
+
+    function roundTo (num, roundness) {
+      num + (roundness - (num % roundness))
+    }
+
+    async function renderHeatmap() {
+      // Initialize the echarts instance based on the prepared dom
+      var chart = echarts.init(document.getElementById('heatmap'));
+
+      const blocks = {{data.chart_data.heatmap.blocks}};
+      const storageSlots = [
+        {{#each data.chart_data.heatmap.slots}}"{{this}}"{{#if @last}}{{else}}, {{/if}}{{/each}}
+      ]
+      .map(slot => `0x${slot.slice(0,4)}...${slot.slice(-4)}`);
+      const data = {{data.chart_data.heatmap.matrix}};
+  
+      // Specify the configuration items and data for the chart
+      var option = {
+        tooltip: {
+          position: 'top'
+        },
+        grid: {
+          height: '70%',
+          top: '0%',
+          left: '18%',
+        },
+        xAxis: {
+          type: 'category',
+          data: blocks,
+          name: 'Block Number',
+          nameLocation: 'middle',
+          nameGap: 25,
+          splitArea: {
+            show: true
+          },
+        },
+        yAxis: {
+          type: 'category',
+          data: storageSlots,
+          name: 'Storage Slot',
+          nameLocation: 'middle',
+          nameGap: 90,
+          splitArea: {
+            show: true
+          },
+        },
+        visualMap: {
+          min: 0,
+          max: {{data.chart_data.heatmap.max_accesses}},
+          calculable: true,
+          orient: 'horizontal',
+          left: 'center',
+          bottom: '0%',
+        },
+        series: [{
+          name: 'Storage Slot Writes',
+          type: 'heatmap',
+          data: data,
+          label: {
+            show: true,
+            formatter: function (params) {
+              return params.value[2] > 0 ? params.value[2] : '-';
+            }
+          },
+          emphasis: {
+            itemStyle: {
+              shadowBlur: 10,
+              shadowColor: 'rgba(0, 0, 0, 0.5)'
+            }
+          }
+        }]
+      };
+
+      // Display the chart using the configuration items and data just specified.
+      chart.setOption(option);
+    }
+
+    async function renderGasPerBlock() {
+      // Initialize the echarts instance based on the prepared dom
+      var chart = echarts.init(document.getElementById('gas-per-block'));
+
+      const blocks = {{data.chart_data.gas_per_block.blocks}};
+      const gasValues = {{data.chart_data.gas_per_block.gas_used}};
+
+      // Specify the configuration items and data for the chart
+      const roundTo = (num, roundness) => {
+        num + (roundness - (num % roundness))
+      }
+      var option = {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: {
+            type: 'cross'
+          }
+        },
+        xAxis: {
+          type: 'category',
+          data: blocks,
+          boundaryGap: false
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Gas Used',
+          min: 0,
+          max: roundTo({{data.chart_data.gas_per_block.max_gas_used}}, 500000),
+        },
+        series: [{
+          name: 'Gas Used',
+          type: 'line',
+          data: gasValues,
+          smooth: true,
+          lineStyle: {
+            width: 2
+          }
+        }]
+      };
+
+      // Display the chart using the configuration items and data just specified.
+      chart.setOption(option);
+    }
+
+    // a histogram showing number of txs in buckets of time to inclusion
+    async function renderTimeToInclusion() {
+      // Initialize the echarts instance based on the prepared dom
+      var chart = echarts.init(document.getElementById('time-to-inclusion'));
+
+      const buckets = [{{#each data.chart_data.time_to_inclusion.buckets}}"{{this}}"{{#if @last}}{{else}}, {{/if}}{{/each}}];
+      const counts = {{data.chart_data.time_to_inclusion.counts}};
+
+      // Specify the configuration items and data for the chart
+      var option = {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: {
+            type: 'shadow'
+          }
+        },
+        xAxis: {
+          type: 'category',
+          data: buckets,
+          axisLabel: {
+            interval: 0,
+            rotate: 45
+          }
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Num. Transactions',
+          min: 0,
+          max: {{data.chart_data.time_to_inclusion.max_count}},
+        },
+        series: [{
+          name: 'Txs',
+          type: 'bar',
+          data: counts,
+          itemStyle: {
+            color: '#5470C6'
+          }
+        }]
+      };
+
+      // Display the chart using the configuration items and data just specified.
+      chart.setOption(option);
+    }
+
+    async function renderTxGasUsed() {
+      // Initialize the echarts instance based on the prepared dom
+      var chart = echarts.init(document.getElementById('tx-gas-used'));
+
+      const buckets = [{{#each data.chart_data.tx_gas_used.buckets}}"{{this}}"{{#if @last}}{{else}}, {{/if}}{{/each}}];
+      const gasUsed = {{data.chart_data.tx_gas_used.counts}};
+
+      // Specify the configuration items and data for the chart
+      var option = {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: {
+            type: 'shadow'
+          }
+        },
+        grid: {
+          right: '12%',
+        },
+        xAxis: {
+          type: 'category',
+          data: buckets,
+          name: 'Gas Used',
+          axisLabel: {
+            interval: 0,
+            rotate: 45
+          }
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Num. Transactions',
+          min: 0,
+          max: Math.max(...gasUsed),
+        },
+        series: [{
+          name: 'Txs',
+          type: 'bar',
+          data: gasUsed,
+          itemStyle: {
+            color: '#91cc75'
+          }
+        }]
+      };
+
+      // Display the chart using the configuration items and data just specified.
+      chart.setOption(option);
+    }
+
+    // a line chart showing pending transactions over time
+    async function renderPendingTxs() {
+      // Initialize the echarts instance based on the prepared dom
+      var chart = echarts.init(document.getElementById('pending-txs'));
+
+      const timestamps = {{data.chart_data.pending_txs.timestamps}};
+      const pendingTxs = {{data.chart_data.pending_txs.pending_txs}};
+
+      // Specify the configuration items and data for the chart
+      var option = {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: {
+            type: 'cross'
+          }
+        },
+        xAxis: {
+          type: 'time',
+          name: 'Time',
+          nameGap: 25,
+          axisLabel: {
+            interval: 0,
+            rotate: 45
+          }
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Pending Transactions',
+          min: 0,
+          max: Math.max(...pendingTxs),
+        },
+        series: [{
+          name: 'Pending Txs',
+          type: 'line',
+            data: timestamps.map((time, index) => [time * 1000, pendingTxs[index]]),
+          smooth: true,
+          lineStyle: {
+            width: 2
+          }
+        }]
+      };
+
+      // Display the chart using the configuration items and data just specified.
+      chart.setOption(option);
+    }
+
+    // histogram showing latency for given RPC method
+    async function renderMethodLatency(method) {
+      // Initialize the echarts instance based on the prepared dom
+      var chart = echarts.init(document.getElementById(`${method}-latency`));
+
+      const buckets = [{{#each data.chart_data.latency_data_sendrawtransaction.buckets}}"{{this}}"{{#if @last}}{{else}}, {{/if}}{{/each}}];
+      const counts = {{data.chart_data.latency_data_sendrawtransaction.counts}};
+      const p50 = {{data.chart_data.latency_data_sendrawtransaction.quantiles.p50}}.toPrecision(3);
+      const p90 = {{data.chart_data.latency_data_sendrawtransaction.quantiles.p90}}.toPrecision(3);
+      const p99 = {{data.chart_data.latency_data_sendrawtransaction.quantiles.p99}}.toPrecision(3);
+
+      // Specify the configuration items and data for the chart
+      var option = {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: {
+            type: 'shadow'
+          }
+        },
+        grid: {
+          right: '15%',
+        },
+        xAxis: {
+          type: 'category',
+          data: buckets,
+          name: 'Latency (ms)',
+          axisLabel: {
+            interval: 0,
+            rotate: 45
+          }
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Num. Requests',
+          min: 0,
+          max: Math.max(...counts),
+        },
+        visualMap: false,
+        graphic: [
+          {
+            type: 'group',
+            left: '75%',
+            top: '10%',
+            draggable: true,
+            children: [
+              {
+                type: 'rect',
+                shape: { width: 110, height: 65 },
+                z: 10,
+                style: {
+                  fill: '#fffbe6',
+                  stroke: '#fac858',
+                  lineWidth: 1,
+                  shadowBlur: 4,
+                  shadowColor: 'rgba(250,200,88,0.2)'
+                }
+              },
+              {
+                type: 'text',
+                left: 10,
+                top: 10,
+                z: 11,
+                style: {
+                  text: `p50: ${p50} ms\np90: ${p90} ms\np99: ${p99} ms`,
+                  font: '14px CMU-Serif, serif',
+                  fill: '#333'
+                }
+              }
+            ]
+          }
+        ],
+        series: [{
+          name: method,
+          type: 'bar',
+          data: counts,
+          itemStyle: {
+            color: '#fac858'
+          }
+        }]
+      };
+
+      // Display the chart using the configuration items and data just specified.
+      chart.setOption(option);
+    }
+
+    Promise.all([
+      renderHeatmap(),
+      renderGasPerBlock(),
+      renderTimeToInclusion(),
+      renderTxGasUsed(),
+      renderPendingTxs(),
+      renderMethodLatency('eth_sendRawTransaction'),
+      // Add any other chart-rendering functions here
+    ]).then(() => {
+      console.log('All charts rendered');
+    });
+
+  </script>
+
+</body>
+</html>
