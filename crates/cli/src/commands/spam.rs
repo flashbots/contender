@@ -14,6 +14,7 @@ use alloy::{
     providers::{DynProvider, ProviderBuilder},
     transports::http::reqwest::Url,
 };
+use contender_core::engine_provider::{AdvanceChain, AuthProvider};
 use contender_core::{
     agent_controller::AgentStore,
     db::{DbOps, SpamDuration, SpamRunRequest},
@@ -23,7 +24,6 @@ use contender_core::{
     test_scenario::{TestScenario, TestScenarioParams},
     BundleType,
 };
-use contender_engine_provider::{AdvanceChain, AuthProvider};
 use contender_testfile::TestConfig;
 use op_alloy_network::Optimism;
 use std::{ops::Deref, path::PathBuf, sync::atomic::AtomicBool};
