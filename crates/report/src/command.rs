@@ -1,18 +1,20 @@
-use super::chart::{
-    GasPerBlockChart, HeatMapChart, LatencyChart, PendingTxsChart, ReportChartId,
-    TimeToInclusionChart, TxGasUsedChart,
-};
 use super::gen_html::{build_html_report, ReportMetadata};
 use super::util::std_deviation;
 use crate::block_trace::{get_block_data, get_block_traces};
 use crate::cache::CacheFile;
-use crate::chart::DrawableChart;
+use crate::chart::{
+    gas_per_block::GasPerBlockChart, heatmap::HeatMapChart, pending_txs::PendingTxsChart,
+    rpc_latency::LatencyChart, time_to_inclusion::TimeToInclusionChart,
+    tx_gas_used::TxGasUsedChart,
+};
+use crate::gen_html::ChartData;
 use crate::util::write_run_txs;
 use alloy::network::AnyNetwork;
 use alloy::providers::DynProvider;
 use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
 use contender_core::buckets::{Bucket, BucketsExt};
 use contender_core::db::{DbOps, RunTx};
+use contender_core::error::ContenderError;
 use csv::WriterBuilder;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -185,15 +187,6 @@ pub async fn report(
         canonical_latency_map.insert(method.to_string(), canonical_latency);
     }
 
-    let chart_ids = vec![
-        ReportChartId::Heatmap,
-        ReportChartId::GasPerBlock,
-        ReportChartId::TimeToInclusion,
-        ReportChartId::TxGasUsed,
-        ReportChartId::PendingTxs,
-        ReportChartId::RpcLatency("eth_sendRawTransaction"),
-    ];
-
     let to_ms = |latency: f64| (latency * 1000.0).round_ties_even() as u64; // convert to ms
 
     let block_time_delta_std_dev = block_time_delta_std_dev.unwrap_or(0.0);
@@ -223,25 +216,20 @@ pub async fn report(
         runtime_params: runtime_params_list,
     };
 
-    // make relevant chart for each report_id
-    for chart_id in &chart_ids {
-        let filename =
-            chart_id.filename(start_run_id, end_run_id, &format!("{data_dir}/reports"))?;
-        let chart: Box<dyn DrawableChart> = match *chart_id {
-            ReportChartId::Heatmap => Box::new(HeatMapChart::new(&cache_data.traces)?),
-            ReportChartId::GasPerBlock => Box::new(GasPerBlockChart::new(&cache_data.blocks)),
-            ReportChartId::TimeToInclusion => Box::new(TimeToInclusionChart::new(&all_txs)),
-            ReportChartId::TxGasUsed => Box::new(TxGasUsedChart::new(&cache_data.traces)),
-            ReportChartId::PendingTxs => Box::new(PendingTxsChart::new(&all_txs)),
-            ReportChartId::RpcLatency(method) => Box::new(LatencyChart::new(
-                canonical_latency_map
-                    .get(method)
-                    .expect("no latency metrics for method")
-                    .to_owned(),
-            )),
-        };
-        chart.draw(&filename)?;
-    }
+    let heatmap = HeatMapChart::new(&cache_data.traces)?;
+    let gas_per_block = GasPerBlockChart::new(&cache_data.blocks);
+    let tti = TimeToInclusionChart::new(&all_txs);
+    let gas_used = TxGasUsedChart::new(&cache_data.traces, 4000);
+    let pending_txs = PendingTxsChart::new(&all_txs);
+    let latency_chart_sendrawtx = LatencyChart::new(
+        canonical_latency_map
+            .get("eth_sendRawTransaction")
+            .ok_or(ContenderError::GenericError(
+                "no latency metrics for eth_sendRawTransaction",
+                "".to_owned(),
+            ))?
+            .to_owned(),
+    );
 
     // compile report
     let mut blocks = cache_data.blocks;
@@ -255,7 +243,14 @@ pub async fn report(
             end_block: blocks.last().unwrap().header.number,
             rpc_url: rpc_url.to_string(),
             metrics,
-            chart_ids,
+            chart_data: ChartData {
+                heatmap: heatmap.echart_data(),
+                gas_per_block: gas_per_block.echart_data(),
+                time_to_inclusion: tti.echart_data(),
+                tx_gas_used: gas_used.echart_data(),
+                pending_txs: pending_txs.echart_data(),
+                latency_data_sendrawtransaction: latency_chart_sendrawtx.echart_data(),
+            },
         },
         &format!("{data_dir}/reports"),
     )?;

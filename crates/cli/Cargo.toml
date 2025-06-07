@@ -32,7 +32,6 @@ alloy = { workspace = true, features = [
 clap = { workspace = true, features = ["derive"] }
 futures.workspace = true
 handlebars = { workspace = true }
-plotters = { workspace = true }
 prometheus = { workspace = true }
 rand.workspace = true
 serde_json = { workspace = true }
