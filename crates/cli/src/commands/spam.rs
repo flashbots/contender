@@ -88,16 +88,13 @@ impl SpamScenario {
             SpamScenario::Testfile(testfile) => load_testconfig(testfile)
                 .await
                 .map_err(|e| ContenderError::with_err(e.deref(), "failed to load testconfig"))?,
-            SpamScenario::Builtin(scenario) => TestConfig::from(scenario.to_owned()),
+            SpamScenario::Builtin(scenario) => scenario.to_owned().into(),
         };
         Ok(config)
     }
 
     pub fn is_builtin(&self) -> bool {
-        match self {
-            SpamScenario::Testfile(_) => false,
-            SpamScenario::Builtin(_) => true,
-        }
+        matches!(self, SpamScenario::Builtin(_))
     }
 }
 
