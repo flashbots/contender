@@ -24,7 +24,7 @@ pub enum EthereumPrecompile {
 
 impl EthereumPrecompile {
     /// Returns the function name required to call the precompile via our contract.
-    fn method(&self) -> String {
+    fn method(&self) -> &'static str {
         match self {
             EthereumPrecompile::HashSha256 => "hash_sha256",
             EthereumPrecompile::HashRipemd160 => "hash_ripemd160",
@@ -35,7 +35,6 @@ impl EthereumPrecompile {
             EthereumPrecompile::EcPairing => "ecPairing",
             EthereumPrecompile::Blake2f => "blake2f",
         }
-        .to_owned()
     }
 }
 
@@ -45,7 +44,7 @@ pub fn precompile_txs(args: &[EthereumPrecompile], num_iterations: u64) -> Vec<S
             SpamRequest::Tx(FunctionCallDefinition {
                 to: CONTRACT_NAME.to_owned(),
                 signature: format!("callPrecompile(string memory method, uint256 iterations)"),
-                args: vec![precompile.method(), num_iterations.to_string()].into(),
+                args: vec![precompile.method().to_owned(), num_iterations.to_string()].into(),
                 value: None,
                 from: None,
                 from_pool: Some("spammers".to_owned()),
