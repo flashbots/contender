@@ -34,6 +34,7 @@ pub enum RuntimeParamErrorKind {
     BuilderUrlRequired,
     BuilderUrlInvalid,
     BundleTypeInvalid,
+    MissingArgs(String),
 }
 
 impl std::fmt::Debug for RpcErrorKind {
@@ -60,6 +61,9 @@ impl Display for RuntimeParamErrorKind {
             }
             RuntimeParamErrorKind::BundleTypeInvalid => {
                 write!(f, "invalid bundle type")
+            }
+            RuntimeParamErrorKind::MissingArgs(arg) => {
+                write!(f, "missing required argument: {arg}")
             }
         }
     }

@@ -6,7 +6,10 @@ use crate::{
     },
 };
 use clap::Subcommand;
-use contender_core::generator::types::AnyProvider;
+use contender_core::{
+    error::{ContenderError, RuntimeParamErrorKind},
+    generator::types::AnyProvider,
+};
 use contender_testfile::TestConfig;
 use std::fmt::{Display, Formatter};
 
@@ -34,6 +37,17 @@ impl BuiltinScenarioCli {
         match self {
             BuiltinScenarioCli::FillBlock(args) => fill_block(provider, spam_args, args).await,
             BuiltinScenarioCli::EthFunctions(args) => {
+                let args: EthFunctionsArgs = args.into();
+                if args.opcodes.is_empty() && args.precompiles.is_empty() {
+                    return Err(ContenderError::InvalidRuntimeParams(
+                        RuntimeParamErrorKind::MissingArgs(format!(
+                            "{} or {}",
+                            ansi_term::Style::new().bold().paint("--opcode (-o)"),
+                            ansi_term::Style::new().bold().paint("--precompile (-p)"),
+                        )),
+                    )
+                    .into());
+                }
                 Ok(BuiltinScenario::EthFunctions(args.into()))
             }
         }
