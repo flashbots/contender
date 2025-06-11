@@ -42,7 +42,7 @@ pub fn precompile_txs(args: &[EthereumPrecompile], num_iterations: u64) -> Vec<S
     args.iter()
         .map(|precompile| {
             SpamRequest::Tx(FunctionCallDefinition {
-                to: CONTRACT_NAME.to_owned(),
+                to: format!("{{{CONTRACT_NAME}}}"),
                 signature: format!("callPrecompile(string memory method, uint256 iterations)"),
                 args: vec![precompile.method().to_owned(), num_iterations.to_string()].into(),
                 value: None,

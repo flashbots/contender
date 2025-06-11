@@ -279,7 +279,7 @@ fn check_spam_args(args: &SpamCliArgs) -> Result<bool, ContenderError> {
         ("seconds", 100)
     } else {
         return Err(ContenderError::SpamError(
-            "Either txs-per-block or txs-per-second must be set",
+            "Either --txs-per-block (--tpb) or --txs-per-second (--tps) must be set.",
             None,
         ));
     };
