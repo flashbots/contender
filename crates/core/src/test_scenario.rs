@@ -11,6 +11,7 @@ use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use crate::provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID};
 use crate::spammer::tx_actor::TxActorHandle;
 use crate::spammer::{ExecutionPayload, RuntimeTxInfo, SpamCallback, SpamTrigger};
+use crate::util::get_block_time;
 use crate::Result;
 use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
 use alloy::consensus::{Transaction, TxType};
@@ -170,32 +171,6 @@ where
                 .connect_client(client),
         ));
 
-        // derive block time from first two blocks. if two blocks don't exist, assume block time is 1s
-        let block_num = rpc_client
-            .get_block_number()
-            .await
-            .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
-        let block_time_secs = if block_num > 0 {
-            let mut timestamps = vec![];
-            for i in [0_u64, 1] {
-                debug!("getting timestamp for block {i}");
-                let block = rpc_client
-                    .get_block_by_number(i.into())
-                    .await
-                    .map_err(|e| ContenderError::with_err(e, "failed to get block"))?;
-                if let Some(block) = block {
-                    timestamps.push(block.header.timestamp);
-                }
-            }
-            if timestamps.len() == 2 {
-                (timestamps[1] - timestamps[0]).max(1)
-            } else {
-                1
-            }
-        } else {
-            1
-        };
-
         let mut wallet_map = HashMap::new();
         let wallets = signers.iter().map(|s| {
             let w = EthereumWallet::new(s.clone());
@@ -234,6 +209,7 @@ where
         let mut msg_handles = HashMap::new();
         msg_handles.insert("default".to_owned(), msg_handle);
         msg_handles.extend(extra_msg_handles.unwrap_or_default());
+        let block_time_secs = get_block_time(rpc_client.as_ref()).await?;
 
         Ok(Self {
             config,
@@ -1254,8 +1230,8 @@ where
                     .all(|&size| size == cache_size_queue[0])
                 {
                     debug!(
-                                "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
-                            );
+                        "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
+                    );
                     for tx in &pending_txs {
                         // only remove txs that have been waiting for > T seconds
                         if current_timestamp

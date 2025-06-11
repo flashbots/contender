@@ -279,8 +279,16 @@ fn check_spam_args(args: &SpamCliArgs) -> Result<bool, ContenderError> {
         ("seconds", 100)
     } else {
         return Err(ContenderError::SpamError(
-            "Either --txs-per-block (--tpb) or --txs-per-second (--tps) must be set.",
-            None,
+            "Missing params.",
+            Some(format!(
+                "Either {} or {} must be set.",
+                ansi_term::Style::new()
+                    .bold()
+                    .paint("--txs-per-block (--tpb)"),
+                ansi_term::Style::new()
+                    .bold()
+                    .paint("--txs-per-second (--tps)"),
+            )),
         ));
     };
     let duration = args.spam_args.duration;

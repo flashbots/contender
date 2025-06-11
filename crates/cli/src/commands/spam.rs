@@ -14,6 +14,7 @@ use alloy::{
     providers::{DynProvider, ProviderBuilder},
     transports::http::reqwest::Url,
 };
+use ansi_term::Style;
 use contender_core::{
     agent_controller::AgentStore,
     db::{DbOps, SpamDuration, SpamRunRequest},
@@ -449,8 +450,12 @@ pub async fn spam<
         )
     } else {
         return Err(Box::new(ContenderError::SpamError(
-            "Either --txs-per-block or --txs-per-second must be set.",
-            None,
+            "Missing params.",
+            Some(format!(
+                "Either {} or {} must be set.",
+                Style::new().bold().paint("--txs-per-block"),
+                Style::new().bold().paint("--txs-per-second"),
+            )),
         )));
     };
 

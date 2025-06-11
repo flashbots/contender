@@ -9,11 +9,10 @@ use alloy::{
     consensus::TxType,
     network::AnyNetwork,
     primitives::{utils::format_ether, U256},
-    providers::{DynProvider, Provider, ProviderBuilder},
+    providers::{DynProvider, ProviderBuilder},
     signers::local::PrivateKeySigner,
     transports::http::reqwest::Url,
 };
-use contender_core::generator::PlanConfig;
 use contender_core::BundleType;
 use contender_core::{
     agent_controller::{AgentStore, SignerStore},
@@ -21,6 +20,7 @@ use contender_core::{
     generator::RandSeed,
     test_scenario::{TestScenario, TestScenarioParams},
 };
+use contender_core::{generator::PlanConfig, util::get_block_time};
 use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use std::{
     str::FromStr,
@@ -173,32 +173,7 @@ pub async fn setup(
         .into());
     }
 
-    // derive block time from last two blocks. if two blocks don't exist, assume block time is 1s
-    let block_num = rpc_client
-        .get_block_number()
-        .await
-        .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
-
-    let block_time_secs = if block_num > 0 {
-        let mut timestamps = vec![];
-        for i in [0_u64, 1] {
-            let block = rpc_client
-                .get_block_by_number(i.into())
-                .await
-                .map_err(|e| ContenderError::with_err(e, "failed to get block"))?;
-            if let Some(block) = block {
-                timestamps.push(block.header.timestamp);
-            }
-        }
-        if timestamps.len() == 2 {
-            (timestamps[1] - timestamps[0]).max(1)
-        } else {
-            1
-        }
-    } else {
-        1
-    };
-
+    let block_time_secs = get_block_time(&rpc_client).await?;
     let timekeeper_handle = tokio::spawn(async move {
         let timeout_blocks = 10;
         let safe_time = (testconfig.create.iter().len() + timeout_blocks) as u64 * block_time_secs;
