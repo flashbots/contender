@@ -60,7 +60,7 @@ impl BuiltinScenarioCli {
                         )),
                     ));
                 }
-                Ok(BuiltinScenario::EthFunctions(args.into()))
+                Ok(BuiltinScenario::EthFunctions(args))
             }
 
             BuiltinScenarioCli::Storage(args) => {
