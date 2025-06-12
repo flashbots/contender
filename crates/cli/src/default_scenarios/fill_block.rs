@@ -1,6 +1,6 @@
 use crate::{
     commands::common::SendSpamCliArgs,
-    default_scenarios::{contracts, BuiltinScenario},
+    default_scenarios::{builtin::ToTestConfig, contracts, BuiltinScenario},
 };
 use alloy::providers::Provider;
 use clap::{arg, Parser};
@@ -61,36 +61,39 @@ pub async fn fill_block(
     }))
 }
 
-pub fn fill_block_config(args: FillBlockArgs) -> TestConfig {
-    let FillBlockArgs {
-        max_gas_per_block,
-        num_txs,
-    } = args;
-    let gas_per_tx = max_gas_per_block / num_txs;
-    let spam_txs = (0..num_txs)
-        .map(|_| {
-            SpamRequest::Tx(FunctionCallDefinition {
-                to: "{SpamMe5}".to_owned(),
-                from: None,
-                signature: "consumeGas()".to_owned(),
-                from_pool: Some("spammers".to_owned()),
-                args: None,
-                value: None,
-                fuzz: None,
-                kind: Some("fill-block".to_owned()),
-                gas_limit: Some(gas_per_tx),
+impl ToTestConfig for FillBlockArgs {
+    /// Convert the FillBlockArgs to a TestConfig.
+    fn to_testconfig(&self) -> TestConfig {
+        let FillBlockArgs {
+            max_gas_per_block,
+            num_txs,
+        } = *self;
+        let gas_per_tx = max_gas_per_block / num_txs;
+        let spam_txs = (0..num_txs)
+            .map(|_| {
+                SpamRequest::Tx(FunctionCallDefinition {
+                    to: "{SpamMe5}".to_owned(),
+                    from: None,
+                    signature: Some("consumeGas()".to_owned()),
+                    from_pool: Some("spammers".to_owned()),
+                    args: None,
+                    value: None,
+                    fuzz: None,
+                    kind: Some("fill-block".to_owned()),
+                    gas_limit: Some(gas_per_tx),
+                })
             })
-        })
-        .collect::<Vec<_>>();
+            .collect::<Vec<_>>();
 
-    TestConfig {
-        env: None,
-        create: Some(vec![CreateDefinition {
-            contract: contracts::SPAM_ME.into(),
-            from: None,
-            from_pool: Some("admin".to_owned()),
-        }]),
-        setup: None,
-        spam: Some(spam_txs),
+        TestConfig {
+            env: None,
+            create: Some(vec![CreateDefinition {
+                contract: contracts::SPAM_ME.into(),
+                from: None,
+                from_pool: Some("admin".to_owned()),
+            }]),
+            setup: None,
+            spam: Some(spam_txs),
+        }
     }
 }

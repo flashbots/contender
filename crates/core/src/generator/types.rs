@@ -26,7 +26,7 @@ pub struct FunctionCallDefinition {
     /// Get a `from` address from the pool of signers specified here.
     pub from_pool: Option<String>,
     /// Name of the function to call.
-    pub signature: String,
+    pub signature: Option<String>,
     /// Parameters to pass to the function.
     pub args: Option<Vec<String>>,
     /// Value in wei to send with the tx.
@@ -40,12 +40,12 @@ pub struct FunctionCallDefinition {
 }
 
 impl FunctionCallDefinition {
-    pub fn new(to: impl AsRef<str>, signature: impl AsRef<str>) -> Self {
+    pub fn new(to: impl AsRef<str>, signature: Option<&str>) -> Self {
         FunctionCallDefinition {
             to: to.as_ref().to_owned(),
             from: None,
             from_pool: None,
-            signature: signature.as_ref().to_owned(),
+            signature: signature.map(|s| s.to_owned()),
             args: None,
             value: None,
             fuzz: None,
@@ -70,8 +70,9 @@ impl FunctionCallDefinition {
         );
         self
     }
-    pub fn with_value(mut self, value: impl AsRef<str>) -> Self {
-        self.value = Some(value.as_ref().to_owned());
+    /// Set value in wei to send with the tx.
+    pub fn with_value(mut self, value: U256) -> Self {
+        self.value = Some(value.to_string());
         self
     }
     pub fn with_fuzz(mut self, fuzz: &[FuzzParam]) -> Self {

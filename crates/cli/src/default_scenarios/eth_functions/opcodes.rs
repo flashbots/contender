@@ -157,7 +157,9 @@ pub fn opcode_txs(args: &[EthereumOpcode], num_iterations: u64) -> Vec<SpamReque
         .map(|opcode| {
             SpamRequest::Tx(FunctionCallDefinition {
                 to: SPAM_ME.template_name(),
-                signature: format!("consumeGas(string memory method, uint256 iterations)"),
+                signature: Some(format!(
+                    "consumeGas(string memory method, uint256 iterations)"
+                )),
                 args: vec![
                     format!("{opcode:?}").to_lowercase(),
                     num_iterations.to_string(),

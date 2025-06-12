@@ -39,10 +39,10 @@ May be specified multiple times."
     )]
     pub private_keys: Option<Vec<String>>,
 
-    /// The minimum balance to check for each private key.
+    /// The minimum balance to keep in each spammer EOA.
     #[arg(
         long,
-        long_help = "The minimum balance to check for each private key in decimal-ETH format (`--min-balance 1.5` means 1.5 * 1e18 wei).",
+        long_help = "The minimum balance to keep in each spammer EOA, with units.",
         default_value = "0.01 ether",
         value_parser = parse_amount,
     )]

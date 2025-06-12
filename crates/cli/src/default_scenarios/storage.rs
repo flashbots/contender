@@ -2,7 +2,7 @@ use contender_core::generator::types::{CreateDefinition, FunctionCallDefinition,
 use contender_testfile::TestConfig;
 use serde::{Deserialize, Serialize};
 
-use crate::default_scenarios::contracts;
+use crate::default_scenarios::{builtin::ToTestConfig, contracts};
 
 #[derive(Debug, Clone, clap::Parser, Deserialize, Serialize)]
 pub struct StorageStressCliArgs {
@@ -24,8 +24,8 @@ pub struct StorageStressCliArgs {
 
 #[derive(Clone, Debug)]
 pub struct StorageStressArgs {
-    pub num_slots: u64,
-    pub num_iterations: u64,
+    num_slots: u64,
+    num_iterations: u64,
 }
 
 impl From<StorageStressCliArgs> for StorageStressArgs {
@@ -37,32 +37,34 @@ impl From<StorageStressCliArgs> for StorageStressArgs {
     }
 }
 
-pub fn storage_stress_config(args: StorageStressArgs) -> TestConfig {
-    let StorageStressArgs {
-        num_slots,
-        num_iterations,
-    } = args;
-    let txs = [
-        FunctionCallDefinition::new(
-            contracts::SPAM_ME.template_name(),
-            "fillStorageSlots(uint256 numSlots, uint256 iteration)",
-        )
-        .with_args(&[num_slots.to_string(), num_iterations.to_string()])
-        .with_from_pool("admin"),
-        // ... add more transactions here if needed.
-    ]
-    .into_iter()
-    .map(|req| SpamRequest::Tx(req))
-    .collect::<Vec<_>>();
+impl ToTestConfig for StorageStressArgs {
+    fn to_testconfig(&self) -> TestConfig {
+        let StorageStressArgs {
+            num_slots,
+            num_iterations,
+        } = self;
+        let txs = [
+            FunctionCallDefinition::new(
+                contracts::SPAM_ME.template_name(),
+                Some("fillStorageSlots(uint256 numSlots, uint256 iteration)"),
+            )
+            .with_args(&[num_slots.to_string(), num_iterations.to_string()])
+            .with_from_pool("admin"),
+            // ... add more transactions here if needed.
+        ]
+        .into_iter()
+        .map(|req| SpamRequest::Tx(req))
+        .collect::<Vec<_>>();
 
-    TestConfig {
-        env: None,
-        create: Some(vec![CreateDefinition {
-            contract: contracts::SPAM_ME.into(),
-            from: None,
-            from_pool: Some("admin".to_owned()),
-        }]),
-        setup: None,
-        spam: Some(txs),
+        TestConfig {
+            env: None,
+            create: Some(vec![CreateDefinition {
+                contract: contracts::SPAM_ME.into(),
+                from: None,
+                from_pool: Some("admin".to_owned()),
+            }]),
+            setup: None,
+            spam: Some(txs),
+        }
     }
 }

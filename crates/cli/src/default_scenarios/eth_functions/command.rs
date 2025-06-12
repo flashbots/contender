@@ -1,4 +1,5 @@
 use crate::default_scenarios::{
+    builtin::ToTestConfig,
     contracts,
     eth_functions::{
         opcodes::{opcode_txs, EthereumOpcode},
@@ -50,19 +51,26 @@ impl From<&EthFunctionsCliArgs> for EthFunctionsArgs {
     }
 }
 
-pub fn eth_functions_config(args: EthFunctionsArgs) -> TestConfig {
-    let precompile_txs = precompile_txs(&args.precompiles, args.num_iterations);
-    let opcode_txs = opcode_txs(&args.opcodes, args.num_iterations);
-    let txs = [precompile_txs, opcode_txs].concat();
+impl ToTestConfig for EthFunctionsArgs {
+    fn to_testconfig(&self) -> TestConfig {
+        let EthFunctionsArgs {
+            opcodes,
+            precompiles,
+            num_iterations,
+        } = self;
+        let precompile_txs = precompile_txs(precompiles, *num_iterations);
+        let opcode_txs = opcode_txs(opcodes, *num_iterations);
+        let txs = [precompile_txs, opcode_txs].concat();
 
-    TestConfig {
-        env: None,
-        create: Some(vec![CreateDefinition {
-            contract: contracts::SPAM_ME.into(),
-            from: None,
-            from_pool: Some("admin".to_owned()),
-        }]),
-        setup: None,
-        spam: Some(txs),
+        TestConfig {
+            env: None,
+            create: Some(vec![CreateDefinition {
+                contract: contracts::SPAM_ME.into(),
+                from: None,
+                from_pool: Some("admin".to_owned()),
+            }]),
+            setup: None,
+            spam: Some(txs),
+        }
     }
 }
