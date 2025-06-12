@@ -201,7 +201,7 @@ pub async fn report(
             Some(&if block_time_delta_std_dev == 0.0 {
                 "stable".to_owned()
             } else {
-                format!("unstable (\u{F3}={block_time_delta_std_dev:.2})")
+                format!("unstable (\u{03c3}={block_time_delta_std_dev:.2})")
             }),
         ),
         latency_quantiles: canonical_latency_map
