@@ -1459,7 +1459,7 @@ pub mod tests {
                     from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
                     from_pool: None,
                     value: Some("4096".to_owned()),
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
@@ -1476,7 +1476,7 @@ pub mod tests {
                     from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
                     from_pool: None,
                     value: Some("0x1000".to_owned()),
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
@@ -1493,7 +1493,7 @@ pub mod tests {
                     from: None,
                     from_pool: Some("pool1".to_owned()),
                     value: None,
-                    signature: "increment()".to_owned(),
+                    signature: Some("increment()".to_owned()),
                     args: vec![].into(),
                     fuzz: None,
                     kind: None,
@@ -1509,7 +1509,7 @@ pub mod tests {
                     from: None,
                     from_pool: Some("pool1".to_owned()),
                     value: None,
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
@@ -1533,7 +1533,7 @@ pub mod tests {
                     from: None,
                     from_pool: Some("pool2".to_owned()),
                     value: None,
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
@@ -1557,7 +1557,7 @@ pub mod tests {
                     from: None,
                     from_pool: Some("pool2".to_owned()),
                     value: None,
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),

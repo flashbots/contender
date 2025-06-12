@@ -57,7 +57,7 @@ pub mod tests {
                 .to_owned()
                 .into(),
             from_pool: None,
-            signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+            signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
             args: vec![
                 "1".to_owned(),
                 "2".to_owned(),
@@ -85,7 +85,7 @@ pub mod tests {
             from: from_addr.to_owned().into(),
             from_pool: None,
             value: None,
-            signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+            signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
             args: vec![
                 "1".to_owned(),
                 "2".to_owned(),
@@ -145,7 +145,7 @@ pub mod tests {
                         .into(),
                     from_pool: None,
                     value: Some("4096".to_owned()),
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
@@ -164,7 +164,7 @@ pub mod tests {
                         .into(),
                     from_pool: None,
                     value: Some("0x1000".to_owned()),
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
