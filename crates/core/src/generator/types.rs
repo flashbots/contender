@@ -39,6 +39,55 @@ pub struct FunctionCallDefinition {
     pub gas_limit: Option<u64>,
 }
 
+impl FunctionCallDefinition {
+    pub fn new(to: impl AsRef<str>, signature: impl AsRef<str>) -> Self {
+        FunctionCallDefinition {
+            to: to.as_ref().to_owned(),
+            from: None,
+            from_pool: None,
+            signature: signature.as_ref().to_owned(),
+            args: None,
+            value: None,
+            fuzz: None,
+            kind: None,
+            gas_limit: None,
+        }
+    }
+
+    pub fn with_from(mut self, from: impl AsRef<str>) -> Self {
+        self.from = Some(from.as_ref().to_owned());
+        self
+    }
+    pub fn with_from_pool(mut self, from_pool: impl AsRef<str>) -> Self {
+        self.from_pool = Some(from_pool.as_ref().to_owned());
+        self
+    }
+    pub fn with_args(mut self, args: &[impl AsRef<str>]) -> Self {
+        self.args = Some(
+            args.iter()
+                .map(|t| t.as_ref().to_owned())
+                .collect::<Vec<_>>(),
+        );
+        self
+    }
+    pub fn with_value(mut self, value: impl AsRef<str>) -> Self {
+        self.value = Some(value.as_ref().to_owned());
+        self
+    }
+    pub fn with_fuzz(mut self, fuzz: &[FuzzParam]) -> Self {
+        self.fuzz = Some(fuzz.to_vec());
+        self
+    }
+    pub fn with_kind(mut self, kind: impl AsRef<str>) -> Self {
+        self.kind = Some(kind.as_ref().to_owned());
+        self
+    }
+    pub fn with_gas_limit(mut self, gas_limit: u64) -> Self {
+        self.gas_limit = Some(gas_limit);
+        self
+    }
+}
+
 pub struct FunctionCallDefinitionStrict {
     pub to: String, // may be a placeholder, so we can't use Address
     pub from: Address,
@@ -74,11 +123,35 @@ impl SpamRequest {
 }
 
 #[derive(Clone, Deserialize, Debug, Serialize)]
+pub struct CompiledContract<S: AsRef<str> = String> {
+    pub bytecode: S,
+    pub name: S,
+}
+
+impl<T: AsRef<str>> CompiledContract<T> {
+    pub fn new(bytecode: T, name: T) -> Self {
+        CompiledContract { bytecode, name }
+    }
+
+    /// Returns the contract name as a template string (wrapped in curly braces).
+    pub fn template_name(&self) -> String {
+        format!("{{{}}}", self.name.as_ref())
+    }
+}
+
+impl<'a> From<CompiledContract<&'a str>> for CompiledContract<String> {
+    fn from(contract: CompiledContract<&'a str>) -> Self {
+        CompiledContract {
+            bytecode: contract.bytecode.to_string(),
+            name: contract.name.to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct CreateDefinition {
-    /// Bytecode of the contract to deploy.
-    pub bytecode: String,
-    /// Name to identify the contract later.
-    pub name: String,
+    #[serde(flatten)]
+    pub contract: CompiledContract,
     /// Address of the tx sender.
     pub from: Option<String>,
     /// Get a `from` address from the pool of signers specified here.

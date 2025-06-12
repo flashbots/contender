@@ -1,4 +1,4 @@
-use crate::default_scenarios::eth_functions::CONTRACT_NAME;
+use crate::default_scenarios::contracts::SPAM_ME;
 use clap::ValueEnum;
 use contender_core::generator::types::{FunctionCallDefinition, SpamRequest};
 
@@ -156,7 +156,7 @@ pub fn opcode_txs(args: &[EthereumOpcode], num_iterations: u64) -> Vec<SpamReque
     args.iter()
         .map(|opcode| {
             SpamRequest::Tx(FunctionCallDefinition {
-                to: format!("{{{CONTRACT_NAME}}}"),
+                to: SPAM_ME.template_name(),
                 signature: format!("consumeGas(string memory method, uint256 iterations)"),
                 args: vec![
                     format!("{opcode:?}").to_lowercase(),

@@ -165,12 +165,13 @@ where
         };
 
         let bytecode = create_def
+            .contract
             .bytecode
             .to_owned()
             .replace("{_sender}", &from_address.encode_hex()); // inject address WITHOUT 0x prefix
 
         Ok(CreateDefinitionStrict {
-            name: create_def.name.to_owned(),
+            name: create_def.contract.name.to_owned(),
             bytecode,
             from: from_address,
         })

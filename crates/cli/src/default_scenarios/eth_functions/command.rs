@@ -1,9 +1,8 @@
 use crate::default_scenarios::{
-    bytecode,
+    contracts,
     eth_functions::{
         opcodes::{opcode_txs, EthereumOpcode},
         precompiles::{precompile_txs, EthereumPrecompile},
-        CONTRACT_NAME,
     },
 };
 use clap::{arg, Parser};
@@ -59,8 +58,7 @@ pub fn eth_functions_config(args: EthFunctionsArgs) -> TestConfig {
     TestConfig {
         env: None,
         create: Some(vec![CreateDefinition {
-            name: CONTRACT_NAME.to_owned(),
-            bytecode: bytecode::SPAM_ME.to_owned(),
+            contract: contracts::SPAM_ME.into(),
             from: None,
             from_pool: Some("admin".to_owned()),
         }]),

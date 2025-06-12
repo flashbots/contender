@@ -12,7 +12,7 @@ pub mod tests {
         primitives::{Address, U256},
         signers::local::PrivateKeySigner,
     };
-    use contender_core::generator::templater::Templater;
+    use contender_core::generator::{templater::Templater, types::CompiledContract};
     use contender_core::{
         db::MockDb,
         generator::{
@@ -188,8 +188,10 @@ pub mod tests {
         TestConfig {
             env: Some(env),
             create: Some(vec![CreateDefinition {
-                bytecode: COUNTER_BYTECODE.to_string(),
-                name: "test_counter".to_string(),
+                contract: CompiledContract::new(
+                    COUNTER_BYTECODE.to_string(),
+                    "test_counter".to_string(),
+                ),
                 from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
                 from_pool: None,
             }]),

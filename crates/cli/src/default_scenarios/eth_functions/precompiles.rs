@@ -1,7 +1,7 @@
 use clap::ValueEnum;
 use contender_core::generator::types::{FunctionCallDefinition, SpamRequest};
 
-use crate::default_scenarios::eth_functions::CONTRACT_NAME;
+use crate::default_scenarios::contracts::SPAM_ME;
 
 #[derive(ValueEnum, Clone, Debug)]
 // TODO: add missing precompiles to SpamMe contract & here.
@@ -42,7 +42,7 @@ pub fn precompile_txs(args: &[EthereumPrecompile], num_iterations: u64) -> Vec<S
     args.iter()
         .map(|precompile| {
             SpamRequest::Tx(FunctionCallDefinition {
-                to: format!("{{{CONTRACT_NAME}}}"),
+                to: SPAM_ME.template_name(),
                 signature: format!("callPrecompile(string memory method, uint256 iterations)"),
                 args: vec![precompile.method().to_owned(), num_iterations.to_string()].into(),
                 value: None,

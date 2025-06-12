@@ -1393,7 +1393,7 @@ pub mod tests {
     use crate::generator::named_txs::ExecutionRequest;
     use crate::generator::templater::Templater;
     use crate::generator::types::{
-        CreateDefinition, FunctionCallDefinition, FuzzParam, SpamRequest,
+        CompiledContract, CreateDefinition, FunctionCallDefinition, FuzzParam, SpamRequest,
     };
     use crate::generator::{types::PlanType, util::test::spawn_anvil, RandSeed};
     use crate::generator::{Generator, PlanConfig};
@@ -1434,14 +1434,18 @@ pub mod tests {
         fn get_create_steps(&self) -> Result<Vec<CreateDefinition>> {
             Ok(vec![
                 CreateDefinition {
-                    bytecode: COUNTER_BYTECODE.to_string(),
-                    name: "test_counter2".to_string(),
+                    contract: CompiledContract {
+                        bytecode: COUNTER_BYTECODE.to_string(),
+                        name: "test_counter2".to_string(),
+                    },
                     from: None,
                     from_pool: Some("admin1".to_owned()),
                 },
                 CreateDefinition {
-                    bytecode: UNI_V2_FACTORY_BYTECODE.to_string(),
-                    name: "univ2_factory".to_string(),
+                    contract: CompiledContract {
+                        bytecode: UNI_V2_FACTORY_BYTECODE.to_string(),
+                        name: "univ2_factory".to_string(),
+                    },
                     from: None,
                     from_pool: Some("admin2".to_owned()),
                 },

@@ -1,8 +1,9 @@
 use super::fill_block::{fill_block, fill_block_config, FillBlockArgs, FillBlockCliArgs};
 use crate::{
     commands::common::SendSpamCliArgs,
-    default_scenarios::eth_functions::{
-        eth_functions_config, EthFunctionsArgs, EthFunctionsCliArgs,
+    default_scenarios::{
+        eth_functions::{eth_functions_config, EthFunctionsArgs, EthFunctionsCliArgs},
+        storage::{storage_stress_config, StorageStressArgs, StorageStressCliArgs},
     },
 };
 use clap::Subcommand;
@@ -13,19 +14,22 @@ use contender_core::{
 use contender_testfile::TestConfig;
 use std::fmt::{Display, Formatter};
 
-#[derive(Subcommand, Debug)]
+#[derive(Clone, Debug, Subcommand)]
 /// User-facing subcommands for builtin scenarios.
 pub enum BuiltinScenarioCli {
     /// Fill blocks with simple gas-consuming transactions.
     FillBlock(FillBlockCliArgs),
     /// Spam specific opcodes & precompiles.
     EthFunctions(EthFunctionsCliArgs),
+    /// Fill storage slots with random data.
+    Storage(StorageStressCliArgs),
 }
 
 #[derive(Clone, Debug)]
 pub enum BuiltinScenario {
     FillBlock(FillBlockArgs),
     EthFunctions(EthFunctionsArgs),
+    Storage(StorageStressArgs),
 }
 
 impl BuiltinScenarioCli {
@@ -33,7 +37,7 @@ impl BuiltinScenarioCli {
         &self,
         provider: &AnyProvider,
         spam_args: &SendSpamCliArgs,
-    ) -> Result<BuiltinScenario, Box<dyn std::error::Error>> {
+    ) -> Result<BuiltinScenario, ContenderError> {
         match self {
             BuiltinScenarioCli::FillBlock(args) => fill_block(provider, spam_args, args).await,
             BuiltinScenarioCli::EthFunctions(args) => {
@@ -45,10 +49,27 @@ impl BuiltinScenarioCli {
                             ansi_term::Style::new().bold().paint("--opcode (-o)"),
                             ansi_term::Style::new().bold().paint("--precompile (-p)"),
                         )),
-                    )
-                    .into());
+                    ));
                 }
                 Ok(BuiltinScenario::EthFunctions(args.into()))
+            }
+            BuiltinScenarioCli::Storage(args) => {
+                let bad_args_err = |name: &str| {
+                    ContenderError::InvalidRuntimeParams(RuntimeParamErrorKind::InvalidArgs(
+                        format!(
+                            "{} must be greater than 0",
+                            ansi_term::Style::new().bold().paint(name)
+                        ),
+                    ))
+                };
+                if args.num_slots == 0 {
+                    return Err(bad_args_err("--num-slots (-s)"));
+                }
+                if args.num_iterations == 0 {
+                    return Err(bad_args_err("--num-iterations (-n)"));
+                }
+
+                Ok(BuiltinScenario::Storage(args.to_owned().into()))
             }
         }
     }
@@ -63,6 +84,9 @@ impl Display for BuiltinScenario {
             BuiltinScenario::EthFunctions(_) => {
                 write!(f, "eth-functions",)
             }
+            BuiltinScenario::Storage(_) => {
+                write!(f, "storage")
+            }
         }
     }
 }
@@ -72,6 +96,7 @@ impl From<BuiltinScenario> for TestConfig {
         match scenario {
             BuiltinScenario::FillBlock(args) => fill_block_config(args),
             BuiltinScenario::EthFunctions(args) => eth_functions_config(args),
+            BuiltinScenario::Storage(args) => storage_stress_config(args),
         }
     }
 }

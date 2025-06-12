@@ -1,9 +1,12 @@
-use super::{bytecode, BuiltinScenario};
-use crate::commands::common::SendSpamCliArgs;
+use crate::{
+    commands::common::SendSpamCliArgs,
+    default_scenarios::{contracts, BuiltinScenario},
+};
 use alloy::providers::Provider;
 use clap::{arg, Parser};
-use contender_core::generator::types::{
-    AnyProvider, CreateDefinition, FunctionCallDefinition, SpamRequest,
+use contender_core::{
+    error::ContenderError,
+    generator::types::{AnyProvider, CreateDefinition, FunctionCallDefinition, SpamRequest},
 };
 use contender_testfile::TestConfig;
 use tracing::{info, warn};
@@ -26,7 +29,7 @@ pub async fn fill_block(
     provider: &AnyProvider,
     spam_args: &SendSpamCliArgs,
     args: &FillBlockCliArgs,
-) -> Result<BuiltinScenario, Box<dyn std::error::Error>> {
+) -> Result<BuiltinScenario, ContenderError> {
     let SendSpamCliArgs {
         txs_per_block,
         txs_per_second,
@@ -39,7 +42,8 @@ pub async fn fill_block(
     } else {
         let block_gas_limit = provider
             .get_block_by_number(alloy::eips::BlockNumberOrTag::Latest)
-            .await?
+            .await
+            .map_err(|e| ContenderError::with_err(e, "provider failed to get block"))?
             .map(|b| b.header.gas_limit);
         if block_gas_limit.is_none() {
             warn!("Could not get block gas limit from provider, using default 30M");
@@ -82,8 +86,7 @@ pub fn fill_block_config(args: FillBlockArgs) -> TestConfig {
     TestConfig {
         env: None,
         create: Some(vec![CreateDefinition {
-            name: "SpamMe5".to_owned(),
-            bytecode: bytecode::SPAM_ME.to_owned(),
+            contract: contracts::SPAM_ME.into(),
             from: None,
             from_pool: Some("admin".to_owned()),
         }]),

@@ -34,6 +34,7 @@ pub enum RuntimeParamErrorKind {
     BuilderUrlRequired,
     BuilderUrlInvalid,
     BundleTypeInvalid,
+    InvalidArgs(String),
     MissingArgs(String),
 }
 
@@ -64,6 +65,9 @@ impl Display for RuntimeParamErrorKind {
             }
             RuntimeParamErrorKind::MissingArgs(arg) => {
                 write!(f, "missing required argument: {arg}")
+            }
+            RuntimeParamErrorKind::InvalidArgs(arg) => {
+                write!(f, "invalid argument: {arg}")
             }
         }
     }
