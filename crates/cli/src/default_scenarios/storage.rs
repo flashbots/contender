@@ -1,21 +1,20 @@
+use crate::default_scenarios::{builtin::ToTestConfig, contracts};
 use contender_core::generator::types::{CreateDefinition, FunctionCallDefinition, SpamRequest};
 use contender_testfile::TestConfig;
-use serde::{Deserialize, Serialize};
 
-use crate::default_scenarios::{builtin::ToTestConfig, contracts};
-
-#[derive(Debug, Clone, clap::Parser, Deserialize, Serialize)]
+#[derive(Debug, Clone, clap::Parser)]
 pub struct StorageStressCliArgs {
     #[arg(
         short = 's',
-        long = "num-slots",
-        default_value_t = 1000,
+        long = "storage.num-slots",
+        default_value_t = 500,
         help = "Number of storage slots to fill with random data."
     )]
     pub num_slots: u64,
+
     #[arg(
         short,
-        long = "num-iterations",
+        long = "storage.num-writes",
         default_value_t = 1,
         help = "Number of times to write over each storage slot."
     )]

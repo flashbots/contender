@@ -1,5 +1,5 @@
 mod command;
-mod opcodes;
-mod precompiles;
+pub mod opcodes;
+pub mod precompiles;
 
 pub use command::*;

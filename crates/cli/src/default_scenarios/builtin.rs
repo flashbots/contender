@@ -4,6 +4,7 @@ use crate::{
     default_scenarios::{
         eth_functions::{EthFunctionsArgs, EthFunctionsCliArgs},
         storage::{StorageStressArgs, StorageStressCliArgs},
+        stress::StressCliArgs,
         transfers::{TransferStressArgs, TransferStressCliArgs},
     },
 };
@@ -26,6 +27,8 @@ pub enum BuiltinScenarioCli {
     Storage(StorageStressCliArgs),
     /// Perform a large number of transfers. ETH is transferred to the sender if --recipient is not set.
     Transfers(TransferStressCliArgs),
+    /// Run a comprehensive stress test with various parameters.
+    Stress(StressCliArgs),
 }
 
 #[derive(Clone, Debug)]
@@ -34,6 +37,7 @@ pub enum BuiltinScenario {
     EthFunctions(EthFunctionsArgs),
     Storage(StorageStressArgs),
     Transfers(TransferStressArgs),
+    Stress(StressCliArgs),
 }
 
 pub trait ToTestConfig {
@@ -83,6 +87,21 @@ impl BuiltinScenarioCli {
             }
 
             BuiltinScenarioCli::Transfers(args) => Ok(BuiltinScenario::Transfers(args.into())),
+
+            BuiltinScenarioCli::Stress(args) => {
+                if args.disable_storage
+                    && args.disable_transfers
+                    && args.disable_all_opcodes
+                    && args.disable_all_precompiles
+                {
+                    return Err(ContenderError::InvalidRuntimeParams(
+                        RuntimeParamErrorKind::MissingArgs(
+                            "At least one stress test must be enabled".to_string(),
+                        ),
+                    ));
+                }
+                Ok(BuiltinScenario::Stress(args))
+            }
         }
     }
 }
@@ -103,6 +122,9 @@ impl Display for BuiltinScenario {
             Transfers(_) => {
                 write!(f, "transfers")
             }
+            Stress(_) => {
+                write!(f, "stress")
+            }
         }
     }
 }
@@ -115,6 +137,7 @@ impl From<BuiltinScenario> for TestConfig {
             EthFunctions(args) => Box::new(args),
             Storage(args) => Box::new(args),
             Transfers(args) => Box::new(args),
+            Stress(args) => Box::new(args),
         };
         args.to_testconfig()
     }

@@ -7,7 +7,8 @@ use contender_core::generator::types::{FunctionCallDefinition, SpamRequest};
 pub struct TransferStressCliArgs {
     #[arg(
         short = 'a',
-        long,
+        long = "transfer.amount",
+        visible_aliases = &["ta", "amount"],
         default_value = "0.001 eth",
         value_parser = parse_amount,
         help = "Amount of tokens to transfer in each transaction."
@@ -15,7 +16,8 @@ pub struct TransferStressCliArgs {
     pub amount: U256,
     #[arg(
         short,
-        long,
+        long = "transfer.recipient",
+        visible_aliases = &["tr", "recipient"],
         help = "Address to receive ether sent from spammers.",
         value_parser = |s: &str| s.parse::<Address>().map_err(|_| "Invalid address format".to_string())
     )]

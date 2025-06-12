@@ -1,8 +1,9 @@
 use crate::default_scenarios::contracts::SPAM_ME;
 use clap::ValueEnum;
 use contender_core::generator::types::{FunctionCallDefinition, SpamRequest};
+use strum::EnumIter;
 
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Debug, EnumIter, PartialEq, Eq)]
 pub enum EthereumOpcode {
     Stop,
     Add,

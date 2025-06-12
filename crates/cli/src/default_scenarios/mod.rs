@@ -3,6 +3,7 @@ mod contracts;
 pub mod eth_functions;
 pub mod fill_block;
 pub mod storage;
+pub mod stress;
 pub mod transfers;
 
 pub use builtin::{BuiltinScenario, BuiltinScenarioCli};

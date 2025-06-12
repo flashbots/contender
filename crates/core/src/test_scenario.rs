@@ -646,7 +646,12 @@ where
                 self.rpc_client
                     .estimate_gas(WithOtherFields::new(tx_req.to_owned()))
                     .await
-                    .map_err(|e| ContenderError::with_err(e, "failed to estimate gas for tx"))?
+                    .map_err(|e| {
+                        if e.as_error_resp().is_some() {
+                            tracing::error!("failed tx: {tx_req:?}");
+                        }
+                        ContenderError::with_err(e, "failed to estimate gas for tx")
+                    })?
             };
             self.gas_limits.insert(key, gas_limit);
         }
