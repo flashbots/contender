@@ -287,12 +287,28 @@ impl SpamCommandArgs {
 
         if self.scenario.is_builtin() {
             let scenario = &mut scenario;
+            let setup_cost = scenario.estimate_setup_cost().await?;
+            if min_balance < &setup_cost {
+                return Err(ContenderError::SpamError(
+                    "min_balance is not enough to cover the cost of the setup transactions.",
+                    format!(
+                        "min_balance: {}, setup_cost: {}\nUse {} to increase the amount of funds sent to agent wallets.",
+                        format_ether(*min_balance),
+                        format_ether(setup_cost),
+                        ansi_term::Style::new()
+                            .bold()
+                            .paint("spam --min-balance <ETH amount>"),
+                    )
+                    .into(),
+                ));
+            }
             let setup_res = tokio::select! {
                 Some(err) = error_receiver.recv() => {
                     Err(err)
                 }
                 res = async move {
                     let str_err = |e| format!("Setup error: {e}");
+
                     scenario.deploy_contracts().await.map_err(str_err)?;
                     scenario.run_setup().await.map_err(str_err)?;
                     Ok::<(), String>(())

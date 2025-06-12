@@ -56,6 +56,11 @@ impl TestConfig {
         std::fs::write(file_path, encoded)?;
         Ok(())
     }
+
+    pub fn from_str(input: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
+        let test_file: TestConfig = toml::from_str(input)?;
+        Ok(test_file)
+    }
 }
 
 impl PlanConfig<String> for TestConfig {

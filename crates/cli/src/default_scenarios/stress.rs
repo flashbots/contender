@@ -33,7 +33,7 @@ pub struct StressCliArgs {
     pub disable_transfers: bool,
 
     #[arg(
-        long = "disable-opcode",
+        long,
         long_help = "Comma-separated list of opcodes to be ignored in the scenario.",
         value_delimiter = ',',
         value_name = "OPCODES",
@@ -42,7 +42,7 @@ pub struct StressCliArgs {
     pub disable_opcodes: Option<Vec<EthereumOpcode>>,
 
     #[arg(
-        long = "disable-precompile",
+        long,
         long_help = "Comma-separated list of precompiles to be ignored in the scenario.",
         value_delimiter = ',',
         value_name = "PRECOMPILES",

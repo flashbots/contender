@@ -209,6 +209,8 @@ pub fn cli_env_vars_parser(s: &str) -> Result<(String, String), String> {
     ))
 }
 
+/// Parses an amount string with units (e.g., "1 ether", "100 gwei") into a U256 value.
+/// Used for inline parsing of amounts in CLI arguments.
 pub fn parse_amount(input: &str) -> Result<U256, String> {
     let input = input.trim().to_lowercase();
     let (num_str, unit) = input.trim().split_at(

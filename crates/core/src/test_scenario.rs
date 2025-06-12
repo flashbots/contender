@@ -529,6 +529,8 @@ where
     }
 
     pub async fn run_setup(&mut self) -> Result<()> {
+        let (error_sender, mut error_recv) = tokio::sync::mpsc::channel::<ContenderError>(1);
+        let error_sender = Arc::new(error_sender);
         self.load_txs(PlanType::Setup(|tx_req| {
             /* callback */
             info!("{}", self.format_setup_log(&tx_req));
@@ -549,6 +551,7 @@ where
             let db = self.db.clone();
             let rpc_url = self.rpc_url.clone();
             let tx_type = self.tx_type;
+            let error_sender = error_sender.clone();
 
             let handle = tokio::task::spawn(async move {
                 let wallet = ProviderBuilder::new()
@@ -562,18 +565,37 @@ where
                     .or(tx_req.kind.as_deref())
                     .unwrap_or("")
                     .to_string();
-                let gas_price = wallet.get_gas_price().await.unwrap_or_else(|_| {
-                    panic!("failed to get gas price for setup step '{tx_label}'")
-                });
+                let gas_price = match wallet.get_gas_price().await {
+                    Ok(gas) => gas,
+                    Err(e) => {
+                        warn!("{tx_label} setup failed");
+                        error_sender
+                            .send(ContenderError::with_err(
+                                e,
+                                "failed to get gas price for setup step",
+                            ))
+                            .await
+                            .expect("failed to send error from get_gas_price");
+                        return;
+                    }
+                };
                 let gas_limit = if let Some(gas) = tx_req.tx.gas {
                     gas
                 } else {
-                    wallet
-                        .estimate_gas(tx_req.tx.to_owned())
-                        .await
-                        .unwrap_or_else(|_| {
-                            panic!("failed to estimate gas for setup step '{tx_label}'")
-                        })
+                    match wallet.estimate_gas(tx_req.tx.to_owned()).await {
+                        Ok(gas) => gas,
+                        Err(e) => {
+                            warn!("{tx_label} setup failed");
+                            error_sender
+                                .send(ContenderError::with_err(
+                                    e,
+                                    "failed to estimate gas for setup step",
+                                ))
+                                .await
+                                .expect("failed to send error from estimate_gas");
+                            return;
+                        }
+                    }
                 };
                 let mut tx = tx_req.tx;
                 complete_tx_request(
@@ -612,6 +634,11 @@ where
             Ok(Some(handle))
         }))
         .await?;
+
+        error_recv.close();
+        if let Some(err) = error_recv.recv().await {
+            return Err(err);
+        }
 
         self.sync_nonces().await?;
 
