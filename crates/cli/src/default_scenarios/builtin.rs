@@ -19,7 +19,6 @@ use contender_testfile::TestConfig;
 use std::fmt::{Display, Formatter};
 
 #[derive(Clone, Debug, Subcommand)]
-/// User-facing subcommands for builtin scenarios.
 pub enum BuiltinScenarioCli {
     /// Fill blocks with simple gas-consuming transactions.
     FillBlock(FillBlockCliArgs),
