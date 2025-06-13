@@ -1012,7 +1012,7 @@ where
             let trigger = trigger.to_owned();
             // assign from addrs, nonces, and gas prices for this chunk of tx requests
             let payloads = self
-                .prepare_spam(&tx_req_chunks[tick % tx_req_chunks.len()])
+                .prepare_spam(&tx_req_chunks[tick % tx_req_chunks.len().max(1)])
                 .await?;
             let num_payloads = payloads.len();
 

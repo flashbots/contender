@@ -145,6 +145,18 @@ impl SpamCommandArgs {
 
         let mut testconfig = scenario.testconfig().await?;
         let spam_len = testconfig.spam.as_ref().map(|s| s.len()).unwrap_or(0);
+        let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam_len as u64));
+
+        // check if txs_per_duration is enough to cover the spam requests
+        if txs_per_duration < spam_len as u64 {
+            return Err(ContenderError::SpamError(
+                "Not enough transactions per duration to cover spam requests.",
+                Some(format!(
+                    "Set --txs-per-block or --txs-per-second to at least {}",
+                    spam_len
+                )),
+            ));
+        }
 
         if let Some(spam) = &testconfig.spam {
             if spam.is_empty() {
@@ -182,10 +194,9 @@ impl SpamCommandArgs {
 
         // distill all from_pool arguments from the spam requests
         let from_pool_declarations = testconfig.get_spam_pools();
+        let signers_per_period = txs_per_duration / from_pool_declarations.len().max(1) as u64;
 
         let mut agents = AgentStore::new();
-        let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam_len as u64));
-        let signers_per_period = txs_per_duration / from_pool_declarations.len().max(1) as u64;
         agents.init(
             &from_pool_declarations,
             signers_per_period as usize,
