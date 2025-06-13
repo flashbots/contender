@@ -11,7 +11,6 @@ use contender_core::generator::types::CreateDefinition;
 use contender_testfile::TestConfig;
 
 #[derive(Parser, Clone, Debug)]
-/// Taken from the CLI, this is used to spam specific opcodes.
 pub struct EthFunctionsCliArgs {
     #[arg(
         short,
