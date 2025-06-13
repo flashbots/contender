@@ -443,7 +443,7 @@ pub async fn spam<
     let mut run_id = None;
     let scenario_name = match scenario {
         SpamScenario::Testfile(testfile) => testfile.to_owned(),
-        SpamScenario::Builtin(scenario) => scenario.to_string(),
+        SpamScenario::Builtin(scenario) => scenario.title(),
     };
 
     let rpc_client = test_scenario.rpc_client.clone();

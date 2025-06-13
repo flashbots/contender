@@ -3,7 +3,7 @@ use clap::ValueEnum;
 use contender_core::generator::types::{FunctionCallDefinition, SpamRequest};
 use strum::EnumIter;
 
-#[derive(ValueEnum, Clone, Debug, EnumIter, PartialEq, Eq)]
+#[derive(ValueEnum, Clone, Debug, strum::Display, EnumIter, PartialEq, Eq)]
 // TODO: add missing precompiles to SpamMe contract & here.
 pub enum EthereumPrecompile {
     #[clap(aliases = ["sha256"])]

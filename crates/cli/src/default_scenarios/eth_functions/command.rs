@@ -13,10 +13,22 @@ use contender_testfile::TestConfig;
 #[derive(Parser, Clone, Debug)]
 /// Taken from the CLI, this is used to spam specific opcodes.
 pub struct EthFunctionsCliArgs {
-    #[arg(short, action = clap::ArgAction::Append, long = "opcode", long_help = "Opcodes to call in spam transactions. May be specified multiple times.")]
+    #[arg(
+        short,
+        long,
+        value_delimiter = ',',
+        value_name = "OPCODES",
+        long_help = "Comma-separated list of opcodes to call in spam transactions."
+    )]
     pub opcodes: Vec<EthereumOpcode>,
 
-    #[arg(short, action = clap::ArgAction::Append, long = "precompile", long_help = "Precompiles to call in spam transactions. May be specified multiple times.")]
+    #[arg(
+        short,
+        long,
+        value_delimiter = ',',
+        value_name = "PRECOMPILES",
+        long_help = "Comma-separated list of precompiles to call in spam transactions."
+    )]
     pub precompiles: Vec<EthereumPrecompile>,
 
     #[arg(

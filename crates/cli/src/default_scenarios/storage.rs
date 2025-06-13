@@ -23,8 +23,8 @@ pub struct StorageStressCliArgs {
 
 #[derive(Clone, Debug)]
 pub struct StorageStressArgs {
-    num_slots: u64,
-    num_iterations: u64,
+    pub num_slots: u64,
+    pub num_iterations: u64,
 }
 
 impl From<StorageStressCliArgs> for StorageStressArgs {

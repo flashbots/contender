@@ -67,15 +67,15 @@ pub struct UniV2CliArgs {
 #[derive(Debug, Clone)]
 pub struct UniV2Args {
     /// The number of tokens to create in the scenario. Each token will be paired with WETH and each other token.
-    num_tokens: u32,
+    pub num_tokens: u32,
     /// The amount of ETH to deposit into each TOKEN/WETH pool.
-    weth_per_token: U256,
+    pub weth_per_token: U256,
     /// The initial amount minted for each token.
-    initial_token_supply: U256,
+    pub initial_token_supply: U256,
     /// The amount of WETH to trade in the scenario. If not provided, 0.01% of the pool's initial WETH will be traded for each token.
-    weth_trade_amount: U256,
+    pub weth_trade_amount: U256,
     /// The amount of tokens to trade in the scenario. If not provided, 0.01% of the initial supply will be traded for each token.
-    token_trade_amount: U256,
+    pub token_trade_amount: U256,
 }
 
 impl UniV2Args {

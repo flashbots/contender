@@ -2,7 +2,7 @@ use super::fill_block::{fill_block, FillBlockArgs, FillBlockCliArgs};
 use crate::{
     commands::common::SendSpamCliArgs,
     default_scenarios::{
-        eth_functions::{EthFunctionsArgs, EthFunctionsCliArgs},
+        eth_functions::{opcodes::EthereumOpcode, EthFunctionsArgs, EthFunctionsCliArgs},
         storage::{StorageStressArgs, StorageStressCliArgs},
         stress::StressCliArgs,
         transfers::{TransferStressArgs, TransferStressCliArgs},
@@ -16,7 +16,7 @@ use contender_core::{
     generator::types::AnyProvider,
 };
 use contender_testfile::TestConfig;
-use std::fmt::{Display, Formatter};
+use strum::IntoEnumIterator;
 
 #[derive(Clone, Debug, Subcommand)]
 pub enum BuiltinScenarioCli {
@@ -133,27 +133,67 @@ impl BuiltinScenarioCli {
     }
 }
 
-impl Display for BuiltinScenario {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl BuiltinScenario {
+    pub fn title(&self) -> String {
         use BuiltinScenario::*;
         match self {
-            FillBlock(_) => {
-                write!(f, "fill-block",)
+            FillBlock(_) => "fill-block".to_string(),
+            EthFunctions(args) => {
+                let options_str = args
+                    .opcodes
+                    .iter()
+                    .map(|opcode| opcode.to_string().to_lowercase())
+                    .chain(
+                        args.precompiles
+                            .iter()
+                            .map(|p| p.to_string().to_lowercase()),
+                    )
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{options_str}")
             }
-            EthFunctions(_) => {
-                write!(f, "eth-functions",)
+            Storage(args) => {
+                let iters_str = if args.num_iterations > 1 {
+                    format!(", {} iterations", args.num_iterations)
+                } else {
+                    String::new()
+                };
+                format!("storage ({} slots{iters_str})", args.num_slots)
             }
-            Storage(_) => {
-                write!(f, "storage")
+            Transfers(_) => "ETH transfers".to_string(),
+            Stress(args) => {
+                let mut disabled = vec![];
+                if args.disable_storage {
+                    disabled.push("storage");
+                }
+                if args.disable_transfers {
+                    disabled.push("transfers");
+                }
+                if args.disable_all_opcodes {
+                    disabled.push("all opcodes");
+                }
+                if args.disable_all_precompiles {
+                    disabled.push("all precompiles");
+                }
+                let disabled_str = if !disabled.is_empty() {
+                    format!(" (sans {})", disabled.join(", "))
+                } else {
+                    String::new()
+                };
+
+                format!(
+                    "stress{disabled_str}: {} opcodes, {} storage slots",
+                    EthereumOpcode::iter().len()
+                        - args
+                            .disable_opcodes
+                            .as_ref()
+                            .map(|oc| oc.len())
+                            .unwrap_or(0),
+                    args.storage.num_slots
+                )
             }
-            Transfers(_) => {
-                write!(f, "transfers")
-            }
-            Stress(_) => {
-                write!(f, "stress")
-            }
-            UniV2(_) => {
-                write!(f, "uni-v2")
+            UniV2(args) => {
+                format!("uni-v2 ({} tokens)", args.num_tokens)
             }
         }
     }
