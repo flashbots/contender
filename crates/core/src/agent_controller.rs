@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ops::Deref, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use alloy::{
     network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, TransactionBuilder},
@@ -194,17 +194,16 @@ impl SignerStore {
                     .build(&funder_wallet)
                     .await
                     .map_err(|e| ContenderError::with_err(e, "failed to sign funding tx"))?;
-
-                let send_err =
-                    |e: Box<dyn std::error::Error>, msg| ContenderError::with_err(e.deref(), msg);
                 let tx_hash = provider
                     .send_tx_envelope(AnyTxEnvelope::Ethereum(signed_tx))
                     .await
-                    .map_err(|e| send_err(Box::new(e), "failed to send funding tx"))?
+                    .map_err(|e| ContenderError::with_err(e, "failed to send funding tx"))?
                     .with_required_confirmations(1)
                     .watch()
                     .await
-                    .map_err(|e| send_err(Box::new(e), "funding tx failed to land onchain"))?;
+                    .map_err(|e| {
+                        ContenderError::with_err(e, "funding tx failed to land onchain")
+                    })?;
                 info!(
                     "Funded {to_addr} with {} ether, ({tx_hash})",
                     format_ether(amount)
