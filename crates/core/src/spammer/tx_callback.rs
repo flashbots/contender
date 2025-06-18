@@ -17,7 +17,7 @@ where
         req: &NamedTxRequest,
         extra: RuntimeTxInfo,
         tx_handlers: Option<HashMap<String, Arc<TxActorHandle>>>,
-    ) -> Option<JoinHandle<()>>;
+    ) -> Option<JoinHandle<crate::Result<()>>>;
 }
 
 #[derive(Clone, Debug)]
@@ -119,7 +119,7 @@ impl OnTxSent for NilCallback {
         _req: &NamedTxRequest,
         _extra: RuntimeTxInfo,
         _tx_handlers: Option<HashMap<String, Arc<TxActorHandle>>>,
-    ) -> Option<JoinHandle<()>> {
+    ) -> Option<JoinHandle<crate::Result<()>>> {
         // do nothing
         None
     }
@@ -132,7 +132,7 @@ impl OnTxSent for LogCallback {
         _req: &NamedTxRequest,
         extra: RuntimeTxInfo,
         tx_actors: Option<HashMap<String, Arc<TxActorHandle>>>,
-    ) -> Option<JoinHandle<()>> {
+    ) -> Option<JoinHandle<crate::Result<()>>> {
         let cancel_token = self.cancel_token.clone();
         let handle = tokio::task::spawn(async move {
             if let Some(tx_actors) = tx_actors {
@@ -148,6 +148,7 @@ impl OnTxSent for LogCallback {
                     _ = tx_actor.cache_run_tx(tx) => {}
                 };
             }
+            Ok(())
         });
         Some(handle)
     }
