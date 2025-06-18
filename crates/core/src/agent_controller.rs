@@ -149,7 +149,7 @@ impl SignerStore {
         &self,
         funder: &PrivateKeySigner,
         amount: U256,
-        provider: impl alloy::providers::Provider<AnyNetwork> + Send + Sync + 'static,
+        provider: impl alloy::providers::Provider<AnyNetwork> + 'static,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let gas_price = provider.get_gas_price().await?;
         // boost gas price by 10% to ensure the transaction is processed quickly
