@@ -206,14 +206,11 @@ pub async fn setup(
         warn!("Contract deployment has been waiting for more than {timeout_blocks} blocks... Press Ctrl+C to cancel.");
     });
     let is_done = Arc::new(AtomicBool::new(false));
-    let (error_sender, mut error_receiver) = tokio::sync::mpsc::channel::<String>(1);
-    let error_sender = Arc::new(error_sender);
 
     if engine_params.call_fcu && scenario.auth_provider.is_some() {
         // spawn a task to advance the chain periodically while setup is running
         let auth_client = scenario.auth_provider.clone().expect("auth provider");
         let is_done = is_done.clone();
-        let error_sender = error_sender.clone();
         tokio::task::spawn(async move {
             loop {
                 if is_done.load(Ordering::SeqCst) {
@@ -228,10 +225,9 @@ pub async fn setup(
                         err = e.to_string();
                     });
                 if !err.is_empty() {
-                    error_sender
-                        .send(err)
-                        .await
-                        .expect("failed to send error from task");
+                    warn!("Failed to advance chain: {err}");
+                } else {
+                    info!("Chain advanced successfully.");
                 }
 
                 tokio::time::sleep(Duration::from_millis(500)).await;
@@ -271,7 +267,7 @@ pub async fn setup(
         task_res = setup_task => {
             let res = task_res?;
             if let Err(e) = res {
-                error_sender.send(e).await.expect("failed to send error from task");
+                return Err(ContenderError::SetupError("Setup failed.", Some(e)).into());
             }
         }
 
@@ -279,10 +275,6 @@ pub async fn setup(
             warn!("Setup cancelled.");
             is_done.store(true, Ordering::SeqCst);
         },
-
-        Some(error) = error_receiver.recv() => {
-            return Err(ContenderError::SetupError("Setup failed.", Some(error)).into())
-        }
     }
 
     Ok(())
