@@ -204,9 +204,9 @@ where
         for (addr, wallet) in wallets {
             wallet_map.insert(addr, wallet);
         }
-        for (name, signers) in agent_store.all_agents() {
+        for (name, agent) in agent_store.all_agents() {
             debug!("adding '{name}' signers to wallet map");
-            for signer in signers.signers.iter() {
+            for signer in agent.signers.iter() {
                 wallet_map.insert(signer.address(), EthereumWallet::new(signer.clone()));
             }
         }
@@ -289,7 +289,6 @@ where
             "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
         )
         .expect("invalid signer");
-        let admin_wallet = EthereumWallet::new(admin_signer.clone());
         // separate prometheus registry for simulations; anvil doesn't count!
         static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
         static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
@@ -326,15 +325,11 @@ where
         let start_balances: HashMap<Address, U256> =
             HashMap::from_iter(addresses.iter().map(|addr| (*addr, fund_amount)));
 
-        let all_pools: Vec<String> = scenario
-            .agent_store
-            .all_agents()
-            .map(|(name, _)| name.to_owned())
-            .collect();
-        for agent_name in all_pools {
-            scenario
-                .fund_agent_signers(agent_name, &admin_wallet, fund_amount)
-                .await?;
+        for (_name, agent) in scenario.agent_store.all_agents() {
+            agent
+                .fund_signers(&admin_signer, fund_amount, scenario.rpc_client.clone())
+                .await
+                .map_err(|e| ContenderError::with_err(e.deref(), "failed to fund signers"))?;
         }
 
         debug!("deploying sim contracts...");
@@ -369,6 +364,7 @@ where
 
     /// Funds all signers in the agent with the given amount.
     /// Does not check if the agents are already funded.
+    #[deprecated(since = "0.2.2", note = "please use `agent.fund_signers` instead")]
     pub async fn fund_agent_signers(
         &mut self,
         agent_name: impl AsRef<str>,
@@ -1655,7 +1651,7 @@ pub mod tests {
             TestScenarioParams {
                 rpc_url: anvil.endpoint_url(),
                 builder_rpc_url: None,
-                signers,
+                signers: signers.to_owned(),
                 agent_store: agents,
                 tx_type,
                 bundle_type,
@@ -1673,20 +1669,10 @@ pub mod tests {
         println!("fund_amount_eth: {fund_amount_eth}");
         println!("fund_amount eth: {}", format_ether(fund_amount_wei));
 
-        let all_agent_names = scenario
-            .agent_store
-            .all_agents()
-            .map(|(name, _)| name.to_owned())
-            .collect::<Vec<_>>();
-        for agent_name in &all_agent_names {
+        for (name, agent) in scenario.agent_store.all_agents() {
             println!(
-                "funding agent: {agent_name} (num signers: {})",
-                scenario
-                    .agent_store
-                    .get_agent(agent_name)
-                    .unwrap()
-                    .signers
-                    .len()
+                "funding agent: {name} (num signers: {})",
+                agent.signers.len()
             );
             let funder_balance = scenario
                 .rpc_client
@@ -1694,20 +1680,10 @@ pub mod tests {
                 .await
                 .unwrap();
             println!("funder balance: {}", format_ether(funder_balance));
-            let pending_txs = scenario
-                .fund_agent_signers(agent_name, &anvil.wallet().unwrap(), fund_amount_wei)
+            agent
+                .fund_signers(&signers[0], fund_amount_wei, scenario.rpc_client.clone())
                 .await
                 .unwrap();
-            // wait for each funding tx to land before proceeding
-            for pending_tx in pending_txs {
-                scenario
-                    .rpc_client
-                    .watch_pending_transaction(pending_tx)
-                    .await
-                    .unwrap()
-                    .await
-                    .unwrap();
-            }
         }
 
         scenario.ctx.add_to_gas_price(GWEI_TO_WEI as i128 * 10);

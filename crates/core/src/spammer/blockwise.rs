@@ -74,7 +74,7 @@ mod tests {
         agent_controller::{AgentStore, SignerStore},
         db::MockDb,
         generator::util::test::spawn_anvil,
-        spammer::util::test::{fund_account, get_test_signers, MockCallback},
+        spammer::util::test::{get_test_signers, MockCallback},
         test_scenario::{tests::MockConfig, TestScenarioParams},
     };
     use std::collections::HashSet;
@@ -89,11 +89,11 @@ mod tests {
     #[tokio::test]
     async fn watches_blocks_and_spams_them() {
         let anvil = spawn_anvil();
-        let provider = DynProvider::new(
+        let provider = Arc::new(DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
                 .connect_http(anvil.endpoint_url().to_owned()),
-        );
+        ));
         println!("anvil url: {}", anvil.endpoint_url());
         let seed = crate::generator::RandSeed::seed_from_str("444444444444");
         let mut agents = AgentStore::new();
@@ -105,27 +105,12 @@ mod tests {
         agents.add_agent("pool2", SignerStore::new(num_signers, &seed, "11111111"));
 
         let user_signers = get_test_signers();
-        let mut nonce = provider
-            .get_transaction_count(user_signers[0].address())
-            .await
-            .unwrap();
 
         for (_pool_name, agent) in agents.all_agents() {
-            for signer in &agent.signers {
-                let res = fund_account(
-                    &user_signers[0],
-                    signer.address(),
-                    U256::from(ETH_TO_WEI),
-                    &provider,
-                    Some(nonce),
-                    tx_type,
-                )
+            agent
+                .fund_signers(&user_signers[0], U256::from(ETH_TO_WEI), provider.clone())
                 .await
                 .unwrap();
-                println!("funded signer: {res:?}");
-                provider.watch_pending_transaction(res).await.unwrap();
-                nonce += 1;
-            }
         }
 
         let mut scenario = TestScenario::new(
