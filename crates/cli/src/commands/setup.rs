@@ -207,32 +207,27 @@ pub async fn setup(
     });
     let is_done = Arc::new(AtomicBool::new(false));
 
+    let mut fcu_handle: Option<JoinHandle<Result<(), ContenderError>>> = None;
     if engine_params.call_fcu && scenario.auth_provider.is_some() {
         // spawn a task to advance the chain periodically while setup is running
         let auth_client = scenario.auth_provider.clone().expect("auth provider");
         let is_done = is_done.clone();
-        tokio::task::spawn(async move {
+        fcu_handle = Some(tokio::task::spawn(async move {
             loop {
                 if is_done.load(Ordering::SeqCst) {
                     break;
                 }
 
-                let mut err = String::new();
                 auth_client
                     .advance_chain(DEFAULT_BLOCK_TIME)
                     .await
-                    .unwrap_or_else(|e| {
-                        err = e.to_string();
-                    });
-                if !err.is_empty() {
-                    warn!("Failed to advance chain: {err}");
-                } else {
-                    info!("Chain advanced successfully.");
-                }
+                    .map_err(|e| ContenderError::with_err(e, "failed to advance chain"))?;
+                info!("Chain advanced successfully.");
 
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
-        });
+            Ok(())
+        }));
     }
     let setup_task: JoinHandle<Result<(), String>> = {
         let is_done = is_done.clone();
@@ -275,6 +270,9 @@ pub async fn setup(
             warn!("Setup cancelled.");
             is_done.store(true, Ordering::SeqCst);
         },
+    }
+    if let Some(handle) = fcu_handle {
+        handle.await??;
     }
 
     Ok(())
