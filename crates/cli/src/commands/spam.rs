@@ -282,23 +282,8 @@ impl SpamCommandArgs {
         .await?;
 
         if self.scenario.is_builtin() {
-            let scenario = &mut scenario;
-            let setup_res = tokio::select! {
-                res = async move {
-                    let str_err = |e| format!("Setup error: {e}");
-                    scenario.deploy_contracts().await.map_err(str_err)?;
-                    scenario.run_setup().await.map_err(str_err)?;
-                    Ok::<(), String>(())
-                } => {
-                    res
-                }
-            };
-            if let Err(e) = setup_res {
-                return Err(ContenderError::SpamError(
-                    "Builtin scenario setup failed.",
-                    Some(e),
-                ));
-            }
+            scenario.deploy_contracts().await?;
+            scenario.run_setup().await?;
         }
         done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
         if let Some(handle) = fcu_handle {
