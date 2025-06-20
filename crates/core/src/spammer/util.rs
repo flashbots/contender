@@ -26,14 +26,14 @@ pub mod test {
             _req: &NamedTxRequest,
             _extra: RuntimeTxInfo,
             _tx_handler: Option<HashMap<String, Arc<TxActorHandle>>>,
-        ) -> Option<JoinHandle<()>> {
+        ) -> Option<JoinHandle<crate::Result<()>>> {
             info!("MockCallback::on_tx_sent: tx_hash={}", _tx_res.tx_hash());
             None
         }
     }
 
     impl OnBatchSent for MockCallback {
-        fn on_batch_sent(&self) -> Option<JoinHandle<Result<(), String>>> {
+        fn on_batch_sent(&self) -> Option<JoinHandle<crate::Result<()>>> {
             info!("MockCallback::on_batch_sent");
             None
         }

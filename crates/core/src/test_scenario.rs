@@ -425,10 +425,6 @@ where
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get chain id"))?;
 
-        // capture errors from inside the callback
-        let (err_send, mut err_recv) = tokio::sync::mpsc::channel::<ContenderError>(100);
-        let error_sender = Arc::new(err_send);
-
         // we do everything in the callback so no need to actually capture the returned txs
         // we have to do this to populate the database with new named transaction after each deployment
         self.load_txs(PlanType::Create(|tx_req| {
@@ -448,30 +444,17 @@ where
                 .unwrap_or_else(|| panic!("couldn't find wallet for 'from' address {from}"))
                 .to_owned();
             let db = self.db.clone();
-            let error_sender = error_sender.clone();
 
             let handle = tokio::task::spawn(async move {
-                let res = Self::deploy_contract(
+                Self::deploy_contract(
                     &db, &tx_req, gas_price, chain_id, tx_type, &rpc_url, &wallet,
                 )
-                .await;
-
-                if let Err(e) = res {
-                    error_sender
-                        .send(e)
-                        .await
-                        .expect("failed to send error from task");
-                }
+                .await
             });
 
             Ok(Some(handle))
         }))
         .await?;
-
-        err_recv.close();
-        if let Some(err) = err_recv.recv().await {
-            return Err(err);
-        }
 
         self.sync_nonces().await?;
 
@@ -582,18 +565,20 @@ where
                     .or(tx_req.kind.as_deref())
                     .unwrap_or("")
                     .to_string();
-                let gas_price = wallet.get_gas_price().await.unwrap_or_else(|_| {
-                    panic!("failed to get gas price for setup step '{tx_label}'")
-                });
+                let gas_price = wallet.get_gas_price().await.map_err(|e| {
+                    warn!("failed to get gas price for setup step '{tx_label}'");
+                    ContenderError::with_err(e, "failed to get gas price")
+                })?;
                 let gas_limit = if let Some(gas) = tx_req.tx.gas {
                     gas
                 } else {
                     wallet
                         .estimate_gas(tx_req.tx.to_owned())
                         .await
-                        .unwrap_or_else(|_| {
-                            panic!("failed to estimate gas for setup step '{tx_label}'")
-                        })
+                        .map_err(|e| {
+                            warn!("failed to estimate gas for setup step '{tx_label}'");
+                            ContenderError::with_err(e, "failed to estimate gas")
+                        })?
                 };
                 let mut tx = tx_req.tx;
                 complete_tx_request(
@@ -606,16 +591,16 @@ where
                 );
 
                 // wallet will assign nonce before sending
-                let res = wallet
-                    .send_transaction(tx)
-                    .await
-                    .unwrap_or_else(|_| panic!("failed to send setup tx '{tx_label}'"));
+                let res = wallet.send_transaction(tx).await.map_err(|e| {
+                    warn!("failed to send setup tx '{tx_label}'");
+                    ContenderError::with_err(e, "setup tx failed")
+                })?;
 
                 // get receipt using provider (not wallet) to allow any receipt type (support non-eth chains)
                 let receipt = res
                     .get_receipt()
                     .await
-                    .unwrap_or_else(|_| panic!("failed to get receipt for tx '{tx_label}'"));
+                    .map_err(|e| ContenderError::with_err(e, "failed to get receipt"))?;
 
                 if let Some(name) = tx_req.name {
                     db.insert_named_txs(
@@ -625,9 +610,10 @@ where
                             receipt.contract_address,
                         )],
                         rpc_url.as_str(),
-                    )
-                    .expect("failed to insert tx into db");
+                    )?;
                 }
+
+                Ok(())
             });
             Ok(Some(handle))
         }))
@@ -1037,8 +1023,7 @@ where
             // wait for the on_batch_sent callback to finish
             if let Some(task) = sent_tx_callback.on_batch_sent() {
                 task.await
-                    .map_err(|e| ContenderError::with_err(e, "on_batch_sent callback failed"))?
-                    .map_err(|e| ContenderError::SpamError("failed to send batch", Some(e)))?;
+                    .map_err(|e| ContenderError::with_err(e, "on_batch_sent callback failed"))??;
             }
 
             info!("[{tick}] executed {num_tasks} spam tasks");
