@@ -138,20 +138,17 @@ impl BuiltinScenario {
         use BuiltinScenario::*;
         match self {
             FillBlock(_) => "fill-block".to_string(),
-            EthFunctions(args) => {
-                let options_str = args
-                    .opcodes
-                    .iter()
-                    .map(|opcode| opcode.to_string().to_lowercase())
-                    .chain(
-                        args.precompiles
-                            .iter()
-                            .map(|p| p.to_string().to_lowercase()),
-                    )
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("{options_str}")
-            }
+            EthFunctions(args) => args
+                .opcodes
+                .iter()
+                .map(|opcode| opcode.to_string().to_lowercase())
+                .chain(
+                    args.precompiles
+                        .iter()
+                        .map(|p| p.to_string().to_lowercase()),
+                )
+                .collect::<Vec<_>>()
+                .join(", "),
             Storage(args) => {
                 let iters_str = if args.num_iterations > 1 {
                     format!(", {} iterations", args.num_iterations)

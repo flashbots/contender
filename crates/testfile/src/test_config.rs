@@ -8,8 +8,8 @@ use contender_core::{
     },
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs::read;
+use std::{collections::HashMap, str::FromStr};
 
 /// Configuration to run a test scenario; used to generate PlanConfigs.
 /// Defines TOML schema for scenario files.
@@ -56,9 +56,13 @@ impl TestConfig {
         std::fs::write(file_path, encoded)?;
         Ok(())
     }
+}
 
-    pub fn from_str(input: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
-        let test_file: TestConfig = toml::from_str(input)?;
+impl FromStr for TestConfig {
+    type Err = Box<dyn std::error::Error>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let test_file: TestConfig = toml::from_str(s)?;
         Ok(test_file)
     }
 }

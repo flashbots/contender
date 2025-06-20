@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use alloy::primitives::U256;
 use clap::Parser;
 use contender_core::{
@@ -221,7 +223,7 @@ impl ToTestConfig for UniV2Args {
                 Some("swap(address,address,uint256)"),
             )
             .with_from_pool("spammers")
-            .with_kind(&format!("univ2_swap_{}-{}", token_a.name, token_b.name))
+            .with_kind(format!("univ2_swap_{}-{}", token_a.name, token_b.name))
             .with_args(&[
                 token_a.template_name(),
                 token_b.template_name(),

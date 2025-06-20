@@ -17,7 +17,7 @@ pub const TEST_TOKEN: CompiledContract<&'static str> = CompiledContract {
 pub fn test_token(token_num: u32, initial_supply: U256) -> CompiledContract<String> {
     let mut bytecode = TEST_TOKEN.bytecode.to_string();
     // Append the initial supply as a 32-byte hex-encoded value
-    bytecode.push_str(&format!("{:0>64x}", initial_supply));
+    bytecode.push_str(&format!("{initial_supply:0>64x}"));
     CompiledContract {
         bytecode,
         name: format!("{}{token_num}", TEST_TOKEN.name).to_string(),

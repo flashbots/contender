@@ -152,8 +152,13 @@ impl SpamCommandArgs {
             return Err(ContenderError::SpamError(
                 "Not enough transactions per duration to cover spam requests.",
                 Some(format!(
-                    "Set --txs-per-block or --txs-per-second to at least {}",
-                    spam_len
+                    "Set {} or {} to at least {spam_len}",
+                    ansi_term::Style::new()
+                        .bold()
+                        .paint("--txs-per-block (--tpb)"),
+                    ansi_term::Style::new()
+                        .bold()
+                        .paint("--txs-per-second (--tps)"),
                 )),
             ));
         }
