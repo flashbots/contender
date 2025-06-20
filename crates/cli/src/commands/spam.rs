@@ -249,32 +249,26 @@ impl SpamCommandArgs {
         .map_err(|e| ContenderError::with_err(e.deref(), "failed to fund accounts"))?;
 
         let done_fcu = Arc::new(AtomicBool::new(false));
-        let (error_sender, mut error_receiver) = tokio::sync::mpsc::channel::<String>(1);
-        let error_sender = Arc::new(error_sender);
 
-        if let Some(auth_provider) = engine_params.engine_provider.to_owned() {
+        let fcu_handle = if let Some(auth_provider) = engine_params.engine_provider.to_owned() {
             let auth_provider = auth_provider.clone();
             let done_fcu = done_fcu.clone();
-            let error_sender = error_sender.clone();
-            tokio::task::spawn(async move {
+            Some(tokio::task::spawn(async move {
                 loop {
                     if done_fcu.load(std::sync::atomic::Ordering::SeqCst) {
                         break;
                     }
 
-                    let mut err = String::new();
-                    auth_provider.advance_chain(1).await.unwrap_or_else(|e| {
-                        err = e.to_string();
-                    });
-                    if !err.is_empty() {
-                        error_sender
-                            .send(err)
-                            .await
-                            .expect("failed to send error from task");
-                    }
+                    auth_provider
+                        .advance_chain(1)
+                        .await
+                        .map_err(|e| ContenderError::with_err(e, "failed to advance chain"))?;
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
-            });
+                Ok::<_, ContenderError>(())
+            }))
+        } else {
+            None
         };
 
         let mut scenario = TestScenario::new(
@@ -290,9 +284,6 @@ impl SpamCommandArgs {
         if self.scenario.is_builtin() {
             let scenario = &mut scenario;
             let setup_res = tokio::select! {
-                Some(err) = error_receiver.recv() => {
-                    Err(err)
-                }
                 res = async move {
                     let str_err = |e| format!("Setup error: {e}");
                     scenario.deploy_contracts().await.map_err(str_err)?;
@@ -310,6 +301,11 @@ impl SpamCommandArgs {
             }
         }
         done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
+        if let Some(handle) = fcu_handle {
+            handle
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to join fcu task"))??;
+        }
 
         if loops.is_none() {
             warn!(
