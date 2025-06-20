@@ -1024,8 +1024,7 @@ where
             // wait for the on_batch_sent callback to finish
             if let Some(task) = sent_tx_callback.on_batch_sent() {
                 task.await
-                    .map_err(|e| ContenderError::with_err(e, "on_batch_sent callback failed"))?
-                    .map_err(|e| ContenderError::SpamError("failed to send batch", Some(e)))?;
+                    .map_err(|e| ContenderError::with_err(e, "on_batch_sent callback failed"))??;
             }
 
             info!("[{tick}] executed {num_tasks} spam tasks");

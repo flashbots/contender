@@ -4,6 +4,7 @@ use std::{error::Error, fmt::Display};
 use alloy::primitives::Address;
 use alloy::transports::{RpcError, TransportErrorKind};
 use contender_bundle_provider::error::BundleProviderError;
+use contender_engine_provider::error::AuthProviderError;
 
 pub enum ContenderError {
     DbError(&'static str, Option<String>),
@@ -85,6 +86,27 @@ impl From<BundleProviderError> for ContenderError {
                 }
                 ContenderError::with_err(e.deref(), "failed to send bundle")
             }
+        }
+    }
+}
+
+impl From<AuthProviderError> for ContenderError {
+    fn from(err: AuthProviderError) -> ContenderError {
+        match err {
+            AuthProviderError::InternalError(msg, e) => {
+                ContenderError::AdminError(msg.unwrap_or("internal error"), e.to_string())
+            }
+            AuthProviderError::ConnectionFailed(e) => {
+                ContenderError::AdminError("Failed to connect to auth provider", e.to_string())
+            }
+            AuthProviderError::ExtraDataTooShort => ContenderError::AdminError(
+                "Extra data too short",
+                "Genesis block extra data is too short".to_string(),
+            ),
+            AuthProviderError::GasLimitRequired => ContenderError::AdminError(
+                "Gas limit required",
+                "Gas limit parameter is required".to_string(),
+            ),
         }
     }
 }

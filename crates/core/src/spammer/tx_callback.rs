@@ -1,5 +1,8 @@
 use super::tx_actor::{CacheTx, TxActorHandle};
-use crate::generator::{types::AnyProvider, NamedTxRequest};
+use crate::{
+    error::ContenderError,
+    generator::{types::AnyProvider, NamedTxRequest},
+};
 use alloy::providers::PendingTransactionConfig;
 use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use std::{collections::HashMap, sync::Arc};
@@ -19,6 +22,12 @@ where
         tx_handlers: Option<HashMap<String, Arc<TxActorHandle>>>,
     ) -> Option<JoinHandle<crate::Result<()>>>;
 }
+
+pub trait OnBatchSent {
+    fn on_batch_sent(&self) -> Option<JoinHandle<crate::Result<()>>>;
+}
+
+pub trait SpamCallback: OnTxSent + OnBatchSent + Send + Sync {}
 
 #[derive(Clone, Debug)]
 pub struct RuntimeTxInfo {
@@ -77,12 +86,6 @@ impl Default for RuntimeTxInfo {
         }
     }
 }
-
-pub trait OnBatchSent {
-    fn on_batch_sent(&self) -> Option<JoinHandle<Result<(), String>>>;
-}
-
-pub trait SpamCallback: OnTxSent + OnBatchSent + Send + Sync {}
 
 impl<T: OnTxSent + OnBatchSent + Sized + Send + Sync> SpamCallback for T {}
 
@@ -155,7 +158,7 @@ impl OnTxSent for LogCallback {
 }
 
 impl OnBatchSent for LogCallback {
-    fn on_batch_sent(&self) -> Option<JoinHandle<Result<(), String>>> {
+    fn on_batch_sent(&self) -> Option<JoinHandle<crate::Result<()>>> {
         debug!("on_batch_sent called");
         if !self.send_fcu {
             // maybe do something metrics-related here
@@ -164,8 +167,10 @@ impl OnBatchSent for LogCallback {
         if let Some(provider) = &self.auth_provider {
             let provider = provider.clone();
             return Some(tokio::task::spawn(async move {
-                let res = provider.advance_chain(DEFAULT_BLOCK_TIME).await;
-                res.map_err(|e| e.to_string())
+                Ok(provider
+                    .advance_chain(DEFAULT_BLOCK_TIME)
+                    .await
+                    .map_err(|e| ContenderError::from(e))?)
             }));
         }
         None
@@ -173,7 +178,7 @@ impl OnBatchSent for LogCallback {
 }
 
 impl OnBatchSent for NilCallback {
-    fn on_batch_sent(&self) -> Option<JoinHandle<Result<(), String>>> {
+    fn on_batch_sent(&self) -> Option<JoinHandle<crate::Result<()>>> {
         // do nothing
         None
     }
