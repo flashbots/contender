@@ -282,15 +282,29 @@ impl SpamCommandArgs {
         .await?;
 
         if self.scenario.is_builtin() {
-            scenario.deploy_contracts().await?;
-            scenario.run_setup().await?;
+            let scenario = &mut scenario;
+            tokio::select! {
+                inner_res = async move {
+                    if let Some(handle) = fcu_handle {
+                        handle.await.map_err(|e| ContenderError::with_err(e, "failed to join fcu task"))??;
+                    } else {
+                        // block until ctrl-c is pressed
+                        tokio::signal::ctrl_c().await.map_err(|e| ContenderError::with_err(e, "failed to wait for ctrl-c"))?;
+                    }
+                    Ok::<(), ContenderError>(())
+                } => {
+                    inner_res
+                }
+                inner_res = async move {
+                    scenario.deploy_contracts().await?;
+                    scenario.run_setup().await?;
+                    Ok::<_, ContenderError>(())
+                } => {
+                    inner_res
+                }
+            }?;
         }
         done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
-        if let Some(handle) = fcu_handle {
-            handle
-                .await
-                .map_err(|e| ContenderError::with_err(e, "failed to join fcu task"))??;
-        }
 
         if loops.is_none() {
             warn!(
