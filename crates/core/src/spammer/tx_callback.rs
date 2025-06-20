@@ -167,10 +167,10 @@ impl OnBatchSent for LogCallback {
         if let Some(provider) = &self.auth_provider {
             let provider = provider.clone();
             return Some(tokio::task::spawn(async move {
-                Ok(provider
+                provider
                     .advance_chain(DEFAULT_BLOCK_TIME)
                     .await
-                    .map_err(|e| ContenderError::from(e))?)
+                    .map_err(ContenderError::from)
             }));
         }
         None
