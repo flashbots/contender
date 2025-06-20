@@ -229,15 +229,14 @@ pub async fn setup(
             Ok(())
         }));
     }
-    let setup_task: JoinHandle<Result<(), String>> = {
+    let setup_task: JoinHandle<Result<(), ContenderError>> = {
         let is_done = is_done.clone();
         tokio::task::spawn(async move {
-            let str_err = |e| format!("Error: {e}");
             info!("Deploying contracts...");
-            scenario.deploy_contracts().await.map_err(str_err)?;
+            scenario.deploy_contracts().await?;
             timekeeper_handle.abort();
             info!("Finished deploying contracts. Running setup txs...");
-            scenario.run_setup().await.map_err(str_err)?;
+            scenario.run_setup().await?;
             info!("Setup complete. To run the scenario, use the `spam` command.");
 
             // stop advancing the chain
@@ -260,10 +259,7 @@ pub async fn setup(
 
     tokio::select! {
         task_res = setup_task => {
-            let res = task_res?;
-            if let Err(e) = res {
-                return Err(ContenderError::SetupError("Setup failed.", Some(e)).into());
-            }
+            task_res??;
         }
 
         _ = cancel_task => {
