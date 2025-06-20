@@ -39,7 +39,7 @@ impl TimeToInclusionChart {
         for &tti in &self.inclusion_times {
             let bucket_index = tti as usize; // 1 bucket per second
             if bucket_index >= buckets.len() {
-                buckets.resize(bucket_index + 1, "0".to_string());
+                buckets.resize(bucket_index + 1, "".to_string());
                 counts.resize(bucket_index + 1, 0);
             }
             counts[bucket_index] += 1;
@@ -48,6 +48,13 @@ impl TimeToInclusionChart {
             }
             buckets[bucket_index] = format!("{bucket_index} - {} s", bucket_index + 1);
         }
+
+        // Filter out empty buckets and counts that are zero
+        (buckets, counts) = buckets
+            .into_iter()
+            .zip(counts)
+            .filter(|(bucket, count)| !bucket.is_empty() && *count > 0)
+            .unzip();
 
         TimeToInclusionData {
             buckets,

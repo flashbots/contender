@@ -37,6 +37,7 @@ rand = "0.8.5"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3" }
 prometheus = "0.14"
+strum = "0.27.1"
 
 ## cli
 ansi_term = "0.12.1"

@@ -9,7 +9,7 @@ mod spamd;
 use clap::Parser;
 
 pub use contender_subcommand::{ContenderSubcommand, DbCommand};
-pub use setup::{setup, SetupCliArgs, SetupCommandArgs};
+pub use setup::{setup, SetupCommandArgs};
 pub use spam::{spam, EngineArgs, SpamCliArgs, SpamCommandArgs, SpamScenario};
 pub use spamd::spamd;
 

@@ -41,6 +41,7 @@ tracing-subscriber = { workspace = true }
 webbrowser = { workspace = true }
 op-alloy-network = { workspace = true }
 async-trait = { workspace = true }
+strum = { workspace = true, features = ["derive"]}
 
 [dev-dependencies]
 tempfile = "3.15.0"

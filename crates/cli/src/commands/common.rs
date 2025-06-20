@@ -39,10 +39,10 @@ May be specified multiple times."
     )]
     pub private_keys: Option<Vec<String>>,
 
-    /// The minimum balance to check for each private key.
+    /// The minimum balance to keep in each spammer EOA.
     #[arg(
         long,
-        long_help = "The minimum balance to check for each private key in decimal-ETH format (`--min-balance 1.5` means 1.5 * 1e18 wei).",
+        long_help = "The minimum balance to keep in each spammer EOA, with units.",
         default_value = "0.01 ether",
         value_parser = parse_amount,
     )]
@@ -149,7 +149,7 @@ pub struct SendSpamCliArgs {
     )]
     pub builder_url: Option<String>,
 
-    /// The number of txs to send per second using the timed spammer. This is the default spammer.
+    /// The number of txs to send per second using the timed spammer.
     /// May not be set if `txs_per_block` is set.
     #[arg(long, long_help = "Number of txs to send per second. Must not be set if --txs-per-block is set.", visible_aliases = &["tps"])]
     pub txs_per_second: Option<u64>,
@@ -209,6 +209,8 @@ pub fn cli_env_vars_parser(s: &str) -> Result<(String, String), String> {
     ))
 }
 
+/// Parses an amount string with units (e.g., "1 ether", "100 gwei") into a U256 value.
+/// Used for inline parsing of amounts in CLI arguments.
 pub fn parse_amount(input: &str) -> Result<U256, String> {
     let input = input.trim().to_lowercase();
     let (num_str, unit) = input.trim().split_at(
