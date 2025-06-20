@@ -247,13 +247,11 @@ pub async fn setup(
     };
 
     let cancel_task = {
-        let is_done = is_done.clone();
         tokio::task::spawn(async move {
             tokio::signal::ctrl_c()
                 .await
                 .expect("failed to listen for ctrl-c");
             warn!("CTRL-C received, stopping setup...");
-            is_done.store(true, Ordering::SeqCst);
         })
     };
 
@@ -262,13 +260,22 @@ pub async fn setup(
             task_res??;
         }
 
+        fcu_res = async move {
+            if let Some(handle) = fcu_handle {
+                handle.await.map_err(|e| ContenderError::with_err(e, "failed to wait for fcu task"))??;
+            } else {
+                // block until ctrl-C is received
+                tokio::signal::ctrl_c().await.map_err(|e| ContenderError::with_err(e, "failed to wait for ctrl-c"))?;
+            }
+            Ok::<_, ContenderError>(())
+        } => {
+            fcu_res?
+        }
+
         _ = cancel_task => {
             warn!("Setup cancelled.");
             is_done.store(true, Ordering::SeqCst);
         },
-    }
-    if let Some(handle) = fcu_handle {
-        handle.await??;
     }
 
     Ok(())
