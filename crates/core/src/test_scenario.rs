@@ -449,8 +449,7 @@ where
                 Self::deploy_contract(
                     &db, &tx_req, gas_price, chain_id, tx_type, &rpc_url, &wallet,
                 )
-                .await?;
-                Ok(())
+                .await
             });
 
             Ok(Some(handle))
