@@ -185,7 +185,7 @@ pub struct Plan {
     pub spam_steps: Vec<ExecutionRequest>,
 }
 
-pub type CallbackResult = crate::Result<Option<JoinHandle<()>>>;
+pub type CallbackResult = crate::Result<Option<JoinHandle<crate::Result<()>>>>;
 
 /// Defines the type of plan to be executed.
 pub enum PlanType<F: Fn(NamedTxRequest) -> CallbackResult> {

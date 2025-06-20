@@ -1,11 +1,17 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use alloy::{
-    primitives::{Address, FixedBytes, U256},
+    network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, TransactionBuilder},
+    primitives::{utils::format_ether, Address, FixedBytes, TxKind, U256},
+    rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
 };
+use tracing::info;
 
-use crate::generator::seeder::{rand_seed::SeedGenerator, SeedValue};
+use crate::{
+    error::ContenderError,
+    generator::seeder::{rand_seed::SeedGenerator, SeedValue},
+};
 
 pub trait SignerRegistry<Index: Ord> {
     fn get_signer(&self, idx: Index) -> Option<&PrivateKeySigner>;
@@ -137,5 +143,81 @@ impl SignerStore {
 
     pub fn all_addresses(&self) -> Vec<Address> {
         self.signers.iter().map(|s| s.address()).collect()
+    }
+
+    pub async fn fund_signers(
+        &self,
+        funder: &PrivateKeySigner,
+        amount: U256,
+        provider: impl alloy::providers::Provider<AnyNetwork> + 'static,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let gas_price = provider.get_gas_price().await?;
+        // boost gas price by 10% to ensure the transaction is processed quickly
+        let gas_price = gas_price * 11 / 10;
+        let mut nonce = provider.get_transaction_count(funder.address()).await?;
+        let funder_wallet = EthereumWallet::new(funder.to_owned());
+        let provider = Arc::new(provider);
+        let signers = self.all_addresses();
+        let chain_id = provider.get_chain_id().await?;
+
+        // create transaction request for each signer
+        let tx_requests = signers
+            .into_iter()
+            .map(|address| {
+                let tx = TransactionRequest::default()
+                    .to(address)
+                    .value(amount)
+                    .from(funder.address())
+                    .nonce(nonce)
+                    .gas_limit(21000)
+                    .max_fee_per_gas(gas_price)
+                    .with_chain_id(chain_id)
+                    .max_priority_fee_per_gas(gas_price / 10);
+
+                nonce += 1;
+                tx
+            })
+            .collect::<Vec<_>>();
+
+        // sign and send txs
+        let mut handles = vec![];
+        for tx_request in tx_requests {
+            let provider = provider.clone();
+            let funder_wallet = funder_wallet.clone();
+            let to_addr = match tx_request.to_owned().to.unwrap_or_default() {
+                TxKind::Call(addr) => addr,
+                TxKind::Create => Address::ZERO,
+            };
+
+            handles.push(tokio::task::spawn(async move {
+                let signed_tx = tx_request
+                    .build(&funder_wallet)
+                    .await
+                    .map_err(|e| ContenderError::with_err(e, "failed to sign funding tx"))?;
+                let tx_hash = provider
+                    .send_tx_envelope(AnyTxEnvelope::Ethereum(signed_tx))
+                    .await
+                    .map_err(|e| ContenderError::with_err(e, "failed to send funding tx"))?
+                    .with_required_confirmations(1)
+                    .watch()
+                    .await
+                    .map_err(|e| {
+                        ContenderError::with_err(e, "funding tx failed to land onchain")
+                    })?;
+                info!(
+                    "Funded {to_addr} with {} ether, ({tx_hash})",
+                    format_ether(amount)
+                );
+                Ok::<_, ContenderError>(())
+            }));
+            // Sleep to avoid overwhelming the provider with requests
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        for handle in handles {
+            handle.await??
+        }
+
+        Ok(())
     }
 }

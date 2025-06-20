@@ -286,7 +286,7 @@ where
                     if let Some(handle) = handle {
                         handle.await.map_err(|e| {
                             ContenderError::with_err(e, "join error; callback crashed")
-                        })?;
+                        })??;
                     }
                     txs.push(tx.into());
                 }
@@ -313,7 +313,7 @@ where
                     if let Some(handle) = handle {
                         handle.await.map_err(|e| {
                             ContenderError::with_err(e, "join error; callback crashed")
-                        })?;
+                        })??;
                     }
                     txs.push(tx.into());
                 }
@@ -395,7 +395,7 @@ where
                                 if let Some(handle) = handle {
                                     handle.await.map_err(|e| {
                                         ContenderError::with_err(e, "error from callback")
-                                    })?;
+                                    })??;
                                 }
                                 txs.push(tx.into());
                             }
@@ -406,7 +406,7 @@ where
                                     if let Some(handle) = handle {
                                         handle.await.map_err(|e| {
                                             ContenderError::with_err(e, "error from callback")
-                                        })?;
+                                        })??;
                                     }
                                     bundle_txs.push(txr);
                                 }

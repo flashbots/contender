@@ -72,38 +72,31 @@ where
             let is_fcu_done = self.context().done_fcu.clone();
             let is_sending_done = self.context().done_sending.clone();
             let auth_provider = scenario.auth_provider.clone();
-            let (error_sender, mut error_receiver) = tokio::sync::mpsc::channel::<String>(1);
             // run loop in background to call fcu when spamming is done
-            let error_sender = Arc::new(error_sender);
-            {
-                let error_sender = error_sender.clone();
-                tokio::task::spawn(async move {
-                    if let Some(auth_client) = &auth_provider {
-                        loop {
-                            let is_fcu_done = is_fcu_done.load(std::sync::atomic::Ordering::SeqCst);
-                            let is_sending_done =
-                                is_sending_done.load(std::sync::atomic::Ordering::SeqCst);
-                            if is_fcu_done {
-                                info!("FCU is done, stopping block production...");
-                                break;
-                            }
-                            if is_sending_done {
-                                let res = auth_client.advance_chain(DEFAULT_BLOCK_TIME).await;
-                                let mut err = String::new();
-                                res.unwrap_or_else(|e| {
-                                    err = e.to_string();
-                                });
-                                if !err.is_empty() {
-                                    error_sender
-                                        .send(err)
-                                        .await
-                                        .expect("failed to send error from task");
-                                }
-                            }
+
+            let fcu_handle: tokio::task::JoinHandle<Result<()>> = tokio::task::spawn(async move {
+                if let Some(auth_client) = &auth_provider {
+                    loop {
+                        let fcu_done = is_fcu_done.load(std::sync::atomic::Ordering::SeqCst);
+                        let sending_done =
+                            is_sending_done.load(std::sync::atomic::Ordering::SeqCst);
+                        if fcu_done {
+                            info!("FCU is done, stopping block production...");
+                            break;
+                        }
+                        if sending_done {
+                            auth_client
+                                .advance_chain(DEFAULT_BLOCK_TIME)
+                                .await
+                                .map_err(|e| {
+                                    is_fcu_done.store(true, std::sync::atomic::Ordering::SeqCst);
+                                    ContenderError::with_err(e, "spammer failed to advance chain")
+                                })?;
                         }
                     }
-                });
-            }
+                }
+                Ok(())
+            });
 
             let tx_req_chunks = scenario
                 .get_spam_tx_chunks(txs_per_period, num_periods)
@@ -128,12 +121,6 @@ where
 
                     false
                 },
-                Some(err) = error_receiver.recv() => {
-                    return Err(ContenderError::SpamError(
-                        "Spammer encountered a critical error.",
-                        Some(err),
-                    ));
-                }
                 res = scenario.execute_spammer(&mut cursor, &tx_req_chunks, sent_tx_callback) => {
                     if res.as_ref().is_err() {
                         return res;
@@ -170,6 +157,10 @@ where
                     .done_fcu
                     .store(true, std::sync::atomic::Ordering::SeqCst);
             }
+
+            fcu_handle.await.map_err(|join_err| {
+                ContenderError::with_err(join_err, "spammer failed to run fcu task")
+            })??;
 
             // clear out unconfirmed txs from the cache
             let dump_finished: bool = tokio::select! {

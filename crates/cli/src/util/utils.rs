@@ -9,6 +9,7 @@ use alloy::{
 };
 use ansi_term::Color;
 use contender_core::{
+    error::ContenderError,
     generator::{
         types::{AnyProvider, FunctionCallDefinition, SpamRequest},
         util::complete_tx_request,
@@ -18,7 +19,7 @@ use contender_core::{
 };
 use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
-use std::{str::FromStr, sync::Arc, time::Duration};
+use std::{ops::Deref, str::FromStr, sync::Arc, time::Duration};
 use tracing::{debug, info, warn};
 
 pub enum TypedSpamCallback {
@@ -258,7 +259,7 @@ pub async fn fund_accounts(
         .into());
     }
 
-    let mut fund_handles: Vec<tokio::task::JoinHandle<()>> = vec![];
+    let mut fund_handles: Vec<tokio::task::JoinHandle<_>> = vec![];
     let (sender_pending_tx, mut receiver_pending_tx) =
         tokio::sync::mpsc::channel::<PendingTransactionConfig>(9000);
 
@@ -310,21 +311,24 @@ pub async fn fund_accounts(
             )
             .await;
             if let Err(e) = res {
-                let err = e.to_string();
-                warn!("error funding account {address}: {err}");
+                return Err(ContenderError::with_err(
+                    e.deref(),
+                    "failed to fund account",
+                ));
             } else {
                 sender
                     .send(res.expect("fund result not sent"))
                     .await
                     .expect("failed to handle pending tx");
             }
+            Ok(())
         }));
     }
 
     if !fund_handles.is_empty() {
         info!("waiting for funding tasks to finish...");
         for handle in fund_handles {
-            handle.await?;
+            handle.await??;
         }
     }
     receiver_pending_tx.close();
