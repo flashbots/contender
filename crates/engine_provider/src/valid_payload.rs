@@ -3,7 +3,7 @@
 //! before sending additional calls.
 
 use crate::{auth_provider::NetworkAttributes, engine::EngineApi};
-use alloy::primitives::B256;
+use alloy::primitives::{Bytes, B256};
 use alloy::providers::Network;
 use alloy::transports::TransportResult;
 use alloy_rpc_types_engine::{
@@ -38,6 +38,16 @@ pub trait EngineApiValidWaitExt<N: NetworkAttributes>: Send + Sync {
         parent_beacon_block_root: B256,
     ) -> TransportResult<PayloadStatus>;
 
+    /// Calls `engine_newPayloadV4` with the given [ExecutionPayloadV3], parent beacon block root,
+    /// versioned hashes, and execution requests and waits until the response is VALID.
+    async fn new_payload_v4_wait(
+        &self,
+        payload: ExecutionPayloadV3,
+        versioned_hashes: Vec<B256>,
+        parent_beacon_block_root: B256,
+        execution_requests: Vec<Bytes>,
+    ) -> TransportResult<PayloadStatus>;
+
     /// Calls `engine_forkChoiceUpdatedV1` with the given [ForkchoiceState] and optional
     /// [PayloadAttributes], and waits until the response is VALID.
     async fn fork_choice_updated_v1_wait(
@@ -57,6 +67,14 @@ pub trait EngineApiValidWaitExt<N: NetworkAttributes>: Send + Sync {
     /// Calls `engine_forkChoiceUpdatedV3` with the given [ForkchoiceState] and optional
     /// [PayloadAttributes], and waits until the response is VALID.
     async fn fork_choice_updated_v3_wait(
+        &self,
+        fork_choice_state: ForkchoiceState,
+        payload_attributes: Option<N::PayloadAttributes>,
+    ) -> TransportResult<ForkchoiceUpdated>;
+
+    /// Calls `engine_forkChoiceUpdatedV4` with the given [ForkchoiceState] and optional
+    /// [PayloadAttributes], and waits until the response is VALID.
+    async fn fork_choice_updated_v4_wait(
         &self,
         fork_choice_state: ForkchoiceState,
         payload_attributes: Option<N::PayloadAttributes>,
@@ -133,6 +151,49 @@ where
                     payload.clone(),
                     versioned_hashes.clone(),
                     parent_beacon_block_root,
+                )
+                .await?;
+        }
+        Ok(status)
+    }
+
+    async fn new_payload_v4_wait(
+        &self,
+        payload: ExecutionPayloadV3,
+        versioned_hashes: Vec<B256>,
+        parent_beacon_block_root: B256,
+        execution_requests: Vec<Bytes>,
+    ) -> TransportResult<PayloadStatus> {
+        let mut status = self
+            .new_payload_v4(
+                payload.clone(),
+                versioned_hashes.clone(),
+                parent_beacon_block_root,
+                execution_requests.clone(),
+            )
+            .await?;
+        while !status.is_valid() {
+            if status.is_invalid() {
+                error!(
+                    ?status,
+                    ?payload,
+                    ?versioned_hashes,
+                    ?parent_beacon_block_root,
+                    "Invalid newPayloadV3",
+                );
+                panic!("Invalid newPayloadV3: {status:?}");
+            }
+            if status.is_syncing() {
+                return Err(alloy_json_rpc::RpcError::UnsupportedFeature(
+                    "invalid range: no canonical state found for parent of requested block",
+                ));
+            }
+            status = self
+                .new_payload_v4(
+                    payload.clone(),
+                    versioned_hashes.clone(),
+                    parent_beacon_block_root,
+                    execution_requests.clone(),
                 )
                 .await?;
         }
@@ -224,6 +285,33 @@ where
             }
             status = self
                 .fork_choice_updated_v3(fork_choice_state, payload_attributes.clone())
+                .await?;
+        }
+
+        Ok(status)
+    }
+
+    async fn fork_choice_updated_v4_wait(
+        &self,
+        fork_choice_state: ForkchoiceState,
+        payload_attributes: Option<N::PayloadAttributes>,
+    ) -> TransportResult<ForkchoiceUpdated> {
+        let mut status = self
+            .fork_choice_updated_v4(fork_choice_state, payload_attributes.clone())
+            .await?;
+
+        while !status.is_valid() {
+            if status.is_invalid() {
+                error!(
+                    ?status,
+                    ?fork_choice_state,
+                    ?payload_attributes,
+                    "Invalid forkchoiceUpdatedV4 message",
+                );
+                panic!("Invalid forkchoiceUpdatedV4: {status:?}");
+            }
+            status = self
+                .fork_choice_updated_v4(fork_choice_state, payload_attributes.clone())
                 .await?;
         }
 

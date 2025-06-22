@@ -1,6 +1,6 @@
 use alloy::{
     consensus::BlockHeader,
-    eips::{BlockId, Encodable2718},
+    eips::{eip2124::ForkId, BlockId, Encodable2718, ForkBlock},
     network::AnyNetwork,
     primitives::{address, BlockHash, Bytes, FixedBytes, TxKind, B256, U256},
     providers::{ext::EngineApi, DynProvider, Provider, RootProvider},
@@ -141,7 +141,11 @@ where
     ) -> TransportResult<ForkchoiceUpdated> {
         match message_version {
             EngineApiMessageVersion::V5 => todo!("V5 payloads not supported yet"),
-            EngineApiMessageVersion::V4 => todo!("V4 payloads not supported yet"),
+            EngineApiMessageVersion::V4 => {
+                self.inner
+                    .fork_choice_updated_v4_wait(forkchoice_state, payload_attributes)
+                    .await
+            }
             EngineApiMessageVersion::V3 => {
                 self.inner
                     .fork_choice_updated_v3_wait(forkchoice_state, payload_attributes)
