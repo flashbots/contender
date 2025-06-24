@@ -12,7 +12,7 @@ use contender_core::error::ContenderError;
 use contender_core::generator::types::AnyProvider;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TxTraceReceipt {
@@ -121,7 +121,7 @@ pub async fn get_block_traces(
                             e,
                             "debug_traceTransaction failed. Make sure geth-style tracing is enabled on your node.",
                         )
-                    }).unwrap();
+                    })?;
 
                 // receipt might fail if we target a non-ETH chain
                 // so if it does fail, we just ignore it
@@ -132,13 +132,17 @@ pub async fn get_block_traces(
                         sender
                             .send(TxTraceReceipt::new(trace, receipt))
                             .await
-                            .unwrap();
+                            .map_err(|join_err| {
+                                ContenderError::with_err(join_err, "failed to join trace receipt")
+                            })?;
                     } else {
-                        info!("no receipt for tx {tx_hash:?}");
+                        warn!("no receipt for tx {tx_hash:?}");
                     }
                 } else {
-                    info!("ignored receipt for tx {tx_hash:?} (failed to decode)");
+                    warn!("ignored receipt for tx {tx_hash:?} (failed to decode)");
                 }
+
+                Ok::<_, ContenderError>(())
             });
             tx_tasks.push(task);
         }
