@@ -1412,6 +1412,7 @@ struct SpamContextHandler {
 pub mod tests {
     use crate::agent_controller::AgentStore;
     use crate::db::MockDb;
+    use crate::error::ContenderError;
     use crate::generator::named_txs::ExecutionRequest;
     use crate::generator::templater::Templater;
     use crate::generator::types::{
@@ -1424,7 +1425,7 @@ pub mod tests {
     use crate::Result;
     use alloy::consensus::constants::GWEI_TO_WEI;
     use alloy::hex::ToHexExt;
-    use alloy::node_bindings::AnvilInstance;
+    use alloy::node_bindings::{Anvil, AnvilInstance};
     use alloy::primitives::utils::format_ether;
     use alloy::primitives::{Address, U256};
     use alloy::providers::Provider;
@@ -1626,7 +1627,9 @@ pub mod tests {
     pub async fn get_test_scenario(
         anvil: &AnvilInstance,
         txs_per_duration: u64,
-    ) -> TestScenario<MockDb, RandSeed, MockConfig> {
+        builder_anvil: Option<&AnvilInstance>,
+    ) -> std::result::Result<TestScenario<MockDb, RandSeed, MockConfig>, Box<dyn std::error::Error>>
+    {
         let seed = RandSeed::new();
         let tx_type = alloy::consensus::TxType::Eip1559;
         let bundle_type = BundleType::default();
@@ -1652,7 +1655,7 @@ pub mod tests {
             seed.to_owned(),
             TestScenarioParams {
                 rpc_url: anvil.endpoint_url(),
-                builder_rpc_url: None,
+                builder_rpc_url: builder_anvil.map(|anvil| anvil.endpoint_url()),
                 signers: signers.to_owned(),
                 agent_store: agents,
                 tx_type,
@@ -1663,8 +1666,7 @@ pub mod tests {
             None,
             (&PROM, &HIST).into(),
         )
-        .await
-        .unwrap();
+        .await?;
 
         let fund_amount_wei = U256::from(fund_amount_eth * 1e18);
         println!("fund_amount_wei: {fund_amount_wei}");
@@ -1690,13 +1692,13 @@ pub mod tests {
 
         scenario.ctx.add_to_gas_price(GWEI_TO_WEI as i128 * 10);
 
-        scenario
+        Ok(scenario)
     }
 
     #[tokio::test]
     async fn it_creates_scenarios() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10).await;
+        let scenario = get_test_scenario(&anvil, 10, None).await?;
 
         let create_txs = scenario
             .load_txs(PlanType::Create(|tx| {
@@ -1729,7 +1731,7 @@ pub mod tests {
     #[tokio::test]
     async fn gas_limit_override_works() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10).await;
+        let scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
         let spam_txs = scenario
             .load_txs(PlanType::Spam(20, |tx| {
                 println!("spam tx callback triggered! {tx:?}\n");
@@ -1760,7 +1762,7 @@ pub mod tests {
     #[tokio::test]
     async fn fncall_replaces_sender_placeholder_with_from_address() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10).await;
+        let scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
 
         let spam_txs = scenario
             .load_txs(PlanType::Spam(10, |tx| {
@@ -1784,7 +1786,7 @@ pub mod tests {
     #[tokio::test]
     async fn create_replaces_sender_placeholder_with_from_address() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10).await;
+        let scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
 
         let txs = scenario
             .load_txs(PlanType::Create(|tx| {
@@ -1810,7 +1812,7 @@ pub mod tests {
     #[tokio::test]
     async fn create_steps_use_agent_signers() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil, 10).await;
+        let mut scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
         scenario.deploy_contracts().await.unwrap();
 
         // assert that the agent store has the correct number of signers
@@ -1849,7 +1851,7 @@ pub mod tests {
     #[tokio::test]
     async fn setup_steps_use_agent_signers() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil, 10).await;
+        let mut scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
         scenario.deploy_contracts().await.unwrap();
         let setup_steps = scenario
             .load_txs(PlanType::Setup(|_| Ok(None)))
@@ -1884,7 +1886,7 @@ pub mod tests {
     #[tokio::test]
     async fn scenario_creates_contracts() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil, 10).await;
+        let mut scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
         let res = scenario.deploy_contracts().await;
         assert!(res.is_ok());
     }
@@ -1892,7 +1894,7 @@ pub mod tests {
     #[tokio::test]
     async fn scenario_runs_setup() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil, 10).await;
+        let mut scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
         scenario.deploy_contracts().await.unwrap();
         let res = scenario.run_setup().await;
         println!("{res:?}");
@@ -1903,7 +1905,7 @@ pub mod tests {
     async fn setup_cost_estimates_are_correct(
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10).await;
+        let scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
         let cost = scenario.estimate_setup_cost().await?;
         let total_txs = scenario.config.get_setup_steps().unwrap().len()
             + scenario.config.get_create_steps().unwrap().len();
@@ -1918,7 +1920,7 @@ pub mod tests {
         let anvil = spawn_anvil();
         let txs_per_duration = 50u64;
         let duration = 3;
-        let mut scenario = get_test_scenario(&anvil, txs_per_duration).await;
+        let mut scenario = get_test_scenario(&anvil, txs_per_duration, None).await?;
 
         // make tx chunks
         let tx_req_chunks = scenario
@@ -1972,5 +1974,23 @@ pub mod tests {
         }
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn new_scenario_rejects_mismatched_chain_ids() {
+        let anvil = spawn_anvil();
+        let anvil2 = Anvil::new().chain_id(12321).spawn();
+        let scenario = get_test_scenario(&anvil, 10, Some(&anvil2)).await;
+
+        if let Err(e) = scenario {
+            println!("error: {e}");
+            assert!(matches!(
+                e.downcast_ref(),
+                Some(ContenderError::SetupError(_, _))
+            ));
+            assert!(e.to_string().contains("chain id must be consistent"));
+        } else {
+            panic!("scenario should not return if chain IDs don't match");
+        }
     }
 }
