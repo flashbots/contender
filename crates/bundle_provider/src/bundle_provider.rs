@@ -17,6 +17,12 @@ pub struct BundleClient {
     client: RootProvider<AnyNetwork>,
 }
 
+impl Provider<AnyNetwork> for BundleClient {
+    fn root(&self) -> &RootProvider<AnyNetwork> {
+        self.client.root()
+    }
+}
+
 impl BundleClient {
     /// Creates a new [`BundleClient`] with the given URL.
     pub fn new(url: impl IntoUrl) -> Result<Self, BundleProviderError> {
