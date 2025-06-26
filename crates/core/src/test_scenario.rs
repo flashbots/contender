@@ -41,7 +41,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 #[derive(Clone)]
 pub struct PrometheusCollector {
@@ -211,11 +211,6 @@ where
             }
         }
 
-        let chain_id = rpc_client
-            .get_chain_id()
-            .await
-            .map_err(|e| ContenderError::with_err(e, "failed to get chain id"))?;
-
         let mut nonces = HashMap::new();
         sync_nonces(&wallet_map, &mut nonces, &rpc_client).await?;
 
@@ -226,6 +221,28 @@ where
         } else {
             None
         };
+
+        let chain_id = rpc_client
+            .get_chain_id()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "rpc client failed to get chain id"))?;
+        let chain_id_builder = if let Some(builder_client) = &bundle_client {
+            builder_client
+                .get_chain_id()
+                .await
+                .map_err(|e| ContenderError::with_err(e, "bundle client failed to get chain id"))?
+        } else {
+            chain_id
+        };
+        if chain_id != chain_id_builder {
+            error!(
+                "chain id mismatch: primary chain id: {chain_id}, builder chain id: {chain_id_builder}"
+            );
+            return Err(ContenderError::SetupError(
+                "chain id must be consistent across rpc and builder",
+                None,
+            ));
+        }
 
         let cancel_token = CancellationToken::new();
 
@@ -532,6 +549,7 @@ where
     }
 
     pub async fn run_setup(&mut self) -> Result<()> {
+        let chain_id = self.chain_id;
         self.load_txs(PlanType::Setup(|tx_req| {
             /* callback */
             info!("{}", self.format_setup_log(&tx_req));
@@ -558,7 +576,6 @@ where
                     .wallet(wallet)
                     .connect_http(rpc_url.to_owned());
 
-                let chain_id = wallet.get_chain_id().await.expect("failed to get chain id");
                 let tx_label = tx_req
                     .name
                     .as_deref()
@@ -717,7 +734,7 @@ where
                             .await
                             .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
 
-                        debug!("bundle tx from {:?}", tx_req.from);
+                        trace!("bundle tx: {tx_req:?}");
                         // sign tx
                         let tx_envelope = tx_req.build(&signer).await.map_err(|e| {
                             ContenderError::with_err(e, "bad request: failed to build tx")
