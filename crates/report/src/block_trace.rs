@@ -37,6 +37,11 @@ pub async fn get_block_data(
         .cloned()
         .collect();
 
+    if txs.is_empty() {
+        warn!("No landed transactions found. No block data is available.");
+        return Ok(vec![]);
+    }
+
     // find block range of txs
     let (min_block, max_block) = txs.iter().fold((u64::MAX, 0), |(min, max), tx| {
         let bn = tx.block_number.expect("tx has no block number");
