@@ -216,8 +216,11 @@ where
 
         let gas_limits = HashMap::new();
 
-        let bundle_client = if let Some(url) = &builder_rpc_url {
-            Some(Arc::new(BundleClient::new(url.clone())?))
+        let bundle_client = if let Some(builder_url) = &builder_rpc_url {
+            let client = ClientBuilder::default()
+                .layer(LoggingLayer::new(prometheus.prom, prometheus.hist).await)
+                .http(builder_url.to_owned());
+            Some(Arc::new(BundleClient::from_client(client)))
         } else {
             None
         };
