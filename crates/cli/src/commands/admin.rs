@@ -80,8 +80,17 @@ fn print_accounts_for_pool(
 ) -> Result<(), ContenderError> {
     info!("Generating addresses for pool: {}", pool);
     let agent = SignerStore::new(num_signers, seed, pool);
+    let mut private_keys = vec![];
     for (i, address) in agent.all_addresses().iter().enumerate() {
+        private_keys.push(format!(
+            "0x{}",
+            hex::encode(agent.signers[i].credential().to_bytes())
+        ));
         println!("Signer {i}: {address}");
+    }
+    println!("---------------------------------");
+    for (i, key) in private_keys.iter().enumerate() {
+        println!("Private Key {i}: {key}");
     }
     Ok(())
 }
