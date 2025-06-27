@@ -71,17 +71,13 @@ impl ToTestConfig for FillBlockArgs {
         let gas_per_tx = max_gas_per_block / num_txs;
         let spam_txs = (0..num_txs)
             .map(|_| {
-                SpamRequest::Tx(FunctionCallDefinition {
-                    to: "{SpamMe5}".to_owned(),
-                    from: None,
-                    signature: Some("consumeGas()".to_owned()),
-                    from_pool: Some("spammers".to_owned()),
-                    args: None,
-                    value: None,
-                    fuzz: None,
-                    kind: Some("fill-block".to_owned()),
-                    gas_limit: Some(gas_per_tx),
-                })
+                SpamRequest::Tx(
+                    FunctionCallDefinition::new(contracts::SPAM_ME.template_name())
+                        .with_signature("consumeGas()")
+                        .with_from_pool("spammers")
+                        .with_kind("fill-block")
+                        .with_gas_limit(gas_per_tx),
+                )
             })
             .collect::<Vec<_>>();
 

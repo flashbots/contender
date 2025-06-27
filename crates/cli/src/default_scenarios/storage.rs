@@ -43,12 +43,10 @@ impl ToTestConfig for StorageStressArgs {
             num_iterations,
         } = self;
         let txs = [
-            FunctionCallDefinition::new(
-                contracts::SPAM_ME.template_name(),
-                Some("fillStorageSlots(uint256 numSlots, uint256 iteration)"),
-            )
-            .with_args(&[num_slots.to_string(), num_iterations.to_string()])
-            .with_from_pool("admin"),
+            FunctionCallDefinition::new(contracts::SPAM_ME.template_name())
+                .with_signature("fillStorageSlots(uint256 numSlots, uint256 iteration)")
+                .with_args(&[num_slots.to_string(), num_iterations.to_string()])
+                .with_from_pool("admin"),
             // ... add more transactions here if needed.
         ]
         .into_iter()

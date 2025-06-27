@@ -142,12 +142,10 @@ impl ToTestConfig for StressCliArgs {
         };
 
         let consume_gas = |args: &[&'static str]| {
-            FunctionCallDefinition::new(
-                contracts::SPAM_ME.template_name(),
-                "consumeGas(string memory method, uint256 iterations)".into(),
-            )
-            .with_args(args)
-            .with_from_pool("spammers")
+            FunctionCallDefinition::new(contracts::SPAM_ME.template_name())
+                .with_signature("consumeGas(string memory method, uint256 iterations)")
+                .with_args(args)
+                .with_from_pool("spammers")
         };
 
         // custom overrides for specific opcodes

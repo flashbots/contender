@@ -40,12 +40,12 @@ pub struct FunctionCallDefinition {
 }
 
 impl FunctionCallDefinition {
-    pub fn new(to: impl AsRef<str>, signature: Option<&str>) -> Self {
+    pub fn new(to: impl AsRef<str>) -> Self {
         FunctionCallDefinition {
             to: to.as_ref().to_owned(),
             from: None,
             from_pool: None,
-            signature: signature.map(|s| s.to_owned()),
+            signature: None,
             args: None,
             value: None,
             fuzz: None,
@@ -54,6 +54,10 @@ impl FunctionCallDefinition {
         }
     }
 
+    pub fn with_signature(mut self, sig: impl AsRef<str>) -> Self {
+        self.signature = Some(sig.as_ref().to_owned());
+        self
+    }
     pub fn with_from(mut self, from: impl AsRef<str>) -> Self {
         self.from = Some(from.as_ref().to_owned());
         self

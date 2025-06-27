@@ -45,7 +45,7 @@ impl From<TransferStressCliArgs> for TransferStressArgs {
 impl ToTestConfig for TransferStressArgs {
     fn to_testconfig(&self) -> contender_testfile::TestConfig {
         let TransferStressArgs { amount, recipient } = self;
-        let txs = [FunctionCallDefinition::new(recipient, None)
+        let txs = [FunctionCallDefinition::new(recipient)
             .with_value(*amount)
             .with_from_pool("spammers")]
         .into_iter()
