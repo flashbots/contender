@@ -14,6 +14,7 @@ use alloy::{
     providers::{DynProvider, ProviderBuilder},
     transports::http::reqwest::Url,
 };
+use ansi_term::Style;
 use contender_core::{
     agent_controller::AgentStore,
     db::{DbOps, SpamDuration, SpamRunRequest},
@@ -88,16 +89,13 @@ impl SpamScenario {
             SpamScenario::Testfile(testfile) => load_testconfig(testfile)
                 .await
                 .map_err(|e| ContenderError::with_err(e.deref(), "failed to load testconfig"))?,
-            SpamScenario::Builtin(scenario) => TestConfig::from(scenario.to_owned()),
+            SpamScenario::Builtin(scenario) => scenario.to_owned().into(),
         };
         Ok(config)
     }
 
     pub fn is_builtin(&self) -> bool {
-        match self {
-            SpamScenario::Testfile(_) => false,
-            SpamScenario::Builtin(_) => true,
-        }
+        matches!(self, SpamScenario::Builtin(_))
     }
 }
 
@@ -147,6 +145,23 @@ impl SpamCommandArgs {
 
         let mut testconfig = scenario.testconfig().await?;
         let spam_len = testconfig.spam.as_ref().map(|s| s.len()).unwrap_or(0);
+        let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam_len as u64));
+
+        // check if txs_per_duration is enough to cover the spam requests
+        if txs_per_duration < spam_len as u64 {
+            return Err(ContenderError::SpamError(
+                "Not enough transactions per duration to cover spam requests.",
+                Some(format!(
+                    "Set {} or {} to at least {spam_len}",
+                    ansi_term::Style::new()
+                        .bold()
+                        .paint("--txs-per-block (--tpb)"),
+                    ansi_term::Style::new()
+                        .bold()
+                        .paint("--txs-per-second (--tps)"),
+                )),
+            ));
+        }
 
         if let Some(spam) = &testconfig.spam {
             if spam.is_empty() {
@@ -184,10 +199,9 @@ impl SpamCommandArgs {
 
         // distill all from_pool arguments from the spam requests
         let from_pool_declarations = testconfig.get_spam_pools();
+        let signers_per_period = txs_per_duration / from_pool_declarations.len().max(1) as u64;
 
         let mut agents = AgentStore::new();
-        let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam_len as u64));
-        let signers_per_period = txs_per_duration / from_pool_declarations.len().max(1) as u64;
         agents.init(
             &from_pool_declarations,
             signers_per_period as usize,
@@ -283,6 +297,21 @@ impl SpamCommandArgs {
 
         if self.scenario.is_builtin() {
             let scenario = &mut scenario;
+            let setup_cost = scenario.estimate_setup_cost().await?;
+            if min_balance < &setup_cost {
+                return Err(ContenderError::SpamError(
+                    "min_balance is not enough to cover the cost of the setup transactions.",
+                    format!(
+                        "min_balance: {}, setup_cost: {}\nUse {} to increase the amount of funds sent to agent wallets.",
+                        format_ether(*min_balance),
+                        format_ether(setup_cost),
+                        ansi_term::Style::new()
+                            .bold()
+                            .paint("spam --min-balance <ETH amount>"),
+                    )
+                    .into(),
+                ));
+            }
             tokio::select! {
                 inner_res = async move {
                     if let Some(handle) = fcu_handle {
@@ -413,7 +442,7 @@ pub async fn spam<
     let mut run_id = None;
     let scenario_name = match scenario {
         SpamScenario::Testfile(testfile) => testfile.to_owned(),
-        SpamScenario::Builtin(scenario) => scenario.to_string(),
+        SpamScenario::Builtin(scenario) => scenario.title(),
     };
 
     let rpc_client = test_scenario.rpc_client.clone();
@@ -447,8 +476,12 @@ pub async fn spam<
         )
     } else {
         return Err(Box::new(ContenderError::SpamError(
-            "Either --txs-per-block or --txs-per-second must be set.",
-            None,
+            "Missing params.",
+            Some(format!(
+                "Either {} or {} must be set.",
+                Style::new().bold().paint("--txs-per-block"),
+                Style::new().bold().paint("--txs-per-second"),
+            )),
         )));
     };
 

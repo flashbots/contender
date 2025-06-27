@@ -6,6 +6,7 @@ pub mod generator;
 pub mod provider;
 pub mod spammer;
 pub mod test_scenario;
+pub mod util;
 
 pub type Result<T> = std::result::Result<T, error::ContenderError>;
 

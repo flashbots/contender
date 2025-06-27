@@ -1,5 +1,10 @@
 mod builtin;
-mod bytecode;
+mod contracts;
+pub mod eth_functions;
 pub mod fill_block;
+pub mod storage;
+pub mod stress;
+pub mod transfers;
+pub mod uni_v2;
 
 pub use builtin::{BuiltinScenario, BuiltinScenarioCli};

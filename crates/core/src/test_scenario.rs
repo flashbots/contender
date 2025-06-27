@@ -11,6 +11,7 @@ use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use crate::provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID};
 use crate::spammer::tx_actor::TxActorHandle;
 use crate::spammer::{ExecutionPayload, RuntimeTxInfo, SpamCallback, SpamTrigger};
+use crate::util::get_block_time;
 use crate::Result;
 use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
 use alloy::consensus::{Transaction, TxType};
@@ -170,32 +171,6 @@ where
                 .connect_client(client),
         ));
 
-        // derive block time from first two blocks. if two blocks don't exist, assume block time is 1s
-        let block_num = rpc_client
-            .get_block_number()
-            .await
-            .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
-        let block_time_secs = if block_num > 0 {
-            let mut timestamps = vec![];
-            for i in [0_u64, 1] {
-                debug!("getting timestamp for block {i}");
-                let block = rpc_client
-                    .get_block_by_number(i.into())
-                    .await
-                    .map_err(|e| ContenderError::with_err(e, "failed to get block"))?;
-                if let Some(block) = block {
-                    timestamps.push(block.header.timestamp);
-                }
-            }
-            if timestamps.len() == 2 {
-                (timestamps[1] - timestamps[0]).max(1)
-            } else {
-                1
-            }
-        } else {
-            1
-        };
-
         let mut wallet_map = HashMap::new();
         let wallets = signers.iter().map(|s| {
             let w = EthereumWallet::new(s.clone());
@@ -254,6 +229,7 @@ where
         let mut msg_handles = HashMap::new();
         msg_handles.insert("default".to_owned(), msg_handle);
         msg_handles.extend(extra_msg_handles.unwrap_or_default());
+        let block_time_secs = get_block_time(rpc_client.as_ref()).await?;
 
         Ok(Self {
             config,
@@ -672,7 +648,12 @@ where
                 self.rpc_client
                     .estimate_gas(WithOtherFields::new(tx_req.to_owned()))
                     .await
-                    .map_err(|e| ContenderError::with_err(e, "failed to estimate gas for tx"))?
+                    .map_err(|e| {
+                        if e.as_error_resp().is_some() {
+                            tracing::error!("failed tx: {tx_req:?}");
+                        }
+                        ContenderError::with_err(e, "failed to estimate gas for tx")
+                    })?
             };
             self.gas_limits.insert(key, gas_limit);
         }
@@ -1005,7 +986,9 @@ where
         while let Some(trigger) = cursor.next().await {
             let trigger = trigger.to_owned();
             // assign from addrs, nonces, and gas prices for this chunk of tx requests
-            let payloads = self.prepare_spam(&tx_req_chunks[tick]).await?;
+            let payloads = self
+                .prepare_spam(&tx_req_chunks[tick % tx_req_chunks.len().max(1)])
+                .await?;
             let num_payloads = payloads.len();
 
             // initialize async context handlers
@@ -1255,8 +1238,8 @@ where
                     .all(|&size| size == cache_size_queue[0])
                 {
                     debug!(
-                                "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
-                            );
+                        "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
+                    );
                     for tx in &pending_txs {
                         // only remove txs that have been waiting for > T seconds
                         if current_timestamp
@@ -1419,7 +1402,7 @@ pub mod tests {
     use crate::generator::named_txs::ExecutionRequest;
     use crate::generator::templater::Templater;
     use crate::generator::types::{
-        CreateDefinition, FunctionCallDefinition, FuzzParam, SpamRequest,
+        CompiledContract, CreateDefinition, FunctionCallDefinition, FuzzParam, SpamRequest,
     };
     use crate::generator::{types::PlanType, util::test::spawn_anvil, RandSeed};
     use crate::generator::{Generator, PlanConfig};
@@ -1460,14 +1443,18 @@ pub mod tests {
         fn get_create_steps(&self) -> Result<Vec<CreateDefinition>> {
             Ok(vec![
                 CreateDefinition {
-                    bytecode: COUNTER_BYTECODE.to_string(),
-                    name: "test_counter2".to_string(),
+                    contract: CompiledContract {
+                        bytecode: COUNTER_BYTECODE.to_string(),
+                        name: "test_counter2".to_string(),
+                    },
                     from: None,
                     from_pool: Some("admin1".to_owned()),
                 },
                 CreateDefinition {
-                    bytecode: UNI_V2_FACTORY_BYTECODE.to_string(),
-                    name: "univ2_factory".to_string(),
+                    contract: CompiledContract {
+                        bytecode: UNI_V2_FACTORY_BYTECODE.to_string(),
+                        name: "univ2_factory".to_string(),
+                    },
                     from: None,
                     from_pool: Some("admin2".to_owned()),
                 },
@@ -1481,7 +1468,7 @@ pub mod tests {
                     from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
                     from_pool: None,
                     value: Some("4096".to_owned()),
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
@@ -1498,7 +1485,7 @@ pub mod tests {
                     from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
                     from_pool: None,
                     value: Some("0x1000".to_owned()),
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
@@ -1515,7 +1502,7 @@ pub mod tests {
                     from: None,
                     from_pool: Some("pool1".to_owned()),
                     value: None,
-                    signature: "increment()".to_owned(),
+                    signature: Some("increment()".to_owned()),
                     args: vec![].into(),
                     fuzz: None,
                     kind: None,
@@ -1531,7 +1518,7 @@ pub mod tests {
                     from: None,
                     from_pool: Some("pool1".to_owned()),
                     value: None,
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
@@ -1555,7 +1542,7 @@ pub mod tests {
                     from: None,
                     from_pool: Some("pool2".to_owned()),
                     value: None,
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
@@ -1579,7 +1566,7 @@ pub mod tests {
                     from: None,
                     from_pool: Some("pool2".to_owned()),
                     value: None,
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),

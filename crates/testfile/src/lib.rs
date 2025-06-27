@@ -12,7 +12,7 @@ pub mod tests {
         primitives::{Address, U256},
         signers::local::PrivateKeySigner,
     };
-    use contender_core::generator::templater::Templater;
+    use contender_core::generator::{templater::Templater, types::CompiledContract};
     use contender_core::{
         db::MockDb,
         generator::{
@@ -57,7 +57,7 @@ pub mod tests {
                 .to_owned()
                 .into(),
             from_pool: None,
-            signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+            signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
             args: vec![
                 "1".to_owned(),
                 "2".to_owned(),
@@ -85,7 +85,7 @@ pub mod tests {
             from: from_addr.to_owned().into(),
             from_pool: None,
             value: None,
-            signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+            signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
             args: vec![
                 "1".to_owned(),
                 "2".to_owned(),
@@ -145,7 +145,7 @@ pub mod tests {
                         .into(),
                     from_pool: None,
                     value: Some("4096".to_owned()),
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
@@ -164,7 +164,7 @@ pub mod tests {
                         .into(),
                     from_pool: None,
                     value: Some("0x1000".to_owned()),
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
@@ -188,8 +188,10 @@ pub mod tests {
         TestConfig {
             env: Some(env),
             create: Some(vec![CreateDefinition {
-                bytecode: COUNTER_BYTECODE.to_string(),
-                name: "test_counter".to_string(),
+                contract: CompiledContract::new(
+                    COUNTER_BYTECODE.to_string(),
+                    "test_counter".to_string(),
+                ),
                 from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
                 from_pool: None,
             }]),
