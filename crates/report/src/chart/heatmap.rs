@@ -22,11 +22,18 @@ impl TxTraceReceipt {
                 "Block number not found in receipt.",
                 "".to_string(),
             ))?;
-        let trace_frame = self
-            .trace
-            .to_owned()
-            .try_into_pre_state_frame()
-            .map_err(|e| ContenderError::with_err(e, "failed to decode frame (preState mode)"))?;
+        let trace_frame = self.trace.to_owned().try_into_pre_state_frame().ok();
+        // If the trace frame is None, it means that the preState trace was not found.
+        // This can happen if the target node does not support preState traces.
+        if trace_frame.is_none() {
+            // Log a warning and return early
+            warn!(
+                "No preState trace frame found for block number {}. This may indicate that the target node does not support preState traces.",
+                block_num
+            );
+            return Ok(());
+        }
+        let trace_frame = trace_frame.expect("trace frame should be Some");
         let account_map = &trace_frame
             .as_default()
             .ok_or(ContenderError::GenericError(
@@ -36,10 +43,7 @@ impl TxTraceReceipt {
             .0;
 
         // "for each account in this transaction trace"
-        for key in account_map.keys() {
-            let update = account_map
-                .get(key)
-                .expect("invalid key; this should never happen");
+        for (_key, update) in account_map.iter() {
             // for every storage slot in this frame, increment the count for the slot at this block number
             update.storage.iter().for_each(|(slot, _)| {
                 if let Some(slot_map) = updates_per_slot_per_block.get_mut(&block_num) {
