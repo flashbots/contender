@@ -3,6 +3,7 @@ use alloy::{
     primitives::Bytes,
     providers::{Provider, ProviderBuilder, RootProvider},
     rpc::{
+        client::RpcClient,
         json_rpc::{RpcRecv, RpcSend},
         types::mev::EthSendBundle,
     },
@@ -17,6 +18,12 @@ pub struct BundleClient {
     client: RootProvider<AnyNetwork>,
 }
 
+impl Provider<AnyNetwork> for BundleClient {
+    fn root(&self) -> &RootProvider<AnyNetwork> {
+        self.client.root()
+    }
+}
+
 impl BundleClient {
     /// Creates a new [`BundleClient`] with the given URL.
     pub fn new(url: impl IntoUrl) -> Result<Self, BundleProviderError> {
@@ -25,6 +32,15 @@ impl BundleClient {
                 .map_err(|_| BundleProviderError::InvalidUrl)?,
         );
         Ok(Self { client: provider })
+    }
+
+    pub fn from_client(client: RpcClient) -> Self {
+        let provider = ProviderBuilder::new()
+            .network::<AnyNetwork>()
+            .connect_client(client);
+        Self {
+            client: provider.root().to_owned(),
+        }
     }
 
     /// Sends a bundle using `eth_sendBundle`, discarding the response.

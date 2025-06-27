@@ -166,6 +166,7 @@ pub async fn report(
         "eth_getBlockByNumber",
         "eth_getBlockReceipts",
         "eth_getTransactionCount",
+        "eth_sendBundle",
     ];
     let mut canonical_latency_map = BTreeMap::<String, Vec<Bucket>>::new();
     for method in latency_methods {

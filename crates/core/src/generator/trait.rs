@@ -176,6 +176,11 @@ where
         })
     }
 
+    /// Converts a `FunctionCallDefinition` to a `FunctionCallDefinitionStrict`, replacing
+    /// `{_sender}` with the `from` address, and ensuring that the `from` address is valid.
+    /// If `from_pool` is specified, it will use the address of the signer at index `idx`.
+    /// If `from` is specified, it will parse the address from the string.
+    /// If neither is specified, it will return an error.
     fn make_strict_call(
         &self,
         funcdef: &FunctionCallDefinition,
