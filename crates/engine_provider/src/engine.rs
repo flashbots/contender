@@ -98,6 +98,16 @@ pub trait EngineApi<N: NetworkAttributes>: Send + Sync {
         payload_attributes: Option<N::PayloadAttributes>,
     ) -> TransportResult<ForkchoiceUpdated>;
 
+    /// Updates the execution layer client with the given fork choice, as specified for the Cancun
+    /// fork.
+    ///
+    /// See also <https://github.com/ethereum/execution-apis/blob/main/src/engine/cancun.md#engine_forkchoiceupdatedv3>
+    async fn fork_choice_updated_v4(
+        &self,
+        fork_choice_state: ForkchoiceState,
+        payload_attributes: Option<N::PayloadAttributes>,
+    ) -> TransportResult<ForkchoiceUpdated>;
+
     /// Retrieves an execution payload from a previously started build process, as specified for the
     /// Paris fork.
     ///
@@ -281,6 +291,19 @@ where
         self.client()
             .request(
                 "engine_forkchoiceUpdatedV3",
+                (fork_choice_state, payload_attributes),
+            )
+            .await
+    }
+
+    async fn fork_choice_updated_v4(
+        &self,
+        fork_choice_state: ForkchoiceState,
+        payload_attributes: Option<N::PayloadAttributes>,
+    ) -> TransportResult<ForkchoiceUpdated> {
+        self.client()
+            .request(
+                "engine_forkchoiceUpdatedV4",
                 (fork_choice_state, payload_attributes),
             )
             .await
