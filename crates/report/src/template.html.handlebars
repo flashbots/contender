@@ -156,6 +156,12 @@
       width: 100%;
       height: 420px;
     }
+
+    .no-chart {
+      width: 100%;
+      height: 20px;
+      text-align: center;
+    }
   </style>
 
 </head>
@@ -306,6 +312,14 @@
     }
 
     async function renderHeatmap() {
+      // data may be missing if the target node does not support geth-style traces.
+      // if data is missing, skip rendering, replacing the 'heatmap' div with a message
+      if ({{data.chart_data.heatmap.blocks}}.length === 0) {
+        document.getElementById('heatmap').innerHTML = '<p>No data available. Target node may not support geth-style preState traces.</p>';
+        document.getElementById('heatmap').className = 'no-chart';
+        return;
+      }
+
       // Initialize the echarts instance based on the prepared dom
       var chart = echarts.init(document.getElementById('heatmap'));
 
@@ -395,6 +409,9 @@
             type: 'cross'
           }
         },
+        grid: {
+          left: '15%'
+        },
         xAxis: {
           type: 'category',
           data: blocks,
@@ -440,6 +457,7 @@
         xAxis: {
           type: 'category',
           data: buckets,
+          nameGap: 2,
           axisLabel: {
             interval: 0,
             rotate: 45
@@ -487,6 +505,7 @@
           type: 'category',
           data: buckets,
           name: 'Gas Used',
+          nameGap: 2,
           axisLabel: {
             interval: 0,
             rotate: 45

@@ -165,17 +165,23 @@ where
         };
 
         let bytecode = create_def
+            .contract
             .bytecode
             .to_owned()
             .replace("{_sender}", &from_address.encode_hex()); // inject address WITHOUT 0x prefix
 
         Ok(CreateDefinitionStrict {
-            name: create_def.name.to_owned(),
+            name: create_def.contract.name.to_owned(),
             bytecode,
             from: from_address,
         })
     }
 
+    /// Converts a `FunctionCallDefinition` to a `FunctionCallDefinitionStrict`, replacing
+    /// `{_sender}` with the `from` address, and ensuring that the `from` address is valid.
+    /// If `from_pool` is specified, it will use the address of the signer at index `idx`.
+    /// If `from` is specified, it will parse the address from the string.
+    /// If neither is specified, it will return an error.
     fn make_strict_call(
         &self,
         funcdef: &FunctionCallDefinition,
@@ -232,7 +238,7 @@ where
         Ok(FunctionCallDefinitionStrict {
             to: to_address,
             from: from_address,
-            signature: funcdef.signature.to_owned(),
+            signature: funcdef.signature.to_owned().unwrap_or_default(),
             args,
             value: funcdef.value.to_owned(),
             fuzz: funcdef.fuzz.to_owned().unwrap_or_default(),
@@ -427,36 +433,40 @@ fn get_fuzzed_args(
     fuzz_map: &HashMap<String, Vec<U256>>,
     fuzz_idx: usize,
 ) -> Vec<String> {
-    let func = alloy::json_abi::Function::parse(&tx.signature)
-        .expect("[get_fuzzed_args] failed to parse function signature");
-    let tx_args = tx.args.as_deref().unwrap_or_default();
-    tx_args
-        .iter()
-        .enumerate()
-        .map(|(idx, arg)| {
-            let maybe_fuzz = || {
-                let input_def = func.inputs[idx].to_string();
-                // there's probably a better way to do this, but I haven't found it
-                // we're looking for something like "uint256 arg_name" in input_def
-                let arg_namedefs = input_def.split_ascii_whitespace().collect::<Vec<&str>>();
-                if arg_namedefs.len() < 2 {
-                    // can't fuzz unnamed params
-                    return None;
-                }
-                let arg_name = arg_namedefs[1];
-                if fuzz_map.contains_key(arg_name) {
-                    return Some(
-                        fuzz_map.get(arg_name).expect("this should never happen")[fuzz_idx]
-                            .to_string(),
-                    );
-                }
-                None
-            };
+    if let Some(tx_signature) = &tx.signature {
+        let func = alloy::json_abi::Function::parse(tx_signature)
+            .expect("[get_fuzzed_args] failed to parse function signature");
+        let tx_args = tx.args.as_deref().unwrap_or_default();
+        tx_args
+            .iter()
+            .enumerate()
+            .map(|(idx, arg)| {
+                let maybe_fuzz = || {
+                    let input_def = func.inputs[idx].to_string();
+                    // there's probably a better way to do this, but I haven't found it
+                    // we're looking for something like "uint256 arg_name" in input_def
+                    let arg_namedefs = input_def.split_ascii_whitespace().collect::<Vec<&str>>();
+                    if arg_namedefs.len() < 2 {
+                        // can't fuzz unnamed params
+                        return None;
+                    }
+                    let arg_name = arg_namedefs[1];
+                    if fuzz_map.contains_key(arg_name) {
+                        return Some(
+                            fuzz_map.get(arg_name).expect("this should never happen")[fuzz_idx]
+                                .to_string(),
+                        );
+                    }
+                    None
+                };
 
-            // !!! args with template values will be overwritten by the fuzzer if it's enabled for this arg
-            maybe_fuzz().unwrap_or(arg.to_owned())
-        })
-        .collect()
+                // !!! args with template values will be overwritten by the fuzzer if it's enabled for this arg
+                maybe_fuzz().unwrap_or(arg.to_owned())
+            })
+            .collect()
+    } else {
+        vec![]
+    }
 }
 
 fn get_fuzzed_tx_value(

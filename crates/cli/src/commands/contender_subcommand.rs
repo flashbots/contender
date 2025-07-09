@@ -27,7 +27,7 @@ pub enum ContenderSubcommand {
     )]
     Spam {
         #[command(flatten)]
-        args: SpamCliArgs,
+        args: Box<SpamCliArgs>,
 
         #[command(subcommand, name = "builtin-scenario")]
         builtin_scenario_config: Option<BuiltinScenarioCli>,
@@ -39,7 +39,7 @@ pub enum ContenderSubcommand {
     )]
     Setup {
         #[command(flatten)]
-        args: SetupCliArgs,
+        args: Box<SetupCliArgs>,
     },
 
     #[command(

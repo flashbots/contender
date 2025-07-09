@@ -11,6 +11,7 @@ use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use crate::provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID};
 use crate::spammer::tx_actor::TxActorHandle;
 use crate::spammer::{ExecutionPayload, RuntimeTxInfo, SpamCallback, SpamTrigger};
+use crate::util::get_block_time;
 use crate::Result;
 use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
 use alloy::consensus::{Transaction, TxType};
@@ -41,7 +42,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 #[derive(Clone)]
 pub struct PrometheusCollector {
@@ -170,32 +171,6 @@ where
                 .connect_client(client),
         ));
 
-        // derive block time from first two blocks. if two blocks don't exist, assume block time is 1s
-        let block_num = rpc_client
-            .get_block_number()
-            .await
-            .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
-        let block_time_secs = if block_num > 0 {
-            let mut timestamps = vec![];
-            for i in [0_u64, 1] {
-                debug!("getting timestamp for block {i}");
-                let block = rpc_client
-                    .get_block_by_number(i.into())
-                    .await
-                    .map_err(|e| ContenderError::with_err(e, "failed to get block"))?;
-                if let Some(block) = block {
-                    timestamps.push(block.header.timestamp);
-                }
-            }
-            if timestamps.len() == 2 {
-                (timestamps[1] - timestamps[0]).max(1)
-            } else {
-                1
-            }
-        } else {
-            1
-        };
-
         let mut wallet_map = HashMap::new();
         let wallets = signers.iter().map(|s| {
             let w = EthereumWallet::new(s.clone());
@@ -211,21 +186,41 @@ where
             }
         }
 
-        let chain_id = rpc_client
-            .get_chain_id()
-            .await
-            .map_err(|e| ContenderError::with_err(e, "failed to get chain id"))?;
-
         let mut nonces = HashMap::new();
         sync_nonces(&wallet_map, &mut nonces, &rpc_client).await?;
 
         let gas_limits = HashMap::new();
 
-        let bundle_client = if let Some(url) = &builder_rpc_url {
-            Some(Arc::new(BundleClient::new(url.clone())?))
+        let bundle_client = if let Some(builder_url) = &builder_rpc_url {
+            let client = ClientBuilder::default()
+                .layer(LoggingLayer::new(prometheus.prom, prometheus.hist).await)
+                .http(builder_url.to_owned());
+            Some(Arc::new(BundleClient::from_client(client)))
         } else {
             None
         };
+
+        let chain_id = rpc_client
+            .get_chain_id()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "rpc client failed to get chain id"))?;
+        let chain_id_builder = if let Some(builder_client) = &bundle_client {
+            builder_client
+                .get_chain_id()
+                .await
+                .map_err(|e| ContenderError::with_err(e, "bundle client failed to get chain id"))?
+        } else {
+            chain_id
+        };
+        if chain_id != chain_id_builder {
+            error!(
+                "chain id mismatch: primary chain id: {chain_id}, builder chain id: {chain_id_builder}"
+            );
+            return Err(ContenderError::SetupError(
+                "chain id must be consistent across rpc and builder",
+                None,
+            ));
+        }
 
         let cancel_token = CancellationToken::new();
 
@@ -234,6 +229,7 @@ where
         let mut msg_handles = HashMap::new();
         msg_handles.insert("default".to_owned(), msg_handle);
         msg_handles.extend(extra_msg_handles.unwrap_or_default());
+        let block_time_secs = get_block_time(rpc_client.as_ref()).await?;
 
         Ok(Self {
             config,
@@ -532,6 +528,7 @@ where
     }
 
     pub async fn run_setup(&mut self) -> Result<()> {
+        let chain_id = self.chain_id;
         self.load_txs(PlanType::Setup(|tx_req| {
             /* callback */
             info!("{}", self.format_setup_log(&tx_req));
@@ -558,7 +555,6 @@ where
                     .wallet(wallet)
                     .connect_http(rpc_url.to_owned());
 
-                let chain_id = wallet.get_chain_id().await.expect("failed to get chain id");
                 let tx_label = tx_req
                     .name
                     .as_deref()
@@ -652,7 +648,12 @@ where
                 self.rpc_client
                     .estimate_gas(WithOtherFields::new(tx_req.to_owned()))
                     .await
-                    .map_err(|e| ContenderError::with_err(e, "failed to estimate gas for tx"))?
+                    .map_err(|e| {
+                        if e.as_error_resp().is_some() {
+                            tracing::error!("failed tx: {tx_req:?}");
+                        }
+                        ContenderError::with_err(e, "failed to estimate gas for tx")
+                    })?
             };
             self.gas_limits.insert(key, gas_limit);
         }
@@ -717,7 +718,7 @@ where
                             .await
                             .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
 
-                        debug!("bundle tx from {:?}", tx_req.from);
+                        trace!("bundle tx: {tx_req:?}");
                         // sign tx
                         let tx_envelope = tx_req.build(&signer).await.map_err(|e| {
                             ContenderError::with_err(e, "bad request: failed to build tx")
@@ -985,7 +986,9 @@ where
         while let Some(trigger) = cursor.next().await {
             let trigger = trigger.to_owned();
             // assign from addrs, nonces, and gas prices for this chunk of tx requests
-            let payloads = self.prepare_spam(&tx_req_chunks[tick]).await?;
+            let payloads = self
+                .prepare_spam(&tx_req_chunks[tick % tx_req_chunks.len().max(1)])
+                .await?;
             let num_payloads = payloads.len();
 
             // initialize async context handlers
@@ -1235,8 +1238,8 @@ where
                     .all(|&size| size == cache_size_queue[0])
                 {
                     debug!(
-                                "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
-                            );
+                        "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
+                    );
                     for tx in &pending_txs {
                         // only remove txs that have been waiting for > T seconds
                         if current_timestamp
@@ -1395,10 +1398,11 @@ struct SpamContextHandler {
 pub mod tests {
     use crate::agent_controller::AgentStore;
     use crate::db::MockDb;
+    use crate::error::ContenderError;
     use crate::generator::named_txs::ExecutionRequest;
     use crate::generator::templater::Templater;
     use crate::generator::types::{
-        CreateDefinition, FunctionCallDefinition, FuzzParam, SpamRequest,
+        CompiledContract, CreateDefinition, FunctionCallDefinition, FuzzParam, SpamRequest,
     };
     use crate::generator::{types::PlanType, util::test::spawn_anvil, RandSeed};
     use crate::generator::{Generator, PlanConfig};
@@ -1407,7 +1411,7 @@ pub mod tests {
     use crate::Result;
     use alloy::consensus::constants::GWEI_TO_WEI;
     use alloy::hex::ToHexExt;
-    use alloy::node_bindings::AnvilInstance;
+    use alloy::node_bindings::{Anvil, AnvilInstance};
     use alloy::primitives::utils::format_ether;
     use alloy::primitives::{Address, U256};
     use alloy::providers::Provider;
@@ -1439,14 +1443,18 @@ pub mod tests {
         fn get_create_steps(&self) -> Result<Vec<CreateDefinition>> {
             Ok(vec![
                 CreateDefinition {
-                    bytecode: COUNTER_BYTECODE.to_string(),
-                    name: "test_counter2".to_string(),
+                    contract: CompiledContract {
+                        bytecode: COUNTER_BYTECODE.to_string(),
+                        name: "test_counter2".to_string(),
+                    },
                     from: None,
                     from_pool: Some("admin1".to_owned()),
                 },
                 CreateDefinition {
-                    bytecode: UNI_V2_FACTORY_BYTECODE.to_string(),
-                    name: "univ2_factory".to_string(),
+                    contract: CompiledContract {
+                        bytecode: UNI_V2_FACTORY_BYTECODE.to_string(),
+                        name: "univ2_factory".to_string(),
+                    },
                     from: None,
                     from_pool: Some("admin2".to_owned()),
                 },
@@ -1460,7 +1468,7 @@ pub mod tests {
                     from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
                     from_pool: None,
                     value: Some("4096".to_owned()),
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
@@ -1477,7 +1485,7 @@ pub mod tests {
                     from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
                     from_pool: None,
                     value: Some("0x1000".to_owned()),
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
@@ -1494,7 +1502,7 @@ pub mod tests {
                     from: None,
                     from_pool: Some("pool1".to_owned()),
                     value: None,
-                    signature: "increment()".to_owned(),
+                    signature: Some("increment()".to_owned()),
                     args: vec![].into(),
                     fuzz: None,
                     kind: None,
@@ -1510,7 +1518,7 @@ pub mod tests {
                     from: None,
                     from_pool: Some("pool1".to_owned()),
                     value: None,
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
@@ -1534,7 +1542,7 @@ pub mod tests {
                     from: None,
                     from_pool: Some("pool2".to_owned()),
                     value: None,
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
@@ -1558,7 +1566,7 @@ pub mod tests {
                     from: None,
                     from_pool: Some("pool2".to_owned()),
                     value: None,
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
                     args: vec![
                         "1".to_owned(),
                         "2".to_owned(),
@@ -1609,7 +1617,9 @@ pub mod tests {
     pub async fn get_test_scenario(
         anvil: &AnvilInstance,
         txs_per_duration: u64,
-    ) -> TestScenario<MockDb, RandSeed, MockConfig> {
+        builder_anvil: Option<&AnvilInstance>,
+    ) -> std::result::Result<TestScenario<MockDb, RandSeed, MockConfig>, Box<dyn std::error::Error>>
+    {
         let seed = RandSeed::new();
         let tx_type = alloy::consensus::TxType::Eip1559;
         let bundle_type = BundleType::default();
@@ -1635,7 +1645,7 @@ pub mod tests {
             seed.to_owned(),
             TestScenarioParams {
                 rpc_url: anvil.endpoint_url(),
-                builder_rpc_url: None,
+                builder_rpc_url: builder_anvil.map(|anvil| anvil.endpoint_url()),
                 signers: signers.to_owned(),
                 agent_store: agents,
                 tx_type,
@@ -1646,8 +1656,7 @@ pub mod tests {
             None,
             (&PROM, &HIST).into(),
         )
-        .await
-        .unwrap();
+        .await?;
 
         let fund_amount_wei = U256::from(fund_amount_eth * 1e18);
         println!("fund_amount_wei: {fund_amount_wei}");
@@ -1673,13 +1682,13 @@ pub mod tests {
 
         scenario.ctx.add_to_gas_price(GWEI_TO_WEI as i128 * 10);
 
-        scenario
+        Ok(scenario)
     }
 
     #[tokio::test]
     async fn it_creates_scenarios() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10).await;
+        let scenario = get_test_scenario(&anvil, 10, None).await?;
 
         let create_txs = scenario
             .load_txs(PlanType::Create(|tx| {
@@ -1712,7 +1721,7 @@ pub mod tests {
     #[tokio::test]
     async fn gas_limit_override_works() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10).await;
+        let scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
         let spam_txs = scenario
             .load_txs(PlanType::Spam(20, |tx| {
                 println!("spam tx callback triggered! {tx:?}\n");
@@ -1743,7 +1752,7 @@ pub mod tests {
     #[tokio::test]
     async fn fncall_replaces_sender_placeholder_with_from_address() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10).await;
+        let scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
 
         let spam_txs = scenario
             .load_txs(PlanType::Spam(10, |tx| {
@@ -1767,7 +1776,7 @@ pub mod tests {
     #[tokio::test]
     async fn create_replaces_sender_placeholder_with_from_address() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10).await;
+        let scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
 
         let txs = scenario
             .load_txs(PlanType::Create(|tx| {
@@ -1793,7 +1802,7 @@ pub mod tests {
     #[tokio::test]
     async fn create_steps_use_agent_signers() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil, 10).await;
+        let mut scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
         scenario.deploy_contracts().await.unwrap();
 
         // assert that the agent store has the correct number of signers
@@ -1832,7 +1841,7 @@ pub mod tests {
     #[tokio::test]
     async fn setup_steps_use_agent_signers() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil, 10).await;
+        let mut scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
         scenario.deploy_contracts().await.unwrap();
         let setup_steps = scenario
             .load_txs(PlanType::Setup(|_| Ok(None)))
@@ -1867,7 +1876,7 @@ pub mod tests {
     #[tokio::test]
     async fn scenario_creates_contracts() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil, 10).await;
+        let mut scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
         let res = scenario.deploy_contracts().await;
         assert!(res.is_ok());
     }
@@ -1875,7 +1884,7 @@ pub mod tests {
     #[tokio::test]
     async fn scenario_runs_setup() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil, 10).await;
+        let mut scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
         scenario.deploy_contracts().await.unwrap();
         let res = scenario.run_setup().await;
         println!("{res:?}");
@@ -1886,7 +1895,7 @@ pub mod tests {
     async fn setup_cost_estimates_are_correct(
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10).await;
+        let scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
         let cost = scenario.estimate_setup_cost().await?;
         let total_txs = scenario.config.get_setup_steps().unwrap().len()
             + scenario.config.get_create_steps().unwrap().len();
@@ -1901,7 +1910,7 @@ pub mod tests {
         let anvil = spawn_anvil();
         let txs_per_duration = 50u64;
         let duration = 3;
-        let mut scenario = get_test_scenario(&anvil, txs_per_duration).await;
+        let mut scenario = get_test_scenario(&anvil, txs_per_duration, None).await?;
 
         // make tx chunks
         let tx_req_chunks = scenario
@@ -1955,5 +1964,23 @@ pub mod tests {
         }
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn new_scenario_rejects_mismatched_chain_ids() {
+        let anvil = spawn_anvil();
+        let anvil2 = Anvil::new().chain_id(12321).spawn();
+        let scenario = get_test_scenario(&anvil, 10, Some(&anvil2)).await;
+
+        if let Err(e) = scenario {
+            println!("error: {e}");
+            assert!(matches!(
+                e.downcast_ref(),
+                Some(ContenderError::SetupError(_, _))
+            ));
+            assert!(e.to_string().contains("chain id must be consistent"));
+        } else {
+            panic!("scenario should not return if chain IDs don't match");
+        }
     }
 }

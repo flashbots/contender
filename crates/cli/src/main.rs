@@ -13,8 +13,8 @@ use commands::{
     admin::handle_admin_command,
     common::{ScenarioSendTxsCliArgs, SendSpamCliArgs},
     db::{drop_db, export_db, import_db, reset_db},
-    ContenderCli, ContenderSubcommand, DbCommand, SetupCliArgs, SetupCommandArgs, SpamCliArgs,
-    SpamCommandArgs, SpamScenario,
+    ContenderCli, ContenderSubcommand, DbCommand, SetupCommandArgs, SpamCliArgs, SpamCommandArgs,
+    SpamScenario,
 };
 use contender_core::{db::DbOps, error::ContenderError, generator::RandSeed};
 use contender_sqlite::{SqliteDb, DB_VERSION};
@@ -100,23 +100,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             DbCommand::Import { src_path } => import_db(src_path, &db_path).await?,
         },
 
-        ContenderSubcommand::Setup {
-            args:
-                SetupCliArgs {
-                    args:
-                        ScenarioSendTxsCliArgs {
-                            testfile,
-                            rpc_url,
-                            private_keys,
-                            min_balance,
-                            seed,
-                            tx_type,
-                            bundle_type,
-                            auth_args,
-                            env,
-                        },
-                },
-        } => {
+        ContenderSubcommand::Setup { args } => {
+            let ScenarioSendTxsCliArgs {
+                testfile,
+                rpc_url,
+                private_keys,
+                min_balance,
+                seed,
+                tx_type,
+                bundle_type,
+                auth_args,
+                env,
+            } = args.args;
             let seed = seed.unwrap_or(stored_seed);
             let engine_params = auth_args.engine_params().await?;
             let testfile = if let Some(testfile) = testfile {
@@ -175,7 +170,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 disable_reporting,
                 gen_report,
                 ..
-            } = args.to_owned();
+            } = *args.to_owned();
 
             let SendSpamCliArgs {
                 builder_url,
@@ -279,8 +274,16 @@ fn check_spam_args(args: &SpamCliArgs) -> Result<bool, ContenderError> {
         ("seconds", 100)
     } else {
         return Err(ContenderError::SpamError(
-            "Either txs-per-block or txs-per-second must be set",
-            None,
+            "Missing params.",
+            Some(format!(
+                "Either {} or {} must be set.",
+                ansi_term::Style::new()
+                    .bold()
+                    .paint("--txs-per-block (--tpb)"),
+                ansi_term::Style::new()
+                    .bold()
+                    .paint("--txs-per-second (--tps)"),
+            )),
         ));
     };
     let duration = args.spam_args.duration;

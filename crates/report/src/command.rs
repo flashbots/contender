@@ -166,6 +166,7 @@ pub async fn report(
         "eth_getBlockByNumber",
         "eth_getBlockReceipts",
         "eth_getTransactionCount",
+        "eth_sendBundle",
     ];
     let mut canonical_latency_map = BTreeMap::<String, Vec<Bucket>>::new();
     for method in latency_methods {
@@ -201,7 +202,7 @@ pub async fn report(
             Some(&if block_time_delta_std_dev == 0.0 {
                 "stable".to_owned()
             } else {
-                format!("unstable (\u{F3}={block_time_delta_std_dev:.2})")
+                format!("unstable (\u{03c3}={block_time_delta_std_dev:.2})")
             }),
         ),
         latency_quantiles: canonical_latency_map
