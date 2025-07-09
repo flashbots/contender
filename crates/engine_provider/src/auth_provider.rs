@@ -1,12 +1,13 @@
 use alloy::{
     consensus::BlockHeader,
-    eips::{eip2124::ForkId, BlockId, Encodable2718, ForkBlock},
+    eips::{BlockId, Encodable2718},
     network::AnyNetwork,
     primitives::{address, BlockHash, Bytes, FixedBytes, TxKind, B256, U256},
     providers::{ext::EngineApi, DynProvider, Provider, RootProvider},
     rpc::client::ClientBuilder,
     transports::{http::reqwest::Url, TransportResult},
 };
+use alloy_hardforks::mainnet::MAINNET_PRAGUE_TIMESTAMP;
 use alloy_rpc_types_engine::{
     ExecutionPayload, ExecutionPayloadInputV2, ForkchoiceState, ForkchoiceUpdated, JwtSecret,
     PayloadAttributes,
@@ -213,17 +214,33 @@ where
         payload: ExecutionPayload,
         parent_beacon_block_root: Option<B256>,
         versioned_hashes: Vec<B256>,
+        execution_requests: Option<Vec<Bytes>>,
     ) -> TransportResult<EngineApiMessageVersion> {
         match payload {
             ExecutionPayload::V3(payload) => {
-                // We expect the caller
-                let parent_beacon_block_root = parent_beacon_block_root
-                    .expect("parent_beacon_block_root is required for V3 payloads");
-                self.inner
-                    .new_payload_v3_wait(payload, versioned_hashes, parent_beacon_block_root)
-                    .await?;
+                if payload.payload_inner.timestamp() >= MAINNET_PRAGUE_TIMESTAMP {
+                    self.inner
+                        .new_payload_v4_wait(
+                            payload,
+                            versioned_hashes,
+                            parent_beacon_block_root
+                                .expect("parent_beacon_block_root is required for V4 payloads"),
+                            execution_requests
+                                .expect("execution_requests is required for V4 payloads"),
+                        )
+                        .await?;
 
-                Ok(EngineApiMessageVersion::V3)
+                    Ok(EngineApiMessageVersion::V4)
+                } else {
+                    // We expect the caller
+                    let parent_beacon_block_root = parent_beacon_block_root
+                        .expect("parent_beacon_block_root is required for V3 payloads");
+                    self.inner
+                        .new_payload_v3_wait(payload, versioned_hashes, parent_beacon_block_root)
+                        .await?;
+
+                    Ok(EngineApiMessageVersion::V3)
+                }
             }
             ExecutionPayload::V2(payload) => {
                 let input = ExecutionPayloadInputV2 {
@@ -291,6 +308,7 @@ impl<N: Network + NetworkAttributes> AdvanceChain for AuthProvider<N> {
                 payload.execution_payload.to_owned().into(),
                 Some(B256::ZERO),
                 vec![],
+                None,
             )
             .await?;
         info!("new payload sent.");

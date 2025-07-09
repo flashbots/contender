@@ -32,6 +32,7 @@ tower = { workspace = true }
 eyre = { workspace = true }
 
 # engine provider
+alloy-hardforks = { workspace = true }
 reth-node-api = { workspace = true }
 reth-rpc-layer = { workspace = true }
 reth-optimism-node = { workspace = true }

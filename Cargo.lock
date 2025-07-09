@@ -321,9 +321,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-hardforks"
-version = "0.2.7"
+version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "977d2492ce210e34baf7b36afaacea272c96fbe6774c47e23f97d14033c0e94f"
+checksum = "819a3620fe125e0fff365363315ee5e24c23169173b19747dfd6deba33db8990"
 dependencies = [
  "alloy-chains",
  "alloy-eip2124",
@@ -2044,6 +2044,7 @@ name = "contender_engine_provider"
 version = "0.2.2"
 dependencies = [
  "alloy",
+ "alloy-hardforks",
  "alloy-json-rpc",
  "alloy-rpc-types-engine",
  "async-trait",
