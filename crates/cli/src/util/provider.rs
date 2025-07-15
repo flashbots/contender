@@ -22,8 +22,8 @@ impl AdvanceChain for AuthClient {
         self.auth_provider
             .advance_chain(block_time)
             .await
-            .map_err(|e| {
-                match &e {
+            .inspect_err(|e| {
+                match e {
                     AuthProviderError::InternalError(_, err) => {
                         error!("AuthClient encountered an internal error. Please check contender_engine_provider debug logs for more details.");
                         if err.to_string().contains("Invalid newPayload") {
@@ -40,7 +40,6 @@ impl AdvanceChain for AuthClient {
                         error!("You may need to pass the {} flag to target this node.", bold("--op"));
                     }
                 }
-                e
             })
     }
 }

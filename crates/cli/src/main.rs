@@ -16,7 +16,6 @@ use commands::{
     ContenderCli, ContenderSubcommand, DbCommand, SetupCommandArgs, SpamCliArgs, SpamCommandArgs,
     SpamScenario,
 };
-use console_subscriber;
 use contender_core::{db::DbOps, error::ContenderError, generator::RandSeed};
 use contender_sqlite::{SqliteDb, DB_VERSION};
 use default_scenarios::{fill_block::FillBlockCliArgs, BuiltinScenarioCli};
