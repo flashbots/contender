@@ -4,6 +4,7 @@ use super::EngineArgs;
 use crate::util::{BundleTypeCli, EngineParams, TxTypeCli};
 use alloy::primitives::utils::parse_units;
 use alloy::primitives::U256;
+use contender_engine_provider::reth_node_api::EngineApiMessageVersion;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, clap::Args)]
@@ -117,6 +118,24 @@ Requires --auth-rpc-url and --jwt-secret to be set.",
         visible_aliases = &["op"]
     )]
     pub use_op: bool,
+
+    /// Engine API Message Version
+    #[arg(
+        long,
+        short,
+        value_enum,
+        default_value_t = EngineMessageVersion::V4
+    )]
+    message_version: EngineMessageVersion,
+}
+
+#[derive(Copy, Debug, Clone, clap::ValueEnum)]
+enum EngineMessageVersion {
+    V1,
+    V2,
+    V3,
+    V4,
+    // V5,
 }
 
 impl AuthCliArgs {
@@ -130,6 +149,13 @@ impl AuthCliArgs {
                 auth_rpc_url: self.auth_rpc_url.to_owned().expect("auth_rpc_url"),
                 jwt_secret: self.jwt_secret.to_owned().expect("jwt_secret").into(),
                 use_op: self.use_op,
+                message_version: match self.message_version {
+                    EngineMessageVersion::V1 => EngineApiMessageVersion::V1,
+                    EngineMessageVersion::V2 => EngineApiMessageVersion::V2,
+                    EngineMessageVersion::V3 => EngineApiMessageVersion::V3,
+                    EngineMessageVersion::V4 => EngineApiMessageVersion::V4,
+                    // EngineMessageVersion::V5 => EngineApiMessageVersion::V5,
+                },
             };
             EngineParams::new(Arc::new(args.new_provider().await?), self.call_forkchoice)
         } else {

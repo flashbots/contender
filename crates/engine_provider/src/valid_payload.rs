@@ -3,9 +3,9 @@
 //! before sending additional calls.
 
 use crate::{auth_provider::NetworkAttributes, engine::EngineApi};
-use alloy::primitives::B256;
 use alloy::providers::Network;
 use alloy::transports::TransportResult;
+use alloy::{eips::eip7685::Requests, primitives::B256};
 use alloy_rpc_types_engine::{
     ExecutionPayloadInputV2, ExecutionPayloadV1, ExecutionPayloadV3, ForkchoiceState,
     ForkchoiceUpdated, PayloadStatus,
@@ -36,6 +36,16 @@ pub trait EngineApiValidWaitExt<N: NetworkAttributes>: Send + Sync {
         payload: ExecutionPayloadV3,
         versioned_hashes: Vec<B256>,
         parent_beacon_block_root: B256,
+    ) -> TransportResult<PayloadStatus>;
+
+    /// Calls `engine_newPayloadV4` with the given [ExecutionPayloadV3], parent beacon block root,
+    /// versioned hashes, and execution requests, and waits until the response is VALID.
+    async fn new_payload_v4_wait(
+        &self,
+        payload: ExecutionPayloadV3,
+        versioned_hashes: Vec<B256>,
+        parent_beacon_block_root: B256,
+        execution_requests: Requests,
     ) -> TransportResult<PayloadStatus>;
 
     /// Calls `engine_forkChoiceUpdatedV1` with the given [ForkchoiceState] and optional
@@ -77,7 +87,9 @@ where
         while !status.is_valid() {
             if status.is_invalid() {
                 error!(?status, ?payload, "Invalid newPayloadV1",);
-                panic!("Invalid newPayloadV1: {status:?}");
+                return Err(alloy_json_rpc::RpcError::UnsupportedFeature(
+                    "Invalid newPayloadV1",
+                ));
             }
             status = self.new_payload_v1(payload.clone()).await?;
         }
@@ -92,7 +104,9 @@ where
         while !status.is_valid() {
             if status.is_invalid() {
                 error!(?status, ?payload, "Invalid newPayloadV2",);
-                panic!("Invalid newPayloadV2: {status:?}");
+                return Err(alloy_json_rpc::RpcError::UnsupportedFeature(
+                    "Invalid newPayloadV2",
+                ));
             }
             status = self.new_payload_v2(payload.clone()).await?;
         }
@@ -121,7 +135,9 @@ where
                     ?parent_beacon_block_root,
                     "Invalid newPayloadV3",
                 );
-                panic!("Invalid newPayloadV3: {status:?}");
+                return Err(alloy_json_rpc::RpcError::UnsupportedFeature(
+                    "Invalid newPayloadV3",
+                ));
             }
             if status.is_syncing() {
                 return Err(alloy_json_rpc::RpcError::UnsupportedFeature(
@@ -133,6 +149,53 @@ where
                     payload.clone(),
                     versioned_hashes.clone(),
                     parent_beacon_block_root,
+                )
+                .await?;
+        }
+        Ok(status)
+    }
+
+    async fn new_payload_v4_wait(
+        &self,
+        payload: ExecutionPayloadV3,
+        versioned_hashes: Vec<B256>,
+        parent_beacon_block_root: B256,
+        execution_requests: Requests,
+    ) -> TransportResult<PayloadStatus> {
+        let mut status = self
+            .new_payload_v4(
+                payload.clone(),
+                versioned_hashes.clone(),
+                parent_beacon_block_root,
+                execution_requests.clone(),
+            )
+            .await?;
+
+        while !status.is_valid() {
+            if status.is_invalid() {
+                error!(
+                    ?status,
+                    ?payload,
+                    ?versioned_hashes,
+                    ?parent_beacon_block_root,
+                    ?execution_requests,
+                    "Invalid newPayloadV4",
+                );
+                return Err(alloy_json_rpc::RpcError::UnsupportedFeature(
+                    "Invalid newPayloadV4",
+                ));
+            }
+            if status.is_syncing() {
+                return Err(alloy_json_rpc::RpcError::UnsupportedFeature(
+                    "invalid range: no canonical state found for parent of requested block",
+                ));
+            }
+            status = self
+                .new_payload_v4(
+                    payload.clone(),
+                    versioned_hashes.clone(),
+                    parent_beacon_block_root,
+                    execution_requests.clone(),
                 )
                 .await?;
         }

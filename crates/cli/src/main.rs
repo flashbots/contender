@@ -23,10 +23,10 @@ use rand::Rng;
 use std::{str::FromStr, sync::LazyLock};
 use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 use util::{data_dir, db_file, prompt_continue};
 
-use crate::util::init_reports_dir;
+use crate::util::{bold, init_reports_dir};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     let path = db_file().expect("failed to get DB file path");
@@ -37,7 +37,7 @@ static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
 static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
 static LATENCY_HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing();
     init_reports_dir();
@@ -258,10 +258,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")); // fallback if RUST_LOG is unset
 
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
+    let tokio_layer = console_subscriber::ConsoleLayer::builder()
+        .with_default_env()
+        .spawn();
+    let fmt_layer = fmt::layer()
         .with_target(true)
         .with_line_number(true)
+        .with_filter(filter);
+
+    tracing_subscriber::Registry::default()
+        .with(fmt_layer)
+        .with(tokio_layer)
         .init();
 }
 
@@ -277,12 +284,8 @@ fn check_spam_args(args: &SpamCliArgs) -> Result<bool, ContenderError> {
             "Missing params.",
             Some(format!(
                 "Either {} or {} must be set.",
-                ansi_term::Style::new()
-                    .bold()
-                    .paint("--txs-per-block (--tpb)"),
-                ansi_term::Style::new()
-                    .bold()
-                    .paint("--txs-per-second (--tps)"),
+                bold("--txs-per-block (--tpb)"),
+                bold("--txs-per-second (--tps)"),
             )),
         ));
     };
@@ -301,9 +304,9 @@ fn check_spam_args(args: &SpamCliArgs) -> Result<bool, ContenderError> {
 "Duration is set to {duration} {units}, which is quite high. Generating transactions and collecting results may take a long time.
 You may want to use {} with a lower spamming duration {} and a loop limit {}:\n
 \t{suggestion_cmd}\n",
-            ansi_term::Style::new().bold().paint("spam"),
-            ansi_term::Style::new().bold().paint("(-d)".to_string()),
-            ansi_term::Style::new().bold().paint("(-l)")
+            bold("spam"),
+            bold("(-d)"),
+            bold("(-l)")
     );
         return Ok(prompt_continue(None));
     }

@@ -7,7 +7,7 @@ use alloy::{
     rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
 };
-use ansi_term::Color;
+use ansi_term::{ANSIGenericString, Color};
 use contender_core::{
     error::ContenderError,
     generator::{
@@ -479,6 +479,12 @@ pub fn init_reports_dir() -> String {
 pub fn db_file() -> Result<String, Box<dyn std::error::Error>> {
     let data_path = data_dir()?;
     Ok(format!("{data_path}/contender.db"))
+}
+
+pub fn bold<'a>(msg: impl AsRef<str> + 'a) -> ANSIGenericString<'a, str> {
+    ansi_term::Style::new()
+        .bold()
+        .paint(msg.as_ref().to_owned())
 }
 
 #[cfg(test)]
