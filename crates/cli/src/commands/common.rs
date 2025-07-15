@@ -124,7 +124,7 @@ Requires --auth-rpc-url and --jwt-secret to be set.",
         long,
         short,
         value_enum,
-        default_value_t = EngineMessageVersion::V3
+        default_value_t = EngineMessageVersion::V4
     )]
     message_version: EngineMessageVersion,
 }
