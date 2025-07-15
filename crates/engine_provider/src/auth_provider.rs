@@ -338,7 +338,7 @@ fn get_op_block_info_tx() -> Bytes {
         source_hash: B256::default(),
         from: address!("DeaDDEaDDeAdDeAdDEAdDEaddeAddEAdDEAd0001"),
         to: TxKind::Call(address!("4200000000000000000000000000000000000015")),
-        mint: None,
+        mint: 0,
         value: U256::default(),
         gas_limit: 210000,
         is_system_transaction: false,
