@@ -68,6 +68,7 @@ pub async fn spamd(
         let spam_res = commands::spam(&db, &args, &mut scenario).await;
         if let Err(e) = spam_res {
             error!("spam run failed: {e:?}");
+            scenario.ctx.cancel_token.cancel();
             break;
         } else {
             let run_id = spam_res.expect("spam");

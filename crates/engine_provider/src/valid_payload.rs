@@ -87,7 +87,9 @@ where
         while !status.is_valid() {
             if status.is_invalid() {
                 error!(?status, ?payload, "Invalid newPayloadV1",);
-                panic!("Invalid newPayloadV1: {status:?}");
+                return Err(alloy_json_rpc::RpcError::UnsupportedFeature(
+                    "Invalid newPayloadV1",
+                ));
             }
             status = self.new_payload_v1(payload.clone()).await?;
         }
@@ -102,7 +104,9 @@ where
         while !status.is_valid() {
             if status.is_invalid() {
                 error!(?status, ?payload, "Invalid newPayloadV2",);
-                panic!("Invalid newPayloadV2: {status:?}");
+                return Err(alloy_json_rpc::RpcError::UnsupportedFeature(
+                    "Invalid newPayloadV2",
+                ));
             }
             status = self.new_payload_v2(payload.clone()).await?;
         }
@@ -131,7 +135,9 @@ where
                     ?parent_beacon_block_root,
                     "Invalid newPayloadV3",
                 );
-                panic!("Invalid newPayloadV3: {status:?}");
+                return Err(alloy_json_rpc::RpcError::UnsupportedFeature(
+                    "Invalid newPayloadV3",
+                ));
             }
             if status.is_syncing() {
                 return Err(alloy_json_rpc::RpcError::UnsupportedFeature(
@@ -175,7 +181,9 @@ where
                     ?execution_requests,
                     "Invalid newPayloadV4",
                 );
-                panic!("Invalid newPayloadV4: {status:?}");
+                return Err(alloy_json_rpc::RpcError::UnsupportedFeature(
+                    "Invalid newPayloadV4",
+                ));
             }
             if status.is_syncing() {
                 return Err(alloy_json_rpc::RpcError::UnsupportedFeature(

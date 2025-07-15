@@ -1,4 +1,5 @@
 use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 use std::{pin::Pin, sync::Arc};
 
 use alloy::providers::Provider;
@@ -92,6 +93,8 @@ where
                                     is_fcu_done.store(true, std::sync::atomic::Ordering::SeqCst);
                                     ContenderError::with_err(e, "spammer failed to advance chain")
                                 })?;
+                        } else {
+                            tokio::time::sleep(Duration::from_secs(1)).await;
                         }
                     }
                 }
