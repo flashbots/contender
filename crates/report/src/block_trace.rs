@@ -1,3 +1,4 @@
+use alloy::eips::BlockId;
 use alloy::network::{AnyRpcBlock, AnyTransactionReceipt};
 use alloy::providers::ext::DebugApi;
 use alloy::{
@@ -7,9 +8,10 @@ use alloy::{
         GethDebugTracingOptions, GethDefaultTracingOptions, GethTrace,
     },
 };
-use contender_core::db::RunTx;
+use contender_core::db::{DbOps, RunTx, SpamDuration};
 use contender_core::error::ContenderError;
 use contender_core::generator::types::AnyProvider;
+use contender_core::util::get_block_time;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -26,35 +28,43 @@ impl TxTraceReceipt {
     }
 }
 
-pub async fn get_block_data(
-    txs: &[RunTx],
+pub async fn estimate_block_data(
+    start_run_id: u64,
+    end_run_id: u64,
+    rpc_client: &AnyProvider,
+    db: &(impl DbOps + Clone + Send + Sync + 'static),
+) -> Result<Vec<AnyRpcBlock>, Box<dyn std::error::Error>> {
+    let start_run = db.get_run(start_run_id)?.expect("run does not exist");
+    let end_run = db.get_run(end_run_id)?.expect("run does not exist");
+    let start_timestamp = (start_run.timestamp / 1000) as u64; // convert to seconds
+    let end_timestamp = (end_run.timestamp / 1000) as u64; // convert to seconds
+    let block_time = get_block_time(rpc_client).await?;
+
+    // calculate the number of seconds to add based on the duration type
+    let add_seconds = match end_run.duration {
+        SpamDuration::Seconds(secs) => secs,
+        SpamDuration::Blocks(blocks) => blocks * block_time,
+    };
+
+    let recent_block = rpc_client
+        .get_block(BlockId::latest())
+        .await?
+        .expect("latest block not found");
+
+    let start_time_delta = recent_block.header.timestamp - start_timestamp;
+    let start_block_delta = start_time_delta / block_time;
+    let start_block = recent_block.header.number.saturating_sub(start_block_delta);
+    let end_time_delta = end_timestamp - start_timestamp + add_seconds;
+    let end_block = start_block + (end_time_delta / block_time);
+
+    get_blocks(start_block, end_block, rpc_client).await
+}
+
+async fn get_blocks(
+    min_block: u64,
+    max_block: u64,
     rpc_client: &AnyProvider,
 ) -> Result<Vec<AnyRpcBlock>, Box<dyn std::error::Error>> {
-    // filter out txs with no block number
-    let txs: Vec<RunTx> = txs
-        .iter()
-        .filter(|tx| tx.block_number.is_some())
-        .cloned()
-        .collect();
-
-    if txs.is_empty() {
-        warn!("No landed transactions found. No block data is available.");
-        return Ok(vec![]);
-    }
-
-    // find block range of txs
-    let (min_block, max_block) = txs.iter().fold((u64::MAX, 0), |(min, max), tx| {
-        let bn = tx.block_number.expect("tx has no block number");
-        (min.min(bn), max.max(bn))
-    });
-
-    // pad block range on each side
-    let block_padding = 3;
-    let min_block = min_block.saturating_sub(block_padding);
-    let max_block = max_block.saturating_add(block_padding);
-
-    let rpc_client = Arc::new(rpc_client.clone());
-
     // get block data
     let mut all_blocks: Vec<AnyRpcBlock> = vec![];
     let (sender, mut receiver) =
@@ -86,6 +96,38 @@ pub async fn get_block_data(
     }
 
     Ok(all_blocks)
+}
+
+pub async fn get_block_data(
+    txs: &[RunTx],
+    rpc_client: &AnyProvider,
+) -> Result<Vec<AnyRpcBlock>, Box<dyn std::error::Error>> {
+    // filter out txs with no block number
+    let txs: Vec<RunTx> = txs
+        .iter()
+        .filter(|tx| tx.block_number.is_some())
+        .cloned()
+        .collect();
+
+    if txs.is_empty() {
+        warn!("No landed transactions found. No block data is available.");
+        return Ok(vec![]);
+    }
+
+    // find block range of txs
+    let (min_block, max_block) = txs.iter().fold((u64::MAX, 0), |(min, max), tx| {
+        let bn = tx.block_number.expect("tx has no block number");
+        (min.min(bn), max.max(bn))
+    });
+
+    // pad block range on each side
+    let block_padding = 3;
+    let min_block = min_block.saturating_sub(block_padding);
+    let max_block = max_block.saturating_add(block_padding);
+
+    let rpc_client = Arc::new(rpc_client.clone());
+
+    get_blocks(min_block, max_block, &rpc_client).await
 }
 
 pub async fn get_block_traces(

@@ -1,6 +1,6 @@
 use super::gen_html::{build_html_report, ReportMetadata};
 use super::util::std_deviation;
-use crate::block_trace::{get_block_data, get_block_traces};
+use crate::block_trace::{estimate_block_data, get_block_data, get_block_traces};
 use crate::cache::CacheFile;
 use crate::chart::{
     gas_per_block::GasPerBlockChart, heatmap::HeatMapChart, pending_txs::PendingTxsChart,
@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::env;
 use std::str::FromStr;
-use tracing::info;
+use tracing::{debug, info};
 
 pub async fn report(
     last_run_id: Option<u64>,
@@ -111,14 +111,15 @@ pub async fn report(
         (cache_data.traces, cache_data.blocks)
     } else {
         // run traces on RPC
-        let block_data = get_block_data(&all_txs, &rpc_client).await?;
+        let block_data = if all_txs.is_empty() {
+            debug!("No transactions found, estimating blocks from DB runs");
+            estimate_block_data(start_run_id, end_run_id, &rpc_client, db).await?
+        } else {
+            get_block_data(&all_txs, &rpc_client).await?
+        };
         let trace_data = get_block_traces(&block_data, &rpc_client).await?;
         (trace_data, block_data)
     };
-
-    if blocks.is_empty() {
-        return Err("cannot run report; blocks found on target RPC".into());
-    }
 
     // find peak gas usage
     let peak_gas = blocks.iter().map(|b| b.header.gas_used).max().unwrap_or(0);
