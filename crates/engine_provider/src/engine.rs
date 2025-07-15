@@ -4,7 +4,8 @@ use alloy::{
     consensus::{
         crypto::secp256k1::public_key_to_address, transaction::Recovered, SignableTransaction,
     },
-    primitives::{BlockHash, Bytes, B256, U256},
+    eips::eip7685::Requests,
+    primitives::{BlockHash, B256, U256},
     providers::Provider,
     signers::Signature,
     transports::TransportResult,
@@ -61,7 +62,7 @@ pub trait EngineApi<N: NetworkAttributes>: Send + Sync {
         payload: ExecutionPayloadV3,
         versioned_hashes: Vec<B256>,
         parent_beacon_block_root: B256,
-        execution_requests: Vec<Bytes>,
+        execution_requests: Requests,
     ) -> TransportResult<PayloadStatus>;
 
     /// Updates the execution layer client with the given fork choice, as specified for the Paris
@@ -232,7 +233,7 @@ where
         payload: ExecutionPayloadV3,
         versioned_hashes: Vec<B256>,
         parent_beacon_block_root: B256,
-        execution_requests: Vec<Bytes>,
+        execution_requests: Requests,
     ) -> TransportResult<PayloadStatus> {
         self.client()
             .request(

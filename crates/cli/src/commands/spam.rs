@@ -24,7 +24,9 @@ use contender_core::{
     test_scenario::{TestScenario, TestScenarioParams},
     BundleType,
 };
-use contender_engine_provider::{AdvanceChain, AuthProvider};
+use contender_engine_provider::{
+    reth_node_api::EngineApiMessageVersion, AdvanceChain, AuthProvider,
+};
 use contender_testfile::TestConfig;
 use op_alloy_network::Optimism;
 use std::{ops::Deref, path::PathBuf, sync::atomic::AtomicBool};
@@ -36,19 +38,28 @@ pub struct EngineArgs {
     pub auth_rpc_url: String,
     pub jwt_secret: PathBuf,
     pub use_op: bool,
+    pub message_version: EngineApiMessageVersion,
 }
 
 impl EngineArgs {
     pub async fn new_provider(&self) -> Result<AuthClient, Box<dyn std::error::Error>> {
         let provider: Box<dyn AdvanceChain + Send + Sync + 'static> = if self.use_op {
             Box::new(
-                AuthProvider::<Optimism>::from_jwt_file(&self.auth_rpc_url, &self.jwt_secret)
-                    .await?,
+                AuthProvider::<Optimism>::from_jwt_file(
+                    &self.auth_rpc_url,
+                    &self.jwt_secret,
+                    self.message_version,
+                )
+                .await?,
             )
         } else {
             Box::new(
-                AuthProvider::<AnyNetwork>::from_jwt_file(&self.auth_rpc_url, &self.jwt_secret)
-                    .await?,
+                AuthProvider::<AnyNetwork>::from_jwt_file(
+                    &self.auth_rpc_url,
+                    &self.jwt_secret,
+                    self.message_version,
+                )
+                .await?,
             )
         };
         Ok(AuthClient::new(provider))
