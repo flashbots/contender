@@ -3,3 +3,5 @@ cargotest.toml
 *.db
 !test_fixtures/*.db
 report.csv
+
+.DS_Store
