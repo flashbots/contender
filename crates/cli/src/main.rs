@@ -179,6 +179,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 duration,
                 timeout,
                 loops,
+                accounts_per_agent,
                 ..
             } = spam_args.to_owned();
 
@@ -230,6 +231,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 timeout_secs: timeout,
                 env,
                 loops: real_loops,
+                accounts_per_agent,
             };
 
             commands::spamd(&db, spam_args, gen_report, real_loops).await?;
