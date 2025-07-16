@@ -194,7 +194,7 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
     #[arg(
         short,
         long,
-        default_value = "1",
+        default_value_t = 1,
         long_help = "Duration of the spamming run in seconds or blocks, depending on whether --txs-per-second or --txs-per-block is set."
     )]
     pub duration: u64, // TODO: make a new enum to represent seconds or blocks
@@ -203,7 +203,7 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
     #[arg(
         short = 'w',
         long,
-        default_value = "12",
+        default_value_t = 12,
         long_help = "The number of seconds to wait for pending transactions to land.",
         visible_aliases = &["wait"]
     )]
@@ -212,7 +212,7 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
     /// The number of times to repeat the spam run.
     /// If set with a value, the spam run will be repeated this many times.
     /// If set without a value, the spam run will be repeated indefinitely.
-    /// If not set, the spam run will be repeated once.
+    /// If not set, the spam run will be executed once.
     #[arg(
         short,
         long,
@@ -220,6 +220,15 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         long_help = "The number of times to repeat the spam run. If set with a value, the spam run will be repeated this many times. If set without a value, the spam run will be repeated indefinitely. If not set, the spam run will be repeated once."
     )]
     pub loops: Option<Option<u64>>,
+
+    /// The number of accounts to generate for each agent (`from_pool` in scenario files)
+    #[arg(
+        short,
+        long,
+        visible_aliases = &["na", "accounts"],
+        default_value_t = 10
+    )]
+    pub accounts_per_agent: u64,
 }
 
 pub fn cli_env_vars_parser(s: &str) -> Result<(String, String), String> {

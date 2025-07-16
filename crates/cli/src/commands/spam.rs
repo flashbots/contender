@@ -128,6 +128,7 @@ pub struct SpamCommandArgs {
     pub timeout_secs: u64,
     pub env: Option<Vec<(String, String)>>,
     pub loops: Option<u64>,
+    pub accounts_per_agent: u64,
 }
 
 impl SpamCommandArgs {
@@ -151,6 +152,7 @@ impl SpamCommandArgs {
             timeout_secs,
             engine_params,
             loops,
+            accounts_per_agent,
             ..
         } = self;
 
@@ -210,12 +212,11 @@ impl SpamCommandArgs {
 
         // distill all from_pool arguments from the spam requests
         let from_pool_declarations = testconfig.get_spam_pools();
-        let signers_per_period = txs_per_duration / from_pool_declarations.len().max(1) as u64;
 
         let mut agents = AgentStore::new();
         agents.init(
             &from_pool_declarations,
-            signers_per_period as usize,
+            *accounts_per_agent as usize,
             &rand_seed,
         );
         if self.scenario.is_builtin() {
@@ -226,20 +227,7 @@ impl SpamCommandArgs {
             );
         }
 
-        let all_agents = agents.all_agents().collect::<Vec<_>>();
-        if (txs_per_duration as usize) < all_agents.len() {
-            return Err(ContenderError::SpamError(
-                "Not enough signers to cover all agent pools. Set --tps or --tpb to a higher value.",
-                Some(format!(
-                    "signers_per_period: {}, agents: {}",
-                    signers_per_period,
-                    all_agents.len()
-                )),
-            ));
-        }
-
         check_private_keys(&testconfig, &user_signers);
-
         if txs_per_block.is_some() && txs_per_second.is_some() {
             panic!("Cannot set both --txs-per-block and --txs-per-second");
         }
