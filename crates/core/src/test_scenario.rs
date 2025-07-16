@@ -829,6 +829,7 @@ where
             let cancel_token = self.ctx.cancel_token.clone();
             let error_sender = error_sender.clone();
 
+            // wait to space transactions out evenly across a second
             std::thread::sleep(Duration::from_micros(micros_per_task));
             tasks.push(tokio::task::spawn(async move {
                 let extra = RuntimeTxInfo::default();
@@ -1237,9 +1238,10 @@ where
                     .iter()
                     .all(|&size| size == cache_size_queue[0])
                 {
-                    debug!(
+                    warn!(
                         "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
                     );
+
                     for tx in &pending_txs {
                         // only remove txs that have been waiting for > T seconds
                         if current_timestamp

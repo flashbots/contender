@@ -199,12 +199,12 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
     )]
     pub duration: u64, // TODO: make a new enum to represent seconds or blocks
 
-    /// The time to wait for pending transactions to land, in seconds.
+    /// The time to wait for pending transactions to land, in blocks.
     #[arg(
         short = 'w',
         long,
         default_value_t = 12,
-        long_help = "The number of seconds to wait for pending transactions to land.",
+        long_help = "The number of blocks to wait for pending transactions to land. If transactions land within the timeout, it resets.",
         visible_aliases = &["wait"]
     )]
     pub timeout: u64,
