@@ -12,16 +12,15 @@ pub mod tests {
         primitives::{Address, U256},
         signers::local::PrivateKeySigner,
     };
-    use contender_core::generator::{templater::Templater, types::CompiledContract};
+    use contender_core::generator::{
+        templater::Templater, BundleCallDefinition, CompiledContract, CreateDefinition,
+    };
     use contender_core::{
         db::MockDb,
         generator::{
             named_txs::ExecutionRequest,
-            types::{
-                BundleCallDefinition, CreateDefinition, FunctionCallDefinition, FuzzParam,
-                PlanType, SpamRequest,
-            },
-            Generator, RandSeed,
+            types::{PlanType, SpamRequest},
+            FunctionCallDefinition, FuzzParam, Generator, RandSeed,
         },
         test_scenario::{TestScenario, TestScenarioParams},
     };
@@ -69,6 +68,7 @@ pub mod tests {
             value: None,
             kind: None,
             gas_limit: None,
+            blob_data: None,
         };
 
         TestConfig {
@@ -102,6 +102,7 @@ pub mod tests {
             }]
             .into(),
             gas_limit: None,
+            blob_data: None,
         };
         TestConfig {
             env: None,
@@ -156,6 +157,7 @@ pub mod tests {
                     kind: None,
                     fuzz: None,
                     gas_limit: None,
+                    blob_data: None,
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -175,6 +177,7 @@ pub mod tests {
                     kind: None,
                     fuzz: None,
                     gas_limit: None,
+                    blob_data: None,
                 },
             ]
             .into(),

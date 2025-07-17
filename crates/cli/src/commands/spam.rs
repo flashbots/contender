@@ -1,9 +1,10 @@
 use super::common::{ScenarioSendTxsCliArgs, SendSpamCliArgs};
 use crate::{
+    commands::common::EngineParams,
     default_scenarios::BuiltinScenario,
     util::{
         check_private_keys, fund_accounts, get_signers_with_defaults, load_testconfig,
-        provider::AuthClient, spam_callback_default, EngineParams, TypedSpamCallback,
+        provider::AuthClient, spam_callback_default, TypedSpamCallback,
     },
     LATENCY_HIST as HIST, PROM,
 };

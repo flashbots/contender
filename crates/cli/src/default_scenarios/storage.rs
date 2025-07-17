@@ -1,5 +1,5 @@
 use crate::default_scenarios::{builtin::ToTestConfig, contracts};
-use contender_core::generator::types::{CreateDefinition, FunctionCallDefinition, SpamRequest};
+use contender_core::generator::{types::SpamRequest, CreateDefinition, FunctionCallDefinition};
 use contender_testfile::TestConfig;
 
 #[derive(Debug, Clone, clap::Parser)]

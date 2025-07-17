@@ -4,7 +4,7 @@ use alloy::primitives::U256;
 use clap::Parser;
 use contender_core::{
     error::ContenderError,
-    generator::types::{CompiledContract, CreateDefinition, FunctionCallDefinition, SpamRequest},
+    generator::{types::SpamRequest, CompiledContract, CreateDefinition, FunctionCallDefinition},
 };
 use contender_testfile::TestConfig;
 

@@ -6,7 +6,10 @@ use alloy::providers::Provider;
 use clap::{arg, Parser};
 use contender_core::{
     error::ContenderError,
-    generator::types::{AnyProvider, CreateDefinition, FunctionCallDefinition, SpamRequest},
+    generator::{
+        types::{AnyProvider, SpamRequest},
+        CreateDefinition, FunctionCallDefinition,
+    },
 };
 use contender_testfile::TestConfig;
 use tracing::{info, warn};

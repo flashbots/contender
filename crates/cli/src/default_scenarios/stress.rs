@@ -1,5 +1,5 @@
 use clap::{arg, Parser};
-use contender_core::generator::types::{CreateDefinition, FunctionCallDefinition, SpamRequest};
+use contender_core::generator::{types::SpamRequest, CreateDefinition, FunctionCallDefinition};
 use contender_testfile::TestConfig;
 use strum::IntoEnumIterator;
 

@@ -2,8 +2,7 @@ use alloy::transports::http::reqwest;
 use contender_core::{
     error::ContenderError,
     generator::{
-        templater::Templater,
-        types::{CreateDefinition, FunctionCallDefinition, SpamRequest},
+        templater::Templater, types::SpamRequest, CreateDefinition, FunctionCallDefinition,
         PlanConfig,
     },
 };

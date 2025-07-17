@@ -380,6 +380,11 @@ where
             .get_gas_price()
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
+        let blob_gas_price = self
+            .rpc_client
+            .get_blob_base_fee()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to get blob base fee"))?;
 
         let mut pending_txs = vec![];
         for addr in addresses {
@@ -388,7 +393,7 @@ where
                 .with_to(addr)
                 .with_value(amount);
             let (tx_req, _) = self
-                .prepare_tx_request(&tx_req, gas_price + GWEI_TO_WEI as u128)
+                .prepare_tx_request(&tx_req, gas_price + GWEI_TO_WEI as u128, blob_gas_price)
                 .await?;
             let signed_tx = tx_req
                 .build(funder)
@@ -416,6 +421,10 @@ where
             .get_gas_price()
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
+        let blob_gas_price = pub_provider
+            .get_blob_base_fee()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to get blob base fee"))?;
         let chain_id = pub_provider
             .get_chain_id()
             .await
@@ -443,7 +452,14 @@ where
 
             let handle = tokio::task::spawn(async move {
                 Self::deploy_contract(
-                    &db, &tx_req, gas_price, chain_id, tx_type, &rpc_url, &wallet,
+                    &db,
+                    &tx_req,
+                    gas_price,
+                    blob_gas_price,
+                    chain_id,
+                    tx_type,
+                    &rpc_url,
+                    &wallet,
                 )
                 .await
             });
@@ -461,6 +477,7 @@ where
         db: &D,
         tx_req: &NamedTxRequest,
         gas_price: u128,
+        blob_gas_price: u128,
         chain_id: u64,
         tx_type: TxType,
         rpc_url: &Url,
@@ -488,6 +505,7 @@ where
             gas_price / 10,
             gas_limit,
             chain_id,
+            blob_gas_price,
         );
         let from = <EthereumWallet as NetworkWallet<AnyNetwork>>::default_signer_address(wallet);
 
@@ -565,6 +583,10 @@ where
                     warn!("failed to get gas price for setup step '{tx_label}'");
                     ContenderError::with_err(e, "failed to get gas price")
                 })?;
+                let blob_gas_price = wallet
+                    .get_blob_base_fee()
+                    .await
+                    .map_err(|e| ContenderError::with_err(e, "failed to get blob base fee"))?;
                 let gas_limit = if let Some(gas) = tx_req.tx.gas {
                     gas
                 } else {
@@ -584,6 +606,7 @@ where
                     gas_price / 10,
                     gas_limit,
                     chain_id,
+                    blob_gas_price,
                 );
 
                 // wallet will assign nonce before sending
@@ -624,6 +647,7 @@ where
         &mut self,
         tx_req: &TransactionRequest,
         gas_price: u128,
+        blob_gas_price: u128,
     ) -> Result<(TransactionRequest, EthereumWallet)> {
         let from = tx_req.from.ok_or(ContenderError::SetupError(
             "missing 'from' address in tx request",
@@ -682,6 +706,7 @@ where
             gas_price / 10,
             gas_limit,
             self.chain_id,
+            blob_gas_price,
         );
 
         Ok((full_tx, signer))
@@ -696,11 +721,21 @@ where
             .get_gas_price()
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
-        let gas_price = if self.ctx.gas_price_adder < 0 {
-            gas_price - self.ctx.gas_price_adder.unsigned_abs()
-        } else {
-            gas_price + self.ctx.gas_price_adder as u128
+        let blob_gas_price = self
+            .rpc_client
+            .get_blob_base_fee()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to get blob base fee"))?;
+        let adjusted_gas_price = |price: u128| {
+            if self.ctx.gas_price_adder < 0 {
+                price - self.ctx.gas_price_adder.unsigned_abs()
+            } else {
+                price + self.ctx.gas_price_adder as u128
+            }
         };
+        let gas_price = adjusted_gas_price(gas_price);
+        let blob_gas_price = adjusted_gas_price(blob_gas_price);
+
         let mut payloads = vec![];
         info!("preparing {} spam payloads", tx_requests.len());
         for tx in tx_requests {
@@ -714,7 +749,7 @@ where
 
                     for req in reqs {
                         let (tx_req, signer) = self
-                            .prepare_tx_request(&req.tx, gas_price)
+                            .prepare_tx_request(&req.tx, gas_price, blob_gas_price)
                             .await
                             .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
 
@@ -730,7 +765,7 @@ where
                 }
                 ExecutionRequest::Tx(req) => {
                     let (tx_req, signer) = self
-                        .prepare_tx_request(&req.tx, gas_price)
+                        .prepare_tx_request(&req.tx, gas_price, blob_gas_price)
                         .await
                         .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
                     let mut new_req = req.to_owned();
@@ -1161,12 +1196,19 @@ where
             .get_gas_price()
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
+        let blob_gas_price = scenario
+            .rpc_client
+            .get_blob_base_fee()
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to get blob base fee"))?;
 
         // get gas limit for each tx
         let mut prepared_sample_txs = vec![];
         for tx in sample_txs {
             let tx_req = tx.tx;
-            let (prepared_req, _signer) = scenario.prepare_tx_request(&tx_req, gas_price).await?;
+            let (prepared_req, _signer) = scenario
+                .prepare_tx_request(&tx_req, gas_price, blob_gas_price)
+                .await?;
             prepared_sample_txs.push(prepared_req);
         }
 
@@ -1403,11 +1445,12 @@ pub mod tests {
     use crate::error::ContenderError;
     use crate::generator::named_txs::ExecutionRequest;
     use crate::generator::templater::Templater;
-    use crate::generator::types::{
-        CompiledContract, CreateDefinition, FunctionCallDefinition, FuzzParam, SpamRequest,
-    };
+    use crate::generator::types::SpamRequest;
     use crate::generator::{types::PlanType, util::test::spawn_anvil, RandSeed};
-    use crate::generator::{Generator, PlanConfig};
+    use crate::generator::{
+        CompiledContract, CreateDefinition, FunctionCallDefinition, FuzzParam, Generator,
+        PlanConfig,
+    };
     use crate::spammer::util::test::get_test_signers;
     use crate::test_scenario::TestScenario;
     use crate::Result;
@@ -1481,6 +1524,7 @@ pub mod tests {
                     fuzz: None,
                     kind: None,
                     gas_limit: None,
+                    blob_data: None,
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -1498,6 +1542,7 @@ pub mod tests {
                     fuzz: None,
                     kind: None,
                     gas_limit: None,
+                    blob_data: None,
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -1509,6 +1554,7 @@ pub mod tests {
                     fuzz: None,
                     kind: None,
                     gas_limit: None,
+                    blob_data: None,
                 },
             ])
         }
@@ -1538,55 +1584,45 @@ pub mod tests {
                     .into(),
                     kind: None,
                     gas_limit: None,
+                    blob_data: None,
                 }),
-                SpamRequest::Tx(FunctionCallDefinition {
-                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                    from: None,
-                    from_pool: Some("pool2".to_owned()),
-                    value: None,
-                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
-                    args: vec![
-                        "1".to_owned(),
-                        "2".to_owned(),
-                        // {_sender} will be replaced with the `from` address
-                        "{_sender}".to_owned(),
-                        "0xd00d".to_owned(),
-                    ]
-                    .into(),
-                    fuzz: vec![FuzzParam {
-                        param: Some("x".to_string()),
-                        value: None,
-                        min: None,
-                        max: None,
-                    }]
-                    .into(),
-                    kind: None,
-                    gas_limit: None,
-                }),
-                SpamRequest::Tx(FunctionCallDefinition {
-                    to: "0x00000000000000000000000000000000f007ba11".to_owned(),
-                    from: None,
-                    from_pool: Some("pool2".to_owned()),
-                    value: None,
-                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
-                    args: vec![
-                        "1".to_owned(),
-                        "2".to_owned(),
-                        // {_sender} will be replaced with the `from` address
-                        "{_sender}".to_owned(),
-                        "0xd00d".to_owned(),
-                    ]
-                    .into(),
-                    fuzz: vec![FuzzParam {
-                        param: Some("x".to_string()),
-                        value: None,
-                        min: None,
-                        max: None,
-                    }]
-                    .into(),
-                    kind: None,
-                    gas_limit: Some(100_000),
-                }),
+                SpamRequest::Tx(
+                    FunctionCallDefinition::new("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
+                        .with_from_pool("pool2")
+                        .with_signature("swap(uint256 x, uint256 y, address a, bytes b)")
+                        .with_args(&[
+                            "1".to_owned(),
+                            "2".to_owned(),
+                            // {_sender} will be replaced with the `from` address
+                            "{_sender}".to_owned(),
+                            "0xd00d".to_owned(),
+                        ])
+                        .with_fuzz(&[FuzzParam {
+                            param: Some("x".to_string()),
+                            value: None,
+                            min: None,
+                            max: None,
+                        }]),
+                ),
+                SpamRequest::Tx(
+                    FunctionCallDefinition::new("0x00000000000000000000000000000000f007ba11")
+                        .with_from_pool("pool2")
+                        .with_signature("swap(uint256 x, uint256 y, address a, bytes b)")
+                        .with_args(&[
+                            "1".to_owned(),
+                            "2".to_owned(),
+                            // {_sender} will be replaced with the `from` address
+                            "{_sender}".to_owned(),
+                            "0xd00d".to_owned(),
+                        ])
+                        .with_fuzz(&[FuzzParam {
+                            param: Some("x".to_string()),
+                            value: None,
+                            min: None,
+                            max: None,
+                        }])
+                        .with_gas_limit(100_000),
+                ),
             ])
         }
     }

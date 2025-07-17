@@ -1,10 +1,12 @@
 //! This file contains type definition for CLI arguments.
 
 use super::EngineArgs;
-use crate::util::{BundleTypeCli, EngineParams, TxTypeCli};
+use alloy::consensus::TxType;
 use alloy::primitives::utils::parse_units;
 use alloy::primitives::U256;
+use contender_core::BundleType;
 use contender_engine_provider::reth_node_api::EngineApiMessageVersion;
+use contender_engine_provider::AdvanceChain;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, clap::Args)]
@@ -64,7 +66,7 @@ May be specified multiple times."
         long,
         long_help = "Bundle type for generated bundles.",
         value_enum,
-        default_value_t = crate::util::BundleTypeCli::default(),
+        default_value_t = BundleTypeCli::default(),
         visible_aliases = &["bt"]
     )]
     pub bundle_type: BundleTypeCli,
@@ -229,6 +231,90 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         default_value_t = 10
     )]
     pub accounts_per_agent: u64,
+}
+
+#[derive(Copy, Debug, Clone, clap::ValueEnum)]
+pub enum TxTypeCli {
+    /// Legacy transaction (type `0x0`)
+    Legacy,
+    // /// Transaction with an [`AccessList`] ([EIP-2930](https://eips.ethereum.org/EIPS/eip-2930)), type `0x1`
+    // Eip2930,
+    /// A transaction with a priority fee ([EIP-1559](https://eips.ethereum.org/EIPS/eip-1559)), type `0x2`
+    Eip1559,
+    /// Shard Blob Transactions ([EIP-4844](https://eips.ethereum.org/EIPS/eip-4844)), type `0x3`
+    Eip4844,
+    // /// EOA Set Code Transactions ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)), type `0x4`
+    // Eip7702,
+}
+
+#[derive(Copy, Debug, Clone, clap::ValueEnum)]
+pub enum BundleTypeCli {
+    L1,
+    #[clap(name = "no-revert")]
+    RevertProtected,
+}
+
+impl Default for BundleTypeCli {
+    fn default() -> Self {
+        BundleType::default().into()
+    }
+}
+
+pub struct EngineParams {
+    pub engine_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    pub call_fcu: bool,
+}
+
+impl EngineParams {
+    pub fn new(
+        engine_provider: Arc<dyn AdvanceChain + Send + Sync + 'static>,
+        call_forkchoice: bool,
+    ) -> Self {
+        Self {
+            engine_provider: Some(engine_provider),
+            call_fcu: call_forkchoice,
+        }
+    }
+}
+
+/// default is Eth wrapper with no provider
+impl Default for EngineParams {
+    fn default() -> Self {
+        Self {
+            engine_provider: None,
+            call_fcu: false,
+        }
+    }
+}
+
+impl From<BundleType> for BundleTypeCli {
+    fn from(value: BundleType) -> Self {
+        match value {
+            BundleType::L1 => BundleTypeCli::L1,
+            BundleType::RevertProtected => BundleTypeCli::RevertProtected,
+        }
+    }
+}
+
+impl From<BundleTypeCli> for BundleType {
+    fn from(value: BundleTypeCli) -> Self {
+        match value {
+            BundleTypeCli::L1 => BundleType::L1,
+            BundleTypeCli::RevertProtected => BundleType::RevertProtected,
+        }
+    }
+}
+
+impl From<TxTypeCli> for alloy::consensus::TxType {
+    fn from(value: TxTypeCli) -> Self {
+        match value {
+            TxTypeCli::Legacy => TxType::Legacy,
+            // TxTypeCli::Eip2930 => TxType::Eip2930,
+            TxTypeCli::Eip1559 => TxType::Eip1559,
+            TxTypeCli::Eip4844 => TxType::Eip4844,
+            // TxTypeCli::Eip7702 => TxType::Eip7702,
+        }
+    }
 }
 
 pub fn cli_env_vars_parser(s: &str) -> Result<(String, String), String> {

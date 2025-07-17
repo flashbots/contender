@@ -1,7 +1,7 @@
 use crate::{commands::common::parse_amount, default_scenarios::builtin::ToTestConfig};
 use alloy::primitives::{Address, U256};
 use clap::{arg, Parser};
-use contender_core::generator::types::{FunctionCallDefinition, SpamRequest};
+use contender_core::generator::{types::SpamRequest, FunctionCallDefinition};
 
 #[derive(Parser, Clone, Debug)]
 pub struct TransferStressCliArgs {

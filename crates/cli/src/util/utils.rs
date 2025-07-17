@@ -11,16 +11,18 @@ use ansi_term::{ANSIGenericString, Color};
 use contender_core::{
     error::ContenderError,
     generator::{
-        types::{AnyProvider, FunctionCallDefinition, SpamRequest},
+        types::{AnyProvider, SpamRequest},
         util::complete_tx_request,
+        FunctionCallDefinition,
     },
     spammer::{LogCallback, NilCallback},
-    BundleType,
 };
 use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
 use std::{ops::Deref, str::FromStr, sync::Arc, time::Duration};
 use tracing::{debug, info, warn};
+
+use crate::commands::common::EngineParams;
 
 pub enum TypedSpamCallback {
     Log(LogCallback),
@@ -30,63 +32,6 @@ pub enum TypedSpamCallback {
 impl TypedSpamCallback {
     pub fn is_log(&self) -> bool {
         matches!(self, TypedSpamCallback::Log(_))
-    }
-}
-
-#[derive(Copy, Debug, Clone, clap::ValueEnum)]
-pub enum TxTypeCli {
-    /// Legacy transaction (type `0x0`)
-    Legacy,
-    // /// Transaction with an [`AccessList`] ([EIP-2930](https://eips.ethereum.org/EIPS/eip-2930)), type `0x1`
-    // Eip2930,
-    /// A transaction with a priority fee ([EIP-1559](https://eips.ethereum.org/EIPS/eip-1559)), type `0x2`
-    Eip1559,
-    // /// Shard Blob Transactions ([EIP-4844](https://eips.ethereum.org/EIPS/eip-4844)), type `0x3`
-    // Eip4844,
-    // /// EOA Set Code Transactions ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)), type `0x4`
-    // Eip7702,
-}
-
-#[derive(Copy, Debug, Clone, clap::ValueEnum)]
-pub enum BundleTypeCli {
-    L1,
-    #[clap(name = "no-revert")]
-    RevertProtected,
-}
-
-impl Default for BundleTypeCli {
-    fn default() -> Self {
-        BundleType::default().into()
-    }
-}
-
-impl From<BundleType> for BundleTypeCli {
-    fn from(value: BundleType) -> Self {
-        match value {
-            BundleType::L1 => BundleTypeCli::L1,
-            BundleType::RevertProtected => BundleTypeCli::RevertProtected,
-        }
-    }
-}
-
-impl From<BundleTypeCli> for BundleType {
-    fn from(value: BundleTypeCli) -> Self {
-        match value {
-            BundleTypeCli::L1 => BundleType::L1,
-            BundleTypeCli::RevertProtected => BundleType::RevertProtected,
-        }
-    }
-}
-
-impl From<TxTypeCli> for TxType {
-    fn from(value: TxTypeCli) -> Self {
-        match value {
-            TxTypeCli::Legacy => TxType::Legacy,
-            // TxTypeCli::Eip2930 => TxType::Eip2930,
-            TxTypeCli::Eip1559 => TxType::Eip1559,
-            // TxTypeCli::Eip4844 => TxType::Eip4844,
-            // TxTypeCli::Eip7702 => TxType::Eip7702,
-        }
     }
 }
 
@@ -189,33 +134,6 @@ async fn is_balance_sufficient(
 ) -> Result<(bool, U256), Box<dyn std::error::Error>> {
     let balance = rpc_client.get_balance(*address).await?;
     Ok((balance >= min_balance, balance))
-}
-
-pub struct EngineParams {
-    pub engine_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
-    pub call_fcu: bool,
-}
-
-impl EngineParams {
-    pub fn new(
-        engine_provider: Arc<dyn AdvanceChain + Send + Sync + 'static>,
-        call_forkchoice: bool,
-    ) -> Self {
-        Self {
-            engine_provider: Some(engine_provider),
-            call_fcu: call_forkchoice,
-        }
-    }
-}
-
-/// default is Eth wrapper with no provider
-impl Default for EngineParams {
-    fn default() -> Self {
-        Self {
-            engine_provider: None,
-            call_fcu: false,
-        }
-    }
 }
 
 /// Funds given accounts if/when their balance is below the minimum balance.
@@ -365,6 +283,7 @@ pub async fn fund_account(
     tx_type: TxType,
 ) -> Result<PendingTransactionConfig, Box<dyn std::error::Error>> {
     let gas_price = rpc_client.get_gas_price().await?;
+    let blob_gas_price = rpc_client.get_blob_base_fee().await?;
     let nonce = nonce.unwrap_or(rpc_client.get_transaction_count(sender.address()).await?);
     let chain_id = rpc_client.get_chain_id().await?;
     let mut tx_req = TransactionRequest {
@@ -382,6 +301,7 @@ pub async fn fund_account(
         gas_price / 10,
         21000,
         chain_id,
+        blob_gas_price,
     );
 
     let eth_wallet = EthereumWallet::from(sender.to_owned());

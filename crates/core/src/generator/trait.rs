@@ -3,22 +3,23 @@ use crate::{
     db::DbOps,
     error::ContenderError,
     generator::{
+        function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict, FuzzParam},
         named_txs::{ExecutionRequest, NamedTxRequest, NamedTxRequestBuilder},
         seeder::{SeedValue, Seeder},
         templater::Templater,
-        types::{
-            CallbackResult, CreateDefinition, CreateDefinitionStrict, FunctionCallDefinition,
-            FunctionCallDefinitionStrict, FuzzParam, PlanType, SpamRequest,
-        },
+        types::{CallbackResult, PlanType, SpamRequest},
+        CreateDefinition, CreateDefinitionStrict,
     },
     Result,
 };
 use alloy::{
+    consensus::{SidecarBuilder, SimpleCoder},
     hex::ToHexExt,
     primitives::{Address, U256},
 };
 use async_trait::async_trait;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
+use tracing::warn;
 
 const VALUE_KEY: &str = "__tx_value_contender__";
 
@@ -235,6 +236,13 @@ where
             funcdef.to.to_owned()
         };
 
+        let sidecar_data = funcdef.blob_data.as_ref().and_then(|data| {
+            SidecarBuilder::<SimpleCoder>::from_slice(data.as_bytes())
+                .build()
+                .inspect_err(|e| warn!("invalid blob data, removing sidecar: {e:?}"))
+                .ok()
+        });
+
         Ok(FunctionCallDefinitionStrict {
             to: to_address,
             from: from_address,
@@ -244,6 +252,7 @@ where
             fuzz: funcdef.fuzz.to_owned().unwrap_or_default(),
             kind: funcdef.kind.to_owned(),
             gas_limit: funcdef.gas_limit.to_owned(),
+            sidecar: sidecar_data,
         })
     }
 
