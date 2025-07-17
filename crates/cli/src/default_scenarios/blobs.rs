@@ -1,4 +1,3 @@
-use alloy::primitives::Address;
 use clap::{arg, Parser};
 use contender_core::generator::{types::SpamRequest, FunctionCallDefinition};
 use contender_testfile::TestConfig;
@@ -20,13 +19,12 @@ pub struct BlobsCliArgs {
     #[arg(
         short,
         long,
-        long_help = "The recipient of the blob transactions. Defaults to sender's address.",
-        visible_aliases = &["address"]
+        long_help = "The recipient of the blob transactions. Defaults to sender's address. May be a contract placeholder from a previous contender setup."
     )]
-    pub recipient: Option<Address>,
+    pub recipient: Option<String>,
 }
 
-fn blob_txs(blob_data: impl AsRef<str>, recipient: Option<Address>) -> Vec<SpamRequest> {
+fn blob_txs(blob_data: impl AsRef<str>, recipient: Option<String>) -> Vec<SpamRequest> {
     vec![SpamRequest::Tx(Box::new(
         FunctionCallDefinition::new(
             recipient
@@ -44,7 +42,7 @@ impl ToTestConfig for BlobsCliArgs {
             env: None,
             create: None,
             setup: None,
-            spam: Some(blob_txs(&self.blob_data, self.recipient)),
+            spam: Some(blob_txs(&self.blob_data, self.recipient.to_owned())),
         }
     }
 }
