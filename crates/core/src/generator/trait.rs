@@ -14,12 +14,11 @@ use crate::{
 };
 use alloy::{
     consensus::{SidecarBuilder, SimpleCoder},
-    hex::ToHexExt,
-    primitives::{Address, U256},
+    hex::{FromHex, ToHexExt},
+    primitives::{Address, Bytes, U256},
 };
 use async_trait::async_trait;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
-use tracing::warn;
 
 const VALUE_KEY: &str = "__tx_value_contender__";
 
@@ -236,12 +235,17 @@ where
             funcdef.to.to_owned()
         };
 
-        let sidecar_data = funcdef.blob_data.as_ref().and_then(|data| {
-            SidecarBuilder::<SimpleCoder>::from_slice(data.as_bytes())
+        let sidecar_data = if let Some(data) = funcdef.blob_data.as_ref() {
+            let parsed_data = Bytes::from_hex(data).map_err(|e| {
+                ContenderError::with_err(e, "failed to parse blob data; invalid hex value")
+            })?;
+            let sidecar = SidecarBuilder::<SimpleCoder>::from_slice(&parsed_data)
                 .build()
-                .inspect_err(|e| warn!("invalid blob data, removing sidecar: {e:?}"))
-                .ok()
-        });
+                .map_err(|e| ContenderError::with_err(e, "failed to build sidecar"))?;
+            Some(sidecar)
+        } else {
+            None
+        };
 
         Ok(FunctionCallDefinitionStrict {
             to: to_address,
