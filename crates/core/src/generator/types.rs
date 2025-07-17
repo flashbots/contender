@@ -17,7 +17,7 @@ pub type AnyProvider = DynProvider<AnyNetwork>;
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub enum SpamRequest {
     #[serde(rename = "tx")]
-    Tx(FunctionCallDefinition),
+    Tx(Box<FunctionCallDefinition>),
     #[serde(rename = "bundle")]
     Bundle(BundleCallDefinition),
 }

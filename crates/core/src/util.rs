@@ -32,3 +32,20 @@ pub async fn get_block_time(rpc_client: &AnyProvider) -> Result<u64> {
     };
     Ok(block_time_secs)
 }
+
+#[derive(Debug, Clone)]
+pub struct ExtraTxParams {
+    pub gas_price: u128,
+    pub blob_gas_price: u128,
+    pub chain_id: u64,
+}
+
+impl From<(u128, u128, u64)> for ExtraTxParams {
+    fn from((gas_price, blob_gas_price, chain_id): (u128, u128, u64)) -> Self {
+        ExtraTxParams {
+            gas_price,
+            blob_gas_price,
+            chain_id,
+        }
+    }
+}

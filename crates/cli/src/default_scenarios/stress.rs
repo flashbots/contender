@@ -137,7 +137,7 @@ impl ToTestConfig for StressCliArgs {
         let disabled_opcodes = self.disable_opcodes.as_deref().unwrap_or_default();
         let mut push_spam = |req: FunctionCallDefinition| {
             if let Some(spam) = config.spam.as_mut() {
-                spam.push(SpamRequest::Tx(req));
+                spam.push(SpamRequest::Tx(req.into()));
             }
         };
 

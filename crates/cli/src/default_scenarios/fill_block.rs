@@ -79,7 +79,8 @@ impl ToTestConfig for FillBlockArgs {
                         .with_signature("consumeGas()")
                         .with_from_pool("spammers")
                         .with_kind("fill-block")
-                        .with_gas_limit(gas_per_tx),
+                        .with_gas_limit(gas_per_tx)
+                        .into(),
                 )
             })
             .collect::<Vec<_>>();

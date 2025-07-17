@@ -104,7 +104,7 @@ pub fn check_private_keys(testconfig: &TestConfig, prv_keys: &[PrivateKeySigner]
     for s in spam {
         match s {
             SpamRequest::Tx(fn_call) => {
-                fn_calls.push(fn_call.to_owned());
+                fn_calls.push(*fn_call.to_owned());
             }
             SpamRequest::Bundle(bundle) => {
                 fn_calls.extend(bundle.txs.iter().map(|s| s.to_owned()));

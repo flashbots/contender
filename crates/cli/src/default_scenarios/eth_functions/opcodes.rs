@@ -94,7 +94,8 @@ pub fn opcode_txs(args: &[EthereumOpcode], num_iterations: u64) -> Vec<SpamReque
                         num_iterations.to_string(),
                     ])
                     .with_from_pool("spammers")
-                    .with_kind("opcodes"),
+                    .with_kind("opcodes")
+                    .into(),
             )
         })
         .collect()

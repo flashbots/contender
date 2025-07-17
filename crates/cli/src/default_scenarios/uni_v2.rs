@@ -293,6 +293,7 @@ impl ToTestConfig for UniV2Args {
         config.spam = Some(
             spam_steps
                 .into_iter()
+                .map(Box::new)
                 .map(SpamRequest::Tx)
                 .collect::<Vec<_>>(),
         );

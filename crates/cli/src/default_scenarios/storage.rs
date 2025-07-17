@@ -50,6 +50,7 @@ impl ToTestConfig for StorageStressArgs {
             // ... add more transactions here if needed.
         ]
         .into_iter()
+        .map(Box::new)
         .map(SpamRequest::Tx)
         .collect::<Vec<_>>();
 

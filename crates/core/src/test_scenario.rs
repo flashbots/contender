@@ -11,7 +11,7 @@ use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use crate::provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID};
 use crate::spammer::tx_actor::TxActorHandle;
 use crate::spammer::{ExecutionPayload, RuntimeTxInfo, SpamCallback, SpamTrigger};
-use crate::util::get_block_time;
+use crate::util::{get_block_time, ExtraTxParams};
 use crate::Result;
 use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
 use alloy::consensus::{Transaction, TxType};
@@ -454,9 +454,7 @@ where
                 Self::deploy_contract(
                     &db,
                     &tx_req,
-                    gas_price,
-                    blob_gas_price,
-                    chain_id,
+                    (gas_price, blob_gas_price, chain_id).into(),
                     tx_type,
                     &rpc_url,
                     &wallet,
@@ -476,9 +474,10 @@ where
     async fn deploy_contract(
         db: &D,
         tx_req: &NamedTxRequest,
-        gas_price: u128,
-        blob_gas_price: u128,
-        chain_id: u64,
+        extra_tx_params: ExtraTxParams,
+        // gas_price: u128,
+        // blob_gas_price: u128,
+        // chain_id: u64,
         tx_type: TxType,
         rpc_url: &Url,
         wallet: &EthereumWallet,
@@ -487,6 +486,12 @@ where
             .wallet(wallet)
             .network::<AnyNetwork>()
             .connect_http(rpc_url.to_owned());
+
+        let ExtraTxParams {
+            gas_price,
+            blob_gas_price,
+            chain_id,
+        } = extra_tx_params;
 
         // estimate gas limit
         let gas_limit = wallet_client
@@ -1561,31 +1566,36 @@ pub mod tests {
 
         fn get_spam_steps(&self) -> Result<Vec<SpamRequest>> {
             Ok(vec![
-                SpamRequest::Tx(FunctionCallDefinition {
-                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                    from: None,
-                    from_pool: Some("pool1".to_owned()),
-                    value: None,
-                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
-                    args: vec![
-                        "1".to_owned(),
-                        "2".to_owned(),
-                        // {_sender} will be replaced with the `from` address
-                        "{_sender}".to_owned(),
-                        "0xd00d".to_owned(),
-                    ]
-                    .into(),
-                    fuzz: vec![FuzzParam {
-                        param: Some("x".to_string()),
+                SpamRequest::Tx(
+                    FunctionCallDefinition {
+                        to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
+                        from: None,
+                        from_pool: Some("pool1".to_owned()),
                         value: None,
-                        min: None,
-                        max: None,
-                    }]
+                        signature: Some(
+                            "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
+                        ),
+                        args: vec![
+                            "1".to_owned(),
+                            "2".to_owned(),
+                            // {_sender} will be replaced with the `from` address
+                            "{_sender}".to_owned(),
+                            "0xd00d".to_owned(),
+                        ]
+                        .into(),
+                        fuzz: vec![FuzzParam {
+                            param: Some("x".to_string()),
+                            value: None,
+                            min: None,
+                            max: None,
+                        }]
+                        .into(),
+                        kind: None,
+                        gas_limit: None,
+                        blob_data: None,
+                    }
                     .into(),
-                    kind: None,
-                    gas_limit: None,
-                    blob_data: None,
-                }),
+                ),
                 SpamRequest::Tx(
                     FunctionCallDefinition::new("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
                         .with_from_pool("pool2")
@@ -1602,7 +1612,8 @@ pub mod tests {
                             value: None,
                             min: None,
                             max: None,
-                        }]),
+                        }])
+                        .into(),
                 ),
                 SpamRequest::Tx(
                     FunctionCallDefinition::new("0x00000000000000000000000000000000f007ba11")
@@ -1621,7 +1632,8 @@ pub mod tests {
                             min: None,
                             max: None,
                         }])
-                        .with_gas_limit(100_000),
+                        .with_gas_limit(100_000)
+                        .into(),
                 ),
             ])
         }

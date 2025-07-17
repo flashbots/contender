@@ -49,6 +49,7 @@ impl ToTestConfig for TransferStressArgs {
             .with_value(*amount)
             .with_from_pool("spammers")]
         .into_iter()
+        .map(Box::new)
         .map(SpamRequest::Tx)
         .collect::<Vec<_>>();
         contender_testfile::TestConfig {
