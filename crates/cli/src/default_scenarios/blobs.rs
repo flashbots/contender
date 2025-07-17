@@ -44,7 +44,7 @@ impl ToTestConfig for BlobsCliArgs {
             env: None,
             create: None,
             setup: None,
-            spam: Some(blob_txs(self.blob_data.to_owned(), self.recipient)),
+            spam: Some(blob_txs(&self.blob_data, self.recipient)),
         }
     }
 }
