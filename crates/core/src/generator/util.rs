@@ -56,18 +56,33 @@ pub fn complete_tx_request(
     priority_fee: u128,
     gas_limit: u64,
     chain_id: u64,
+    blob_gas_price: u128,
 ) {
     match tx_type {
         TxType::Legacy => {
             tx_req.gas_price = Some(gas_price + 4_200_000_000);
         }
         TxType::Eip1559 => {
-            tx_req.max_priority_fee_per_gas = Some(priority_fee);
             tx_req.max_fee_per_gas = Some(gas_price + (gas_price / 5));
+            tx_req.max_priority_fee_per_gas = Some(priority_fee);
             tx_req.chain_id = Some(chain_id);
+        }
+        TxType::Eip4844 => {
+            tx_req.max_fee_per_blob_gas = Some(blob_gas_price + (blob_gas_price / 5));
+            // recurse with eip1559 to get gas params
+            complete_tx_request(
+                tx_req,
+                TxType::Eip1559,
+                gas_price,
+                priority_fee,
+                gas_limit,
+                chain_id,
+                blob_gas_price,
+            );
         }
         _ => {
             info!("Unsupported tx type: {tx_type:?}, defaulting to legacy");
+            // recurse with legacy type
             complete_tx_request(
                 tx_req,
                 TxType::Legacy,
@@ -75,6 +90,7 @@ pub fn complete_tx_request(
                 priority_fee,
                 gas_limit,
                 chain_id,
+                blob_gas_price,
             );
         }
     };

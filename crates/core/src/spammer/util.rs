@@ -65,6 +65,7 @@ pub mod test {
         );
 
         let gas_price = rpc_client.get_gas_price().await?;
+        let blob_gas_price = rpc_client.get_blob_base_fee().await?;
         let nonce = nonce.unwrap_or(rpc_client.get_transaction_count(sender.address()).await?);
         let chain_id = rpc_client.get_chain_id().await?;
         let mut tx_req = TransactionRequest {
@@ -82,6 +83,7 @@ pub mod test {
             gas_price / 10,
             21000,
             chain_id,
+            blob_gas_price,
         );
 
         let eth_wallet = EthereumWallet::from(sender.to_owned());

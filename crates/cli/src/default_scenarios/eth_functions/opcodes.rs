@@ -1,6 +1,6 @@
 use crate::default_scenarios::contracts::SPAM_ME;
 use clap::ValueEnum;
-use contender_core::generator::types::{FunctionCallDefinition, SpamRequest};
+use contender_core::generator::{types::SpamRequest, FunctionCallDefinition};
 use strum::EnumIter;
 
 #[derive(ValueEnum, Clone, Debug, strum::Display, EnumIter, PartialEq, Eq)]
@@ -86,21 +86,17 @@ pub enum EthereumOpcode {
 pub fn opcode_txs(args: &[EthereumOpcode], num_iterations: u64) -> Vec<SpamRequest> {
     args.iter()
         .map(|opcode| {
-            SpamRequest::Tx(FunctionCallDefinition {
-                to: SPAM_ME.template_name(),
-                signature: Some("consumeGas(string memory method, uint256 iterations)".to_string()),
-                args: vec![
-                    format!("{opcode:?}").to_lowercase(),
-                    num_iterations.to_string(),
-                ]
-                .into(),
-                value: None,
-                from: None,
-                from_pool: Some("spammers".to_owned()),
-                fuzz: None,
-                kind: Some("opcodes".to_owned()),
-                gas_limit: None,
-            })
+            SpamRequest::Tx(
+                FunctionCallDefinition::new(SPAM_ME.template_name())
+                    .with_signature("consumeGas(string memory method, uint256 iterations)")
+                    .with_args(&[
+                        format!("{opcode:?}").to_lowercase(),
+                        num_iterations.to_string(),
+                    ])
+                    .with_from_pool("spammers")
+                    .with_kind("opcodes")
+                    .into(),
+            )
         })
         .collect()
 }

@@ -1,9 +1,10 @@
 use super::common::{ScenarioSendTxsCliArgs, SendSpamCliArgs};
 use crate::{
+    commands::common::EngineParams,
     default_scenarios::BuiltinScenario,
     util::{
         check_private_keys, fund_accounts, get_signers_with_defaults, load_testconfig,
-        provider::AuthClient, spam_callback_default, EngineParams, TypedSpamCallback,
+        provider::AuthClient, spam_callback_default, TypedSpamCallback,
     },
     LATENCY_HIST as HIST, PROM,
 };
@@ -137,28 +138,11 @@ impl SpamCommandArgs {
         db: &D,
     ) -> Result<TestScenario<D, RandSeed, TestConfig>, ContenderError> {
         info!("Initializing spammer...");
-        let SpamCommandArgs {
-            txs_per_block,
-            txs_per_second,
-            scenario,
-            duration,
-            seed,
-            rpc_url,
-            builder_url,
-            min_balance,
-            private_keys,
-            tx_type,
-            bundle_type,
-            timeout_secs,
-            engine_params,
-            loops,
-            accounts_per_agent,
-            ..
-        } = self;
-
-        let mut testconfig = scenario.testconfig().await?;
+        let mut testconfig = self.scenario.testconfig().await?;
         let spam_len = testconfig.spam.as_ref().map(|s| s.len()).unwrap_or(0);
-        let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam_len as u64));
+        let txs_per_duration = self
+            .txs_per_block
+            .unwrap_or(self.txs_per_second.unwrap_or(spam_len as u64));
 
         // check if txs_per_duration is enough to cover the spam requests
         if txs_per_duration < spam_len as u64 {
@@ -182,7 +166,7 @@ impl SpamCommandArgs {
                     "No spam calls found in testfile",
                     None,
                 ));
-            } else if builder_url.is_none() && spam.iter().any(|s| s.is_bundle()) {
+            } else if self.builder_url.is_none() && spam.iter().any(|s| s.is_bundle()) {
                 return Err(ContenderError::SpamError(
                     "Builder URL is required to send bundles.",
                     Some(format!(
@@ -200,15 +184,15 @@ impl SpamCommandArgs {
         }
         testconfig.env = Some(env_variables.clone());
 
-        let rand_seed = RandSeed::seed_from_str(seed);
-        let url = Url::parse(rpc_url).expect("Invalid RPC URL");
+        let rand_seed = RandSeed::seed_from_str(&self.seed);
+        let url = Url::parse(&self.rpc_url).expect("Invalid RPC URL");
         let rpc_client = DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
                 .connect_http(url.to_owned()),
         );
 
-        let user_signers = get_signers_with_defaults(private_keys.to_owned());
+        let user_signers = get_signers_with_defaults(self.private_keys.to_owned());
 
         // distill all from_pool arguments from the spam requests
         let from_pool_declarations = testconfig.get_spam_pools();
@@ -216,9 +200,10 @@ impl SpamCommandArgs {
         let mut agents = AgentStore::new();
         agents.init(
             &from_pool_declarations,
-            *accounts_per_agent as usize,
+            self.accounts_per_agent as usize,
             &rand_seed,
         );
+
         if self.scenario.is_builtin() {
             agents.init(
                 &[testconfig.get_create_pools(), testconfig.get_setup_pools()].concat(),
@@ -227,11 +212,22 @@ impl SpamCommandArgs {
             );
         }
 
+        let tx_type = match &self.scenario {
+            SpamScenario::Builtin(builtin) => {
+                if matches!(builtin, BuiltinScenario::Blobs(_)) {
+                    TxType::Eip4844
+                } else {
+                    self.tx_type
+                }
+            }
+            _ => self.tx_type,
+        };
+
         check_private_keys(&testconfig, &user_signers);
-        if txs_per_block.is_some() && txs_per_second.is_some() {
+        if self.txs_per_block.is_some() && self.txs_per_second.is_some() {
             panic!("Cannot set both --txs-per-block and --txs-per-second");
         }
-        if txs_per_block.is_none() && txs_per_second.is_none() {
+        if self.txs_per_block.is_none() && self.txs_per_second.is_none() {
             panic!("Must set either --txs-per-block (--tpb) or --txs-per-second (--tps)");
         }
 
@@ -239,14 +235,15 @@ impl SpamCommandArgs {
 
         let params = TestScenarioParams {
             rpc_url: url,
-            builder_rpc_url: builder_url
+            builder_rpc_url: self
+                .builder_url
                 .to_owned()
                 .map(|url| Url::parse(&url).expect("Invalid builder URL")),
             signers: user_signers.to_owned(),
             agent_store: agents.to_owned(),
-            tx_type: *tx_type,
-            bundle_type: *bundle_type,
-            pending_tx_timeout_secs: *timeout_secs,
+            tx_type,
+            bundle_type: self.bundle_type,
+            pending_tx_timeout_secs: self.timeout_secs,
             extra_msg_handles: None,
         };
 
@@ -254,16 +251,17 @@ impl SpamCommandArgs {
             &all_signer_addrs,
             &user_signers[0],
             &rpc_client,
-            *min_balance,
-            *tx_type,
-            engine_params,
+            self.min_balance,
+            self.tx_type,
+            &self.engine_params,
         )
         .await
         .map_err(|e| ContenderError::with_err(e.deref(), "failed to fund accounts"))?;
 
         let done_fcu = Arc::new(AtomicBool::new(false));
 
-        let fcu_handle = if let Some(auth_provider) = engine_params.engine_provider.to_owned() {
+        let fcu_handle = if let Some(auth_provider) = self.engine_params.engine_provider.to_owned()
+        {
             let auth_provider = auth_provider.clone();
             let done_fcu = done_fcu.clone();
             Some(tokio::task::spawn(async move {
@@ -284,25 +282,25 @@ impl SpamCommandArgs {
             None
         };
 
-        let mut scenario = TestScenario::new(
+        let mut test_scenario = TestScenario::new(
             testconfig,
             db.clone().into(),
             rand_seed,
             params,
-            engine_params.engine_provider.to_owned(),
+            self.engine_params.engine_provider.to_owned(),
             (&PROM, &HIST).into(),
         )
         .await?;
 
         if self.scenario.is_builtin() {
-            let scenario = &mut scenario;
-            let setup_cost = scenario.estimate_setup_cost().await?;
-            if min_balance < &setup_cost {
+            let test_scenario = &mut test_scenario;
+            let setup_cost = test_scenario.estimate_setup_cost().await?;
+            if self.min_balance < setup_cost {
                 return Err(ContenderError::SpamError(
                     "min_balance is not enough to cover the cost of the setup transactions.",
                     format!(
                         "min_balance: {}, setup_cost: {}\nUse {} to increase the amount of funds sent to agent wallets.",
-                        format_ether(*min_balance),
+                        format_ether(self.min_balance),
                         format_ether(setup_cost),
                         ansi_term::Style::new()
                             .bold()
@@ -324,8 +322,8 @@ impl SpamCommandArgs {
                     inner_res
                 }
                 inner_res = async move {
-                    scenario.deploy_contracts().await?;
-                    scenario.run_setup().await?;
+                    test_scenario.deploy_contracts().await?;
+                    test_scenario.run_setup().await?;
                     Ok::<_, ContenderError>(())
                 } => {
                     inner_res
@@ -334,7 +332,7 @@ impl SpamCommandArgs {
         }
         done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
 
-        if loops.is_none() {
+        if self.loops.is_none() {
             warn!(
                 "Spammer agents will eventually run out of funds. Make sure you add plenty of funds with {} (set your pre-funded account with {}).",
                 ansi_term::Style::new().bold().paint("spam --min-balance"),
@@ -342,14 +340,14 @@ impl SpamCommandArgs {
             );
         }
 
-        let total_cost = U256::from(duration * loops.unwrap_or(1))
-            * scenario.get_max_spam_cost(&user_signers).await?;
-        if *min_balance < U256::from(total_cost) {
+        let total_cost = U256::from(self.duration * self.loops.unwrap_or(1))
+            * test_scenario.get_max_spam_cost(&user_signers).await?;
+        if self.min_balance < U256::from(total_cost) {
             return Err(ContenderError::SpamError(
                 "min_balance is not enough to cover the cost of the spam transactions.",
                 format!(
                     "min_balance: {}, total_cost: {}\nUse {} to increase the amount of funds sent to agent wallets.",
-                    format_ether(*min_balance),
+                    format_ether(self.min_balance),
                     format_ether(total_cost),
                     ansi_term::Style::new()
                         .bold()
@@ -359,7 +357,7 @@ impl SpamCommandArgs {
             ));
         }
 
-        Ok(scenario)
+        Ok(test_scenario)
     }
 }
 

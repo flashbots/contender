@@ -2,6 +2,7 @@ use super::fill_block::{fill_block, FillBlockArgs, FillBlockCliArgs};
 use crate::{
     commands::common::SendSpamCliArgs,
     default_scenarios::{
+        blobs::BlobsCliArgs,
         eth_functions::{opcodes::EthereumOpcode, EthFunctionsArgs, EthFunctionsCliArgs},
         storage::{StorageStressArgs, StorageStressCliArgs},
         stress::StressCliArgs,
@@ -20,6 +21,8 @@ use strum::IntoEnumIterator;
 
 #[derive(Clone, Debug, Subcommand)]
 pub enum BuiltinScenarioCli {
+    /// Send EIP-4844 blob transactions.
+    Blobs(BlobsCliArgs),
     /// Fill blocks with simple gas-consuming transactions.
     FillBlock(FillBlockCliArgs),
     /// Spam specific opcodes & precompiles.
@@ -36,6 +39,7 @@ pub enum BuiltinScenarioCli {
 
 #[derive(Clone, Debug)]
 pub enum BuiltinScenario {
+    Blobs(BlobsCliArgs),
     FillBlock(FillBlockArgs),
     EthFunctions(EthFunctionsArgs),
     Storage(StorageStressArgs),
@@ -55,6 +59,8 @@ impl BuiltinScenarioCli {
         spam_args: &SendSpamCliArgs,
     ) -> Result<BuiltinScenario, ContenderError> {
         match self.to_owned() {
+            BuiltinScenarioCli::Blobs(args) => Ok(BuiltinScenario::Blobs(args)),
+
             BuiltinScenarioCli::FillBlock(args) => fill_block(provider, spam_args, &args).await,
 
             BuiltinScenarioCli::EthFunctions(args) => {
@@ -137,6 +143,7 @@ impl BuiltinScenario {
     pub fn title(&self) -> String {
         use BuiltinScenario::*;
         match self {
+            Blobs(_) => "blobs".to_string(),
             FillBlock(_) => "fill-block".to_string(),
             EthFunctions(args) => args
                 .opcodes
@@ -200,6 +207,7 @@ impl From<BuiltinScenario> for TestConfig {
     fn from(scenario: BuiltinScenario) -> Self {
         use BuiltinScenario::*;
         let args = match scenario {
+            Blobs(args) => Box::new(args),
             FillBlock(args) => Box::new(args) as Box<dyn ToTestConfig>,
             EthFunctions(args) => Box::new(args),
             Storage(args) => Box::new(args),

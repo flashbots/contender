@@ -1,3 +1,4 @@
+pub mod blobs;
 mod builtin;
 mod contracts;
 pub mod eth_functions;

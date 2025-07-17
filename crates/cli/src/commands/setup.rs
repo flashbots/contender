@@ -1,7 +1,8 @@
 use crate::{
+    commands::common::EngineParams,
     util::{
         check_private_keys_fns, find_insufficient_balances, fund_accounts,
-        get_signers_with_defaults, load_testconfig, EngineParams,
+        get_signers_with_defaults, load_testconfig,
     },
     LATENCY_HIST as HIST, PROM,
 };

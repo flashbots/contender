@@ -1,5 +1,5 @@
 use alloy::primitives::U256;
-use contender_core::generator::types::CompiledContract;
+use contender_core::generator::CompiledContract;
 
 pub const SPAM_ME: CompiledContract<&'static str> = CompiledContract {
     bytecode: include_str!("./SpamMe.hex"),
