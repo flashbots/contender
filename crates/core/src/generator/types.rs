@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::task::JoinHandle;
 
-use crate::generator::{function_def::FunctionCallDefinition, BundleCallDefinition};
 // -- re-exports
+pub use crate::generator::create_def::*;
+pub use crate::generator::function_def::*;
 pub use crate::generator::named_txs::NamedTxRequest;
 
 // -- convenience
