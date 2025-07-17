@@ -18,9 +18,10 @@ pub struct BlobsCliArgs {
     pub blob_data: String,
 
     #[arg(
-        short = 'a',
+        short,
         long,
-        long_help = "The recipient of the blob transactions. Defaults to sender's address."
+        long_help = "The recipient of the blob transactions. Defaults to sender's address.",
+        visible_aliases = &["address"]
     )]
     pub recipient: Option<Address>,
 }
