@@ -27,6 +27,10 @@ impl SpamRequest {
     pub fn is_bundle(&self) -> bool {
         matches!(self, SpamRequest::Bundle(_))
     }
+
+    pub fn new_tx(fn_call: FunctionCallDefinition) -> Self {
+        Self::Tx(Box::new(fn_call))
+    }
 }
 
 #[derive(Debug)]

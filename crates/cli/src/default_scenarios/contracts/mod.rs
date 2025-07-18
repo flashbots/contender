@@ -13,7 +13,7 @@ pub const TEST_TOKEN: CompiledContract<&'static str> = CompiledContract {
     name: "testToken",
 };
 
-/// Helper function to create a `CompiledContract` for the `SpamMe` contract with constructor arguments.
+/// Create a `CompiledContract` for the `TestToken` contract with constructor arguments.
 pub fn test_token(token_num: u32, initial_supply: U256) -> CompiledContract<String> {
     let mut bytecode = TEST_TOKEN.bytecode.to_string();
     // Append the initial supply as a 32-byte hex-encoded value

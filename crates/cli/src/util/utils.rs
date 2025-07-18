@@ -1,6 +1,6 @@
 use alloy::{
     consensus::TxType,
-    hex::ToHexExt,
+    hex::{self, ToHexExt},
     network::{AnyTxEnvelope, EthereumWallet, TransactionBuilder},
     primitives::{utils::format_ether, Address, U256},
     providers::{PendingTransactionConfig, Provider},
@@ -19,6 +19,7 @@ use contender_core::{
 };
 use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
+use rand::Rng;
 use std::{ops::Deref, str::FromStr, sync::Arc, time::Duration};
 use tracing::{debug, info, warn};
 
@@ -405,6 +406,25 @@ pub fn bold<'a>(msg: impl AsRef<str> + 'a) -> ANSIGenericString<'a, str> {
     ansi_term::Style::new()
         .bold()
         .paint(msg.as_ref().to_owned())
+}
+
+pub fn load_seedfile() -> Result<String, Box<dyn std::error::Error>> {
+    let data_path = data_dir()?;
+
+    let seed_path = format!("{}/seed", &data_path);
+    if !std::path::Path::new(&seed_path).exists() {
+        info!("generating seed file at {}", &seed_path);
+        let mut rng = rand::thread_rng();
+        let seed: [u8; 32] = rng.gen();
+        let seed_hex = hex::encode(seed);
+        std::fs::write(&seed_path, seed_hex).expect("failed to write seed file");
+    }
+
+    let stored_seed = format!(
+        "0x{}",
+        std::fs::read_to_string(&seed_path).expect("failed to read seed file")
+    );
+    Ok(stored_seed)
 }
 
 #[cfg(test)]

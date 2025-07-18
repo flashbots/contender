@@ -1,20 +1,25 @@
+use std::ops::Deref;
+
 use super::fill_block::{fill_block, FillBlockArgs, FillBlockCliArgs};
 use crate::{
-    commands::common::SendSpamCliArgs,
+    commands::SpamCliArgs,
     default_scenarios::{
         blobs::BlobsCliArgs,
+        erc20::{Erc20Args, Erc20CliArgs},
         eth_functions::{opcodes::EthereumOpcode, EthFunctionsArgs, EthFunctionsCliArgs},
         storage::{StorageStressArgs, StorageStressCliArgs},
         stress::StressCliArgs,
         transfers::{TransferStressArgs, TransferStressCliArgs},
         uni_v2::{UniV2Args, UniV2CliArgs},
     },
+    util::load_seedfile,
 };
 use alloy::primitives::U256;
 use clap::Subcommand;
 use contender_core::{
+    agent_controller::AgentStore,
     error::{ContenderError, RuntimeParamErrorKind},
-    generator::types::AnyProvider,
+    generator::{types::AnyProvider, RandSeed},
 };
 use contender_testfile::TestConfig;
 use strum::IntoEnumIterator;
@@ -23,10 +28,12 @@ use strum::IntoEnumIterator;
 pub enum BuiltinScenarioCli {
     /// Send EIP-4844 blob transactions.
     Blobs(BlobsCliArgs),
-    /// Fill blocks with simple gas-consuming transactions.
-    FillBlock(FillBlockCliArgs),
     /// Spam specific opcodes & precompiles.
     EthFunctions(EthFunctionsCliArgs),
+    /// Transfer ERC20 tokens.
+    Erc20(Erc20CliArgs),
+    /// Fill blocks with simple gas-consuming transactions.
+    FillBlock(FillBlockCliArgs),
     /// Fill storage slots with random data.
     Storage(StorageStressCliArgs),
     /// Run a comprehensive stress test with various parameters.
@@ -40,8 +47,9 @@ pub enum BuiltinScenarioCli {
 #[derive(Clone, Debug)]
 pub enum BuiltinScenario {
     Blobs(BlobsCliArgs),
-    FillBlock(FillBlockArgs),
+    Erc20(Erc20Args),
     EthFunctions(EthFunctionsArgs),
+    FillBlock(FillBlockArgs),
     Storage(StorageStressArgs),
     Transfers(TransferStressArgs),
     Stress(StressCliArgs),
@@ -56,12 +64,42 @@ impl BuiltinScenarioCli {
     pub async fn to_builtin_scenario(
         &self,
         provider: &AnyProvider,
-        spam_args: &SendSpamCliArgs,
+        spam_args: &SpamCliArgs,
     ) -> Result<BuiltinScenario, ContenderError> {
         match self.to_owned() {
             BuiltinScenarioCli::Blobs(args) => Ok(BuiltinScenario::Blobs(args)),
 
-            BuiltinScenarioCli::FillBlock(args) => fill_block(provider, spam_args, &args).await,
+            BuiltinScenarioCli::Erc20(args) => {
+                let seed = spam_args.eth_json_rpc_args.seed.to_owned().unwrap_or(
+                    load_seedfile().map_err(|e| {
+                        ContenderError::with_err(e.deref(), "failed to load seedfile")
+                    })?,
+                );
+                let seed = RandSeed::seed_from_str(&seed);
+                let mut agents = AgentStore::new();
+                agents.init(
+                    &["spammers"],
+                    spam_args.spam_args.accounts_per_agent as usize,
+                    &seed,
+                );
+                let spammers = agents.get_agent("spammers");
+                if spammers.is_none() {
+                    return Err(ContenderError::GenericError(
+                        "spammers is not present in the agent store",
+                        String::new(),
+                    ));
+                }
+                let spammers = spammers.expect("spammers");
+
+                Ok(BuiltinScenario::Erc20(Erc20Args::from_cli_args(
+                    args,
+                    &spammers.all_addresses(),
+                )))
+            }
+
+            BuiltinScenarioCli::FillBlock(args) => {
+                fill_block(provider, &spam_args.spam_args, &args).await
+            }
 
             BuiltinScenarioCli::EthFunctions(args) => {
                 let args: EthFunctionsArgs = args.into();
@@ -144,6 +182,7 @@ impl BuiltinScenario {
         use BuiltinScenario::*;
         match self {
             Blobs(_) => "blobs".to_string(),
+            Erc20(_) => "erc20 transfers".to_string(),
             FillBlock(_) => "fill-block".to_string(),
             EthFunctions(args) => args
                 .opcodes
@@ -207,8 +246,9 @@ impl From<BuiltinScenario> for TestConfig {
     fn from(scenario: BuiltinScenario) -> Self {
         use BuiltinScenario::*;
         let args = match scenario {
-            Blobs(args) => Box::new(args),
-            FillBlock(args) => Box::new(args) as Box<dyn ToTestConfig>,
+            Blobs(args) => Box::new(args) as Box<dyn ToTestConfig>,
+            Erc20(args) => Box::new(args),
+            FillBlock(args) => Box::new(args),
             EthFunctions(args) => Box::new(args),
             Storage(args) => Box::new(args),
             Transfers(args) => Box::new(args),
