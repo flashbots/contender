@@ -7,6 +7,7 @@ use crate::{
         blobs::BlobsCliArgs,
         erc20::{Erc20Args, Erc20CliArgs},
         eth_functions::{opcodes::EthereumOpcode, EthFunctionsArgs, EthFunctionsCliArgs},
+        revert::RevertCliArgs,
         storage::{StorageStressArgs, StorageStressCliArgs},
         stress::StressCliArgs,
         transfers::{TransferStressArgs, TransferStressCliArgs},
@@ -23,6 +24,7 @@ use contender_core::{
 };
 use contender_testfile::TestConfig;
 use strum::IntoEnumIterator;
+use tracing::warn;
 
 #[derive(Clone, Debug, Subcommand)]
 pub enum BuiltinScenarioCli {
@@ -34,6 +36,8 @@ pub enum BuiltinScenarioCli {
     Erc20(Erc20CliArgs),
     /// Fill blocks with simple gas-consuming transactions.
     FillBlock(FillBlockCliArgs),
+    /// Send reverting transactions.
+    Revert(RevertCliArgs),
     /// Fill storage slots with random data.
     Storage(StorageStressCliArgs),
     /// Run a comprehensive stress test with various parameters.
@@ -50,6 +54,7 @@ pub enum BuiltinScenario {
     Erc20(Erc20Args),
     EthFunctions(EthFunctionsArgs),
     FillBlock(FillBlockArgs),
+    Revert(RevertCliArgs),
     Storage(StorageStressArgs),
     Transfers(TransferStressArgs),
     Stress(StressCliArgs),
@@ -113,6 +118,13 @@ impl BuiltinScenarioCli {
                     ));
                 }
                 Ok(BuiltinScenario::EthFunctions(args))
+            }
+
+            BuiltinScenarioCli::Revert(args) => {
+                if args.gas_use < 21000 {
+                    warn!("gas limit is less than 21000. Your transactions will consume more gas than this.");
+                }
+                Ok(BuiltinScenario::Revert(args))
             }
 
             BuiltinScenarioCli::Storage(args) => {
@@ -195,6 +207,7 @@ impl BuiltinScenario {
                 )
                 .collect::<Vec<_>>()
                 .join(", "),
+            Revert(_) => "reverts".to_owned(),
             Storage(args) => {
                 let iters_str = if args.num_iterations > 1 {
                     format!(", {} iterations", args.num_iterations)
@@ -246,10 +259,12 @@ impl From<BuiltinScenario> for TestConfig {
     fn from(scenario: BuiltinScenario) -> Self {
         use BuiltinScenario::*;
         let args = match scenario {
+            // TODO: can we use a macro to DRY this out?
             Blobs(args) => Box::new(args) as Box<dyn ToTestConfig>,
             Erc20(args) => Box::new(args),
             FillBlock(args) => Box::new(args),
             EthFunctions(args) => Box::new(args),
+            Revert(args) => Box::new(args),
             Storage(args) => Box::new(args),
             Transfers(args) => Box::new(args),
             Stress(args) => Box::new(args),

@@ -6,6 +6,11 @@ pub const SPAM_ME: CompiledContract<&'static str> = CompiledContract {
     name: "SpamMe5",
 };
 
+pub const SPAM_ME_6: CompiledContract<&'static str> = CompiledContract {
+    bytecode: include_str!("./SpamMe6.hex"),
+    name: "SpamMe6",
+};
+
 /// A simple token contract for testing purposes.
 /// This contract takes a constructor argument for the initial supply, which must be abi-encoded and appended to the bytecode.
 pub const TEST_TOKEN: CompiledContract<&'static str> = CompiledContract {
