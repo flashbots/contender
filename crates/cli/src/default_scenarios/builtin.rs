@@ -5,6 +5,7 @@ use crate::{
     commands::SpamCliArgs,
     default_scenarios::{
         blobs::BlobsCliArgs,
+        custom_contract::{CustomContractArgs, CustomContractCliArgs},
         erc20::{Erc20Args, Erc20CliArgs},
         eth_functions::{opcodes::EthereumOpcode, EthFunctionsArgs, EthFunctionsCliArgs},
         storage::{StorageStressArgs, StorageStressCliArgs},
@@ -28,6 +29,8 @@ use strum::IntoEnumIterator;
 pub enum BuiltinScenarioCli {
     /// Send EIP-4844 blob transactions.
     Blobs(BlobsCliArgs),
+    /// Deploy and spam a custom contract.
+    Contract(CustomContractCliArgs),
     /// Spam specific opcodes & precompiles.
     EthFunctions(EthFunctionsCliArgs),
     /// Transfer ERC20 tokens.
@@ -47,6 +50,7 @@ pub enum BuiltinScenarioCli {
 #[derive(Clone, Debug)]
 pub enum BuiltinScenario {
     Blobs(BlobsCliArgs),
+    Contract(CustomContractArgs),
     Erc20(Erc20Args),
     EthFunctions(EthFunctionsArgs),
     FillBlock(FillBlockArgs),
@@ -68,6 +72,14 @@ impl BuiltinScenarioCli {
     ) -> Result<BuiltinScenario, ContenderError> {
         match self.to_owned() {
             BuiltinScenarioCli::Blobs(args) => Ok(BuiltinScenario::Blobs(args)),
+
+            BuiltinScenarioCli::Contract(args) => {
+                // read contract at path, compile it
+                // abi-encode constructor args, append them to compiled bytecode
+                // build a CompiledContract
+
+                todo!()
+            }
 
             BuiltinScenarioCli::Erc20(args) => {
                 let seed = spam_args.eth_json_rpc_args.seed.to_owned().unwrap_or(
@@ -182,6 +194,7 @@ impl BuiltinScenario {
         use BuiltinScenario::*;
         match self {
             Blobs(_) => "blobs".to_string(),
+            Contract(args) => format!("custom contract: {}", args.contract.name.to_owned()),
             Erc20(_) => "erc20 transfers".to_string(),
             FillBlock(_) => "fill-block".to_string(),
             EthFunctions(args) => args
@@ -247,6 +260,7 @@ impl From<BuiltinScenario> for TestConfig {
         use BuiltinScenario::*;
         let args = match scenario {
             Blobs(args) => Box::new(args) as Box<dyn ToTestConfig>,
+            Contract(args) => Box::new(args),
             Erc20(args) => Box::new(args),
             FillBlock(args) => Box::new(args),
             EthFunctions(args) => Box::new(args),
