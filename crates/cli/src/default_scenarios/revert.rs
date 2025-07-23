@@ -26,7 +26,7 @@ impl ToTestConfig for RevertCliArgs {
             }]),
             setup: None,
             spam: Some(vec![SpamRequest::new_tx(
-                FunctionCallDefinition::new(SPAM_ME_6.template_name())
+                &FunctionCallDefinition::new(SPAM_ME_6.template_name())
                     .with_from_pool("spammers")
                     .with_signature("consumeGasAndRevert(uint256 gas)")
                     .with_args(&[self.gas_use.to_string()])

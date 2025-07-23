@@ -78,13 +78,9 @@ impl BuiltinScenarioCli {
         match self.to_owned() {
             BuiltinScenarioCli::Blobs(args) => Ok(BuiltinScenario::Blobs(args)),
 
-            BuiltinScenarioCli::Contract(args) => {
-                // read contract at path, compile it
-                // abi-encode constructor args, append them to compiled bytecode
-                // build a CompiledContract
-
-                todo!()
-            }
+            BuiltinScenarioCli::Contract(args) => Ok(BuiltinScenario::Contract(
+                CustomContractArgs::from_cli_args(args)?,
+            )),
 
             BuiltinScenarioCli::Erc20(args) => {
                 let seed = spam_args.eth_json_rpc_args.seed.to_owned().unwrap_or(

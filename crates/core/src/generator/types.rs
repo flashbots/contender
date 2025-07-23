@@ -28,8 +28,8 @@ impl SpamRequest {
         matches!(self, SpamRequest::Bundle(_))
     }
 
-    pub fn new_tx(fn_call: FunctionCallDefinition) -> Self {
-        Self::Tx(Box::new(fn_call))
+    pub fn new_tx(fn_call: &FunctionCallDefinition) -> Self {
+        Self::Tx(Box::new(fn_call.to_owned()))
     }
 }
 
