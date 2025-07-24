@@ -1,6 +1,9 @@
 use crate::default_scenarios::builtin::ToTestConfig;
+use crate::util::bold;
+use alloy::json_abi::JsonAbi;
 use contender_core::error::ContenderError;
 use contender_core::generator::types::SpamRequest;
+use contender_core::generator::util::encode_calldata;
 use contender_core::generator::{CompiledContract, CreateDefinition, FunctionCallDefinition};
 use contender_core::Result;
 use contender_testfile::TestConfig;
@@ -21,6 +24,7 @@ pub struct CustomContractCliArgs {
     )]
     constructor_sig: Option<String>,
 
+    // TODO: revise constructor flags; use the same format as spam_calls
     #[arg(
         long = "constructor-arg",
         visible_aliases = &["ca"],
@@ -29,15 +33,15 @@ pub struct CustomContractCliArgs {
     )]
     constructor_args: Vec<String>,
 
-    spam_sig: String,
-
     #[arg(
-        long = "spam-arg",
-        visible_aliases = &["sa"],
+        long = "spam",
+        short,
+        num_args = 1,
         action = clap::ArgAction::Append,
-        long_help = "Arguments to the function called by the spammer. May be specified multiple times."
+        help = "Spam function calls. May be specified multiple times. Format: \"functionName(...args)\"",
+        long_help = "Spam function calls. May be specified multiple times. Example: `--spam \"setNumber(123456)\"`"
     )]
-    spam_args: Vec<String>,
+    spam_calls: Vec<String>,
 }
 
 /// This contract is expected to have its constructor args already appended to the bytecode, so it's ready to deploy.
@@ -45,16 +49,20 @@ pub struct CustomContractCliArgs {
 pub struct CustomContractArgs {
     pub contract: CompiledContract,
     pub spam: Vec<FunctionCallDefinition>,
-    // TODO: change the spam function cli syntax s.t. we can write `--spam "myFunction(123, 456)" --spam "otherFn(0xbeef)"`
-    // we'll have to read the ABI artifact to get the sig ourselves, rather than relying on the user to provide it
-    // but then we
-    // (1) simplify the UX a lot,
-    // (2) users can provide multiple spam calls, and
-    // (3) we could use this to add setup steps as well
 }
 
 impl CustomContractArgs {
     pub fn from_cli_args(args: CustomContractCliArgs) -> Result<Self> {
+        if args.spam_calls.is_empty() {
+            return Err(ContenderError::SpamError(
+                "invalid CLI params:",
+                Some(format!(
+                    "must provide at least one {} argument",
+                    bold("--spam")
+                )),
+            ));
+        }
+
         // read smart contract src
         // format should be <path/to/contract.sol>:<ContractName>
         let contract_path = args
@@ -144,7 +152,7 @@ impl CustomContractArgs {
             }
         }
 
-        // read artifact file, decode json to get bytecode
+        // read artifact file, decode json
         let artifact_path = std::path::Path::new(&format!(
             "{ARTIFACTS_PATH}/{contract_filename}/{contract_name}.json"
         ))
@@ -153,6 +161,8 @@ impl CustomContractArgs {
             .map_err(|e| ContenderError::with_err(e, "failed to read artifact file"))?;
         let artifact_json: serde_json::Value = serde_json::from_slice(&build_artifact)
             .map_err(|e| ContenderError::with_err(e, "failed to parse artifact JSON"))?;
+
+        // get bytecode
         let bytecode = artifact_json
             .get("bytecode")
             .and_then(|v| v.get("object").and_then(|v| v.as_str()))
@@ -161,15 +171,38 @@ impl CustomContractArgs {
             })?
             .to_string();
 
+        // get abi
+        let abi = artifact_json
+            .get("abi")
+            .ok_or(ContenderError::GenericError("ABI not found", String::new()))?;
+
+        // Deserialize ABI into alloy_rs ABI type
+        let json_abi: alloy::json_abi::JsonAbi =
+            serde_json::from_value(abi.clone()).map_err(|e| {
+                ContenderError::with_err(e, "failed to deserialize ABI into alloy_rs type")
+            })?;
+
+        // get all the function ABIs
+        let mut function_calls = vec![];
+        for spam_call in &args.spam_calls {
+            let parsed_fn = NameAndArgs::from_function_call(spam_call)?;
+            function_calls.push(parsed_fn);
+        }
+
         let mut contract = CompiledContract::new(bytecode, contract_name.to_owned());
         if let Some(constructor_sig) = args.constructor_sig {
             contract = contract.with_constructor_args(constructor_sig, &args.constructor_args)?;
         }
 
-        let spam = vec![FunctionCallDefinition::new(contract.template_name())
-            .with_from_pool("spammers")
-            .with_signature(args.spam_sig)
-            .with_args(&args.spam_args)];
+        let mut spam = vec![];
+        for fn_call in function_calls {
+            spam.push(
+                FunctionCallDefinition::new(contract.template_name())
+                    .with_from_pool("spammers")
+                    .with_signature(fn_call.signature(&json_abi)?)
+                    .with_args(&fn_call.args),
+            );
+        }
 
         return Ok(CustomContractArgs { contract, spam });
     }
@@ -186,6 +219,87 @@ fn find_foundry_toml(mut dir: &std::path::Path) -> Option<&std::path::Path> {
         }
     }
     None
+}
+
+struct NameAndArgs {
+    name: String,
+    args: Vec<String>,
+}
+
+impl NameAndArgs {
+    /// Parse the components from a function call.
+    ///
+    /// Example:
+    /// ```rs
+    /// let res = parse_function_call("callMe(100, 0xbeef)");
+    /// ```
+    pub fn from_function_call(fn_call: impl AsRef<str>) -> Result<Self> {
+        let call = fn_call.as_ref();
+        let open_paren = call.find('(').ok_or_else(|| {
+            ContenderError::GenericError(
+                "invalid function call format; missing '('",
+                call.to_string(),
+            )
+        })?;
+        let fn_name = &call[..open_paren];
+        if fn_name.is_empty() {
+            return Err(ContenderError::GenericError(
+                "function name is empty",
+                call.to_string(),
+            ));
+        }
+
+        let close_paren = call.rfind(')').ok_or_else(|| {
+            ContenderError::GenericError(
+                "invalid function call format; missing ')'",
+                call.to_string(),
+            )
+        })?;
+        let args_str = &call[open_paren + 1..close_paren];
+        let args: Vec<String> = if args_str.trim().is_empty() {
+            vec![]
+        } else {
+            args_str.split(',').map(|s| s.trim().to_string()).collect()
+        };
+
+        Ok(NameAndArgs {
+            name: fn_name.to_string(),
+            args,
+        })
+    }
+
+    fn to_fn_call(&self) -> String {
+        let Self { name, args } = self;
+        format!("{name}({})", args.join(", "))
+    }
+
+    fn signature(&self, abi: &JsonAbi) -> Result<String> {
+        let fn_abis = abi
+            .functions
+            .get(&self.name)
+            .ok_or(ContenderError::GenericError(
+                "function name was not found in contract's ABI:",
+                self.name.to_owned(),
+            ))?;
+
+        // find the appropriate ABI for the provided args
+        let function_abi = fn_abis
+            .iter()
+            .find_map(|abi| {
+                let sig = abi.signature();
+                if encode_calldata(&self.args, &sig).is_ok() {
+                    Some(abi)
+                } else {
+                    None
+                }
+            })
+            .ok_or(ContenderError::GenericError(
+                "failed to find appropriate ABI for function call:",
+                format!("({})", self.to_fn_call()),
+            ))?;
+
+        Ok(function_abi.signature())
+    }
 }
 
 impl ToTestConfig for CustomContractArgs {
