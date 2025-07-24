@@ -18,7 +18,7 @@ use alloy::{
     primitives::{Address, Bytes, U256},
 };
 use async_trait::async_trait;
-use std::{collections::HashMap, fmt::Debug, hash::Hash};
+use std::{collections::HashMap, fmt::Debug, hash::Hash, str::FromStr};
 
 const VALUE_KEY: &str = "__tx_value_contender__";
 
@@ -236,9 +236,15 @@ where
         };
 
         let sidecar_data = if let Some(data) = funcdef.blob_data.as_ref() {
-            let parsed_data = Bytes::from_hex(data).map_err(|e| {
-                ContenderError::with_err(e, "failed to parse blob data; invalid hex value")
-            })?;
+            let parsed_data = if data.starts_with("0x") {
+                Bytes::from_hex(data).map_err(|e| {
+                    ContenderError::with_err(e, "failed to parse blob data; invalid hex value")
+                })?
+            } else {
+                Bytes::from_str(data).map_err(|e| {
+                    ContenderError::with_err(e, "failed to parse blob data; invalid str value")
+                })?
+            };
             let sidecar = SidecarBuilder::<SimpleCoder>::from_slice(&parsed_data)
                 .build()
                 .map_err(|e| ContenderError::with_err(e, "failed to build sidecar"))?;
