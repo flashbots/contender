@@ -26,6 +26,15 @@ pub struct CustomContractCliArgs {
     constructor_args: Option<String>,
 
     #[arg(
+        long = "setup",
+        num_args = 1,
+        action = clap::ArgAction::Append,
+        help = "Setup function calls that run once before spamming. May be specified multiple times. Format: \"functionName(...args)\"",
+        long_help = "Setup function calls that run once before spamming. May be specified multiple times. Example: `--spam \"setNumber(123456)\"`"
+    )]
+    setup_calls: Vec<String>,
+
+    #[arg(
         long = "spam",
         short,
         num_args = 1,
@@ -53,6 +62,7 @@ impl CustomContractCliArgs {
 #[derive(Clone, Debug)]
 pub struct CustomContractArgs {
     pub contract: CompiledContract,
+    pub setup: Vec<FunctionCallDefinition>,
     pub spam: Vec<FunctionCallDefinition>,
 }
 
@@ -188,10 +198,15 @@ impl CustomContractArgs {
             })?;
 
         // get all the function ABIs
-        let mut function_calls = vec![];
+        let mut spam_function_calls = vec![];
+        let mut setup_function_calls = vec![];
         for spam_call in &args.spam_calls {
             let parsed_fn = NameAndArgs::from_function_call(spam_call)?;
-            function_calls.push(parsed_fn);
+            spam_function_calls.push(parsed_fn);
+        }
+        for setup_call in &args.setup_calls {
+            let parsed_fn = NameAndArgs::from_function_call(setup_call)?;
+            setup_function_calls.push(parsed_fn);
         }
 
         let mut contract = CompiledContract::new(bytecode, contract_name.to_owned());
@@ -202,7 +217,7 @@ impl CustomContractArgs {
         }
 
         let mut spam = vec![];
-        for fn_call in function_calls {
+        for fn_call in spam_function_calls {
             spam.push(
                 FunctionCallDefinition::new(contract.template_name())
                     .with_from_pool("spammers")
@@ -210,8 +225,21 @@ impl CustomContractArgs {
                     .with_args(&fn_call.args),
             );
         }
+        let mut setup = vec![];
+        for fn_call in setup_function_calls {
+            setup.push(
+                FunctionCallDefinition::new(contract.template_name())
+                    .with_from_pool("admin")
+                    .with_signature(fn_call.signature(&json_abi)?)
+                    .with_args(&fn_call.args),
+            )
+        }
 
-        return Ok(CustomContractArgs { contract, spam });
+        return Ok(CustomContractArgs {
+            contract,
+            setup,
+            spam,
+        });
     }
 }
 
@@ -329,6 +357,7 @@ impl ToTestConfig for CustomContractArgs {
             .with_create(vec![
                 CreateDefinition::new(&self.contract).with_from_pool("admin")
             ])
+            .with_setup(self.setup.to_owned())
             .with_spam(self.spam.iter().map(SpamRequest::new_tx).collect())
     }
 }
