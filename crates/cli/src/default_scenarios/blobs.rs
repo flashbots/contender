@@ -10,7 +10,7 @@ pub struct BlobsCliArgs {
     #[arg(
         short = 'd',
         long,
-        long_help = "Blob data. Values are assumed to be hexadecimal.",
+        long_help = "Blob data. Values can be hexidecimal or UTF-8 strings.",
         visible_aliases = ["data"],
         default_value = "0xdeadbeef"
     )]

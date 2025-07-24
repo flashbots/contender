@@ -236,7 +236,12 @@ where
         };
 
         let sidecar_data = if let Some(data) = funcdef.blob_data.as_ref() {
-            let parsed_data = Bytes::from_hex(data).map_err(|e| {
+            let parsed_data = Bytes::from_hex(if data.starts_with("0x") {
+                data.to_owned()
+            } else {
+                data.encode_hex()
+            })
+            .map_err(|e| {
                 ContenderError::with_err(e, "failed to parse blob data; invalid hex value")
             })?;
             let sidecar = SidecarBuilder::<SimpleCoder>::from_slice(&parsed_data)
