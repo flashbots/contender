@@ -2,4 +2,4 @@
 [spam.tx]
 to = "{_sender}"
 from_pool = "spammers"
-blob_data = "howdy"
+blob_data = "f00d"
