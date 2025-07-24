@@ -248,7 +248,7 @@ impl CustomContractArgs {
 
         // build contract bytecode, possibly adding constructor args
         let mut contract = CompiledContract::new(bytecode, contract_meta.name);
-        if let Some(constructor_sig) = constructor_sig(&abi).ok() {
+        if let Ok(constructor_sig) = constructor_sig(&abi) {
             contract = contract.with_constructor_args(constructor_sig, &args.constructor_args())?;
         } else {
             println!("no constructor found");
@@ -276,11 +276,11 @@ impl CustomContractArgs {
             )
         }
 
-        return Ok(CustomContractArgs {
+        Ok(CustomContractArgs {
             contract,
             setup,
             spam,
-        });
+        })
     }
 }
 
@@ -375,13 +375,9 @@ impl NameAndArgs {
         // find the appropriate ABI for the provided args
         let function_abi = fn_abis
             .iter()
-            .find_map(|abi| {
+            .find(|abi| {
                 let sig = abi.signature();
-                if encode_calldata(&self.args, &sig).is_ok() {
-                    Some(abi)
-                } else {
-                    None
-                }
+                encode_calldata(&self.args, &sig).is_ok()
             })
             .ok_or(ContenderError::GenericError(
                 "failed to find appropriate ABI for function call:",
