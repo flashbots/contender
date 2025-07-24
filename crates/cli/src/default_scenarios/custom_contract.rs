@@ -55,31 +55,11 @@ impl CustomContractCliArgs {
         }
         vec![]
     }
-}
 
-/// This contract is expected to have its constructor args already appended to the bytecode, so it's ready to deploy.
-#[derive(Clone, Debug)]
-pub struct CustomContractArgs {
-    pub contract: CompiledContract,
-    pub setup: Vec<FunctionCallDefinition>,
-    pub spam: Vec<FunctionCallDefinition>,
-}
-
-impl CustomContractArgs {
-    pub fn from_cli_args(args: CustomContractCliArgs) -> Result<Self> {
-        if args.spam_calls.is_empty() {
-            return Err(ContenderError::SpamError(
-                "invalid CLI params:",
-                Some(format!(
-                    "must provide at least one {} argument",
-                    bold("--spam")
-                )),
-            ));
-        }
-
-        // read smart contract src
-        // format should be <path/to/contract.sol>:<ContractName>
-        let contract_path = args
+    /// read smart contract src.
+    /// format must be <path/to/contract.sol>:<ContractName>
+    pub fn read_sol_file(&self) -> Result<ContractMeta> {
+        let contract_path = self
             .contract_path
             .to_str()
             .ok_or(ContenderError::GenericError(
@@ -138,14 +118,42 @@ impl CustomContractArgs {
             Some(format!("{root_dir:?}")),
         ))?;
 
-        // compile with forge; runs `forge build` in the project root
+        Ok(ContractMeta {
+            name: contract_name.to_owned(),
+            filename: contract_filename.to_owned(),
+            root_dir: root_dir.to_owned(),
+        })
+    }
+}
+
+/// This contract is expected to have its constructor args already appended to the bytecode, so it's ready to deploy.
+#[derive(Clone, Debug)]
+pub struct CustomContractArgs {
+    pub contract: CompiledContract,
+    pub setup: Vec<FunctionCallDefinition>,
+    pub spam: Vec<FunctionCallDefinition>,
+}
+
+pub struct ContractMeta {
+    name: String,
+    filename: String,
+    root_dir: String,
+}
+
+pub struct ContractArtifacts {
+    abi: JsonAbi,
+    bytecode: String,
+}
+
+impl ContractMeta {
+    pub fn build_source(&self) -> Result<()> {
         let res = Command::new("forge")
             .args([
                 "build", //
                 "-o",
                 ARTIFACTS_PATH, // output artifacts to tmp dir
                 "--root",
-                root_dir, // project root
+                &self.root_dir, // project root
             ])
             .output()
             .map_err(|e| ContenderError::with_err(e, "failed to run forge in subprocess"))?;
@@ -165,10 +173,14 @@ impl CustomContractArgs {
                 ));
             }
         }
+        Ok(())
+    }
 
-        // read artifact file, decode json
+    /// Parse artifacts from build output. Must be called after `build_source` has run.
+    pub fn parse_artifacts(&self) -> Result<ContractArtifacts> {
         let artifact_path = std::path::Path::new(&format!(
-            "{ARTIFACTS_PATH}/{contract_filename}/{contract_name}.json"
+            "{ARTIFACTS_PATH}/{}/{}.json",
+            self.filename, self.name
         ))
         .to_owned();
         let build_artifact = std::fs::read(artifact_path)
@@ -196,6 +208,32 @@ impl CustomContractArgs {
                 ContenderError::with_err(e, "failed to deserialize ABI into alloy_rs type")
             })?;
 
+        Ok(ContractArtifacts {
+            abi: json_abi,
+            bytecode,
+        })
+    }
+}
+
+impl CustomContractArgs {
+    pub fn from_cli_args(args: CustomContractCliArgs) -> Result<Self> {
+        if args.spam_calls.is_empty() {
+            return Err(ContenderError::SpamError(
+                "invalid CLI params:",
+                Some(format!(
+                    "must provide at least one {} argument",
+                    bold("--spam")
+                )),
+            ));
+        }
+
+        // read smart contract src
+        let contract_meta = args.read_sol_file()?;
+
+        // build solidity source w/ forge
+        contract_meta.build_source()?;
+        let ContractArtifacts { abi, bytecode } = contract_meta.parse_artifacts()?;
+
         // get all the function ABIs
         let mut spam_function_calls = vec![];
         let mut setup_function_calls = vec![];
@@ -208,28 +246,32 @@ impl CustomContractArgs {
             setup_function_calls.push(parsed_fn);
         }
 
-        let mut contract = CompiledContract::new(bytecode, contract_name.to_owned());
-        if let Some(constructor_sig) = constructor_sig(&json_abi).ok() {
+        // build contract bytecode, possibly adding constructor args
+        let mut contract = CompiledContract::new(bytecode, contract_meta.name);
+        if let Some(constructor_sig) = constructor_sig(&abi).ok() {
             contract = contract.with_constructor_args(constructor_sig, &args.constructor_args())?;
         } else {
             println!("no constructor found");
         }
 
+        // build spam steps
         let mut spam = vec![];
         for fn_call in spam_function_calls {
             spam.push(
                 FunctionCallDefinition::new(contract.template_name())
                     .with_from_pool("spammers")
-                    .with_signature(fn_call.signature(&json_abi)?)
+                    .with_signature(fn_call.signature(&abi)?)
                     .with_args(&fn_call.args),
             );
         }
+
+        // build setup steps
         let mut setup = vec![];
         for fn_call in setup_function_calls {
             setup.push(
                 FunctionCallDefinition::new(contract.template_name())
                     .with_from_pool("admin")
-                    .with_signature(fn_call.signature(&json_abi)?)
+                    .with_signature(fn_call.signature(&abi)?)
                     .with_args(&fn_call.args),
             )
         }
