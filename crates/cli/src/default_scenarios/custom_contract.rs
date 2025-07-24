@@ -36,7 +36,6 @@ pub struct CustomContractCliArgs {
 
     #[arg(
         long = "spam",
-        short,
         num_args = 1,
         action = clap::ArgAction::Append,
         help = "Spam function calls. May be specified multiple times. Format: \"functionName(...args)\"",
