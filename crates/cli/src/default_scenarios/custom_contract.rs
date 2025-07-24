@@ -18,20 +18,12 @@ pub struct CustomContractCliArgs {
     contract_path: std::path::PathBuf,
 
     #[arg(
-        long = "constructor-sig",
-        visible_aliases = &["cs"],
-        long_help = "Constructor function signature. Format: \"(uint256 x, address a)\""
-    )]
-    constructor_sig: Option<String>,
-
-    // TODO: revise constructor flags; use the same format as spam_calls
-    #[arg(
-        long = "constructor-arg",
+        long,
+        short,
         visible_aliases = &["ca"],
-        action = clap::ArgAction::Append,
-        long_help = "Constructor arguments. May be specified multiple times.",
+        long_help = "Comma-separated constructor arguments. Format: \"arg1, arg2, ...\" ",
     )]
-    constructor_args: Vec<String>,
+    constructor_args: Option<String>,
 
     #[arg(
         long = "spam",
@@ -42,6 +34,19 @@ pub struct CustomContractCliArgs {
         long_help = "Spam function calls. May be specified multiple times. Example: `--spam \"setNumber(123456)\"`"
     )]
     spam_calls: Vec<String>,
+}
+
+impl CustomContractCliArgs {
+    pub fn constructor_args(&self) -> Vec<String> {
+        if let Some(constructor_args) = &self.constructor_args {
+            return constructor_args
+                .split(',')
+                .map(|arg| arg.trim().to_string())
+                .filter(|arg| !arg.is_empty())
+                .collect::<Vec<String>>();
+        }
+        vec![]
+    }
 }
 
 /// This contract is expected to have its constructor args already appended to the bytecode, so it's ready to deploy.
@@ -190,8 +195,10 @@ impl CustomContractArgs {
         }
 
         let mut contract = CompiledContract::new(bytecode, contract_name.to_owned());
-        if let Some(constructor_sig) = args.constructor_sig {
-            contract = contract.with_constructor_args(constructor_sig, &args.constructor_args)?;
+        if let Some(constructor_sig) = constructor_sig(&json_abi).ok() {
+            contract = contract.with_constructor_args(constructor_sig, &args.constructor_args())?;
+        } else {
+            println!("no constructor found");
         }
 
         let mut spam = vec![];
@@ -219,6 +226,20 @@ fn find_foundry_toml(mut dir: &std::path::Path) -> Option<&std::path::Path> {
         }
     }
     None
+}
+
+pub fn constructor_sig(json_abi: &JsonAbi) -> Result<String> {
+    let constructor = json_abi.constructor().ok_or(ContenderError::GenericError(
+        "failed to find constructor in ABI",
+        String::new(),
+    ))?;
+    let input_types = constructor
+        .inputs
+        .iter()
+        .map(|input| input.selector_type().into_owned())
+        .collect::<Vec<_>>()
+        .join(",");
+    Ok(format!("({input_types})"))
 }
 
 struct NameAndArgs {

@@ -29,7 +29,7 @@ pub fn encode_calldata(args: &[impl AsRef<str>], sig: &str) -> Result<Vec<u8>> {
         return Err(ContenderError::GenericError(
             "invalid args for function signature:",
             format!(
-                "({sig}): {} param(s) in sig, {} args provided",
+                "{sig}: {} param(s) in sig, {} args provided",
                 func.inputs.len(),
                 args.len(),
             ),
