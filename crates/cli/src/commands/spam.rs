@@ -3,7 +3,7 @@ use crate::{
     commands::common::EngineParams,
     default_scenarios::BuiltinScenario,
     util::{
-        check_private_keys, fund_accounts, get_signers_with_defaults, load_testconfig,
+        bold, check_private_keys, fund_accounts, get_signers_with_defaults, load_testconfig,
         provider::AuthClient, spam_callback_default, TypedSpamCallback,
     },
     LATENCY_HIST as HIST, PROM,
@@ -20,7 +20,7 @@ use contender_core::{
     agent_controller::AgentStore,
     db::{DbOps, SpamDuration, SpamRunRequest},
     error::{ContenderError, RuntimeParamErrorKind},
-    generator::{seeder::Seeder, templater::Templater, PlanConfig, RandSeed},
+    generator::{seeder::Seeder, templater::Templater, types::SpamRequest, PlanConfig, RandSeed},
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
     BundleType,
@@ -174,6 +174,26 @@ impl SpamCommandArgs {
                         ansi_term::Style::new().bold().paint("--builder-url <URL>")
                     )),
                 ));
+            }
+
+            if !self.scenario.is_builtin()
+                && !spam
+                    .iter()
+                    .map(|sp| match sp {
+                        SpamRequest::Bundle(_) => None,
+                        SpamRequest::Tx(t) => t.blob_data.to_owned(),
+                    })
+                    .filter(|sp| sp.is_some())
+                    .collect::<Vec<_>>()
+                    .is_empty()
+            {
+                // some blob data was detected
+                if self.tx_type != TxType::Eip4844 {
+                    return Err(ContenderError::SpamError(
+                        "invalid tx type for blob transactions.",
+                        Some(format!("must set tx type {}", bold("-t eip4844"))),
+                    ));
+                }
             }
         }
 
