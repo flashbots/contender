@@ -81,7 +81,7 @@ impl ToTestConfig for Erc20Args {
             setup: Some(setup_steps),
             // transfer tokens to self
             spam: Some(vec![SpamRequest::new_tx(
-                FunctionCallDefinition::new(token.template_name())
+                &FunctionCallDefinition::new(token.template_name())
                     .with_from_pool("spammers")
                     .with_signature("transfer(address guy, uint256 wad)")
                     .with_args(&[

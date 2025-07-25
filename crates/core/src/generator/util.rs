@@ -25,6 +25,16 @@ pub fn encode_calldata(args: &[impl AsRef<str>], sig: &str) -> Result<Vec<u8>> {
     }
     let func = json_abi::Function::parse(sig)
         .map_err(|e| ContenderError::with_err(e, "failed to parse function signature"))?;
+    if func.inputs.len() != args.len() {
+        return Err(ContenderError::GenericError(
+            "invalid args for function signature:",
+            format!(
+                "{sig}: {} param(s) in sig, {} args provided",
+                func.inputs.len(),
+                args.len(),
+            ),
+        ));
+    }
     let values: Vec<DynSolValue> = args
         .iter()
         .enumerate()
