@@ -11,7 +11,7 @@ use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use crate::provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID};
 use crate::spammer::tx_actor::TxActorHandle;
 use crate::spammer::{ExecutionPayload, RuntimeTxInfo, SpamCallback, SpamTrigger};
-use crate::util::{get_block_time, ExtraTxParams};
+use crate::util::{get_blob_fee_maybe, get_block_time, ExtraTxParams};
 use crate::Result;
 use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
 use alloy::consensus::{Transaction, TxType};
@@ -380,11 +380,7 @@ where
             .get_gas_price()
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
-        let blob_gas_price = self
-            .rpc_client
-            .get_blob_base_fee()
-            .await
-            .map_err(|e| ContenderError::with_err(e, "failed to get blob base fee"))?;
+        let blob_gas_price = get_blob_fee_maybe(&self.rpc_client).await;
 
         let mut pending_txs = vec![];
         for addr in addresses {
@@ -421,10 +417,7 @@ where
             .get_gas_price()
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
-        let blob_gas_price = pub_provider
-            .get_blob_base_fee()
-            .await
-            .map_err(|e| ContenderError::with_err(e, "failed to get blob base fee"))?;
+        let blob_gas_price = get_blob_fee_maybe(&self.rpc_client).await;
         let chain_id = pub_provider
             .get_chain_id()
             .await
@@ -576,6 +569,7 @@ where
             let handle = tokio::task::spawn(async move {
                 let wallet = ProviderBuilder::new()
                     .wallet(wallet)
+                    .network::<AnyNetwork>()
                     .connect_http(rpc_url.to_owned());
 
                 let tx_label = tx_req
@@ -588,15 +582,12 @@ where
                     warn!("failed to get gas price for setup step '{tx_label}'");
                     ContenderError::with_err(e, "failed to get gas price")
                 })?;
-                let blob_gas_price = wallet
-                    .get_blob_base_fee()
-                    .await
-                    .map_err(|e| ContenderError::with_err(e, "failed to get blob base fee"))?;
+                let blob_gas_price = get_blob_fee_maybe(&DynProvider::new(wallet.to_owned())).await;
                 let gas_limit = if let Some(gas) = tx_req.tx.gas {
                     gas
                 } else {
                     wallet
-                        .estimate_gas(tx_req.tx.to_owned())
+                        .estimate_gas(tx_req.tx.to_owned().into())
                         .await
                         .map_err(|e| {
                             warn!("failed to estimate gas for setup step '{tx_label}'");
@@ -615,7 +606,7 @@ where
                 );
 
                 // wallet will assign nonce before sending
-                let res = wallet.send_transaction(tx).await.map_err(|e| {
+                let res = wallet.send_transaction(tx.into()).await.map_err(|e| {
                     warn!("failed to send setup tx '{tx_label}'");
                     ContenderError::with_err(e, "setup tx failed")
                 })?;
@@ -726,11 +717,7 @@ where
             .get_gas_price()
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
-        let blob_gas_price = self
-            .rpc_client
-            .get_blob_base_fee()
-            .await
-            .map_err(|e| ContenderError::with_err(e, "failed to get blob base fee"))?;
+        let blob_gas_price = get_blob_fee_maybe(&self.rpc_client).await;
         let adjusted_gas_price = |price: u128| {
             if self.ctx.gas_price_adder < 0 {
                 price - self.ctx.gas_price_adder.unsigned_abs()
@@ -1201,11 +1188,7 @@ where
             .get_gas_price()
             .await
             .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
-        let blob_gas_price = scenario
-            .rpc_client
-            .get_blob_base_fee()
-            .await
-            .map_err(|e| ContenderError::with_err(e, "failed to get blob base fee"))?;
+        let blob_gas_price = get_blob_fee_maybe(&scenario.rpc_client).await;
 
         // get gas limit for each tx
         let mut prepared_sample_txs = vec![];
