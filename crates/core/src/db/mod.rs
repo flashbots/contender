@@ -1,5 +1,5 @@
 mod mock;
-use std::{collections::BTreeMap, fmt::Display};
+use std::{collections::BTreeMap, fmt::Display, time::Duration};
 
 pub use mock::MockDb;
 
@@ -109,7 +109,7 @@ pub struct SpamRunRequest {
     pub rpc_url: String,
     pub txs_per_duration: u64,
     pub duration: SpamDuration,
-    pub timeout: u64,
+    pub pending_timeout: Duration,
 }
 
 pub trait DbOps {

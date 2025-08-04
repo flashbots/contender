@@ -51,8 +51,6 @@ pub async fn spamd(
     let mut i = 0;
     // this holds a Some value only when a timeout has been started.
     let mut timeout_start = None;
-    // TODO: parameterize this somewhere
-    let timeout_duration = Duration::from_secs(60 * 5);
     loop {
         let mut do_finish = false;
         if let Some(loops) = &limit_loops {
@@ -85,7 +83,7 @@ pub async fn spamd(
             }
 
             if let Some(timeout_start) = timeout_start {
-                if std::time::Instant::now().duration_since(timeout_start) > timeout_duration {
+                if std::time::Instant::now().duration_since(timeout_start) > args.spam_timeout {
                     warn!("timeout reached, quitting spam loop...");
                     scenario.ctx.cancel_token.cancel();
                     break;

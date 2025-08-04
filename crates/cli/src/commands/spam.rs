@@ -3,7 +3,8 @@ use crate::{
     default_scenarios::BuiltinScenario,
     util::{
         check_private_keys, fund_accounts, get_signers_with_defaults, load_testconfig,
-        provider::AuthClient, spam_callback_default, EngineParams, TypedSpamCallback,
+        parse_duration, provider::AuthClient, spam_callback_default, EngineParams,
+        TypedSpamCallback,
     },
     LATENCY_HIST as HIST, PROM,
 };
@@ -87,6 +88,14 @@ pub struct SpamCliArgs {
         visible_aliases = &["report"]
     )]
     pub gen_report: bool,
+
+    #[arg(
+        long = "timeout",
+        long_help = "The time to wait for spammer to recover from failure before stopping contender.",
+        value_parser = parse_duration,
+        default_value = "5min"
+    )]
+    pub spam_timeout: Duration,
 }
 
 pub enum SpamScenario {
@@ -125,10 +134,12 @@ pub struct SpamCommandArgs {
     pub bundle_type: BundleType,
     /// Provide to enable engine calls (required to use `call_forkchoice`)
     pub engine_params: EngineParams,
-    pub timeout_secs: u64,
+    /// how long to wait for pending txs (in seconds) before quitting spam loop
+    pub pending_timeout_secs: u64,
     pub env: Option<Vec<(String, String)>>,
     pub loops: Option<u64>,
     pub accounts_per_agent: u64,
+    pub spam_timeout: Duration,
 }
 
 impl SpamCommandArgs {
@@ -149,7 +160,7 @@ impl SpamCommandArgs {
             private_keys,
             tx_type,
             bundle_type,
-            timeout_secs,
+            pending_timeout_secs,
             engine_params,
             loops,
             accounts_per_agent,
@@ -246,7 +257,7 @@ impl SpamCommandArgs {
             agent_store: agents.to_owned(),
             tx_type: *tx_type,
             bundle_type: *bundle_type,
-            pending_tx_timeout_secs: *timeout_secs,
+            pending_tx_timeout_secs: *pending_timeout_secs,
             extra_msg_handles: None,
         };
 
@@ -434,7 +445,7 @@ pub async fn spam<
         duration,
         disable_reporting,
         engine_params,
-        timeout_secs,
+        pending_timeout_secs,
         ..
     } = args;
 
@@ -504,7 +515,7 @@ pub async fn spam<
             rpc_url: test_scenario.rpc_url.to_string(),
             txs_per_duration: txs_per_batch,
             duration: SpamDuration::Blocks(*duration),
-            timeout: *timeout_secs,
+            pending_timeout: Duration::from_secs(*pending_timeout_secs),
         };
         run_id = Some(db.insert_run(&run)?);
     }
