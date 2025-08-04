@@ -1,5 +1,5 @@
 use crate::{error::ContenderError, generator::types::AnyProvider, Result};
-use alloy::{network::EthereumWallet, providers::Provider};
+use alloy::providers::Provider;
 use tracing::{debug, warn};
 
 /// Derive the block time from the first two blocks after genesis.
