@@ -249,11 +249,11 @@ impl DbOps for SqliteDb {
             rpc_url,
             txs_per_duration,
             duration,
-            timeout,
+            pending_timeout,
         } = run;
         self.execute(
             "INSERT INTO runs (timestamp, tx_count, scenario_name, rpc_url, txs_per_duration, duration, timeout) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            params![timestamp, tx_count, scenario_name, rpc_url, txs_per_duration, &duration.to_string(), timeout],
+            params![timestamp, tx_count, scenario_name, rpc_url, txs_per_duration, &duration.to_string(), pending_timeout.as_secs()],
         )?;
         // get ID from newly inserted row
         let id: u64 = self.query_row("SELECT last_insert_rowid()", params![], |row| row.get(0))?;
@@ -483,6 +483,8 @@ impl DbOps for SqliteDb {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use contender_core::db::SpamDuration;
 
@@ -505,7 +507,7 @@ mod tests {
                 rpc_url: "http://test:8545".to_string(),
                 txs_per_duration: 10,
                 duration: SpamDuration::Seconds(10),
-                timeout: 12,
+                pending_timeout: Duration::from_secs(12),
             };
             db.insert_run(&run).unwrap()
         };
@@ -561,7 +563,7 @@ mod tests {
             rpc_url: "http://test:8545".to_string(),
             txs_per_duration: 10,
             duration: SpamDuration::Seconds(10),
-            timeout: 12,
+            pending_timeout: Duration::from_secs(12),
         };
         let run_id = db.insert_run(&run).unwrap();
         let run_txs = vec![

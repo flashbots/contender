@@ -209,7 +209,7 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         long_help = "The number of blocks to wait for pending transactions to land. If transactions land within the timeout, it resets.",
         visible_aliases = &["wait"]
     )]
-    pub timeout: u64,
+    pub pending_timeout: u64,
 
     /// The number of times to repeat the spam run.
     /// If set with a value, the spam run will be repeated this many times.
