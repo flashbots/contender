@@ -419,13 +419,12 @@ pub fn parse_duration(input: &str) -> Result<Duration, String> {
         if num_str.is_empty() && c.is_whitespace() {
             continue;
         }
-        if c.is_digit(10) {
+        if c.is_ascii_digit() {
             if unit_str.is_empty() {
                 num_str.push(c);
             } else {
                 return Err(format!(
-                    "Invalid input format: unexpected digit after unit in '{}'",
-                    input
+                    "Invalid input format: unexpected digit after unit in '{input}'"
                 ));
             }
         } else if c == '.' {
@@ -451,7 +450,7 @@ pub fn parse_duration(input: &str) -> Result<Duration, String> {
         "m" | "min" | "mins" | "minute" | "minutes" => Ok(Duration::from_secs(value * 60)),
         "h" | "hr" | "hrs" | "hour" | "hours" => Ok(Duration::from_secs(value * 3600)),
         "d" | "day" | "days" => Ok(Duration::from_secs(value * 86400)),
-        _ => Err(format!("Unrecognized time unit '{}'", unit)),
+        _ => Err(format!("Unrecognized time unit '{unit}'")),
     }
 }
 
@@ -524,8 +523,7 @@ mod test {
             assert_eq!(
                 parse_duration(variant).unwrap(),
                 Duration::from_millis(5),
-                "Failed on variant: {}",
-                variant
+                "Failed on variant: {variant}"
             );
         }
     }
@@ -537,8 +535,7 @@ mod test {
             assert_eq!(
                 parse_duration(variant).unwrap(),
                 Duration::from_secs(10),
-                "Failed on variant: {}",
-                variant
+                "Failed on variant: {variant}"
             );
         }
     }
@@ -550,8 +547,7 @@ mod test {
             assert_eq!(
                 parse_duration(variant).unwrap(),
                 Duration::from_secs(3 * 60),
-                "Failed on variant: {}",
-                variant
+                "Failed on variant: {variant}"
             );
         }
     }
@@ -563,8 +559,7 @@ mod test {
             assert_eq!(
                 parse_duration(variant).unwrap(),
                 Duration::from_secs(3600),
-                "Failed on variant: {}",
-                variant
+                "Failed on variant: {variant}"
             );
         }
     }
@@ -576,8 +571,7 @@ mod test {
             assert_eq!(
                 parse_duration(variant).unwrap(),
                 Duration::from_secs(2 * 86400),
-                "Failed on variant: {}",
-                variant
+                "Failed on variant: {variant}"
             );
         }
     }
