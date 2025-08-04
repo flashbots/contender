@@ -2,6 +2,7 @@ pub mod blobs;
 mod builtin;
 mod contracts;
 pub mod custom_contract;
+pub mod eip7702;
 pub mod erc20;
 pub mod eth_functions;
 pub mod fill_block;

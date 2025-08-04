@@ -128,6 +128,8 @@ pub struct ExecutionContext {
     pub block_time_secs: u64,
     /// Tells us when to terminate async tasks.
     pub cancel_token: CancellationToken,
+    /// Chain ID for target chain.
+    pub chain_id: u64,
 }
 
 impl ExecutionContext {
@@ -252,6 +254,7 @@ where
                 gas_price_adder: 0,
                 block_time_secs,
                 cancel_token,
+                chain_id,
             },
             auth_provider,
             prometheus,
@@ -1436,6 +1439,18 @@ where
     fn get_rpc_url(&self) -> String {
         self.rpc_url.to_string()
     }
+
+    fn get_chain_id(&self) -> u64 {
+        self.ctx.chain_id
+    }
+
+    fn get_rpc_provider(&self) -> &AnyProvider {
+        &self.rpc_client
+    }
+
+    fn get_nonce_map(&self) -> &HashMap<Address, u64> {
+        &self.nonces
+    }
 }
 
 struct SpamContextHandler {
@@ -1530,6 +1545,7 @@ pub mod tests {
                     kind: None,
                     gas_limit: None,
                     blob_data: None,
+                    authorization_addr: None,
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -1548,6 +1564,7 @@ pub mod tests {
                     kind: None,
                     gas_limit: None,
                     blob_data: None,
+                    authorization_addr: None,
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -1560,6 +1577,7 @@ pub mod tests {
                     kind: None,
                     gas_limit: None,
                     blob_data: None,
+                    authorization_addr: None,
                 },
             ])
         }
@@ -1593,6 +1611,7 @@ pub mod tests {
                         kind: None,
                         gas_limit: None,
                         blob_data: None,
+                        authorization_addr: None,
                     }
                     .into(),
                 ),

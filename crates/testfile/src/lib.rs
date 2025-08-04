@@ -69,6 +69,7 @@ pub mod tests {
             kind: None,
             gas_limit: None,
             blob_data: None,
+            authorization_addr: None,
         };
 
         TestConfig {
@@ -103,6 +104,7 @@ pub mod tests {
             .into(),
             gas_limit: None,
             blob_data: None,
+            authorization_addr: None,
         };
         TestConfig {
             env: None,
@@ -158,6 +160,7 @@ pub mod tests {
                     fuzz: None,
                     gas_limit: None,
                     blob_data: None,
+                    authorization_addr: None,
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -178,6 +181,7 @@ pub mod tests {
                     fuzz: None,
                     gas_limit: None,
                     blob_data: None,
+                    authorization_addr: None,
                 },
             ]
             .into(),

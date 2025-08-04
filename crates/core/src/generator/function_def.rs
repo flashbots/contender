@@ -1,5 +1,6 @@
 use alloy::{
     consensus::BlobTransactionSidecar,
+    eips::eip7702::SignedAuthorization,
     primitives::{Address, U256},
 };
 use serde::{Deserialize, Serialize};
@@ -27,6 +28,8 @@ pub struct FunctionCallDefinition {
     pub gas_limit: Option<u64>,
     /// Optional blob data; tx type must be set to EIP4844 by spammer
     pub blob_data: Option<String>,
+    /// Optional setCode data; tx type must be set to EIP7702 by spammer
+    pub authorization_addr: Option<String>,
 }
 
 /// User-facing definition of a function call to be executed.
@@ -49,6 +52,7 @@ impl FunctionCallDefinition {
             kind: None,
             gas_limit: None,
             blob_data: None,
+            authorization_addr: None,
         }
     }
 
@@ -93,6 +97,10 @@ impl FunctionCallDefinition {
         self.blob_data = Some(blob_data.as_ref().to_owned());
         self
     }
+    pub fn with_authorization(mut self, auth_addr: impl AsRef<str>) -> Self {
+        self.authorization_addr = Some(auth_addr.as_ref().to_owned());
+        self
+    }
 }
 
 pub struct FunctionCallDefinitionStrict {
@@ -105,6 +113,7 @@ pub struct FunctionCallDefinitionStrict {
     pub kind: Option<String>,
     pub gas_limit: Option<u64>,
     pub sidecar: Option<BlobTransactionSidecar>,
+    pub authorization: Option<Vec<SignedAuthorization>>,
 }
 
 #[derive(Clone, Deserialize, Debug, Serialize)]

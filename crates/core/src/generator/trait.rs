@@ -7,15 +7,18 @@ use crate::{
         named_txs::{ExecutionRequest, NamedTxRequest, NamedTxRequestBuilder},
         seeder::{SeedValue, Seeder},
         templater::Templater,
-        types::{CallbackResult, PlanType, SpamRequest},
+        types::{AnyProvider, CallbackResult, PlanType, SpamRequest},
         CreateDefinition, CreateDefinitionStrict,
     },
     Result,
 };
 use alloy::{
     consensus::{SidecarBuilder, SimpleCoder},
+    eips::eip7702::SignedAuthorization,
     hex::{FromHex, ToHexExt},
     primitives::{Address, Bytes, U256},
+    rpc::types::Authorization,
+    signers::{local::PrivateKeySigner, SignerSync},
 };
 use async_trait::async_trait;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
@@ -108,6 +111,9 @@ where
     fn get_fuzz_seeder(&self) -> &impl Seeder;
     fn get_agent_store(&self) -> &AgentStore;
     fn get_rpc_url(&self) -> String;
+    fn get_chain_id(&self) -> u64;
+    fn get_rpc_provider(&self) -> &AnyProvider;
+    fn get_nonce_map(&self) -> &HashMap<Address, u64>;
 
     /// Generates a map of N=`num_values` fuzzed values for each parameter in `fuzz_args`.
     fn create_fuzz_map(
@@ -188,32 +194,36 @@ where
         idx: usize,
     ) -> Result<FunctionCallDefinitionStrict> {
         let agents = self.get_agent_store();
-        let from_address: Address = if let Some(from_pool) = &funcdef.from_pool {
-            let agent = agents
-                .get_agent(from_pool)
-                .ok_or(ContenderError::SpamError(
-                    "from_pool not found in agent store",
-                    Some(from_pool.to_owned()),
-                ))?;
-            agent
-                .get_address(idx % agent.signers.len())
-                .ok_or(ContenderError::SpamError(
-                    "signer not found in agent store",
-                    Some(format!("from_pool={from_pool}, idx={idx}")),
-                ))?
-        } else if let Some(from) = &funcdef.from {
-            from.parse().map_err(|e| {
-                ContenderError::SpamError(
-                    "failed to parse 'from' address",
-                    Some(format!("from={from}, error={e}")),
-                )
-            })?
-        } else {
-            return Err(ContenderError::SpamError(
-                "invalid runtime config: must specify 'from' or 'from_pool'",
-                None,
-            ));
-        };
+
+        let (from_address, signer): (Address, Option<PrivateKeySigner>) =
+            if let Some(from_pool) = &funcdef.from_pool {
+                let agent = agents
+                    .get_agent(from_pool)
+                    .ok_or(ContenderError::SpamError(
+                        "from_pool not found in agent store",
+                        Some(from_pool.to_owned()),
+                    ))?;
+                let signer = agent.get_signer(idx % agent.signers.len()).ok_or(
+                    ContenderError::SpamError(
+                        "signer not found in agent store",
+                        Some(format!("from_pool={from_pool}, idx={idx}")),
+                    ),
+                )?;
+                (signer.address(), Some(signer.to_owned()))
+            } else if let Some(from) = &funcdef.from {
+                let from_addr = from.parse::<Address>().map_err(|e| {
+                    ContenderError::SpamError(
+                        "failed to parse 'from' address",
+                        Some(format!("from={from}, error={e}")),
+                    )
+                })?;
+                (from_addr, None)
+            } else {
+                return Err(ContenderError::SpamError(
+                    "invalid runtime config: must specify 'from' or 'from_pool'",
+                    None,
+                ));
+            };
 
         // manually replace {_sender} with the 'from' address
         let args = funcdef.args.to_owned().unwrap_or_default();
@@ -252,6 +262,47 @@ where
             None
         };
 
+        let mut signed_auth = None;
+        if let Some(address) = &funcdef.authorization_addr {
+            let mut placeholder_map = HashMap::<K, String>::new();
+            let templater = self.get_templater();
+            templater.find_fncall_placeholders(
+                funcdef,
+                self.get_db(),
+                &mut placeholder_map,
+                &self.get_rpc_url(),
+            )?;
+            let actual_address = self
+                .get_templater()
+                .replace_placeholders(&address, &placeholder_map)
+                .parse::<Address>()
+                .map_err(|e| {
+                    ContenderError::with_err(e, "failed to find address in placeholder map")
+                })?;
+            if let Some(signer) = signer {
+                let nonces = self.get_nonce_map();
+                let nonce = nonces.get(&actual_address);
+                if let Some(&nonce) = nonce {
+                    let auth_req = Authorization {
+                        address: actual_address,
+                        chain_id: U256::from(self.get_chain_id()),
+                        nonce,
+                    };
+                    signed_auth = Some(sign_auth(&signer, auth_req)?);
+                } else {
+                    return Err(ContenderError::GenericError(
+                        "failed to find nonce for address:",
+                        format!("{:?}", funcdef.authorization_addr),
+                    ));
+                }
+            } else {
+                return Err(ContenderError::GenericError(
+                    "hard-coded wallets are not supported; please use from_pool.",
+                    "".to_owned(),
+                ));
+            }
+        }
+
         Ok(FunctionCallDefinitionStrict {
             to: to_address,
             from: from_address,
@@ -262,6 +313,7 @@ where
             kind: funcdef.kind.to_owned(),
             gas_limit: funcdef.gas_limit.to_owned(),
             sidecar: sidecar_data,
+            authorization: signed_auth.map(|a| vec![a]),
         })
     }
 
@@ -538,4 +590,11 @@ fn parse_map_key(fuzz: FuzzParam) -> Result<String> {
     };
 
     Ok(key)
+}
+
+pub fn sign_auth(signer: &PrivateKeySigner, auth: Authorization) -> Result<SignedAuthorization> {
+    let auth_sig = signer
+        .sign_hash_sync(&auth.signature_hash())
+        .map_err(|e| ContenderError::with_err(e, "failed to sign authorization hash"))?;
+    Ok(auth.into_signed(auth_sig))
 }
