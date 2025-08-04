@@ -3,7 +3,6 @@ mod default_scenarios;
 mod util;
 
 use alloy::{
-    hex,
     network::AnyNetwork,
     providers::{DynProvider, ProviderBuilder},
     rpc::client::ClientBuilder,
@@ -19,14 +18,13 @@ use commands::{
 use contender_core::{db::DbOps, error::ContenderError, generator::RandSeed};
 use contender_sqlite::{SqliteDb, DB_VERSION};
 use default_scenarios::{fill_block::FillBlockCliArgs, BuiltinScenarioCli};
-use rand::Rng;
 use std::{str::FromStr, sync::LazyLock};
 use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 use util::{data_dir, db_file, prompt_continue};
 
-use crate::util::{bold, init_reports_dir};
+use crate::util::{bold, init_reports_dir, load_seedfile};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     let path = db_file().expect("failed to get DB file path");
@@ -75,22 +73,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         DB.create_tables()?;
     }
     let db = DB.clone();
-    let data_path = data_dir()?;
     let db_path = db_file()?;
 
-    let seed_path = format!("{}/seed", &data_path);
-    if !std::path::Path::new(&seed_path).exists() {
-        info!("generating seed file at {}", &seed_path);
-        let mut rng = rand::thread_rng();
-        let seed: [u8; 32] = rng.gen();
-        let seed_hex = hex::encode(seed);
-        std::fs::write(&seed_path, seed_hex).expect("failed to write seed file");
-    }
-
-    let stored_seed = format!(
-        "0x{}",
-        std::fs::read_to_string(&seed_path).expect("failed to read seed file")
-    );
+    let stored_seed = load_seedfile()?;
 
     match args.command {
         ContenderSubcommand::Db { command } => match command {
@@ -196,14 +181,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let scenario = if let Some(testfile) = testfile {
                 SpamScenario::Testfile(testfile)
             } else if let Some(config) = builtin_scenario_config {
-                SpamScenario::Builtin(config.to_builtin_scenario(&provider, &spam_args).await?)
+                SpamScenario::Builtin(config.to_builtin_scenario(&provider, &args).await?)
             } else {
                 // default to fill-block scenario
                 SpamScenario::Builtin(
                     BuiltinScenarioCli::FillBlock(FillBlockCliArgs {
                         max_gas_per_block: None,
                     })
-                    .to_builtin_scenario(&provider, &spam_args)
+                    .to_builtin_scenario(&provider, &args)
                     .await?,
                 )
             };

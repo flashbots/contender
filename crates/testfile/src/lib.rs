@@ -12,16 +12,15 @@ pub mod tests {
         primitives::{Address, U256},
         signers::local::PrivateKeySigner,
     };
-    use contender_core::generator::{templater::Templater, types::CompiledContract};
+    use contender_core::generator::{
+        templater::Templater, BundleCallDefinition, CompiledContract, CreateDefinition,
+    };
     use contender_core::{
         db::MockDb,
         generator::{
             named_txs::ExecutionRequest,
-            types::{
-                BundleCallDefinition, CreateDefinition, FunctionCallDefinition, FuzzParam,
-                PlanType, SpamRequest,
-            },
-            Generator, RandSeed,
+            types::{PlanType, SpamRequest},
+            FunctionCallDefinition, FuzzParam, Generator, RandSeed,
         },
         test_scenario::{TestScenario, TestScenarioParams},
     };
@@ -69,13 +68,14 @@ pub mod tests {
             value: None,
             kind: None,
             gas_limit: None,
+            blob_data: None,
         };
 
         TestConfig {
             env: None,
             create: None,
             setup: None,
-            spam: vec![SpamRequest::Tx(fncall)].into(),
+            spam: vec![SpamRequest::Tx(Box::new(fncall))].into(),
         }
     }
 
@@ -102,24 +102,25 @@ pub mod tests {
             }]
             .into(),
             gas_limit: None,
+            blob_data: None,
         };
         TestConfig {
             env: None,
             create: None,
             setup: None,
             spam: vec![
-                SpamRequest::Tx(fn_call(
+                SpamRequest::Tx(Box::new(fn_call(
                     "0xbeef",
                     "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-                )),
-                SpamRequest::Tx(fn_call(
+                ))),
+                SpamRequest::Tx(Box::new(fn_call(
                     "0xea75",
                     "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-                )),
-                SpamRequest::Tx(fn_call(
+                ))),
+                SpamRequest::Tx(Box::new(fn_call(
                     "0xf00d",
                     "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
-                )),
+                ))),
                 SpamRequest::Bundle(BundleCallDefinition {
                     txs: vec![
                         fn_call("0xbeef", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
@@ -156,6 +157,7 @@ pub mod tests {
                     kind: None,
                     fuzz: None,
                     gas_limit: None,
+                    blob_data: None,
                 },
                 FunctionCallDefinition {
                     to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
@@ -175,6 +177,7 @@ pub mod tests {
                     kind: None,
                     fuzz: None,
                     gas_limit: None,
+                    blob_data: None,
                 },
             ]
             .into(),

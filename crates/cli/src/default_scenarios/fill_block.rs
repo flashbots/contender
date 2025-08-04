@@ -6,7 +6,10 @@ use alloy::providers::Provider;
 use clap::{arg, Parser};
 use contender_core::{
     error::ContenderError,
-    generator::types::{AnyProvider, CreateDefinition, FunctionCallDefinition, SpamRequest},
+    generator::{
+        types::{AnyProvider, SpamRequest},
+        CreateDefinition, FunctionCallDefinition,
+    },
 };
 use contender_testfile::TestConfig;
 use tracing::{info, warn};
@@ -76,7 +79,8 @@ impl ToTestConfig for FillBlockArgs {
                         .with_signature("consumeGas()")
                         .with_from_pool("spammers")
                         .with_kind("fill-block")
-                        .with_gas_limit(gas_per_tx),
+                        .with_gas_limit(gas_per_tx)
+                        .into(),
                 )
             })
             .collect::<Vec<_>>();

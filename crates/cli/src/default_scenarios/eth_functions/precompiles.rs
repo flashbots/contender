@@ -1,6 +1,6 @@
 use crate::default_scenarios::contracts::SPAM_ME;
 use clap::ValueEnum;
-use contender_core::generator::types::{FunctionCallDefinition, SpamRequest};
+use contender_core::generator::{types::SpamRequest, FunctionCallDefinition};
 use strum::EnumIter;
 
 #[derive(ValueEnum, Clone, Debug, strum::Display, EnumIter, PartialEq, Eq)]
@@ -41,19 +41,14 @@ impl EthereumPrecompile {
 pub fn precompile_txs(args: &[EthereumPrecompile], num_iterations: u64) -> Vec<SpamRequest> {
     args.iter()
         .map(|precompile| {
-            SpamRequest::Tx(FunctionCallDefinition {
-                to: SPAM_ME.template_name(),
-                signature: Some(
-                    "callPrecompile(string memory method, uint256 iterations)".to_string(),
-                ),
-                args: vec![precompile.method().to_owned(), num_iterations.to_string()].into(),
-                value: None,
-                from: None,
-                from_pool: Some("spammers".to_owned()),
-                fuzz: None,
-                kind: Some("precompiles".to_owned()),
-                gas_limit: None,
-            })
+            SpamRequest::Tx(
+                FunctionCallDefinition::new(SPAM_ME.template_name())
+                    .with_signature("callPrecompile(string memory method, uint256 iterations)")
+                    .with_args(&[precompile.method().to_owned(), num_iterations.to_string()])
+                    .with_from_pool("spammers")
+                    .with_kind("precompiles")
+                    .into(),
+            )
         })
         .collect()
 }

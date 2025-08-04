@@ -7,7 +7,7 @@ use crate::default_scenarios::{
     },
 };
 use clap::{arg, Parser};
-use contender_core::generator::types::CreateDefinition;
+use contender_core::generator::CreateDefinition;
 use contender_testfile::TestConfig;
 
 #[derive(Parser, Clone, Debug)]

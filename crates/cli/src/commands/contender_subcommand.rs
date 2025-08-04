@@ -21,10 +21,7 @@ pub enum ContenderSubcommand {
         command: DbCommand,
     },
 
-    #[command(
-        name = "spam",
-        long_about = "Spam the RPC with tx requests as designated in the given testfile."
-    )]
+    #[command(name = "spam", long_about = "Spam the RPC with tx requests.")]
     Spam {
         #[command(flatten)]
         args: Box<SpamCliArgs>,
@@ -35,7 +32,7 @@ pub enum ContenderSubcommand {
 
     #[command(
         name = "setup",
-        long_about = "Deploy contracts and run the setup step(s) in the given testfile."
+        long_about = "Deploy contracts and execute one-time setup txs."
     )]
     Setup {
         #[command(flatten)]

@@ -1,9 +1,14 @@
 use alloy::primitives::U256;
-use contender_core::generator::types::CompiledContract;
+use contender_core::generator::CompiledContract;
 
 pub const SPAM_ME: CompiledContract<&'static str> = CompiledContract {
     bytecode: include_str!("./SpamMe.hex"),
     name: "SpamMe5",
+};
+
+pub const SPAM_ME_6: CompiledContract<&'static str> = CompiledContract {
+    bytecode: include_str!("./SpamMe6.hex"),
+    name: "SpamMe6",
 };
 
 /// A simple token contract for testing purposes.
@@ -13,7 +18,7 @@ pub const TEST_TOKEN: CompiledContract<&'static str> = CompiledContract {
     name: "testToken",
 };
 
-/// Helper function to create a `CompiledContract` for the `SpamMe` contract with constructor arguments.
+/// Create a `CompiledContract` for the `TestToken` contract with constructor arguments.
 pub fn test_token(token_num: u32, initial_supply: U256) -> CompiledContract<String> {
     let mut bytecode = TEST_TOKEN.bytecode.to_string();
     // Append the initial supply as a 32-byte hex-encoded value

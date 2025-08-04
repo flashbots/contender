@@ -1,7 +1,7 @@
 use crate::{commands::common::parse_amount, default_scenarios::builtin::ToTestConfig};
 use alloy::primitives::{Address, U256};
 use clap::{arg, Parser};
-use contender_core::generator::types::{FunctionCallDefinition, SpamRequest};
+use contender_core::generator::{types::SpamRequest, FunctionCallDefinition};
 
 #[derive(Parser, Clone, Debug)]
 pub struct TransferStressCliArgs {
@@ -49,6 +49,7 @@ impl ToTestConfig for TransferStressArgs {
             .with_value(*amount)
             .with_from_pool("spammers")]
         .into_iter()
+        .map(Box::new)
         .map(SpamRequest::Tx)
         .collect::<Vec<_>>();
         contender_testfile::TestConfig {

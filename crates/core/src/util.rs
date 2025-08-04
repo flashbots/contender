@@ -1,6 +1,6 @@
 use crate::{error::ContenderError, generator::types::AnyProvider, Result};
 use alloy::providers::Provider;
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Derive the block time from the first two blocks after genesis.
 pub async fn get_block_time(rpc_client: &AnyProvider) -> Result<u64> {
@@ -31,4 +31,30 @@ pub async fn get_block_time(rpc_client: &AnyProvider) -> Result<u64> {
         1
     };
     Ok(block_time_secs)
+}
+
+/// returns blob fee, or 0 if the RPC call fails.
+pub async fn get_blob_fee_maybe(rpc_client: &AnyProvider) -> u128 {
+    let res = rpc_client.get_blob_base_fee().await;
+    if res.is_err() {
+        warn!("failed to get blob base fee; defaulting to 0");
+    }
+    res.unwrap_or(0)
+}
+
+#[derive(Debug, Clone)]
+pub struct ExtraTxParams {
+    pub gas_price: u128,
+    pub blob_gas_price: u128,
+    pub chain_id: u64,
+}
+
+impl From<(u128, u128, u64)> for ExtraTxParams {
+    fn from((gas_price, blob_gas_price, chain_id): (u128, u128, u64)) -> Self {
+        ExtraTxParams {
+            gas_price,
+            blob_gas_price,
+            chain_id,
+        }
+    }
 }

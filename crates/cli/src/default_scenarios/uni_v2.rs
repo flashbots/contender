@@ -4,7 +4,7 @@ use alloy::primitives::U256;
 use clap::Parser;
 use contender_core::{
     error::ContenderError,
-    generator::types::{CompiledContract, CreateDefinition, FunctionCallDefinition, SpamRequest},
+    generator::{types::SpamRequest, CompiledContract, CreateDefinition, FunctionCallDefinition},
 };
 use contender_testfile::TestConfig;
 
@@ -293,6 +293,7 @@ impl ToTestConfig for UniV2Args {
         config.spam = Some(
             spam_steps
                 .into_iter()
+                .map(Box::new)
                 .map(SpamRequest::Tx)
                 .collect::<Vec<_>>(),
         );

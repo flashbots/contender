@@ -2,8 +2,7 @@ use alloy::transports::http::reqwest;
 use contender_core::{
     error::ContenderError,
     generator::{
-        templater::Templater,
-        types::{CreateDefinition, FunctionCallDefinition, SpamRequest},
+        templater::Templater, types::SpamRequest, CreateDefinition, FunctionCallDefinition,
         PlanConfig,
     },
 };
@@ -29,6 +28,15 @@ pub struct TestConfig {
 }
 
 impl TestConfig {
+    pub fn new() -> Self {
+        TestConfig {
+            env: None,
+            create: None,
+            setup: None,
+            spam: None,
+        }
+    }
+
     pub async fn from_remote_url(url: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
         let file_contents = reqwest::get(url)
             .await
@@ -55,6 +63,26 @@ impl TestConfig {
         let encoded = self.encode_toml()?;
         std::fs::write(file_path, encoded)?;
         Ok(())
+    }
+
+    pub fn with_env(mut self, env: HashMap<String, String>) -> Self {
+        self.env = Some(env);
+        self
+    }
+
+    pub fn with_create(mut self, create: Vec<CreateDefinition>) -> Self {
+        self.create = Some(create);
+        self
+    }
+
+    pub fn with_setup(mut self, setup: Vec<FunctionCallDefinition>) -> Self {
+        self.setup = Some(setup);
+        self
+    }
+
+    pub fn with_spam(mut self, spam: Vec<SpamRequest>) -> Self {
+        self.spam = Some(spam);
+        self
     }
 }
 

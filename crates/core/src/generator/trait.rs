@@ -3,19 +3,19 @@ use crate::{
     db::DbOps,
     error::ContenderError,
     generator::{
+        function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict, FuzzParam},
         named_txs::{ExecutionRequest, NamedTxRequest, NamedTxRequestBuilder},
         seeder::{SeedValue, Seeder},
         templater::Templater,
-        types::{
-            CallbackResult, CreateDefinition, CreateDefinitionStrict, FunctionCallDefinition,
-            FunctionCallDefinitionStrict, FuzzParam, PlanType, SpamRequest,
-        },
+        types::{CallbackResult, PlanType, SpamRequest},
+        CreateDefinition, CreateDefinitionStrict,
     },
     Result,
 };
 use alloy::{
-    hex::ToHexExt,
-    primitives::{Address, U256},
+    consensus::{SidecarBuilder, SimpleCoder},
+    hex::{FromHex, ToHexExt},
+    primitives::{Address, Bytes, U256},
 };
 use async_trait::async_trait;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
@@ -235,6 +235,23 @@ where
             funcdef.to.to_owned()
         };
 
+        let sidecar_data = if let Some(data) = funcdef.blob_data.as_ref() {
+            let parsed_data = Bytes::from_hex(if data.starts_with("0x") {
+                data.to_owned()
+            } else {
+                data.encode_hex()
+            })
+            .map_err(|e| {
+                ContenderError::with_err(e, "failed to parse blob data; invalid hex value")
+            })?;
+            let sidecar = SidecarBuilder::<SimpleCoder>::from_slice(&parsed_data)
+                .build()
+                .map_err(|e| ContenderError::with_err(e, "failed to build sidecar"))?;
+            Some(sidecar)
+        } else {
+            None
+        };
+
         Ok(FunctionCallDefinitionStrict {
             to: to_address,
             from: from_address,
@@ -244,6 +261,7 @@ where
             fuzz: funcdef.fuzz.to_owned().unwrap_or_default(),
             kind: funcdef.kind.to_owned(),
             gas_limit: funcdef.gas_limit.to_owned(),
+            sidecar: sidecar_data,
         })
     }
 

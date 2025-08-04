@@ -1,7 +1,10 @@
 use crate::{
     db::DbOps,
     error::ContenderError,
-    generator::{types::FunctionCallDefinition, util::encode_calldata},
+    generator::{
+        function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict},
+        util::encode_calldata,
+    },
     Result,
 };
 use alloy::{
@@ -11,7 +14,7 @@ use alloy::{
 };
 use std::collections::HashMap;
 
-use super::types::{CreateDefinitionStrict, FunctionCallDefinitionStrict};
+use super::CreateDefinitionStrict;
 
 pub trait Templater<K>
 where
@@ -132,6 +135,7 @@ where
             from: Some(funcdef.from),
             value,
             gas: funcdef.gas_limit,
+            sidecar: funcdef.sidecar.to_owned(),
             ..Default::default()
         })
     }
