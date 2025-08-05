@@ -281,7 +281,7 @@ where
                 })?;
             if let Some(signer) = signer {
                 let nonces = self.get_nonce_map();
-                let nonce = nonces.get(&actual_address);
+                let nonce = nonces.get(&from_address);
                 if let Some(&nonce) = nonce {
                     let auth_req = Authorization {
                         address: actual_address,
@@ -292,7 +292,7 @@ where
                 } else {
                     return Err(ContenderError::GenericError(
                         "failed to find nonce for address:",
-                        format!("{:?}", funcdef.authorization_address),
+                        format!("{from_address}"),
                     ));
                 }
             } else {

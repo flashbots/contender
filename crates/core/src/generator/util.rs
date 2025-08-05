@@ -90,6 +90,18 @@ pub fn complete_tx_request(
                 blob_gas_price,
             );
         }
+        TxType::Eip7702 => {
+            // recurse with eip1559 to get gas params
+            complete_tx_request(
+                tx_req,
+                TxType::Eip1559,
+                gas_price,
+                priority_fee,
+                gas_limit,
+                chain_id,
+                blob_gas_price,
+            );
+        }
         _ => {
             info!("Unsupported tx type: {tx_type:?}, defaulting to legacy");
             // recurse with legacy type
