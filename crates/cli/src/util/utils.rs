@@ -15,6 +15,7 @@ use contender_core::{
         util::complete_tx_request,
     },
     spammer::{LogCallback, NilCallback},
+    util::get_blob_fee_maybe,
 };
 use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
@@ -283,7 +284,7 @@ pub async fn fund_account(
     tx_type: TxType,
 ) -> Result<PendingTransactionConfig, Box<dyn std::error::Error>> {
     let gas_price = rpc_client.get_gas_price().await?;
-    let blob_gas_price = rpc_client.get_blob_base_fee().await?;
+    let blob_gas_price = get_blob_fee_maybe(rpc_client).await;
     let nonce = nonce.unwrap_or(rpc_client.get_transaction_count(sender.address()).await?);
     let chain_id = rpc_client.get_chain_id().await?;
     let mut tx_req = TransactionRequest {
