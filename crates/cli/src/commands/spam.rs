@@ -188,12 +188,13 @@ impl SpamCommandArgs {
                     .filter(|sp| sp.is_some())
                     .collect::<Vec<_>>()
                     .is_empty()
-                    && self.tx_type != TxType::Eip4844 {
-                        return Err(ContenderError::SpamError(
-                            "invalid tx type for blob transactions.",
-                            Some(format!("must set tx type {}", bold("-t eip4844"))),
-                        ));
-                    }
+                    && self.tx_type != TxType::Eip4844
+                {
+                    return Err(ContenderError::SpamError(
+                        "invalid tx type for blob transactions.",
+                        Some(format!("must set tx type {}", bold("-t eip4844"))),
+                    ));
+                }
 
                 // setCode txs
                 if !spam
@@ -205,12 +206,13 @@ impl SpamCommandArgs {
                     .filter(|sp| sp.is_some())
                     .collect::<Vec<_>>()
                     .is_empty()
-                    && self.tx_type != TxType::Eip7702 {
-                        return Err(ContenderError::SpamError(
-                            "invalid tx type for setCode transactions.",
-                            Some(format!("must set tx type {}", bold("-t eip7702"))),
-                        ));
-                    }
+                    && self.tx_type != TxType::Eip7702
+                {
+                    return Err(ContenderError::SpamError(
+                        "invalid tx type for setCode transactions.",
+                        Some(format!("must set tx type {}", bold("-t eip7702"))),
+                    ));
+                }
             }
         }
 
