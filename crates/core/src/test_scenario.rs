@@ -1528,92 +1528,55 @@ pub mod tests {
 
         fn get_setup_steps(&self) -> Result<Vec<FunctionCallDefinition>> {
             Ok(vec![
-                FunctionCallDefinition {
-                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                    from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
-                    from_pool: None,
-                    value: Some("4096".to_owned()),
-                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
-                    args: vec![
+                FunctionCallDefinition::new("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
+                    .with_from("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
+                    .with_value(U256::from(4096))
+                    .with_signature("swap(uint256 x, uint256 y, address a, bytes b)")
+                    .with_args(&[
                         "1".to_owned(),
                         "2".to_owned(),
                         Address::repeat_byte(0x11).encode_hex(),
                         "0xdead".to_owned(),
-                    ]
+                    ])
                     .into(),
-                    fuzz: None,
-                    kind: None,
-                    gas_limit: None,
-                    blob_data: None,
-                    authorization_addr: None,
-                },
-                FunctionCallDefinition {
-                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                    from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
-                    from_pool: None,
-                    value: Some("0x1000".to_owned()),
-                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
-                    args: vec![
+                FunctionCallDefinition::new("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
+                    .with_from("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
+                    .with_value(U256::from(0x1000))
+                    .with_signature("swap(uint256 x, uint256 y, address a, bytes b)")
+                    .with_args(&[
                         "1".to_owned(),
                         "2".to_owned(),
                         Address::repeat_byte(0x11).encode_hex(),
                         "0xbeef".to_owned(),
-                    ]
+                    ])
                     .into(),
-                    fuzz: None,
-                    kind: None,
-                    gas_limit: None,
-                    blob_data: None,
-                    authorization_addr: None,
-                },
-                FunctionCallDefinition {
-                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                    from: None,
-                    from_pool: Some("pool1".to_owned()),
-                    value: None,
-                    signature: Some("increment()".to_owned()),
-                    args: vec![].into(),
-                    fuzz: None,
-                    kind: None,
-                    gas_limit: None,
-                    blob_data: None,
-                    authorization_addr: None,
-                },
+                FunctionCallDefinition::new("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
+                    .with_from_pool("pool1")
+                    .with_signature("increment()")
+                    .into(),
             ])
         }
 
         fn get_spam_steps(&self) -> Result<Vec<SpamRequest>> {
             Ok(vec![
                 SpamRequest::Tx(
-                    FunctionCallDefinition {
-                        to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                        from: None,
-                        from_pool: Some("pool1".to_owned()),
-                        value: None,
-                        signature: Some(
-                            "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
-                        ),
-                        args: vec![
+                    FunctionCallDefinition::new("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
+                        .with_from_pool("pool1")
+                        .with_signature("swap(uint256 x, uint256 y, address a, bytes b)")
+                        .with_args(&[
                             "1".to_owned(),
                             "2".to_owned(),
                             // {_sender} will be replaced with the `from` address
                             "{_sender}".to_owned(),
                             "0xd00d".to_owned(),
-                        ]
-                        .into(),
-                        fuzz: vec![FuzzParam {
+                        ])
+                        .with_fuzz(&[FuzzParam {
                             param: Some("x".to_string()),
                             value: None,
                             min: None,
                             max: None,
-                        }]
+                        }])
                         .into(),
-                        kind: None,
-                        gas_limit: None,
-                        blob_data: None,
-                        authorization_addr: None,
-                    }
-                    .into(),
                 ),
                 SpamRequest::Tx(
                     FunctionCallDefinition::new("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")

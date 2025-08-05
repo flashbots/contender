@@ -29,7 +29,7 @@ pub struct FunctionCallDefinition {
     /// Optional blob data; tx type must be set to EIP4844 by spammer
     pub blob_data: Option<String>,
     /// Optional setCode data; tx type must be set to EIP7702 by spammer
-    pub authorization_addr: Option<String>,
+    pub authorization_address: Option<String>,
 }
 
 /// User-facing definition of a function call to be executed.
@@ -52,7 +52,7 @@ impl FunctionCallDefinition {
             kind: None,
             gas_limit: None,
             blob_data: None,
-            authorization_addr: None,
+            authorization_address: None,
         }
     }
 
@@ -98,7 +98,7 @@ impl FunctionCallDefinition {
         self
     }
     pub fn with_authorization(mut self, auth_addr: impl AsRef<str>) -> Self {
-        self.authorization_addr = Some(auth_addr.as_ref().to_owned());
+        self.authorization_address = Some(auth_addr.as_ref().to_owned());
         self
     }
 }

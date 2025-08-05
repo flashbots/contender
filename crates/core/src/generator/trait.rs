@@ -263,7 +263,7 @@ where
         };
 
         let mut signed_auth = None;
-        if let Some(address) = &funcdef.authorization_addr {
+        if let Some(address) = &funcdef.authorization_address {
             let mut placeholder_map = HashMap::<K, String>::new();
             let templater = self.get_templater();
             templater.find_fncall_placeholders(
@@ -292,7 +292,7 @@ where
                 } else {
                     return Err(ContenderError::GenericError(
                         "failed to find nonce for address:",
-                        format!("{:?}", funcdef.authorization_addr),
+                        format!("{:?}", funcdef.authorization_address),
                     ));
                 }
             } else {

@@ -102,7 +102,7 @@ where
             self.find_placeholder_values(arg, placeholder_map, db, rpc_url)?;
         }
         self.find_placeholder_values(&fncall.to, placeholder_map, db, rpc_url)?;
-        if let Some(auth) = &fncall.authorization_addr {
+        if let Some(auth) = &fncall.authorization_address {
             self.find_placeholder_values(auth, placeholder_map, db, rpc_url)?;
         }
         Ok(())
