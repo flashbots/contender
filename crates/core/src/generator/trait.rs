@@ -263,7 +263,7 @@ where
         };
 
         let mut signed_auth = None;
-        if let Some(address) = &funcdef.authorization_address {
+        if let Some(auth_address) = &funcdef.authorization_address {
             let mut placeholder_map = HashMap::<K, String>::new();
             let templater = self.get_templater();
             templater.find_fncall_placeholders(
@@ -272,9 +272,9 @@ where
                 &mut placeholder_map,
                 &self.get_rpc_url(),
             )?;
-            let actual_address = self
+            let actual_auth_address = self
                 .get_templater()
-                .replace_placeholders(&address, &placeholder_map)
+                .replace_placeholders(&auth_address, &placeholder_map)
                 .parse::<Address>()
                 .map_err(|e| {
                     ContenderError::with_err(e, "failed to find address in placeholder map")
@@ -284,9 +284,9 @@ where
                 let nonce = nonces.get(&from_address);
                 if let Some(&nonce) = nonce {
                     let auth_req = Authorization {
-                        address: actual_address,
+                        address: actual_auth_address,
                         chain_id: U256::from(self.get_chain_id()),
-                        nonce,
+                        nonce: nonce + 1,
                     };
                     signed_auth = Some(sign_auth(&signer, auth_req)?);
                 } else {

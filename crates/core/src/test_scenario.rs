@@ -669,7 +669,15 @@ where
                 Some(from.to_string()),
             ))?
             .to_owned();
-        self.nonces.insert(from.to_owned(), nonce + 1);
+
+        // for EIP-7702 txs, double-increment
+        // bc we always run txs from our own EOA after setCode executes
+        let increment = if tx_req.authorization_list.is_some() {
+            2
+        } else {
+            1
+        };
+        self.nonces.insert(from.to_owned(), nonce + increment);
 
         let key = keccak256(tx_req.input.input.to_owned().unwrap_or_default());
 
