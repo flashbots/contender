@@ -274,7 +274,7 @@ where
             )?;
             let actual_auth_address = self
                 .get_templater()
-                .replace_placeholders(&auth_address, &placeholder_map)
+                .replace_placeholders(auth_address, &placeholder_map)
                 .parse::<Address>()
                 .map_err(|e| {
                     ContenderError::with_err(e, "failed to find address in placeholder map")

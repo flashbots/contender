@@ -1545,8 +1545,7 @@ pub mod tests {
                         "2".to_owned(),
                         Address::repeat_byte(0x11).encode_hex(),
                         "0xdead".to_owned(),
-                    ])
-                    .into(),
+                    ]),
                 FunctionCallDefinition::new("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
                     .with_from("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
                     .with_value(U256::from(0x1000))
@@ -1556,12 +1555,10 @@ pub mod tests {
                         "2".to_owned(),
                         Address::repeat_byte(0x11).encode_hex(),
                         "0xbeef".to_owned(),
-                    ])
-                    .into(),
+                    ]),
                 FunctionCallDefinition::new("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
                     .with_from_pool("pool1")
-                    .with_signature("increment()")
-                    .into(),
+                    .with_signature("increment()"),
             ])
         }
 
