@@ -3,10 +3,9 @@ use crate::buckets::Bucket;
 use crate::db::{DbOps, NamedTx};
 use crate::error::{ContenderError, RpcErrorKind, RuntimeParamErrorKind};
 use crate::generator::named_txs::ExecutionRequest;
-use crate::generator::seeder::SeedValue;
 use crate::generator::templater::Templater;
 use crate::generator::types::AnyProvider;
-use crate::generator::util::complete_tx_request;
+use crate::generator::util::{complete_tx_request, generate_setcode_signer};
 use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use crate::provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID};
@@ -165,18 +164,8 @@ where
             extra_msg_handles,
         } = params;
 
-        let setcode_signer_key = FixedBytes::from_slice(
-            &rand_seed
-                .seed_values(9001, None, None)
-                .last()
-                .expect("failed to generate seed value")
-                .as_u256()
-                .to_be_bytes_vec(),
-        );
-        let setcode_signer =
-            PrivateKeySigner::from_bytes(&setcode_signer_key.into()).map_err(|e| {
-                ContenderError::with_err(e, "failed to parse private key for setCode signer")
-            })?;
+        let (setcode_signer, _) = generate_setcode_signer(&rand_seed);
+        debug!("setCode signer address: {}", setcode_signer.address());
 
         // use custom logging layer to log sendRawTransaction request IDs
         let client = ClientBuilder::default()
@@ -261,7 +250,7 @@ where
             rpc_client,
             bundle_client,
             builder_rpc_url,
-            rand_seed,
+            rand_seed: rand_seed.to_owned(),
             wallet_map,
             agent_store,
             chain_id,
@@ -688,10 +677,10 @@ where
                 Some(from.to_string()),
             ))?
             .to_owned();
-        let alice_addr = self.setcode_signer.address();
-        let alice_nonce = self
+        let setcode_signer_addr = self.setcode_signer.address();
+        let setcode_signer_nonce = self
             .nonces
-            .get(&alice_addr)
+            .get(&setcode_signer_addr)
             .ok_or(ContenderError::SetupError(
                 "missing nonce for 'from' address",
                 Some(from.to_string()),
@@ -700,7 +689,8 @@ where
 
         self.nonces.insert(from.to_owned(), nonce + 1);
         if tx_req.authorization_list.is_some() {
-            self.nonces.insert(alice_addr, alice_nonce + 1);
+            self.nonces
+                .insert(setcode_signer_addr, setcode_signer_nonce + 1);
         }
 
         let key = keccak256(tx_req.input.input.to_owned().unwrap_or_default());

@@ -281,17 +281,21 @@ where
                     ContenderError::with_err(e, "failed to find address in placeholder map")
                 })?;
             let setcode_signer = self.get_setcode_signer();
+
+            // the setcode nonce won't be updated in time for this function to recognize it
+            // so we get the latest nonce (available from init) and add `idx`
             let setcode_nonce = self.get_nonce_map().get(&setcode_signer.address()).ok_or(
                 ContenderError::GenericError(
                     "failed to find nonce for address:",
                     format!("{}", setcode_signer.address()),
                 ),
-            )?;
+            )? + idx as u64;
 
+            // build & sign EIP-7702 authorization
             let auth_req = Authorization {
                 address: actual_auth_address,
                 chain_id: U256::from(self.get_chain_id()),
-                nonce: *setcode_nonce,
+                nonce: setcode_nonce,
             };
             Some(sign_auth(&setcode_signer, auth_req)?)
         } else {
