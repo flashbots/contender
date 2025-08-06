@@ -114,6 +114,7 @@ where
     fn get_chain_id(&self) -> u64;
     fn get_rpc_provider(&self) -> &AnyProvider;
     fn get_nonce_map(&self) -> &HashMap<Address, u64>;
+    fn get_setcode_signer(&self) -> &PrivateKeySigner;
 
     /// Generates a map of N=`num_values` fuzzed values for each parameter in `fuzz_args`.
     fn create_fuzz_map(
@@ -195,35 +196,35 @@ where
     ) -> Result<FunctionCallDefinitionStrict> {
         let agents = self.get_agent_store();
 
-        let (from_address, signer): (Address, Option<PrivateKeySigner>) =
-            if let Some(from_pool) = &funcdef.from_pool {
-                let agent = agents
-                    .get_agent(from_pool)
+        let from_address: Address = if let Some(from_pool) = &funcdef.from_pool {
+            let agent = agents
+                .get_agent(from_pool)
+                .ok_or(ContenderError::SpamError(
+                    "from_pool not found in agent store",
+                    Some(from_pool.to_owned()),
+                ))?;
+            let signer =
+                agent
+                    .get_signer(idx % agent.signers.len())
                     .ok_or(ContenderError::SpamError(
-                        "from_pool not found in agent store",
-                        Some(from_pool.to_owned()),
-                    ))?;
-                let signer = agent.get_signer(idx % agent.signers.len()).ok_or(
-                    ContenderError::SpamError(
                         "signer not found in agent store",
                         Some(format!("from_pool={from_pool}, idx={idx}")),
-                    ),
-                )?;
-                (signer.address(), Some(signer.to_owned()))
-            } else if let Some(from) = &funcdef.from {
-                let from_addr = from.parse::<Address>().map_err(|e| {
-                    ContenderError::SpamError(
-                        "failed to parse 'from' address",
-                        Some(format!("from={from}, error={e}")),
-                    )
-                })?;
-                (from_addr, None)
-            } else {
-                return Err(ContenderError::SpamError(
-                    "invalid runtime config: must specify 'from' or 'from_pool'",
-                    None,
-                ));
-            };
+                    ))?;
+            signer.address()
+        } else if let Some(from) = &funcdef.from {
+            let from_addr = from.parse::<Address>().map_err(|e| {
+                ContenderError::SpamError(
+                    "failed to parse 'from' address",
+                    Some(format!("from={from}, error={e}")),
+                )
+            })?;
+            from_addr
+        } else {
+            return Err(ContenderError::SpamError(
+                "invalid runtime config: must specify 'from' or 'from_pool'",
+                None,
+            ));
+        };
 
         // manually replace {_sender} with the 'from' address
         let args = funcdef.args.to_owned().unwrap_or_default();
@@ -271,6 +272,7 @@ where
                 &mut placeholder_map,
                 &self.get_rpc_url(),
             )?;
+            // contract address; we'll copy its code to our EOA
             let actual_auth_address = self
                 .get_templater()
                 .replace_placeholders(auth_address, &placeholder_map)
@@ -278,24 +280,20 @@ where
                 .map_err(|e| {
                     ContenderError::with_err(e, "failed to find address in placeholder map")
                 })?;
-            let signer = signer.ok_or(ContenderError::GenericError(
-                "failed to find signer for address:",
-                format!("{from_address}"),
-            ))?;
-            let nonce =
-                self.get_nonce_map()
-                    .get(&from_address)
-                    .ok_or(ContenderError::GenericError(
-                        "failed to find nonce for address:",
-                        format!("{from_address}"),
-                    ))?;
+            let setcode_signer = self.get_setcode_signer();
+            let setcode_nonce = self.get_nonce_map().get(&setcode_signer.address()).ok_or(
+                ContenderError::GenericError(
+                    "failed to find nonce for address:",
+                    format!("{}", setcode_signer.address()),
+                ),
+            )?;
 
             let auth_req = Authorization {
                 address: actual_auth_address,
                 chain_id: U256::from(self.get_chain_id()),
-                nonce: nonce + 1,
+                nonce: *setcode_nonce,
             };
-            Some(sign_auth(&signer, auth_req)?)
+            Some(sign_auth(&setcode_signer, auth_req)?)
         } else {
             None
         };

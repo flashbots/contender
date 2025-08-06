@@ -3,6 +3,7 @@ use crate::buckets::Bucket;
 use crate::db::{DbOps, NamedTx};
 use crate::error::{ContenderError, RpcErrorKind, RuntimeParamErrorKind};
 use crate::generator::named_txs::ExecutionRequest;
+use crate::generator::seeder::SeedValue;
 use crate::generator::templater::Templater;
 use crate::generator::types::AnyProvider;
 use crate::generator::util::complete_tx_request;
@@ -106,6 +107,7 @@ where
     pub pending_tx_timeout_secs: u64,
     pub ctx: ExecutionContext,
     prometheus: PrometheusCollector,
+    setcode_signer: PrivateKeySigner,
 }
 
 pub struct TestScenarioParams {
@@ -163,6 +165,19 @@ where
             extra_msg_handles,
         } = params;
 
+        let setcode_signer_key = FixedBytes::from_slice(
+            &rand_seed
+                .seed_values(9001, None, None)
+                .last()
+                .expect("failed to generate seed value")
+                .as_u256()
+                .to_be_bytes_vec(),
+        );
+        let setcode_signer =
+            PrivateKeySigner::from_bytes(&setcode_signer_key.into()).map_err(|e| {
+                ContenderError::with_err(e, "failed to parse private key for setCode signer")
+            })?;
+
         // use custom logging layer to log sendRawTransaction request IDs
         let client = ClientBuilder::default()
             .layer(LoggingLayer::new(prometheus.prom, prometheus.hist).await)
@@ -189,7 +204,13 @@ where
         }
 
         let mut nonces = HashMap::new();
-        sync_nonces(&wallet_map, &mut nonces, &rpc_client).await?;
+        sync_nonces(
+            &wallet_map,
+            &mut nonces,
+            &rpc_client,
+            setcode_signer.address(),
+        )
+        .await?;
 
         let gas_limits = HashMap::new();
 
@@ -258,11 +279,18 @@ where
             },
             auth_provider,
             prometheus,
+            setcode_signer,
         })
     }
 
     pub async fn sync_nonces(&mut self) -> Result<()> {
-        sync_nonces(&self.wallet_map, &mut self.nonces, &self.rpc_client).await
+        sync_nonces(
+            &self.wallet_map,
+            &mut self.nonces,
+            &self.rpc_client,
+            self.setcode_signer.address(),
+        )
+        .await
     }
 
     pub async fn estimate_setup_cost(&self) -> Result<U256> {
@@ -660,15 +688,20 @@ where
                 Some(from.to_string()),
             ))?
             .to_owned();
+        let alice_addr = self.setcode_signer.address();
+        let alice_nonce = self
+            .nonces
+            .get(&alice_addr)
+            .ok_or(ContenderError::SetupError(
+                "missing nonce for 'from' address",
+                Some(from.to_string()),
+            ))?
+            .to_owned();
 
-        // for EIP-7702 txs, double-increment
-        // bc we always run txs from our own EOA after setCode executes
-        let increment = if tx_req.authorization_list.is_some() {
-            2
-        } else {
-            1
-        };
-        self.nonces.insert(from.to_owned(), nonce + increment);
+        self.nonces.insert(from.to_owned(), nonce + 1);
+        if tx_req.authorization_list.is_some() {
+            self.nonces.insert(alice_addr, alice_nonce + 1);
+        }
 
         let key = keccak256(tx_req.input.input.to_owned().unwrap_or_default());
 
@@ -1367,8 +1400,10 @@ async fn sync_nonces(
     wallet_map: &HashMap<Address, EthereumWallet>,
     nonces: &mut HashMap<Address, u64>,
     rpc_client: &AnyProvider,
+    setcode_signer_address: Address,
 ) -> Result<()> {
-    let all_addrs = wallet_map.keys().copied().collect::<Vec<Address>>();
+    let mut all_addrs = wallet_map.keys().copied().collect::<Vec<Address>>();
+    all_addrs.push(setcode_signer_address);
     let mut tasks = vec![];
     let (sender, mut receiver) = tokio::sync::mpsc::channel::<(Address, u64)>(all_addrs.len() + 1);
     for addr in all_addrs {
@@ -1441,6 +1476,10 @@ where
 
     fn get_nonce_map(&self) -> &HashMap<Address, u64> {
         &self.nonces
+    }
+
+    fn get_setcode_signer(&self) -> &PrivateKeySigner {
+        &self.setcode_signer
     }
 }
 
