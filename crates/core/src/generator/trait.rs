@@ -279,28 +279,24 @@ where
                 .map_err(|e| {
                     ContenderError::with_err(e, "failed to find address in placeholder map")
                 })?;
-            if let Some(signer) = signer {
-                let nonces = self.get_nonce_map();
-                let nonce = nonces.get(&from_address);
-                if let Some(&nonce) = nonce {
-                    let auth_req = Authorization {
-                        address: actual_auth_address,
-                        chain_id: U256::from(self.get_chain_id()),
-                        nonce: nonce + 1,
-                    };
-                    signed_auth = Some(sign_auth(&signer, auth_req)?);
-                } else {
-                    return Err(ContenderError::GenericError(
+            let signer = signer.ok_or(ContenderError::GenericError(
+                "failed to find signer for address:",
+                format!("{from_address}"),
+            ))?;
+            let nonce =
+                self.get_nonce_map()
+                    .get(&from_address)
+                    .ok_or(ContenderError::GenericError(
                         "failed to find nonce for address:",
                         format!("{from_address}"),
-                    ));
-                }
-            } else {
-                return Err(ContenderError::GenericError(
-                    "hard-coded wallets are not supported; please use from_pool.",
-                    "".to_owned(),
-                ));
-            }
+                    ))?;
+
+            let auth_req = Authorization {
+                address: actual_auth_address,
+                chain_id: U256::from(self.get_chain_id()),
+                nonce: nonce + 1,
+            };
+            signed_auth = Some(sign_auth(&signer, auth_req)?);
         }
 
         Ok(FunctionCallDefinitionStrict {
