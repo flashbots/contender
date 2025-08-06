@@ -16,8 +16,7 @@ from_pool = "spammers"
 # struct Call { address to; uint256 value; bytes data; }
 signature = "function execute((address,uint256,bytes)[])"
 args = [
-    # here we have to manually encode calldata
-    # TODO: better interface for this in builtin setCode scenario
-    "[(0x{Counter},0,0xd09de08a)]" # 0xd09de08a calls increment()
+    # here we have to manually encode calldata for the `execute` function
+    "[(0x{Counter},0,0xd09de08a)]", # 0xd09de08a calls increment()
 ]
 authorization_address = "{SmartWallet}"
