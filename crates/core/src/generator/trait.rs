@@ -262,8 +262,7 @@ where
             None
         };
 
-        let mut signed_auth = None;
-        if let Some(auth_address) = &funcdef.authorization_address {
+        let signed_auth = if let Some(auth_address) = &funcdef.authorization_address {
             let mut placeholder_map = HashMap::<K, String>::new();
             let templater = self.get_templater();
             templater.find_fncall_placeholders(
@@ -296,8 +295,10 @@ where
                 chain_id: U256::from(self.get_chain_id()),
                 nonce: nonce + 1,
             };
-            signed_auth = Some(sign_auth(&signer, auth_req)?);
-        }
+            Some(sign_auth(&signer, auth_req)?)
+        } else {
+            None
+        };
 
         Ok(FunctionCallDefinitionStrict {
             to: to_address,
