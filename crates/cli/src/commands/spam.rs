@@ -265,11 +265,9 @@ impl SpamCommandArgs {
             SpamScenario::Builtin(builtin) => {
                 if matches!(builtin, BuiltinScenario::Blobs(_)) {
                     TxType::Eip4844
-                }
-                // else if matches!(builtin, BuiltinScenario::SetCode) {
-
-                // }
-                else {
+                } else if matches!(builtin, BuiltinScenario::SetCode(_)) {
+                    TxType::Eip7702
+                } else {
                     self.tx_type
                 }
             }
