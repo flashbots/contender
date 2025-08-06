@@ -154,6 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 spam_args,
                 disable_reporting,
                 gen_report,
+                spam_timeout,
                 ..
             } = *args.to_owned();
 
@@ -162,7 +163,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 txs_per_block,
                 txs_per_second,
                 duration,
-                timeout,
+                pending_timeout,
                 loops,
                 accounts_per_agent,
                 ..
@@ -213,10 +214,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 tx_type: tx_type.into(),
                 bundle_type: bundle_type.into(),
                 engine_params,
-                timeout_secs: timeout,
+                pending_timeout_secs: pending_timeout,
                 env,
                 loops: real_loops,
                 accounts_per_agent,
+                spam_timeout,
             };
 
             commands::spamd(&db, spam_args, gen_report, real_loops).await?;

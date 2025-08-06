@@ -11,11 +11,11 @@ use ansi_term::{ANSIGenericString, Color};
 use contender_core::{
     error::ContenderError,
     generator::{
-        types::{AnyProvider, SpamRequest},
+        types::{AnyProvider, FunctionCallDefinition, SpamRequest},
         util::complete_tx_request,
-        FunctionCallDefinition,
     },
     spammer::{LogCallback, NilCallback},
+    util::get_blob_fee_maybe,
 };
 use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
@@ -284,7 +284,7 @@ pub async fn fund_account(
     tx_type: TxType,
 ) -> Result<PendingTransactionConfig, Box<dyn std::error::Error>> {
     let gas_price = rpc_client.get_gas_price().await?;
-    let blob_gas_price = rpc_client.get_blob_base_fee().await?;
+    let blob_gas_price = get_blob_fee_maybe(rpc_client).await;
     let nonce = nonce.unwrap_or(rpc_client.get_transaction_count(sender.address()).await?);
     let chain_id = rpc_client.get_chain_id().await?;
     let mut tx_req = TransactionRequest {
@@ -408,6 +408,53 @@ pub fn bold<'a>(msg: impl AsRef<str> + 'a) -> ANSIGenericString<'a, str> {
         .paint(msg.as_ref().to_owned())
 }
 
+/// Parses a string with time units into a Duration.
+/// Supported units: ms, msec, millisecond(s), s, sec(s), second(s), m, min(ute)(s), h, hr(s), hour(s), d, day(s).
+pub fn parse_duration(input: &str) -> Result<Duration, String> {
+    let s = input.trim().to_lowercase();
+
+    // Split numeric part and unit part.
+    let mut num_str = String::new();
+    let mut unit_str = String::new();
+    for c in s.chars() {
+        if num_str.is_empty() && c.is_whitespace() {
+            continue;
+        }
+        if c.is_ascii_digit() {
+            if unit_str.is_empty() {
+                num_str.push(c);
+            } else {
+                return Err(format!(
+                    "Invalid input format: unexpected digit after unit in '{input}'"
+                ));
+            }
+        } else if c == '.' {
+            // For simplicity, we expect whole numbers.
+            return Err("Floating point values are not supported".to_owned());
+        } else {
+            unit_str.push(c);
+        }
+    }
+    let value: u64 = num_str
+        .parse()
+        .map_err(|e| format!("Invalid number: {e}"))?;
+    let unit = unit_str.trim();
+    if unit.is_empty() {
+        // No unit provided - default to seconds.
+        return Ok(Duration::from_secs(value));
+    }
+    match unit {
+        "ms" | "msec" | "msecs" | "millisecond" | "milliseconds" => {
+            Ok(Duration::from_millis(value))
+        }
+        "s" | "sec" | "secs" | "second" | "seconds" => Ok(Duration::from_secs(value)),
+        "m" | "min" | "mins" | "minute" | "minutes" => Ok(Duration::from_secs(value * 60)),
+        "h" | "hr" | "hrs" | "hour" | "hours" => Ok(Duration::from_secs(value * 3600)),
+        "d" | "day" | "days" => Ok(Duration::from_secs(value * 86400)),
+        _ => Err(format!("Unrecognized time unit '{unit}'")),
+    }
+}
+
 pub fn load_seedfile() -> Result<String, Box<dyn std::error::Error>> {
     let data_path = data_dir()?;
 
@@ -431,6 +478,7 @@ pub fn load_seedfile() -> Result<String, Box<dyn std::error::Error>> {
 mod test {
     use super::fund_accounts;
     use super::load_testconfig;
+    use super::parse_duration;
     use alloy::{
         consensus::constants::ETH_TO_WEI,
         network::AnyNetwork,
@@ -440,9 +488,105 @@ mod test {
         signers::local::PrivateKeySigner,
     };
     use std::str::FromStr;
+    use std::time::Duration;
 
     pub fn spawn_anvil() -> AnvilInstance {
         Anvil::new().block_time(1).spawn()
+    }
+
+    #[test]
+    fn it_parses_durations() {
+        let test_duration = |s: &str, d: Duration| {
+            assert_eq!(parse_duration(s).unwrap(), d);
+        };
+
+        test_duration("1 second", Duration::from_secs(1));
+    }
+
+    #[test]
+    fn test_parse_duration_no_unit_defaults_to_seconds() {
+        // No unit provided should default to seconds.
+        assert_eq!(parse_duration("2").unwrap(), Duration::from_secs(2));
+        assert_eq!(parse_duration("   15   ").unwrap(), Duration::from_secs(15));
+    }
+
+    #[test]
+    fn test_parse_duration_milliseconds() {
+        let variants = [
+            "5ms",
+            "5 ms",
+            "5msec",
+            "5 msec",
+            "5 millisecond",
+            "5 milliseconds",
+        ];
+        for &variant in &variants {
+            assert_eq!(
+                parse_duration(variant).unwrap(),
+                Duration::from_millis(5),
+                "Failed on variant: {variant}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_duration_seconds() {
+        let variants = ["10s", "10 s", "10sec", "10 sec", "10 second", "10 seconds"];
+        for &variant in &variants {
+            assert_eq!(
+                parse_duration(variant).unwrap(),
+                Duration::from_secs(10),
+                "Failed on variant: {variant}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_duration_minutes() {
+        let variants = ["3m", "3 m", "3min", "3 min", "3 minute", "3 minutes"];
+        for &variant in &variants {
+            assert_eq!(
+                parse_duration(variant).unwrap(),
+                Duration::from_secs(3 * 60),
+                "Failed on variant: {variant}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_duration_hours() {
+        let variants = ["1h", "1 h", "1hr", "1 hr", "1 hour", "1 hours"];
+        for &variant in &variants {
+            assert_eq!(
+                parse_duration(variant).unwrap(),
+                Duration::from_secs(3600),
+                "Failed on variant: {variant}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_duration_days() {
+        let variants = ["2d", "2 d", "2day", "2 day", "2days", "2 days"];
+        for &variant in &variants {
+            assert_eq!(
+                parse_duration(variant).unwrap(),
+                Duration::from_secs(2 * 86400),
+                "Failed on variant: {variant}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_duration_invalid_inputs() {
+        // Floating point values are not supported.
+        assert!(parse_duration("5.5s").is_err());
+        // Missing numeric part.
+        assert!(parse_duration("s").is_err());
+        // Non-number input.
+        assert!(parse_duration("abc").is_err());
+        // Unrecognized unit.
+        assert!(parse_duration("10 xs").is_err());
     }
 
     #[tokio::test]

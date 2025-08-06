@@ -10,6 +10,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
+    time::Duration,
 };
 use tracing::{error, info, warn};
 
@@ -48,6 +49,8 @@ pub async fn spamd(
 
     // runs spam command in a loop
     let mut i = 0;
+    // this holds a Some value only when a timeout has been started.
+    let mut timeout_start = None;
     loop {
         let mut do_finish = false;
         if let Some(loops) = &limit_loops {
@@ -66,11 +69,33 @@ pub async fn spamd(
 
         let db = db.clone();
         let spam_res = commands::spam(&db, &args, &mut scenario).await;
+        let wait_time = Duration::from_secs(3);
+
         if let Err(e) = spam_res {
             error!("spam run failed: {e:?}");
-            scenario.ctx.cancel_token.cancel();
-            break;
+
+            if timeout_start.is_none() {
+                let start_time = std::time::Instant::now();
+                timeout_start = Some(start_time);
+                warn!("retrying in {} seconds...", wait_time.as_secs());
+                tokio::time::sleep(wait_time).await;
+                continue;
+            }
+
+            if let Some(timeout_start) = timeout_start {
+                if std::time::Instant::now().duration_since(timeout_start) > args.spam_timeout {
+                    warn!("timeout reached, quitting spam loop...");
+                    scenario.ctx.cancel_token.cancel();
+                    break;
+                } else {
+                    tokio::time::sleep(wait_time).await;
+                }
+            } else {
+                scenario.ctx.cancel_token.cancel();
+                break;
+            }
         } else {
+            timeout_start = None;
             let run_id = spam_res.expect("spam");
             if let Some(run_id) = run_id {
                 run_ids.push(run_id);
