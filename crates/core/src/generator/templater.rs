@@ -2,6 +2,7 @@ use crate::{
     db::DbOps,
     error::ContenderError,
     generator::{
+        constants::{SENDER_KEY, SETCODE_KEY},
         function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict},
         util::encode_calldata,
     },
@@ -51,7 +52,8 @@ where
             last_end = template_end + 1;
 
             // ignore {_sender} placeholder; it's handled outside the templater
-            if template_key.to_string() == "_sender" {
+            let key = template_key.to_string();
+            if key == SENDER_KEY || key == SETCODE_KEY {
                 continue;
             }
 

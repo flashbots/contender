@@ -22,7 +22,7 @@ use clap::Subcommand;
 use contender_core::{
     agent_controller::AgentStore,
     error::{ContenderError, RuntimeParamErrorKind},
-    generator::{types::AnyProvider, RandSeed},
+    generator::{constants::setcode_placeholder, types::AnyProvider, RandSeed},
 };
 use contender_testfile::TestConfig;
 use strum::IntoEnumIterator;
@@ -141,9 +141,9 @@ impl BuiltinScenarioCli {
                 Ok(BuiltinScenario::Revert(args))
             }
 
-            BuiltinScenarioCli::SetCode(args) => {
-                Ok(BuiltinScenario::SetCode(SetCodeArgs::from_cli_args(args)?))
-            }
+            BuiltinScenarioCli::SetCode(args) => Ok(BuiltinScenario::SetCode(
+                SetCodeArgs::from_cli_args(args, setcode_placeholder())?,
+            )),
 
             BuiltinScenarioCli::Storage(args) => {
                 let bad_args_err = |name: &str| {

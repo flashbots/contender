@@ -5,7 +5,10 @@ use contender_core::{
 use contender_testfile::TestConfig;
 
 use crate::{
-    default_scenarios::{builtin::ToTestConfig, contracts::SPAM_ME_6},
+    default_scenarios::{
+        builtin::ToTestConfig,
+        contracts::{COUNTER, SMART_WALLET},
+    },
     util::bold,
 };
 
@@ -46,10 +49,16 @@ pub struct SetCodeArgs {
     pub contract_address: Option<String>,
     pub signature: String,
     pub args: Vec<String>,
+    /// setCode txs must be sent to this address bc it's the signer on the `Authorization`.
+    signer_address: String,
 }
 
 impl SetCodeArgs {
-    pub fn from_cli_args(cli_args: SetCodeCliArgs) -> contender_core::Result<Self> {
+    pub fn from_cli_args(
+        cli_args: SetCodeCliArgs,
+        signer_address: String,
+    ) -> contender_core::Result<Self> {
+        println!("signer_address: {signer_address}");
         if cli_args.contract_address.is_some() {
             // require signature & args to be provided, else error
             if cli_args.args.is_none() || cli_args.signature.is_none() {
@@ -65,40 +74,48 @@ impl SetCodeArgs {
             }
         }
 
+        // 0xd09de08a is the function signature for `increment()` (which we'll call on the Counter contract)
+
         let signature = cli_args
             .signature
-            .unwrap_or("consumeGas(uint256 amount)".to_owned());
-        let args = cli_args.args.unwrap_or(vec!["21000".to_owned()]);
+            .unwrap_or("execute((address,uint256,bytes)[])".to_owned());
+        let args = cli_args
+            .args
+            .unwrap_or(vec!["[(0x{Counter},0,0xd09de08a)]".to_owned()]);
 
         Ok(Self {
             args,
             signature,
             // contract address remains optional so later, we know whether to deploy a new contract
             contract_address: cli_args.contract_address,
+            signer_address,
         })
     }
 }
 
 impl ToTestConfig for SetCodeArgs {
     fn to_testconfig(&self) -> contender_testfile::TestConfig {
-        let fn_call = FunctionCallDefinition::new("{_sender}")
+        let fn_call = FunctionCallDefinition::new(self.signer_address.to_string())
             .with_from_pool("spammers")
             .with_args(&self.args)
             .with_signature(self.signature.to_owned())
             .with_authorization(
                 self.contract_address
                     .to_owned()
-                    .unwrap_or(SPAM_ME_6.template_name()),
+                    .unwrap_or(SMART_WALLET.template_name()),
             );
 
         let spam = vec![fn_call].iter().map(SpamRequest::new_tx).collect();
         let mut config = TestConfig::new().with_spam(spam);
 
-        // only add a create step if contract_address (already deployed) is NOT provided
+        // add default create steps if contract_address (must be already deployed) is NOT provided
         if self.contract_address.is_none() {
-            config = config.with_create(vec![
-                CreateDefinition::new(&SPAM_ME_6.into()).with_from_pool("admin")
-            ]);
+            config = config.with_create(
+                [COUNTER, SMART_WALLET]
+                    .into_iter()
+                    .map(|contract| CreateDefinition::new(&contract.into()).with_from_pool("admin"))
+                    .collect(),
+            );
         }
 
         config

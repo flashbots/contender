@@ -3,6 +3,7 @@ use crate::{
     db::DbOps,
     error::ContenderError,
     generator::{
+        constants::*,
         function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict, FuzzParam},
         named_txs::{ExecutionRequest, NamedTxRequest, NamedTxRequestBuilder},
         seeder::{SeedValue, Seeder},
@@ -22,8 +23,6 @@ use alloy::{
 };
 use async_trait::async_trait;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
-
-const VALUE_KEY: &str = "__tx_value_contender__";
 
 pub trait PlanConfig<K>
 where
@@ -228,23 +227,23 @@ where
 
         // manually replace {_sender} with the 'from' address
         let args = funcdef.args.to_owned().unwrap_or_default();
-        let args = args
-            .iter()
-            .map(|arg| {
-                if arg.contains("{_sender}") {
-                    // return `from` address WITH 0x prefix
-                    arg.replace("{_sender}", &from_address.to_string())
-                } else {
-                    arg.to_owned()
-                }
-            })
-            .collect::<Vec<String>>();
 
-        let to_address = if funcdef.to == "{_sender}" {
-            from_address.to_string()
-        } else {
-            funcdef.to.to_owned()
+        // replace special variables with the corresponding special values
+        let special_replace = |arg: &String| {
+            if arg.contains(&sender_placeholder()) {
+                // return `from` address WITH 0x prefix
+                arg.replace(&sender_placeholder(), &from_address.to_string())
+            } else if arg.contains(&setcode_placeholder()) {
+                arg.replace(
+                    &setcode_placeholder(),
+                    &self.get_setcode_signer().address().to_string(),
+                )
+            } else {
+                arg.to_owned()
+            }
         };
+        let args = args.iter().map(special_replace).collect::<Vec<String>>();
+        let to_address = special_replace(&funcdef.to);
 
         let sidecar_data = if let Some(data) = funcdef.blob_data.as_ref() {
             let parsed_data = Bytes::from_hex(if data.starts_with("0x") {
