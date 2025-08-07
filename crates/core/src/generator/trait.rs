@@ -296,7 +296,7 @@ where
                 chain_id: U256::from(self.get_chain_id()),
                 nonce: setcode_nonce,
             };
-            Some(sign_auth(&setcode_signer, auth_req)?)
+            Some(sign_auth(setcode_signer, auth_req)?)
         } else {
             None
         };
