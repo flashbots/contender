@@ -1,9 +1,15 @@
-use crate::{error::ContenderError, Result};
+use crate::{
+    error::ContenderError,
+    generator::seeder::{SeedValue, Seeder},
+    Result,
+};
 use alloy::{
     consensus::TxType,
     dyn_abi::{DynSolType, DynSolValue, JsonAbiExt},
     json_abi,
+    primitives::FixedBytes,
     rpc::types::TransactionRequest,
+    signers::local::PrivateKeySigner,
 };
 use tracing::info;
 
@@ -90,6 +96,18 @@ pub fn complete_tx_request(
                 blob_gas_price,
             );
         }
+        TxType::Eip7702 => {
+            // recurse with eip1559 to get gas params
+            complete_tx_request(
+                tx_req,
+                TxType::Eip1559,
+                gas_price,
+                priority_fee,
+                gas_limit,
+                chain_id,
+                blob_gas_price,
+            );
+        }
         _ => {
             info!("Unsupported tx type: {tx_type:?}, defaulting to legacy");
             // recurse with legacy type
@@ -105,6 +123,19 @@ pub fn complete_tx_request(
         }
     };
     tx_req.gas = Some(gas_limit);
+}
+
+pub fn generate_setcode_signer(seed: &impl Seeder) -> (PrivateKeySigner, [u8; 32]) {
+    let raw_seed = seed
+        .seed_values(9001, None, None)
+        .last()
+        .expect("failed to generate seed values for setcode signer");
+    let seed_bytes = raw_seed.as_bytes();
+    (
+        PrivateKeySigner::from_slice(seed_bytes)
+            .expect("failed to parse seed value into private key"),
+        FixedBytes::from_slice(seed_bytes).0,
+    )
 }
 
 #[cfg(test)]

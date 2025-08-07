@@ -243,8 +243,8 @@ pub enum TxTypeCli {
     Eip1559,
     /// Shard Blob Transactions ([EIP-4844](https://eips.ethereum.org/EIPS/eip-4844)), type `0x3`
     Eip4844,
-    // /// EOA Set Code Transactions ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)), type `0x4`
-    // Eip7702,
+    /// EOA Set Code Transactions ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)), type `0x4`
+    Eip7702,
 }
 
 #[derive(Copy, Debug, Clone, clap::ValueEnum)]
@@ -312,7 +312,7 @@ impl From<TxTypeCli> for alloy::consensus::TxType {
             // TxTypeCli::Eip2930 => TxType::Eip2930,
             TxTypeCli::Eip1559 => TxType::Eip1559,
             TxTypeCli::Eip4844 => TxType::Eip4844,
-            // TxTypeCli::Eip7702 => TxType::Eip7702,
+            TxTypeCli::Eip7702 => TxType::Eip7702,
         }
     }
 }

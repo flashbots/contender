@@ -2,6 +2,7 @@ use crate::{
     db::DbOps,
     error::ContenderError,
     generator::{
+        constants::{SENDER_KEY, SETCODE_KEY},
         function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict},
         util::encode_calldata,
     },
@@ -51,7 +52,8 @@ where
             last_end = template_end + 1;
 
             // ignore {_sender} placeholder; it's handled outside the templater
-            if template_key.to_string() == "_sender" {
+            let key = template_key.to_string();
+            if key == SENDER_KEY || key == SETCODE_KEY {
                 continue;
             }
 
@@ -88,7 +90,7 @@ where
 
     /// Finds {placeholders} in `fncall` and looks them up in `db`,
     /// then inserts the values it finds into `placeholder_map`.
-    /// NOTE: only finds placeholders in `args` and `to` fields.
+    /// NOTE: only finds placeholders in `args`, `authorization_addr`, and `to` fields.
     fn find_fncall_placeholders(
         &self,
         fncall: &FunctionCallDefinition,
@@ -102,6 +104,9 @@ where
             self.find_placeholder_values(arg, placeholder_map, db, rpc_url)?;
         }
         self.find_placeholder_values(&fncall.to, placeholder_map, db, rpc_url)?;
+        if let Some(auth) = &fncall.authorization_address {
+            self.find_placeholder_values(auth, placeholder_map, db, rpc_url)?;
+        }
         Ok(())
     }
 
@@ -136,6 +141,7 @@ where
             value,
             gas: funcdef.gas_limit,
             sidecar: funcdef.sidecar.to_owned(),
+            authorization_list: funcdef.authorization.to_owned(),
             ..Default::default()
         })
     }

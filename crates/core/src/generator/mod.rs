@@ -3,6 +3,8 @@ mod r#trait;
 mod create_def;
 mod function_def;
 
+pub mod constants;
+
 /// Defines named tx requests, which are used to store transaction requests with optional names and kinds.
 /// Used for tracking transactions in a test scenario.
 pub mod named_txs;

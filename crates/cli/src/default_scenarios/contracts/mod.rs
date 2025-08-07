@@ -1,6 +1,16 @@
 use alloy::primitives::U256;
 use contender_core::generator::CompiledContract;
 
+pub const COUNTER: CompiledContract<&'static str> = CompiledContract {
+    bytecode: include_str!("./Counter.hex"),
+    name: "Counter",
+};
+
+pub const SMART_WALLET: CompiledContract<&'static str> = CompiledContract {
+    bytecode: include_str!("./SmartWallet.hex"),
+    name: "SmartWallet",
+};
+
 pub const SPAM_ME: CompiledContract<&'static str> = CompiledContract {
     bytecode: include_str!("./SpamMe.hex"),
     name: "SpamMe5",
