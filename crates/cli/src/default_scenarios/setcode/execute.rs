@@ -24,7 +24,7 @@ pub struct SetCodeExecuteCliArgs {
 Example:
 --sig \"setNumber(uint256 num)\""
     )]
-    pub sig: Option<String>,
+    pub sig: String,
 
     /// Comma-separated arguments to the function being called via the smart-wallet's execute function.
     #[arg(
@@ -36,7 +36,7 @@ Examples:
 --args \"9001,0xf00d\"",
         value_delimiter = ','
     )]
-    pub args: Option<Vec<String>>,
+    pub args: Vec<String>,
 
     /// Ether to send with the delegated call. Note: you must manually fund your setCode signer's account to use this feature.
     #[arg(
@@ -67,14 +67,10 @@ impl SetCodeExecuteCliArgs {
             command: og_args.command.to_owned(),
             signature: Some(DEFAULT_SIG.to_string()),
             args: Some(vec![format!(
-                "[(0x{},{},{})]", // TODO: support `value`; (the middle element, currently set to 0)
+                "[(0x{},{},{})]",
                 self.to.trim_start_matches("0x"),
                 self.value.unwrap_or(U256::ZERO).to_string(),
-                encode_calldata(
-                    &self.args.to_owned().unwrap_or_default(),
-                    &self.sig.to_owned().unwrap_or("0xd09de08a".to_owned())
-                )?
-                .encode_hex(),
+                encode_calldata(&self.args, &self.sig)?.encode_hex(),
             )]),
         })
     }
