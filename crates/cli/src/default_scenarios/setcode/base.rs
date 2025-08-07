@@ -1,17 +1,24 @@
-use contender_core::generator::{types::SpamRequest, CreateDefinition, FunctionCallDefinition};
-use contender_testfile::TestConfig;
-use tracing::warn;
-
 use crate::{
     default_scenarios::{
         builtin::ToTestConfig,
         contracts::{COUNTER, SMART_WALLET},
+        setcode::{
+            execute::{DEFAULT_ARGS, DEFAULT_SIG},
+            SetCodeSubCommand,
+        },
     },
     util::bold,
 };
+use clap::Parser;
+use contender_core::generator::{types::SpamRequest, CreateDefinition, FunctionCallDefinition};
+use contender_testfile::TestConfig;
+use tracing::warn;
 
-#[derive(Clone, Debug, clap::Parser)]
+#[derive(Clone, Debug, Parser)]
 pub struct SetCodeCliArgs {
+    #[command(subcommand)]
+    pub command: Option<SetCodeSubCommand>,
+
     /// The contract address containing the bytecode to copy into the sender's EOA.
     /// May be a placeholder. If not set, a test contract will be deployed.
     #[arg(
@@ -20,24 +27,23 @@ pub struct SetCodeCliArgs {
     )]
     pub contract_address: Option<String>,
 
-    /// The solidity signature function to call on the EOA after the setCode transaction executes.
+    /// The solidity signature of the function to call on the EOA after the setCode transaction executes.
     #[arg(
         long = "sig",
-        long_help = "The solidity signature function to call after setCode changes the account's bytecode. Must be provided with --address & --args",
+        long_help = "The solidity signature of the function to call after setCode changes the account's bytecode.
+Example (smart wallet):
+--sig \"execute((address to, uint256 value, bytes data)[])\"",
         visible_aliases = ["signature"]
     )]
     pub signature: Option<String>,
 
-    /// The arguments (comma-separated) to the function being called on the EOA after the setCode transaction executes.
+    /// Comma-separated args to the function called on the EOA's new code.
     #[arg(
         long,
-        long_help = "The solidity signature function to call after setCode changes the account's bytecode. Must be provided with --address & --sig",
-        value_parser = clap::builder::ValueParser::new(|s: &str| {
-            Ok::<_, String>(s.split(',')
-            .map(|arg| arg.trim().to_owned())
-            .filter(|arg| !arg.is_empty())
-            .collect::<Vec<String>>())
-        })
+        long_help = "Comma-separated arguments to the function being called on the EOA after the setCode transaction executes.
+Example (smart wallet):
+--args \"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266,0,0xd09de08a\"",
+        value_delimiter = ','
     )]
     pub args: Option<Vec<String>>,
 }
@@ -56,8 +62,6 @@ impl SetCodeArgs {
         cli_args: SetCodeCliArgs,
         signer_address: String,
     ) -> contender_core::Result<Self> {
-        const DEFAULT_SIG: &str = "execute((address,uint256,bytes)[])";
-        const DEFAULT_ARGS: &str = "[(0x{Counter},0,0xd09de08a)]";
         if cli_args.contract_address.is_some() {
             // require signature & args to be provided, else error
             if cli_args.args.is_none() || cli_args.signature.is_none() {

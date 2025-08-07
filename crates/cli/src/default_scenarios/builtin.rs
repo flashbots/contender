@@ -9,13 +9,13 @@ use crate::{
         erc20::{Erc20Args, Erc20CliArgs},
         eth_functions::{opcodes::EthereumOpcode, EthFunctionsArgs, EthFunctionsCliArgs},
         revert::RevertCliArgs,
-        setcode::{SetCodeArgs, SetCodeCliArgs},
+        setcode::{SetCodeArgs, SetCodeCliArgs, SetCodeSubCommand},
         storage::{StorageStressArgs, StorageStressCliArgs},
         stress::StressCliArgs,
         transfers::{TransferStressArgs, TransferStressCliArgs},
         uni_v2::{UniV2Args, UniV2CliArgs},
     },
-    util::load_seedfile,
+    util::{bold, load_seedfile},
 };
 use alloy::primitives::U256;
 use clap::Subcommand;
@@ -141,9 +141,48 @@ impl BuiltinScenarioCli {
                 Ok(BuiltinScenario::Revert(args))
             }
 
-            BuiltinScenarioCli::SetCode(args) => Ok(BuiltinScenario::SetCode(
-                SetCodeArgs::from_cli_args(args, setcode_placeholder())?,
-            )),
+            BuiltinScenarioCli::SetCode(args) => {
+                let args = if let Some(subcommand) = &args.command {
+                    match subcommand {
+                        SetCodeSubCommand::Execute(execute_args) => {
+                            // assert `--sig` and `--args` are not specified in original setCode args
+                            if args.args.is_some() || args.signature.is_some() {
+                                return Err(ContenderError::SpamError(
+                                    "invalid CLI params",
+                                    Some(format!(
+                                        "{}{} may not be provided to {} when calling {}",
+                                        if args.args.is_some() {
+                                            bold("--args")
+                                        } else {
+                                            "".into()
+                                        },
+                                        if args.signature.is_some() {
+                                            format!(
+                                                "{}{}",
+                                                if args.args.is_some() { " and " } else { "" },
+                                                bold("--sig")
+                                            )
+                                        } else {
+                                            "".to_owned()
+                                        },
+                                        bold("setCode"),
+                                        bold("setCode execute")
+                                    )),
+                                ));
+                            }
+
+                            // build args for setCode builtin scenario
+                            execute_args.to_setcode_cli_args(&args)?
+                        }
+                    }
+                } else {
+                    args
+                };
+                Ok(BuiltinScenario::SetCode(SetCodeArgs::from_cli_args(
+                    args,
+                    setcode_placeholder(),
+                )?))
+            }
 
             BuiltinScenarioCli::Storage(args) => {
                 let bad_args_err = |name: &str| {
