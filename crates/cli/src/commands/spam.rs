@@ -186,8 +186,10 @@ impl SpamCommandArgs {
                 ));
             }
 
-            if !self.scenario.is_builtin()
-                && !spam
+            // check tx types for non-builtin scenarios
+            if !self.scenario.is_builtin() {
+                // blobs
+                if !spam
                     .iter()
                     .map(|sp| match sp {
                         SpamRequest::Bundle(_) => None,
@@ -196,12 +198,29 @@ impl SpamCommandArgs {
                     .filter(|sp| sp.is_some())
                     .collect::<Vec<_>>()
                     .is_empty()
-            {
-                // some blob data was detected
-                if self.tx_type != TxType::Eip4844 {
+                    && self.tx_type != TxType::Eip4844
+                {
                     return Err(ContenderError::SpamError(
                         "invalid tx type for blob transactions.",
                         Some(format!("must set tx type {}", bold("-t eip4844"))),
+                    ));
+                }
+
+                // setCode txs
+                if !spam
+                    .iter()
+                    .map(|sp| match sp {
+                        SpamRequest::Bundle(_) => None,
+                        SpamRequest::Tx(t) => t.authorization_address.to_owned(),
+                    })
+                    .filter(|sp| sp.is_some())
+                    .collect::<Vec<_>>()
+                    .is_empty()
+                    && self.tx_type != TxType::Eip7702
+                {
+                    return Err(ContenderError::SpamError(
+                        "invalid tx type for setCode transactions.",
+                        Some(format!("must set tx type {}", bold("-t eip7702"))),
                     ));
                 }
             }
@@ -246,6 +265,8 @@ impl SpamCommandArgs {
             SpamScenario::Builtin(builtin) => {
                 if matches!(builtin, BuiltinScenario::Blobs(_)) {
                     TxType::Eip4844
+                } else if matches!(builtin, BuiltinScenario::SetCode(_)) {
+                    TxType::Eip7702
                 } else {
                     self.tx_type
                 }

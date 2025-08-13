@@ -1,8 +1,11 @@
 use crate::util::data_dir;
-use alloy::hex;
+use alloy::hex::{self, ToHexExt};
 use clap::Subcommand;
 use contender_core::{
-    agent_controller::SignerStore, db::DbOps, error::ContenderError, generator::RandSeed,
+    agent_controller::SignerStore,
+    db::DbOps,
+    error::ContenderError,
+    generator::{util::generate_setcode_signer, RandSeed},
 };
 use tracing::info;
 
@@ -27,6 +30,12 @@ pub enum AdminCommand {
 
     #[command(name = "seed", about = "Print the contents of ~/.contender/seed")]
     Seed,
+
+    #[command(
+        name = "setcode-signer",
+        about = "Print the private key & address of the signer used for setCode Authorization signatures."
+    )]
+    SetCodeSigner,
 }
 
 /// Reads and validates the seed file
@@ -103,6 +112,16 @@ fn handle_seed() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn print_setcode_account() -> Result<(), Box<dyn std::error::Error>> {
+    confirm_sensitive_operation("displaying private key")?;
+    let seed_bytes = read_seed_file()?;
+    let seed = RandSeed::seed_from_bytes(&seed_bytes);
+    let (signer, key) = generate_setcode_signer(&seed);
+    println!("Address:\t{}", signer.address());
+    println!("Private Key:\t0x{}", key.encode_hex());
+    Ok(())
+}
+
 pub fn handle_admin_command(
     command: AdminCommand,
     db: impl DbOps,
@@ -119,5 +138,6 @@ pub fn handle_admin_command(
             Ok(())
         }
         AdminCommand::Seed => handle_seed(),
+        AdminCommand::SetCodeSigner => print_setcode_account(),
     }
 }

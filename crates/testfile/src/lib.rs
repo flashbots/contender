@@ -50,26 +50,15 @@ pub mod tests {
     }
 
     pub fn get_testconfig() -> TestConfig {
-        let fncall = FunctionCallDefinition {
-            to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD".to_owned(),
-            from: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD"
-                .to_owned()
-                .into(),
-            from_pool: None,
-            signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
-            args: vec![
+        let fncall = FunctionCallDefinition::new("0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD")
+            .with_from("0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD")
+            .with_signature("swap(uint256 x, uint256 y, address a, bytes b)")
+            .with_args(&[
                 "1".to_owned(),
                 "2".to_owned(),
                 Address::repeat_byte(0x11).encode_hex(),
                 "0xdead".to_owned(),
-            ]
-            .into(),
-            fuzz: None,
-            value: None,
-            kind: None,
-            gas_limit: None,
-            blob_data: None,
-        };
+            ]);
 
         TestConfig {
             env: None,
@@ -80,29 +69,22 @@ pub mod tests {
     }
 
     pub fn get_fuzzy_testconfig() -> TestConfig {
-        let fn_call = |data: &str, from_addr: &str| FunctionCallDefinition {
-            to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-            from: from_addr.to_owned().into(),
-            from_pool: None,
-            value: None,
-            signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
-            args: vec![
-                "1".to_owned(),
-                "2".to_owned(),
-                Address::repeat_byte(0x11).encode_hex(),
-                data.to_owned(),
-            ]
-            .into(),
-            kind: None,
-            fuzz: vec![FuzzParam {
-                param: Some("x".to_string()),
-                value: None,
-                min: None,
-                max: None,
-            }]
-            .into(),
-            gas_limit: None,
-            blob_data: None,
+        let fn_call = |data: &str, from_addr: &str| {
+            FunctionCallDefinition::new("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
+                .with_from(from_addr)
+                .with_signature("swap(uint256 x, uint256 y, address a, bytes b)")
+                .with_args(&[
+                    "1".to_owned(),
+                    "2".to_owned(),
+                    Address::repeat_byte(0x11).encode_hex(),
+                    data.to_owned(),
+                ])
+                .with_fuzz(&[FuzzParam {
+                    param: Some("x".to_string()),
+                    value: None,
+                    min: None,
+                    max: None,
+                }])
         };
         TestConfig {
             env: None,
@@ -139,46 +121,16 @@ pub mod tests {
             create: None,
             spam: None,
             setup: vec![
-                FunctionCallDefinition {
-                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                    from: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-                        .to_owned()
-                        .into(),
-                    from_pool: None,
-                    value: Some("4096".to_owned()),
-                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
-                    args: vec![
-                        "1".to_owned(),
-                        "2".to_owned(),
-                        Address::repeat_byte(0x11).encode_hex(),
-                        "0xdead".to_owned(),
-                    ]
-                    .into(),
-                    kind: None,
-                    fuzz: None,
-                    gas_limit: None,
-                    blob_data: None,
-                },
-                FunctionCallDefinition {
-                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                    from: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-                        .to_owned()
-                        .into(),
-                    from_pool: None,
-                    value: Some("0x1000".to_owned()),
-                    signature: Some("swap(uint256 x, uint256 y, address a, bytes b)".to_owned()),
-                    args: vec![
-                        "1".to_owned(),
-                        "2".to_owned(),
-                        Address::repeat_byte(0x11).encode_hex(),
-                        "0xbeef".to_owned(),
-                    ]
-                    .into(),
-                    kind: None,
-                    fuzz: None,
-                    gas_limit: None,
-                    blob_data: None,
-                },
+                FunctionCallDefinition::new("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
+                    .with_from("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
+                    .with_value(U256::from(4096))
+                    .with_signature("swap(uint256 x, uint256 y, address a, bytes b)")
+                    .with_args(&["1", "2", &Address::repeat_byte(0x11).encode_hex(), "0xdead"]),
+                FunctionCallDefinition::new("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
+                    .with_from("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
+                    .with_value(U256::from(0x1000))
+                    .with_signature("swap(uint256 x, uint256 y, address a, bytes b)")
+                    .with_args(&["1", "2", &Address::repeat_byte(0x11).encode_hex(), "0xbeef"]),
             ]
             .into(),
         }

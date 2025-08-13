@@ -3,24 +3,26 @@ use crate::{
     db::DbOps,
     error::ContenderError,
     generator::{
+        constants::*,
         function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict, FuzzParam},
         named_txs::{ExecutionRequest, NamedTxRequest, NamedTxRequestBuilder},
         seeder::{SeedValue, Seeder},
         templater::Templater,
-        types::{CallbackResult, PlanType, SpamRequest},
+        types::{AnyProvider, CallbackResult, PlanType, SpamRequest},
         CreateDefinition, CreateDefinitionStrict,
     },
     Result,
 };
 use alloy::{
     consensus::{SidecarBuilder, SimpleCoder},
+    eips::eip7702::SignedAuthorization,
     hex::{FromHex, ToHexExt},
     primitives::{Address, Bytes, U256},
+    rpc::types::Authorization,
+    signers::{local::PrivateKeySigner, SignerSync},
 };
 use async_trait::async_trait;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
-
-const VALUE_KEY: &str = "__tx_value_contender__";
 
 pub trait PlanConfig<K>
 where
@@ -108,6 +110,10 @@ where
     fn get_fuzz_seeder(&self) -> &impl Seeder;
     fn get_agent_store(&self) -> &AgentStore;
     fn get_rpc_url(&self) -> String;
+    fn get_chain_id(&self) -> u64;
+    fn get_rpc_provider(&self) -> &AnyProvider;
+    fn get_nonce_map(&self) -> &HashMap<Address, u64>;
+    fn get_setcode_signer(&self) -> &PrivateKeySigner;
 
     /// Generates a map of N=`num_values` fuzzed values for each parameter in `fuzz_args`.
     fn create_fuzz_map(
@@ -188,6 +194,7 @@ where
         idx: usize,
     ) -> Result<FunctionCallDefinitionStrict> {
         let agents = self.get_agent_store();
+
         let from_address: Address = if let Some(from_pool) = &funcdef.from_pool {
             let agent = agents
                 .get_agent(from_pool)
@@ -195,19 +202,22 @@ where
                     "from_pool not found in agent store",
                     Some(from_pool.to_owned()),
                 ))?;
-            agent
-                .get_address(idx % agent.signers.len())
-                .ok_or(ContenderError::SpamError(
-                    "signer not found in agent store",
-                    Some(format!("from_pool={from_pool}, idx={idx}")),
-                ))?
+            let signer =
+                agent
+                    .get_signer(idx % agent.signers.len())
+                    .ok_or(ContenderError::SpamError(
+                        "signer not found in agent store",
+                        Some(format!("from_pool={from_pool}, idx={idx}")),
+                    ))?;
+            signer.address()
         } else if let Some(from) = &funcdef.from {
-            from.parse().map_err(|e| {
+            let from_addr = from.parse::<Address>().map_err(|e| {
                 ContenderError::SpamError(
                     "failed to parse 'from' address",
                     Some(format!("from={from}, error={e}")),
                 )
-            })?
+            })?;
+            from_addr
         } else {
             return Err(ContenderError::SpamError(
                 "invalid runtime config: must specify 'from' or 'from_pool'",
@@ -217,23 +227,23 @@ where
 
         // manually replace {_sender} with the 'from' address
         let args = funcdef.args.to_owned().unwrap_or_default();
-        let args = args
-            .iter()
-            .map(|arg| {
-                if arg.contains("{_sender}") {
-                    // return `from` address WITH 0x prefix
-                    arg.replace("{_sender}", &from_address.to_string())
-                } else {
-                    arg.to_owned()
-                }
-            })
-            .collect::<Vec<String>>();
 
-        let to_address = if funcdef.to == "{_sender}" {
-            from_address.to_string()
-        } else {
-            funcdef.to.to_owned()
+        // replace special variables with the corresponding special values
+        let special_replace = |arg: &String| {
+            if arg.contains(&sender_placeholder()) {
+                // return `from` address WITH 0x prefix
+                arg.replace(&sender_placeholder(), &from_address.to_string())
+            } else if arg.contains(&setcode_placeholder()) {
+                arg.replace(
+                    &setcode_placeholder(),
+                    &self.get_setcode_signer().address().to_string(),
+                )
+            } else {
+                arg.to_owned()
+            }
         };
+        let args = args.iter().map(special_replace).collect::<Vec<String>>();
+        let to_address = special_replace(&funcdef.to);
 
         let sidecar_data = if let Some(data) = funcdef.blob_data.as_ref() {
             let parsed_data = Bytes::from_hex(if data.starts_with("0x") {
@@ -252,6 +262,45 @@ where
             None
         };
 
+        let signed_auth = if let Some(auth_address) = &funcdef.authorization_address {
+            let mut placeholder_map = HashMap::<K, String>::new();
+            let templater = self.get_templater();
+            templater.find_fncall_placeholders(
+                funcdef,
+                self.get_db(),
+                &mut placeholder_map,
+                &self.get_rpc_url(),
+            )?;
+            // contract address; we'll copy its code to our EOA
+            let actual_auth_address = self
+                .get_templater()
+                .replace_placeholders(auth_address, &placeholder_map)
+                .parse::<Address>()
+                .map_err(|e| {
+                    ContenderError::with_err(e, "failed to find address in placeholder map")
+                })?;
+            let setcode_signer = self.get_setcode_signer();
+
+            // the setcode nonce won't be updated in time for this function to recognize it
+            // so we get the latest nonce (available from init) and add `idx`
+            let setcode_nonce = self.get_nonce_map().get(&setcode_signer.address()).ok_or(
+                ContenderError::GenericError(
+                    "failed to find nonce for address:",
+                    format!("{}", setcode_signer.address()),
+                ),
+            )? + idx as u64;
+
+            // build & sign EIP-7702 authorization
+            let auth_req = Authorization {
+                address: actual_auth_address,
+                chain_id: U256::from(self.get_chain_id()),
+                nonce: setcode_nonce,
+            };
+            Some(sign_auth(setcode_signer, auth_req)?)
+        } else {
+            None
+        };
+
         Ok(FunctionCallDefinitionStrict {
             to: to_address,
             from: from_address,
@@ -262,6 +311,7 @@ where
             kind: funcdef.kind.to_owned(),
             gas_limit: funcdef.gas_limit.to_owned(),
             sidecar: sidecar_data,
+            authorization: signed_auth.map(|a| vec![a]),
         })
     }
 
@@ -538,4 +588,11 @@ fn parse_map_key(fuzz: FuzzParam) -> Result<String> {
     };
 
     Ok(key)
+}
+
+pub fn sign_auth(signer: &PrivateKeySigner, auth: Authorization) -> Result<SignedAuthorization> {
+    let auth_sig = signer
+        .sign_hash_sync(&auth.signature_hash())
+        .map_err(|e| ContenderError::with_err(e, "failed to sign authorization hash"))?;
+    Ok(auth.into_signed(auth_sig))
 }
