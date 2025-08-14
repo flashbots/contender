@@ -6,7 +6,38 @@
 
 High-performance Ethereum transaction spammer and benchmarking tool.
 
+## 🚀 Quick Start
+
+Install:
+```bash
+cargo install --git https://github.com/flashbots/contender --locked
+```
+
+Run a simple spam scenario:
+```bash
+contender spam --tps 50 -r $RPC_URL fill-block
+```
+
+Run a bundled scenario from the repo:
+```bash
+contender setup scenario:stress.toml -r $RPC_URL -p $PRIVATE_KEY
+contender spam  scenario:stress.toml -r $RPC_URL --tps 10 -d 3
+```
+
+See [examples](docs/examples.md) for more usage patterns.
+
+
+## ⚙️ Prerequisites
+
+- **Rust toolchain** (latest stable)
+- **SQLite development headers** (`libsqlite3-dev` on Linux)
+- A JSON-RPC endpoint for the target Ethereum node
+
 ## 📚 Docs
+
+Contender is a high-performance Ethereum transaction spammer and benchmarking tool, built for repeatable load tests against EL clients and live networks.
+It supports both **per-second** (TPS) and **per-block** (TPB) timing, seeded fuzzing for reproducibility, and SQLite-backed state for contracts, runs, and reports.
+
 
 ### 1. Introduction
 - [Overview](docs/overview.md)
@@ -28,40 +59,3 @@ High-performance Ethereum transaction spammer and benchmarking tool.
 
 ### 5. Internals
 - [Architecture](docs/architecture.md)
-
----
-
-## 📝 Overview
-
-Contender is a high-performance Ethereum transaction spammer and benchmarking tool, built for repeatable load tests against EL clients and live networks.
-It supports both **per-second** (TPS) and **per-block** (TPB) timing, seeded fuzzing for reproducibility, and SQLite-backed state for contracts, runs, and reports.
-
----
-
-## ⚙️ Prerequisites
-
-- **Rust toolchain** (latest stable)
-- **SQLite development headers** (`libsqlite3-dev` on Linux)
-- A JSON-RPC endpoint for the target Ethereum node
-
----
-
-## 🚀 Quick Start
-
-Install:
-```bash
-cargo install --git https://github.com/flashbots/contender --locked
-```
-
-Run a simple spam scenario:
-```bash
-contender spam --tps 50 -r $RPC_URL fill-block
-```
-
-Run a bundled scenario from the repo:
-```bash
-contender setup scenario:stress.toml -r $RPC_URL -p $PRIVATE_KEY
-contender spam  scenario:stress.toml -r $RPC_URL --tps 10 -d 3
-```
-
-See [examples](docs/examples.md) for more usage patterns.
