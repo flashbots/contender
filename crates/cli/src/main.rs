@@ -246,7 +246,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")); // fallback if RUST_LOG is unset
-    #[cfg(feature = "trace-async")]
+    #[cfg(feature = "async-tracing")]
     {
         use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Layer};
         let tokio_layer = console_subscriber::ConsoleLayer::builder()
@@ -263,7 +263,7 @@ fn init_tracing() {
             .init();
     }
 
-    #[cfg(not(feature = "trace-async"))]
+    #[cfg(not(feature = "async-tracing"))]
     {
         tracing_subscriber::fmt()
             .with_env_filter(filter)

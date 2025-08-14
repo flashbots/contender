@@ -50,4 +50,4 @@ tempfile = "3.15.0"
 
 [features]
 default = []
-trace-async = ["dep:console-subscriber"]
+async-tracing = ["dep:console-subscriber"]
