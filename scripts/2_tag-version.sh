@@ -15,6 +15,14 @@ if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     exit 1
 fi
 
+confirm() {
+    read -p "$1 (y/N): " confirm
+    if [[ ! "$confirm" =~ ^[Yy] ]]; then
+        echo "Aborting."
+        exit 1
+    fi
+}
+
 echo """Please confirm that the following tasks have been performed:
     - ran 1_release-version.sh
     - pushed changes to a new 'release/' branch
@@ -22,11 +30,9 @@ echo """Please confirm that the following tasks have been performed:
     - waited for the release-plz CI process to generate another PR
     - merged that PR
 """
-read -p "Have you completed all the above tasks? (y/N): " confirm
-if [[ ! "$confirm" =~ ^[Yy] ]]; then
-    echo "Aborting."
-    exit 1
-fi
+confirm "Have you completed all the above tasks?"
 
 git tag "$TAG"
+confirm "Do you want to push this tag to the remote origin?"
+
 git push origin "$TAG"
