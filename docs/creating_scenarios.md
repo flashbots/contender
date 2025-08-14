@@ -28,7 +28,7 @@ For example, the [UniV2 scenario](../scenarios/uniV2.toml#L5-L6) defines an `ini
 initialSupply = "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 ```
 
-You may create as many variables as you want; just ensure that they’re zero-padded if necessary (mainly for constructor args).
+You may create as many variables as you want.
 
 Following that declaration in the TOML file, you can reference the variable in several places using the `{placeholder}` syntax.
 

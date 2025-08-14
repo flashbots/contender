@@ -175,6 +175,8 @@ impl ToTestConfig for StressCliArgs {
             env: None,
             create: Some(vec![CreateDefinition {
                 contract: contracts::SPAM_ME.into(),
+                signature: None,
+                args: None,
                 from: None,
                 from_pool: Some("admin".to_owned()),
             }]),

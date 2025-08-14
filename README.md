@@ -308,7 +308,7 @@ The key directives are:
 
 Placeholders may be used to specify contract addresses, the sender's address, or any variables you specify in `[env]`.
 
-In `[[create]]` transactions, placeholders are supported in the `bytecode` field only.
+In `[[create]]` transactions, placeholders are supported in the `bytecode` field and in `args` (constructor args). The special `{_sender}` placeholder is injected into `bytecode` as the sender address without the `0x` prefix.
 
 In `[[setup]]` and `[[spam]]` transactions, placeholders are supported in the following fields: `to`, `args`, & `value`.
 
@@ -338,17 +338,20 @@ args = [
 ]
 ```
 
-Custom variable placeholder:
+Constructor args with placeholders:
 
 ```toml
 [env]
-initialSupply = "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+initialSupply = "1000000000000000000" # 1e18
 
 [[create]]
 name = "testToken"
 from_pool = "admin"
-# pass {initialSupply} as a constructor argument (must be exactly 32 bytes long)
-bytecode = "0x60806040...{initialSupply}"
+signature = "(uint256 initialSupply)" # or "constructor(uint256 initialSupply)"
+args = [
+     "{initialSupply}",
+]
+bytecode = "0x60806040..." # no manual zero-padding needed; args are ABI-encoded and appended automatically
 ```
 
 Sender address placeholder:
