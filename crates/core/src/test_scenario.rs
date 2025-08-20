@@ -702,6 +702,11 @@ where
         let key = keccak256(tx_req.input.input.to_owned().unwrap_or_default());
 
         if let std::collections::hash_map::Entry::Vacant(_) = self.gas_limits.entry(key) {
+            let mut tx_req = tx_req.to_owned();
+            if let Some(sidecar) = &tx_req.sidecar {
+                tx_req.max_fee_per_blob_gas = Some(blob_gas_price);
+                tx_req.blob_versioned_hashes = Some(sidecar.versioned_hashes().collect());
+            }
             let gas_limit = if let Some(gas) = tx_req.gas {
                 gas
             } else {
