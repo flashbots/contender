@@ -2084,7 +2084,7 @@ checksum = "7c74b8349d32d297c9134b8c88677813a227df8f779daa29bfc29c183fe3dca6"
 
 [[package]]
 name = "contender_bundle_provider"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "alloy",
  "serde",
@@ -2093,7 +2093,7 @@ dependencies = [
 
 [[package]]
 name = "contender_cli"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "alloy",
  "ansi_term",
@@ -2124,7 +2124,7 @@ dependencies = [
 
 [[package]]
 name = "contender_core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "alloy",
  "async-trait",
@@ -2145,7 +2145,7 @@ dependencies = [
 
 [[package]]
 name = "contender_engine_provider"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "alloy",
  "alloy-json-rpc",
@@ -2169,7 +2169,7 @@ dependencies = [
 
 [[package]]
 name = "contender_report"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "alloy",
  "chrono",
@@ -2187,7 +2187,7 @@ dependencies = [
 
 [[package]]
 name = "contender_sqlite"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "alloy",
  "contender_core",
@@ -2199,7 +2199,7 @@ dependencies = [
 
 [[package]]
 name = "contender_testfile"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "alloy",
  "contender_core",
