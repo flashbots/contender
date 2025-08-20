@@ -18,7 +18,7 @@ RUN curl -L https://foundry.paradigm.xyz | bash && \
     cp /root/.foundry/bin/anvil /app/contender-dist/bin/
 
 # --- Runtime stage ---
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 # Install runtime dependencies
 RUN apt-get update && \
