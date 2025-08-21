@@ -2,6 +2,7 @@ use crate::{error::ContenderError, generator::types::AnyProvider, Result};
 use alloy::{providers::Provider, signers::local::PrivateKeySigner};
 use std::str::FromStr;
 use tracing::{debug, warn};
+use tracing_subscriber::EnvFilter;
 
 /// Derive the block time from the first two blocks after genesis.
 pub async fn get_block_time(rpc_client: &AnyProvider) -> Result<u64> {
@@ -78,4 +79,13 @@ pub fn default_signers() -> Vec<PrivateKeySigner> {
         .into_iter()
         .map(|k| PrivateKeySigner::from_str(k).expect("Invalid private key"))
         .collect::<Vec<PrivateKeySigner>>()
+}
+
+pub fn init_core_tracing(filter: Option<EnvFilter>) {
+    let filter = filter.unwrap_or(EnvFilter::new("info"));
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(true)
+        .with_line_number(true)
+        .init();
 }

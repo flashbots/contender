@@ -1,15 +1,15 @@
 //! High-level builder/orchestrator to create a TestScenario and run a Spammer with sane defaults.
-use std::{collections::HashMap, ops::Deref, sync::Arc};
+use std::{collections::HashMap, ops::Deref, str::FromStr, sync::Arc};
 
 use crate::{
     agent_controller::AgentStore,
-    db::DbOps,
+    db::{DbOps, MockDb},
     error::ContenderError,
     generator::{
         agent_pools::AgentPools,
         seeder::{rand_seed::SeedGenerator, Seeder},
         templater::Templater,
-        PlanConfig,
+        PlanConfig, RandSeed,
     },
     spammer::{tx_actor::TxActorHandle, OnBatchSent, OnTxSent, Spammer},
     test_scenario::{PrometheusCollector, TestScenario, TestScenarioParams},
@@ -52,6 +52,51 @@ where
     pub prometheus: PrometheusCollector,
     /// The amount of ether each agent account gets.
     pub funding: U256,
+}
+
+impl<P> ContenderCtx<MockDb, RandSeed, P>
+where
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+{
+    /// Constructs a `ContenderCtxBuilder` with a MockDb and random seed.
+    /// NOTE:
+    pub fn builder_simple(
+        config: P,
+        rpc_url: impl AsRef<str>,
+    ) -> ContenderCtxBuilder<MockDb, RandSeed, P> {
+        if [
+            config.get_create_steps().unwrap_or_default().len(),
+            config.get_setup_steps().unwrap_or_default().len(),
+        ]
+        .iter()
+        .any(|len| *len > 0)
+        {
+            // a real DB is required to run these steps -- panic
+            tracing::error!("This builder does not support scenario configs with create/setup steps. Try ContenderCtx::builder_simple instead.");
+            panic!("create/setup steps not supported by this builder.");
+        }
+
+        let seed = RandSeed::new();
+        let db = MockDb;
+        let agents = config.build_agent_store(&seed, Default::default());
+        let rpc_url = Url::from_str(rpc_url.as_ref()).expect("invalid RPC URL");
+        ContenderCtxBuilder {
+            config,
+            db: db.into(),
+            seeder: seed,
+            rpc_url,
+            builder_rpc_url: None,
+            agent_store: agents,
+            user_signers: default_signers(),
+            tx_type: TxType::Eip1559,
+            bundle_type: BundleType::default(),
+            pending_tx_timeout_secs: 12,
+            extra_msg_handles: None,
+            auth_provider: None,
+            prometheus: PrometheusCollector::default(),
+            funding: *SMOL_AMOUNT,
+        }
+    }
 }
 
 impl<D, S, P> ContenderCtx<D, S, P>
