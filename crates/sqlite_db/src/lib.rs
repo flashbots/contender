@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use alloy::{
     hex::{FromHex, ToHexExt},
     primitives::{Address, TxHash},
@@ -13,6 +11,7 @@ use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, types::FromSql, Row};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// Increment this whenever making changes to the DB schema.
 pub static DB_VERSION: u64 = 3;

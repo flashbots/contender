@@ -2131,6 +2131,7 @@ dependencies = [
  "async-trait",
  "contender_bundle_provider",
  "contender_engine_provider",
+ "contender_testfile",
  "eyre",
  "futures",
  "prometheus",

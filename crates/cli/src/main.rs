@@ -245,7 +245,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")); // fallback if RUST_LOG is unset
+    let filter = EnvFilter::try_from_default_env().ok(); // fallback if RUST_LOG is unset
     #[cfg(feature = "async-tracing")]
     {
         use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Layer};
@@ -265,11 +265,7 @@ fn init_tracing() {
 
     #[cfg(not(feature = "async-tracing"))]
     {
-        tracing_subscriber::fmt()
-            .with_env_filter(filter)
-            .with_target(true)
-            .with_line_number(true)
-            .init();
+        contender_core::util::init_core_tracing(filter);
     }
 }
 
