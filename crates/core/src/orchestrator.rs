@@ -1,4 +1,6 @@
 //! High-level builder/orchestrator to create a TestScenario and run a Spammer with sane defaults.
+//! Generally simplifies instantiation for library users, while maintaining flexibility by
+//! providing methods to override defaults.
 use std::{collections::HashMap, ops::Deref, str::FromStr, sync::Arc};
 
 use crate::{
@@ -59,7 +61,18 @@ where
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
     /// Constructs a `ContenderCtxBuilder` with a MockDb and random seed.
-    /// NOTE:
+    ///
+    /// **NOTE:** scenario configs with `create` or `setup` steps are not supported.
+    /// For those, use [`ContenderCtx::builder`] instead.
+    ///
+    /// Example:
+    /// ```rs
+    /// use contender_core::ContenderCtx;
+    /// use contender_testfile::TestConfig;
+    ///
+    /// let config = TestConfig::new(); // .with_spam_steps(...)
+    /// let ctx = ContenderCtx::builder_simple(config, "http://localhost:8545").build;
+    /// ```
     pub fn builder_simple(
         config: P,
         rpc_url: impl AsRef<str>,
@@ -105,14 +118,20 @@ where
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
-    pub fn builder(config: P, db: D, seeder: S, rpc_url: Url) -> ContenderCtxBuilder<D, S, P> {
+    pub fn builder(
+        config: P,
+        db: D,
+        seeder: S,
+        rpc_url: impl AsRef<str>,
+    ) -> ContenderCtxBuilder<D, S, P> {
         let agents = config.build_agent_store(&seeder, Default::default());
+        let url = Url::from_str(rpc_url.as_ref()).expect("invalid RPC URL");
         ContenderCtxBuilder {
             config,
             db: db.into(),
             agent_store: agents,
             seeder,
-            rpc_url,
+            rpc_url: url,
             builder_rpc_url: None,
             user_signers: default_signers(),
             tx_type: TxType::Eip1559,
