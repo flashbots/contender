@@ -60,18 +60,26 @@ impl<P> ContenderCtx<MockDb, RandSeed, P>
 where
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
-    /// Constructs a `ContenderCtxBuilder` with a MockDb and random seed.
+    /// Constructs a [`ContenderCtxBuilder`] with a mock db and random seed.
+    /// Convenient for testing simple scenarios where no setup is required.
     ///
-    /// **NOTE:** scenario configs with `create` or `setup` steps are not supported.
-    /// For those, use [`ContenderCtx::builder`] instead.
+    /// **Note:** Scenarios with `create` or `setup` steps are not supported.
+    /// For those configs, use [`ContenderCtx::builder`] instead.
     ///
-    /// Example:
+    /// ## Panics
+    ///
+    /// * When scenario configs with `create` or `setup` steps are passed.
+    ///
+    /// * When an invalid `rpc_url` is passed.
+    ///
+    /// ## Example:
+    ///
     /// ```rs
     /// use contender_core::ContenderCtx;
     /// use contender_testfile::TestConfig;
     ///
     /// let config = TestConfig::new(); // .with_spam_steps(...)
-    /// let ctx = ContenderCtx::builder_simple(config, "http://localhost:8545").build;
+    /// let ctx = ContenderCtx::builder_simple(config, "http://localhost:8545").build();
     /// ```
     pub fn builder_simple(
         config: P,
@@ -118,6 +126,45 @@ where
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
+    /// Constructs a [`ContenderCtxBuilder`] with a user-provided DB & seeder.
+    ///
+    /// ## Params
+    ///
+    /// ### `config`
+    ///
+    /// This contains all `create`, `setup`, and `spam` steps, as well as `env` values.
+    /// [`contender_testfile::TestConfig`] is recommended
+    ///
+    /// ### `db`
+    ///
+    /// Contender stores contract addresses and transaction results in the DB passed here.
+    /// [`contender_sqlite::SqliteDb`] is recommended.
+    ///
+    /// ### `seeder`
+    ///
+    /// Used to repeatably generate pseudo-random numbers for account creation & fuzz params.
+    /// [`contender_core::generator::RandSeed`] is recommended.
+    ///
+    /// ### `rpc_url`
+    ///
+    /// Where the transactions are sent.
+    ///
+    /// ## Panics
+    ///
+    /// - When an invalid `rpc_url` is provided
+    ///
+    /// ## Example
+    ///
+    /// ```rs
+    /// use contender_sqlite::SqliteDb;
+    /// use contender_core::{ContenderCtx, generator::RandSeed};
+    /// use contender_testfile::TestConfig;
+    ///
+    /// let config = TestConfig::new(); // .with_spam_steps(...)
+    /// let db = SqliteDb::new_memory();
+    /// let seeder = RandSeed::new();
+    /// let ctx = ContenderCtx::builder(config, db, seeder, "http://localhost:8545").build();
+    /// ```
     pub fn builder(
         config: P,
         db: D,
@@ -304,6 +351,7 @@ where
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
     ctx: ContenderCtx<D, S, P>,
+    initialized: bool,
 }
 
 impl<D, S, P> Contender<D, S, P>
@@ -312,12 +360,38 @@ where
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
+    /// Create a Contender instance.
+    ///
+    /// Example:
+    /// ```
+    /// use std::sync::Arc;
+    /// use contender_core::{ContenderCtx, Contender, RunOpts, spammer::{NilCallback, TimedSpammer}};
+    /// use contender_testfile::TestConfig;
+    ///
+    /// // Create a config for your test scenario
+    /// let config = TestConfig::new(); // configure as needed
+    ///
+    /// // Initialize the context with builder_simple
+    /// let ctx = ContenderCtx::builder_simple(config, "http://localhost:8545").build();
+    ///
+    /// // Instantiate the orchestrator & spammer
+    /// let contender = Contender::new(ctx);
+    /// let spammer = TimedSpammer::new(std::time::Duration::from_secs(1));
+    ///
+    /// // Run the spammer (async context required)
+    /// // contender.spam(spammer, NilCallback.into(), RunOpts::default()).await.unwrap();
+    /// ```
     pub fn new(ctx: ContenderCtx<D, S, P>) -> Self {
-        Self { ctx }
+        Self {
+            ctx,
+            initialized: false,
+        }
     }
 
     /// Funds agent accounts, then runs contract deployments and setup transactions.
-    pub async fn initialize(&self) -> Result<()> {
+    ///
+    /// Run this before calling `spam`.
+    pub async fn initialize(&mut self) -> Result<()> {
         let mut scenario = self.ctx.build_scenario().await?;
         for agent in scenario.agent_store.all_agents() {
             agent
@@ -332,15 +406,60 @@ where
         }
         scenario.deploy_contracts().await?;
         scenario.run_setup().await?;
+        self.initialized = true;
         Ok(())
     }
 
     /// Run the spammer.
-    pub async fn spam<F, SP>(&self, spammer: SP, callback: Arc<F>, opts: RunOpts) -> Result<()>
+    ///
+    /// ## Params
+    ///
+    /// ### `spammer`
+    ///
+    /// Defines how/when spam transactions are sent. `contender_core` includes `TimedSpammer` and `BlockwiseSpammer`.
+    ///
+    /// ### `callback`
+    ///
+    /// Defines custom behavior to be executed after transactions are sent.
+    /// `contender_core` includes `NilCallback` and `LogCallback`.
+    /// `NilCallback` does nothing, while `LogCallback` saves tx results to the DB.
+    ///
+    /// ### `opts`
+    ///
+    /// Defines the rate & duration of the spam run.
+    ///
+    /// ## Example
+    ///
+    /// ```rs
+    /// use contender_core::spammer::{TimedSpammer, NilCallback};
+    ///
+    /// // Create a config for your test scenario
+    /// let config = TestConfig::new(); // configure as needed
+    ///
+    /// // Initialize the context with builder_simple
+    /// let ctx = ContenderCtx::builder_simple(config, "http://localhost:8545").build();
+    ///
+    /// // Instantiate the orchestrator
+    /// let contender = Contender::new(ctx);
+    ///
+    /// // initialize timed spammer; sends a batch of txs every second
+    /// let spammer = TimedSpammer::new(std::time::Duration::from_secs(1));
+    /// // initialize nil callback; does nothing in response to txs being sent
+    /// let callback = NilCallback;
+    /// // initialize opts; slightly tweaking the defaults
+    /// let opts = RunOpts::new().txs_per_period(50).periods(10);
+    ///
+    /// // run spammer
+    /// contender.spam(spammer, callback.into(), opts).await.unwrap();
+    /// ```
+    pub async fn spam<F, SP>(&mut self, spammer: SP, callback: Arc<F>, opts: RunOpts) -> Result<()>
     where
         F: OnTxSent + OnBatchSent + Send + Sync + 'static,
         SP: Spammer<F, D, S, P>,
     {
+        if !self.initialized {
+            self.initialize().await?;
+        }
         let mut scenario = self.ctx.build_scenario().await?;
         spammer
             .spam_rpc(

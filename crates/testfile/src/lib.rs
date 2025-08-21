@@ -426,9 +426,7 @@ mod more_tests {
         let db = MockDb;
         let seeder = RandSeed::new();
         let ctx = ContenderCtx::builder(config, db, seeder, anvil.endpoint_url()).build();
-        let contender = Contender::new(ctx);
-
-        contender.initialize().await?;
+        let mut contender = Contender::new(ctx);
 
         let spammer = TimedSpammer::new(Duration::from_secs(1));
         let callback = NilCallback;
