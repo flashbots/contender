@@ -428,13 +428,11 @@ mod more_tests {
         let ctx = ContenderCtx::builder(config, db, seeder, anvil.endpoint_url()).build();
         let contender = Contender::new(ctx);
 
-        // run contract deployments & setup txs (optional if your scenario doesn't have any of those steps)
-        contender.init_scenario().await?;
+        contender.initialize().await?;
 
-        // run spammer
         let spammer = TimedSpammer::new(Duration::from_secs(1));
         let callback = NilCallback;
-        let opts = RunOpts::default().txs_per_period(100).periods(3);
+        let opts = RunOpts::new().txs_per_period(100).periods(3);
         contender.spam(spammer, callback.into(), opts).await?;
 
         Ok(())

@@ -15,3 +15,4 @@ pub use alloy;
 pub use contender_bundle_provider::bundle::BundleType;
 pub use orchestrator::{Contender, ContenderCtx, RunOpts};
 pub use tokio::task as tokio_task;
+pub use tokio_util::sync::CancellationToken;

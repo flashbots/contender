@@ -31,6 +31,23 @@ impl Default for AgentSpec {
     }
 }
 
+impl AgentSpec {
+    pub fn create_accounts(mut self, count: usize) -> Self {
+        self.create_accounts = count;
+        self
+    }
+
+    pub fn setup_accounts(mut self, count: usize) -> Self {
+        self.setup_accounts = count;
+        self
+    }
+
+    pub fn spam_accounts(mut self, count: usize) -> Self {
+        self.spam_accounts = count;
+        self
+    }
+}
+
 impl<P> AgentPools for P
 where
     P: PlanConfig<String>,

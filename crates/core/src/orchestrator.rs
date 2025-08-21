@@ -1,9 +1,10 @@
 //! High-level builder/orchestrator to create a TestScenario and run a Spammer with sane defaults.
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, ops::Deref, sync::Arc};
 
 use crate::{
     agent_controller::AgentStore,
     db::DbOps,
+    error::ContenderError,
     generator::{
         agent_pools::AgentPools,
         seeder::{rand_seed::SeedGenerator, Seeder},
@@ -12,11 +13,18 @@ use crate::{
     },
     spammer::{tx_actor::TxActorHandle, OnBatchSent, OnTxSent, Spammer},
     test_scenario::{PrometheusCollector, TestScenario, TestScenarioParams},
+    util::default_signers,
     Result,
 };
-use alloy::{consensus::TxType, signers::local::PrivateKeySigner, transports::http::reqwest::Url};
+use alloy::{
+    consensus::TxType, node_bindings::WEI_IN_ETHER, primitives::U256,
+    signers::local::PrivateKeySigner, transports::http::reqwest::Url,
+};
 use contender_bundle_provider::bundle::BundleType;
 use contender_engine_provider::AdvanceChain;
+use std::sync::LazyLock;
+
+static SMOL_AMOUNT: LazyLock<U256> = LazyLock::new(|| WEI_IN_ETHER / U256::from(100));
 
 /// Unified context that captures everything needed to spin up a `TestScenario`.
 pub struct ContenderCtx<D, S, P>
@@ -42,6 +50,8 @@ where
     pub extra_msg_handles: Option<HashMap<String, Arc<TxActorHandle>>>,
     pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
     pub prometheus: PrometheusCollector,
+    /// The amount of ether each agent account gets.
+    pub funding: U256,
 }
 
 impl<D, S, P> ContenderCtx<D, S, P>
@@ -59,13 +69,14 @@ where
             seeder,
             rpc_url,
             builder_rpc_url: None,
-            user_signers: vec![],
+            user_signers: default_signers(),
             tx_type: TxType::Eip1559,
             bundle_type: BundleType::default(),
             pending_tx_timeout_secs: 12,
             extra_msg_handles: None,
             auth_provider: None,
             prometheus: PrometheusCollector::default(),
+            funding: *SMOL_AMOUNT,
         }
     }
 
@@ -115,6 +126,7 @@ where
     extra_msg_handles: Option<HashMap<String, Arc<TxActorHandle>>>,
     auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
     prometheus: PrometheusCollector,
+    funding: U256,
 }
 
 impl<D, S, P> ContenderCtxBuilder<D, S, P>
@@ -159,6 +171,10 @@ where
         self.prometheus = p;
         self
     }
+    pub fn funding(mut self, f: U256) -> Self {
+        self.funding = f;
+        self
+    }
 
     pub fn build(self) -> ContenderCtx<D, S, P> {
         ContenderCtx {
@@ -175,6 +191,7 @@ where
             extra_msg_handles: self.extra_msg_handles,
             auth_provider: self.auth_provider,
             prometheus: self.prometheus,
+            funding: self.funding,
         }
     }
 }
@@ -198,6 +215,9 @@ impl Default for RunOpts {
 }
 
 impl RunOpts {
+    pub fn new() -> Self {
+        Self::default()
+    }
     pub fn txs_per_period(mut self, n: u64) -> Self {
         self.txs_per_period = n;
         self
@@ -232,9 +252,20 @@ where
         Self { ctx }
     }
 
-    /// Run contract deployments and setup transactions.
-    pub async fn init_scenario(&self) -> Result<()> {
+    /// Funds agent accounts, then runs contract deployments and setup transactions.
+    pub async fn initialize(&self) -> Result<()> {
         let mut scenario = self.ctx.build_scenario().await?;
+        for agent in scenario.agent_store.all_agents() {
+            agent
+                .1
+                .fund_signers(
+                    &self.ctx.user_signers[0],
+                    self.ctx.funding,
+                    scenario.rpc_client.to_owned(),
+                )
+                .await
+                .map_err(|e| ContenderError::with_err(e.deref(), "failed to fund agent signers"))?;
+        }
         scenario.deploy_contracts().await?;
         scenario.run_setup().await?;
         Ok(())
