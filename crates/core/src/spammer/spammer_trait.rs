@@ -70,6 +70,7 @@ where
         sent_tx_callback: Arc<F>,
     ) -> impl std::future::Future<Output = Result<()>> {
         async move {
+            let run_id = run_id.unwrap_or(scenario.db.num_runs()?);
             let is_fcu_done = self.context().done_fcu.clone();
             let is_sending_done = self.context().done_sending.clone();
             let auth_provider = scenario.auth_provider.clone();
@@ -149,7 +150,7 @@ where
                     self.context().done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
                     false
                 },
-                _ = scenario.flush_tx_cache(start_block, run_id.unwrap_or(0)) => {
+                _ = scenario.flush_tx_cache(start_block, run_id) => {
                     true
                 }
             };
@@ -172,7 +173,7 @@ where
                     cancel_token.cancel();
                     false
                 },
-                _ = scenario.dump_tx_cache(run_id.unwrap_or(0)) => {
+                _ = scenario.dump_tx_cache(run_id) => {
                     true
                 }
             };
@@ -184,17 +185,12 @@ where
                 .done_fcu
                 .store(true, std::sync::atomic::Ordering::SeqCst);
 
-            if let Some(run_id) = run_id {
-                let latency_metrics = scenario.collect_latency_metrics();
-                scenario
-                    .db
-                    .insert_latency_metrics(run_id, &latency_metrics)?;
-            }
+            let latency_metrics = scenario.collect_latency_metrics();
+            scenario
+                .db
+                .insert_latency_metrics(run_id, &latency_metrics)?;
 
-            info!(
-                "done. {}",
-                run_id.map(|id| format!("run_id: {id}")).unwrap_or_default()
-            );
+            info!("done. run_id: {run_id}");
             Ok(())
         }
     }
