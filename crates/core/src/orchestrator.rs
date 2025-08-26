@@ -288,6 +288,10 @@ where
     }
 
     pub fn build(self) -> ContenderCtx<D, S, P> {
+        // always try to create tables before building, so user doesn't have to think about it later.
+        // we'll get an error if the tables already exist, but it's safe to ignore
+        self.db.create_tables().unwrap_or_default();
+
         ContenderCtx {
             config: self.config,
             db: self.db,
