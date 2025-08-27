@@ -495,7 +495,7 @@ where
 
         // add run to DB
         let run_req = opts.create_spam_run_request(
-            scenario.rpc_url.to_string(),
+            &scenario.rpc_url,
             Duration::from_secs(self.ctx.pending_tx_timeout_secs),
             SP::duration_units(opts.periods),
         );
