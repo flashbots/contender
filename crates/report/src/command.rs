@@ -19,6 +19,8 @@ use csv::WriterBuilder;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::env;
+use std::fs;
+use std::path::Path;
 use std::str::FromStr;
 use tracing::{debug, info};
 
@@ -29,6 +31,11 @@ pub async fn report(
     data_dir: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let num_runs = db.num_runs()?;
+
+    let data_path = Path::new(data_dir).join("reports");
+    if !data_path.exists() {
+        fs::create_dir_all(data_path)?;
+    }
 
     if num_runs == 0 {
         info!("No runs found in the database. Exiting.");

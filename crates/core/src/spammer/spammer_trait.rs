@@ -8,6 +8,7 @@ use futures::Stream;
 use futures::StreamExt;
 use tracing::{info, warn};
 
+use crate::db::SpamDuration;
 use crate::{
     db::DbOps,
     error::ContenderError,
@@ -60,6 +61,8 @@ where
         &self,
         scenario: &mut TestScenario<D, S, P>,
     ) -> impl std::future::Future<Output = Result<Pin<Box<dyn Stream<Item = SpamTrigger> + Send>>>>;
+
+    fn duration_units(periods: u64) -> SpamDuration;
 
     fn spam_rpc(
         &self,

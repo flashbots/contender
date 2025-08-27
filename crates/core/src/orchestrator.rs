@@ -1,11 +1,11 @@
 //! High-level builder/orchestrator to create a TestScenario and run a Spammer with sane defaults.
 //! Generally simplifies instantiation for library users, while maintaining flexibility by
 //! providing methods to override defaults.
-use std::{collections::HashMap, ops::Deref, str::FromStr, sync::Arc};
+use std::{collections::HashMap, ops::Deref, str::FromStr, sync::Arc, time::Duration};
 
 use crate::{
     agent_controller::AgentStore,
-    db::{DbOps, MockDb},
+    db::{DbOps, MockDb, SpamDuration, SpamRunRequest},
     error::ContenderError,
     generator::{
         agent_pools::AgentPools,
@@ -312,11 +312,11 @@ where
 }
 
 /// Minimal knobs for running a spammer. Defaults are conservative.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct RunOpts {
     pub txs_per_period: u64,
     pub periods: u64,
-    pub run_id: Option<u64>,
+    pub name: String,
 }
 
 impl Default for RunOpts {
@@ -324,7 +324,7 @@ impl Default for RunOpts {
         Self {
             txs_per_period: 10,
             periods: 1,
-            run_id: None,
+            name: "Unknown".to_owned(),
         }
     }
 }
@@ -341,9 +341,29 @@ impl RunOpts {
         self.periods = n;
         self
     }
-    pub fn run_id(mut self, id: u64) -> Self {
-        self.run_id = Some(id);
+    pub fn name(mut self, name: impl AsRef<str>) -> Self {
+        self.name = name.as_ref().to_owned();
         self
+    }
+
+    pub fn create_spam_run_request(
+        &self,
+        rpc_url: impl AsRef<str>,
+        pending_timeout: Duration,
+        spam_duration: SpamDuration,
+    ) -> SpamRunRequest {
+        SpamRunRequest {
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("Time went backwards")
+                .as_millis() as usize,
+            tx_count: (self.periods * self.txs_per_period) as usize,
+            scenario_name: self.name.to_owned(),
+            rpc_url: rpc_url.as_ref().to_owned(),
+            txs_per_duration: self.txs_per_period,
+            duration: spam_duration,
+            pending_timeout,
+        }
     }
 }
 
@@ -461,16 +481,29 @@ where
         F: OnTxSent + OnBatchSent + Send + Sync + 'static,
         SP: Spammer<F, D, S, P>,
     {
+        // call self.initialize if it hasn't yet been called manually
         if !self.initialized {
             self.initialize().await?;
         }
+
+        // build scenario so we can use its DB
         let mut scenario = self.ctx.build_scenario().await?;
+
+        // add run to DB
+        let run_req = opts.create_spam_run_request(
+            scenario.rpc_url.to_string(),
+            Duration::from_secs(self.ctx.pending_tx_timeout_secs),
+            SP::duration_units(opts.periods),
+        );
+        let run_id = scenario.db.insert_run(&run_req)?;
+
+        // send spam
         spammer
             .spam_rpc(
                 &mut scenario,
                 opts.txs_per_period,
                 opts.periods,
-                opts.run_id,
+                Some(run_id),
                 callback,
             )
             .await

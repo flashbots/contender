@@ -345,7 +345,7 @@ impl DbOps for SqliteDb {
                 .reduce(|ac, c| format!("{ac}\n{c}"))
                 .unwrap_or_default(),
         ))
-        .map_err(|e| ContenderError::with_err(e, "failed to execute batch"))?;
+        .map_err(|e| ContenderError::with_err(e, "[insert_named_txs] failed to execute batch"))?;
         Ok(())
     }
 
@@ -447,7 +447,7 @@ impl DbOps for SqliteDb {
                 .reduce(|ac, c| format!("{ac}\n{c}"))
                 .unwrap_or_default(),
         ))
-        .map_err(|e| ContenderError::with_err(e, "failed to execute batch"))?;
+        .map_err(|e| ContenderError::with_err(e, "[insert_run_txs] failed to execute batch"))?;
         Ok(())
     }
 
@@ -474,7 +474,9 @@ impl DbOps for SqliteDb {
                     .reduce(|acc, curr| format!("{acc}\n{curr}"))
                     .unwrap_or_default(),
             ))
-            .map_err(|e| ContenderError::with_err(e, "failed to execute batch"))?;
+            .map_err(|e| {
+                ContenderError::with_err(e, "[insert_latency_metrics] failed to execute batch")
+            })?;
         }
         Ok(())
     }
