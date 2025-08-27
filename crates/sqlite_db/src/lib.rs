@@ -5,6 +5,7 @@ use alloy::{
 use contender_core::{
     buckets::Bucket,
     db::{DbOps, NamedTx, RunTx, SpamRun, SpamRunRequest},
+    generator::{templater::Templater, PlanConfig, RandSeed},
 };
 use contender_core::{error::ContenderError, Result};
 use r2d2::{Pool, PooledConnection};
@@ -15,6 +16,35 @@ use std::collections::BTreeMap;
 
 /// Increment this whenever making changes to the DB schema.
 pub static DB_VERSION: u64 = 3;
+
+pub type SqliteCtxBuilder<P> =
+    contender_core::orchestrator::ContenderCtxBuilder<SqliteDb, RandSeed, P>;
+
+fn sqlite_ctx<P: PlanConfig<String> + Templater<String> + Send + Sync + Clone>(
+    config: P,
+    db: SqliteDb,
+    rpc: impl AsRef<str>,
+) -> SqliteCtxBuilder<P> {
+    let seed = RandSeed::new();
+    contender_core::ContenderCtx::builder(config, db, seed, rpc)
+}
+
+pub fn ctx_builder_filedb<P: PlanConfig<String> + Templater<String> + Send + Sync + Clone>(
+    config: P,
+    filename: impl AsRef<str>,
+    rpc: impl AsRef<str>,
+) -> Result<SqliteCtxBuilder<P>> {
+    let db = SqliteDb::from_file(filename.as_ref())?;
+    Ok(sqlite_ctx(config, db, rpc))
+}
+
+pub fn ctx_builder_memdb<P: PlanConfig<String> + Templater<String> + Send + Sync + Clone>(
+    config: P,
+    rpc: impl AsRef<str>,
+) -> SqliteCtxBuilder<P> {
+    let db = SqliteDb::new_memory();
+    sqlite_ctx(config, db, rpc)
+}
 
 #[derive(Clone)]
 pub struct SqliteDb {

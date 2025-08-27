@@ -3,7 +3,7 @@ pub mod buckets;
 pub mod db;
 pub mod error;
 pub mod generator;
-mod orchestrator;
+pub mod orchestrator;
 pub mod provider;
 pub mod spammer;
 pub mod test_scenario;

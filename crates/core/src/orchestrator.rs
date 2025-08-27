@@ -286,6 +286,10 @@ where
         self.funding = f;
         self
     }
+    pub fn seeder(mut self, s: S) -> Self {
+        self.seeder = s;
+        self
+    }
 
     pub fn build(self) -> ContenderCtx<D, S, P> {
         // always try to create tables before building, so user doesn't have to think about it later.
