@@ -7,6 +7,7 @@ use alloy::providers::PendingTransactionConfig;
 use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 pub trait OnTxSent<K = String, V = String>
@@ -100,18 +101,28 @@ pub struct LogCallback {
 }
 
 impl LogCallback {
-    pub fn new(
-        rpc_provider: Arc<AnyProvider>,
-        auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
-        send_fcu: bool,
-        cancel_token: tokio_util::sync::CancellationToken,
-    ) -> Self {
+    pub fn new(rpc_provider: Arc<AnyProvider>) -> Self {
         Self {
             rpc_provider,
-            auth_provider,
-            send_fcu,
-            cancel_token,
+            auth_provider: None,
+            send_fcu: false,
+            cancel_token: CancellationToken::default(),
         }
+    }
+    pub fn auth_provider(
+        mut self,
+        provider: Arc<dyn AdvanceChain + Send + Sync + 'static>,
+    ) -> Self {
+        self.auth_provider = Some(provider);
+        self
+    }
+    pub fn send_fcu(mut self, send_fcu: bool) -> Self {
+        self.send_fcu = send_fcu;
+        self
+    }
+    pub fn cancel_token(mut self, token: CancellationToken) -> Self {
+        self.cancel_token = token;
+        self
     }
 }
 

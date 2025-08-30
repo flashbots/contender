@@ -303,7 +303,7 @@ impl SpamCommandArgs {
             &user_signers[0],
             &rpc_client,
             self.min_balance,
-            self.tx_type,
+            TxType::Legacy,
             &self.engine_params,
         )
         .await

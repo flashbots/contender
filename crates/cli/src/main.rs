@@ -21,7 +21,7 @@ use default_scenarios::{fill_block::FillBlockCliArgs, BuiltinScenarioCli};
 use std::{str::FromStr, sync::LazyLock};
 use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use tracing_subscriber::EnvFilter;
 use util::{data_dir, db_file, prompt_continue};
 
 use crate::util::{bold, init_reports_dir, load_seedfile};
@@ -245,20 +245,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")); // fallback if RUST_LOG is unset
+    let filter = EnvFilter::try_from_default_env().ok(); // fallback if RUST_LOG is unset
+    #[cfg(feature = "async-tracing")]
+    {
+        use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Layer};
+        let tokio_layer = console_subscriber::ConsoleLayer::builder()
+            .with_default_env()
+            .spawn();
+        let fmt_layer = fmt::layer()
+            .with_target(true)
+            .with_line_number(true)
+            .with_filter(filter);
 
-    let tokio_layer = console_subscriber::ConsoleLayer::builder()
-        .with_default_env()
-        .spawn();
-    let fmt_layer = fmt::layer()
-        .with_target(true)
-        .with_line_number(true)
-        .with_filter(filter);
+        tracing_subscriber::Registry::default()
+            .with(fmt_layer)
+            .with(tokio_layer)
+            .init();
+    }
 
-    tracing_subscriber::Registry::default()
-        .with(fmt_layer)
-        .with(tokio_layer)
-        .init();
+    #[cfg(not(feature = "async-tracing"))]
+    {
+        contender_core::util::init_core_tracing(filter);
+    }
 }
 
 /// Check if spam arguments are typical and prompt the user to continue if they are not.

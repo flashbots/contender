@@ -347,8 +347,12 @@ pub fn spam_callback_default(
 ) -> TypedSpamCallback {
     if let Some(rpc_client) = rpc_client {
         if log_txs {
-            let log_callback =
-                LogCallback::new(rpc_client.clone(), auth_client, send_fcu, cancel_token);
+            let log_callback = LogCallback {
+                rpc_provider: rpc_client.clone(),
+                auth_provider: auth_client,
+                send_fcu,
+                cancel_token,
+            };
             return TypedSpamCallback::Log(log_callback);
         }
     }

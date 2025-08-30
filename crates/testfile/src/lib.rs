@@ -402,3 +402,39 @@ pub mod tests {
         assert_eq!(placeholder_map.len(), 3);
     }
 }
+
+#[cfg(test)]
+mod more_tests {
+    use super::*;
+    use alloy::node_bindings::Anvil;
+    use contender_core::{
+        db::MockDb,
+        generator::{types::SpamRequest, FunctionCallDefinition, RandSeed},
+        spammer::{NilCallback, TimedSpammer},
+        Contender, ContenderCtx, RunOpts,
+    };
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn contender_ctx_builder_runs() -> Result<(), Box<dyn std::error::Error>> {
+        let anvil = Anvil::new().spawn();
+
+        let config = TestConfig::new().with_spam(vec![SpamRequest::new_tx(
+            &FunctionCallDefinition::new("{_sender}") // send tx to self
+                .with_from_pool("spammers")
+                .with_kind("cargo_test"),
+        )]);
+
+        let db = MockDb;
+        let seeder = RandSeed::new();
+        let ctx = ContenderCtx::builder(config, db, seeder, anvil.endpoint_url()).build();
+        let mut contender = Contender::new(ctx);
+
+        let spammer = TimedSpammer::new(Duration::from_secs(1));
+        let callback = NilCallback;
+        let opts = RunOpts::new().txs_per_period(100).periods(3);
+        contender.spam(spammer, callback.into(), opts).await?;
+
+        Ok(())
+    }
+}

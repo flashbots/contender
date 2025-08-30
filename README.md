@@ -2,269 +2,38 @@
 
 ![Test Status](https://github.com/flashbots/contender/actions/workflows/test.yml/badge.svg)
 ![Lint Status](https://github.com/flashbots/contender/actions/workflows/lint.yml/badge.svg)
+[![License](https://img.shields.io/github/license/flashbots/contender)](./LICENSE)
 
-Contender is a high-performance Ethereum network spammer and testing tool designed for benchmarking and stress-testing Ethereum clients and networks.
+High-performance Ethereum transaction spammer and benchmarking tool.
 
-## Features
+## 🚀 Quick Start
 
-- **Flexible Transaction Generation**: Create custom transaction patterns using TOML configuration files.
-- **Multiple Spamming Modes**: Support for both timed and block-wise spamming.
-- **Seed-based Randomization**: Reproducible fuzzing with customizable seed values.
-- **Database Integration**: SQLite backend to store contract/transaction data and analyze test results.
-- **Extensible Architecture**: Easy-to-implement custom generators and callbacks.
-
-## Installation
-
-To install the Contender CLI, you need to have the [Rust toolchain](https://rustup.rs/) and [libsqlite3-dev](https://packages.debian.org/sid/libsqlite3-dev) installed on your system. Then install from github:
-
+Install:
 ```bash
-cargo install --git https://github.com/flashbots/contender --bin contender
+cargo install --git https://github.com/flashbots/contender --locked
 ```
 
-You can use the scenarios in this repo by prefixing your `<testfile>` arguments with `scenario:`. For example, to use [./scenarios/stress.toml](./scenarios/stress.toml), pass `scenario:stress.toml` to contender:
-
-```sh
-contender setup scenario:stress.toml
-contender spam scenario:stress.toml --tps 20
-```
-
-## Usage
-
-*See [the docs](./docs/) for detailed explanations and examples.*
-
-Contender can be used as both a library and a command-line tool.
-
-### Command-line Interface
-
-```bash
-contender setup <testfile> [OPTIONS]
-contender spam <testfile> [OPTIONS]
-contender report [OPTIONS]
-contender admin [OPTIONS]
-contender db [OPTIONS]
-```
-
-For detailed usage instructions, run:
-
-```bash
-contender --help
-```
-
-#### Example Calls
-
-Run a zero-config scenario that attempts to fill a block to its gas limit:
-
+Run a simple spam scenario:
 ```bash
 contender spam --tps 50 -r $RPC_URL fill-block
 ```
 
-Send txs every block (instead of every second):
-
-```bash
-contender spam --tpb 50 -r $RPC_URL fill-block
-```
-
-Send 10 batches of txs before collecting receipts:
-
-```bash
-contender spam --tps 50 -d 10 -r $RPC_URL fill-block
-```
-
-Pass a private key to fund spammer wallets from your own account:
-
-```bash
-contender spam --tps 50 -d 10 -r $RPC_URL -p $PRIVATE_KEY fill-block
-```
-
----
-
-Deploy custom scenario:
-
-```bash
-contender setup scenario:stress.toml -r $RPC_URL
-```
-
-Pass a private key to fund the setup txs from your own account (default anvil account[0] is used otherwise):
-
+Run a bundled scenario from the repo:
 ```bash
 contender setup scenario:stress.toml -r $RPC_URL -p $PRIVATE_KEY
+contender spam  scenario:stress.toml -r $RPC_URL --tps 10 -d 3
 ```
 
----
+See [examples](docs/examples.md) for more usage patterns.
 
-Run the spammer with a custom scenario (10 tx/sec for 3 seconds):
 
-```bash
-contender spam scenario:stress.toml -r $RPC_URL --tps 10 -d 3
-```
+## ⚙️ Prerequisites
 
-Setting `--tps` defines the number of "agent accounts" (generated EOAs used to send txs). The number of accounts each agent has is determined by `txs_per_period / num_agents`, where `num_agents` is defined by the scenario. For example, if the `stress.toml` scenario has 4 agents (defined by `from_pool` declarations), passing `--tps` 10 will generate `10 / 4 = 2.5` accounts, rounded down.
+- **Rust toolchain** (latest stable)
+- **SQLite development headers** (`libsqlite3-dev` on Linux)
+- A JSON-RPC endpoint for the target Ethereum node
 
-Pass a private key with `-p` to fund agent accounts from your account:
-
-```bash
-contender spam scenario:stress.toml -r $RPC_URL --tps 10 -d 3 -p $PRV_KEY
-```
-
-Generate a report immediately following a spam run:
-
-```bash
-contender spam scenario:stress.toml -r $RPC_URL --tps 10 -d 3 -p $PRV_KEY --report
-```
-
-Run spammer indefinitely with `--loops` (`-l`):
-
-```bash
-contender spam scenario:stress.toml -r $RPC_URL --tps 10 -d 3 -p $PRV_KEY -l
-```
-
-Loop spammer 5 times:
-
-```bash
-contender spam scenario:stress.toml -r $RPC_URL --tps 10 -d 3 -p $PRV_KEY -l 5
-```
-
----
-
-Generate a chain performance report for the most recent run.
-
-```bash
-contender report
-```
-
-> The compiled report will open in your web browser.
-
-Generate a report that spans the last 3 runs (the most recent run + 2 preceding it):
-
-```bash
-contender report -p 2
-```
-
-Generate a report spanning run 200 - 203 (inclusively):
-
-```bash
-contender report -i 203 -p 3
-```
-
----
-
-**Overriding [env] values**
-
-You may manually override any `[env]` variable (or add new ones) in a scenario file by passing `-e <KEY=VALUE>` with your spam/setup commands.
-
-The following example will replace the value for `{testAddr}` in `example.toml`:
-
-```toml
-# example.toml
-...
-
-[[spam]]
-[spam.tx]
-to = "{testAddr}"
-from_pool = "spammers"
-signature = "call()"
-args = []
-```
-
-In this case, we're using `{testAddr}` for the spam tx's `to` address, so we'll be sending transactions to the address we provide with `-e`:
-
-```bash
-contender spam ./example.toml --tps 10 \
--e testAddr=0x0000000000000000000000000000000000000013
-```
-
----
-
-**Spamming with the `engine_` API**
-
-Add the following flags to `setup`, `spam` to trigger block building manually via the authenticated `engine_` API:
-
-- `--jwt <jwt secret file>` the path to your node's secret JWT file
-- `--auth <auth RPC URL>` the node's the auth API URL
-- `--fcu` set this to trigger block building
-
-If targeting an Optimism node, you'll also need to add the `--op` flag.
-
-```bash
-# default
-cargo run -- spam scenario:stress.toml -r $RPC \
---auth http://localhost:8551 \
---jwt $JWT_FILE \
---fcu \
---tps 200 -d 2 -w 3
-
-# example targeting local op-rbuilder
-cargo run -- spam scenario:stress.toml -r http://localhost:1111 \
---auth http://localhost:4444 \
---jwt $CODE/rbuilder/crates/op-rbuilder/src/tester/fixtures/test-jwt-secret.txt \
---fcu \
---op \
---tps 200 -d 2 -w 3
-```
-
----
-
-Backup the SQLite DB used by contender:
-
-```bash
-contender db export ./backup.db
-```
-
-Import a backup DB file for contender to use:
-
-```bash
-contender db import ./backup.db
-```
-
-Reset your DB in-place:
-
-```bash
-contender db reset
-```
-
-Delete your DB:
-
-```bash
-contender db drop
-```
-
----
-
-Contender also has some admin features for debugging...
-
-List the accounts that contender generates for a given `from_pool` definition:
-
-```bash
-# list 100 agent accounts from the "spammers" pool
-contender admin accounts --from-pool "spammers" -n 100
-```
-
-These accounts are generated from your locally-stored seed, which can be viewed with the following:
-
-```bash
-contender admin seed
-```
-
-We can also view the latest run ID from the local DB, which can be useful for DB debugging:
-
-```bash
-contender admin latest-run-id
-```
-
-### Scenarios
-
-A "scenario" in contender defines contracts to be deployed and transaction calls that should run before and during a spam session.
-
-We provide some scenarios in the repo under the [`scenarios/`](./scenarios/) directory. To run these, you'll need to clone the repo:
-
-```sh
-git clone https://github.com/flashbots/contender
-cd contender
-cargo run -- setup ./scenarios/stress.toml -r $RPC_URL -p $PRIVATE_KEY
-cargo run -- spam ./scenarios/stress.toml -r $RPC_URL --tps 10 -d 3 -p $PRIVATE_KEY
-```
-
-### Library Usage
+## 📚 Docs
 
 To use Contender as a library in your Rust project, add the crates you need to your `Cargo.toml`:
 
@@ -421,16 +190,27 @@ graph TD
     classDef analysis fill:#ffb,stroke:#333,stroke-width:2px;
 ```
 
-## Contributing
+Contender is a high-performance Ethereum transaction spammer and benchmarking tool, built for repeatable load tests against EL clients and live networks.
+It supports both **per-second** (TPS) and **per-block** (TPB) timing, seeded fuzzing for reproducibility, and SQLite-backed state for contracts, runs, and reports.
 
-Contributions are welcome! Please feel free to submit a Pull Request.
 
-## License
+### 1. Introduction
+- [Overview](docs/overview.md)
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+### 2. Getting Started
+- [Installation](docs/installation.md)
+- [CLI Reference](docs/cli.md)
+- [Example Commands](docs/examples.md)
 
-## Acknowledgements
+### 3. Writing Scenarios
+- [Scenario File Structure](docs/scenarios.md)
+- [Placeholders](docs/placeholders.md)
+- [Creating a New Scenario](docs/creating_scenarios.md)
 
-- The Ethereum community for their continuous innovation.
-- The Reth project for inspiration on project structure and documentation.
-- [alloy-rs](https://github.com/alloy-rs) -- the backbone of this project.
+### 4. Advanced Usage
+- [Engine API Spamming](docs/engine-api.md)
+- [Reports, Database, and Admin Tools](docs/reports-db-admin.md)
+- [Using Contender as a Library](docs/library-usage.md)
+
+### 5. Internals
+- [Architecture](docs/architecture.md)

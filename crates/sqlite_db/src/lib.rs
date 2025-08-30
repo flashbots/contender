@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use alloy::{
     hex::{FromHex, ToHexExt},
     primitives::{Address, TxHash},
@@ -7,15 +5,46 @@ use alloy::{
 use contender_core::{
     buckets::Bucket,
     db::{DbOps, NamedTx, RunTx, SpamRun, SpamRunRequest},
+    generator::{templater::Templater, PlanConfig, RandSeed},
 };
 use contender_core::{error::ContenderError, Result};
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, types::FromSql, Row};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// Increment this whenever making changes to the DB schema.
 pub static DB_VERSION: u64 = 3;
+
+pub type SqliteCtxBuilder<P> =
+    contender_core::orchestrator::ContenderCtxBuilder<SqliteDb, RandSeed, P>;
+
+fn sqlite_ctx<P: PlanConfig<String> + Templater<String> + Send + Sync + Clone>(
+    config: P,
+    db: SqliteDb,
+    rpc: impl AsRef<str>,
+) -> SqliteCtxBuilder<P> {
+    let seed = RandSeed::new();
+    contender_core::ContenderCtx::builder(config, db, seed, rpc)
+}
+
+pub fn ctx_builder_filedb<P: PlanConfig<String> + Templater<String> + Send + Sync + Clone>(
+    config: P,
+    filename: impl AsRef<str>,
+    rpc: impl AsRef<str>,
+) -> Result<SqliteCtxBuilder<P>> {
+    let db = SqliteDb::from_file(filename.as_ref())?;
+    Ok(sqlite_ctx(config, db, rpc))
+}
+
+pub fn ctx_builder_memdb<P: PlanConfig<String> + Templater<String> + Send + Sync + Clone>(
+    config: P,
+    rpc: impl AsRef<str>,
+) -> SqliteCtxBuilder<P> {
+    let db = SqliteDb::new_memory();
+    sqlite_ctx(config, db, rpc)
+}
 
 #[derive(Clone)]
 pub struct SqliteDb {
@@ -346,7 +375,7 @@ impl DbOps for SqliteDb {
                 .reduce(|ac, c| format!("{ac}\n{c}"))
                 .unwrap_or_default(),
         ))
-        .map_err(|e| ContenderError::with_err(e, "failed to execute batch"))?;
+        .map_err(|e| ContenderError::with_err(e, "[insert_named_txs] failed to execute batch"))?;
         Ok(())
     }
 
@@ -448,7 +477,7 @@ impl DbOps for SqliteDb {
                 .reduce(|ac, c| format!("{ac}\n{c}"))
                 .unwrap_or_default(),
         ))
-        .map_err(|e| ContenderError::with_err(e, "failed to execute batch"))?;
+        .map_err(|e| ContenderError::with_err(e, "[insert_run_txs] failed to execute batch"))?;
         Ok(())
     }
 
@@ -475,7 +504,9 @@ impl DbOps for SqliteDb {
                     .reduce(|acc, curr| format!("{acc}\n{curr}"))
                     .unwrap_or_default(),
             ))
-            .map_err(|e| ContenderError::with_err(e, "failed to execute batch"))?;
+            .map_err(|e| {
+                ContenderError::with_err(e, "[insert_latency_metrics] failed to execute batch")
+            })?;
         }
         Ok(())
     }

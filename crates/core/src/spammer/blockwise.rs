@@ -54,6 +54,10 @@ where
             .boxed())
     }
 
+    fn duration_units(periods: u64) -> crate::db::SpamDuration {
+        crate::db::SpamDuration::Blocks(periods)
+    }
+
     fn context(&self) -> &SpamRunContext {
         &self.context
     }
