@@ -374,7 +374,7 @@ args = [
 ]
 ```
 
-See [scenarios/](./scenarios/) for examples.
+See [docs/creating_scenarios.md](./docs/creating_scenarios.md) for a full walkthrough, including environment variables, placeholders, setup/spam steps, and examples. For passing constructor args in `[[create]]` using `signature` and `args` (no manual zero-padding), see [docs/constructor_args.md](./docs/constructor_args.md).
 
 ## Architecture
 
