@@ -147,6 +147,8 @@ pub mod tests {
                     COUNTER_BYTECODE.to_string(),
                     "test_counter".to_string(),
                 ),
+                signature: None,
+                args: None,
                 from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
                 from_pool: None,
             }]),

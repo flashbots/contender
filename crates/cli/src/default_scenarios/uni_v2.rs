@@ -121,6 +121,8 @@ impl ToTestConfig for UniV2Args {
         for i in 0..self.num_tokens {
             let deployment = CreateDefinition {
                 contract: test_token(i + 1, self.initial_token_supply),
+                signature: None,
+                args: None,
                 from: None,
                 from_pool: Some("admin".to_owned()),
             };

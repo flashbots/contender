@@ -110,6 +110,22 @@ where
         Ok(())
     }
 
+    /// Finds {placeholders} in create constructor args and updates the placeholder map.
+    fn find_create_placeholders(
+        &self,
+        createdef: &CreateDefinitionStrict,
+        db: &impl DbOps,
+        placeholder_map: &mut HashMap<K, String>,
+        rpc_url: &str,
+    ) -> Result<()> {
+        for arg in createdef.args.iter() {
+            self.find_placeholder_values(arg, placeholder_map, db, rpc_url)?;
+        }
+        // also scan bytecode for placeholders
+        self.find_placeholder_values(&createdef.bytecode, placeholder_map, db, rpc_url)?;
+        Ok(())
+    }
+
     /// Returns a transaction request for a given function call definition with all
     /// {placeholders} filled in using corresponding values from `placeholder_map`.
     fn template_function_call(
@@ -151,7 +167,32 @@ where
         createdef: &CreateDefinitionStrict,
         placeholder_map: &HashMap<K, String>,
     ) -> Result<TransactionRequest> {
-        let full_bytecode = self.replace_placeholders(&createdef.bytecode, placeholder_map);
+        let mut full_bytecode = self.replace_placeholders(&createdef.bytecode, placeholder_map);
+
+        // If a constructor signature is provided, encode args and append to bytecode
+        if let Some(sig) = &createdef.signature {
+            let mut args = Vec::new();
+            for arg in createdef.args.iter() {
+                args.push(self.replace_placeholders(arg, placeholder_map));
+            }
+
+            // support both "constructor(type,...)" and "(type,...)" inputs
+            let sig = if sig.starts_with("(") {
+                format!("constructor{}", sig)
+            } else {
+                sig.to_owned()
+            };
+
+            let mut calldata = encode_calldata(&args, &sig)?;
+            // strip 4-byte selector
+            if calldata.len() >= 4 {
+                calldata = calldata[4..].to_vec();
+            } else {
+                calldata = Vec::new();
+            }
+            // append hex-encoded constructor calldata to bytecode
+            full_bytecode.push_str(&calldata.encode_hex());
+        }
         let tx = alloy::rpc::types::TransactionRequest {
             from: Some(createdef.from),
             to: Some(alloy::primitives::TxKind::Create),
