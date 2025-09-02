@@ -172,8 +172,12 @@ where
         // If a constructor signature is provided, encode args and append to bytecode
         if let Some(sig) = &createdef.signature {
             let mut args = Vec::new();
-            for arg in createdef.args.iter() {
-                args.push(self.replace_placeholders(arg, placeholder_map));
+            for arg in &createdef.args {
+                if arg == "{_sender}" {
+                    args.push(createdef.from.to_string());
+                } else {
+                    args.push(self.replace_placeholders(arg, placeholder_map));
+                }
             }
 
             // support both "constructor(type,...)" and "(type,...)" inputs
@@ -193,6 +197,7 @@ where
             // append hex-encoded constructor calldata to bytecode
             full_bytecode.push_str(&calldata.encode_hex());
         }
+
         let tx = alloy::rpc::types::TransactionRequest {
             from: Some(createdef.from),
             to: Some(alloy::primitives::TxKind::Create),
