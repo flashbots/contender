@@ -170,11 +170,13 @@ where
             ));
         };
 
-        let bytecode = create_def
-            .contract
-            .bytecode
-            .to_owned()
-            .replace("{_sender}", &from_address.encode_hex()); // inject address WITHOUT 0x prefix
+        // handle direct variable injection
+        // (backwards-compatible for bytecode defs that include placeholders,
+        // rather than using `args` + `signature` in the `CreateDefinition`)
+        let bytecode = create_def.contract.bytecode.to_owned().replace(
+            "{_sender}",
+            &format!("{}{}", "0".repeat(24), from_address.encode_hex()),
+        ); // inject address WITHOUT 0x prefix, padded with 24 zeroes
 
         Ok(CreateDefinitionStrict {
             name: create_def.contract.name.to_owned(),
