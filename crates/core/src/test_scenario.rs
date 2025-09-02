@@ -505,11 +505,6 @@ where
             .wallet(&wallet)
             .network::<AnyNetwork>()
             .connect_http(rpc_url.to_owned());
-        let read_client = DynProvider::new(
-            ProviderBuilder::new()
-                .network::<AnyNetwork>()
-                .connect_http(rpc_url.to_owned()),
-        );
 
         // If we have a previously deployed address for this named contract and
         // the on-chain code is present (non-empty), skip redeploying.
@@ -517,7 +512,7 @@ where
             if let Some(existing) = db.get_named_tx(name, rpc_url.as_str())? {
                 if let Some(addr) = existing.address {
                     // eth_getCode at latest block
-                    let code: Bytes = read_client
+                    let code: Bytes = wallet_client
                         .client()
                         .request("eth_getCode", (addr, "latest"))
                         .await
