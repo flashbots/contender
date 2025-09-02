@@ -180,6 +180,8 @@ where
             name: create_def.contract.name.to_owned(),
             bytecode,
             from: from_address,
+            signature: create_def.signature.to_owned(),
+            args: create_def.args.to_owned().unwrap_or_default(),
         })
     }
 
@@ -340,11 +342,11 @@ where
                     // populate step with from address
                     let step = self.make_strict_create(step, 0)?;
 
-                    // lookup placeholder values in DB & update map before templating
-                    templater.find_placeholder_values(
-                        &step.bytecode,
-                        &mut placeholder_map,
+                    // lookup placeholder values in DB & update map before templating (bytecode + args)
+                    templater.find_create_placeholders(
+                        &step,
                         db,
+                        &mut placeholder_map,
                         &self.get_rpc_url(),
                     )?;
 

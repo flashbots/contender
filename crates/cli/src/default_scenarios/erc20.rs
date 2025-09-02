@@ -75,6 +75,8 @@ impl ToTestConfig for Erc20Args {
             env: None,
             create: Some(vec![CreateDefinition {
                 contract: token.to_owned(),
+                signature: None,
+                args: None,
                 from: None,
                 from_pool: Some("admin".to_owned()),
             }]),

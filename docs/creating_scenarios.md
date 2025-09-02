@@ -28,17 +28,21 @@ For example, the [UniV2 scenario](../scenarios/uniV2.toml#L5-L6) defines an `ini
 initialSupply = "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 ```
 
-You may create as many variables as you want; just ensure that they’re zero-padded if necessary (mainly for constructor args).
+You may create as many variables as you want.
 
 Following that declaration in the TOML file, you can reference the variable in several places using the `{placeholder}` syntax.
 
-In the [UniV2 example](../scenarios/uniV2.toml#L14-L17), the `initialSupply` variable is used to mint tokens during a token deployment by passing the variable as a constructor argument to the bytecode:
+In the [UniV2 example](../scenarios/uniV2.toml#L14-L17), the `initialSupply` variable is used as a constructor argument via `signature` and `args` (no manual hex surgery):
 
 ```toml
 [[create]]
 name = "testToken"
 from_pool = "admin"
-bytecode = "0x608060...0033{initialSupply}"
+signature = "(uint256 initialSupply)"  # or "constructor(uint256 initialSupply)"
+args = [
+    "{initialSupply}",
+]
+bytecode = "0x608060..."
 ```
 
 ## defining a contract deployment
@@ -84,24 +88,23 @@ Add as many of these `[[create]]` steps as you need. They will be deployed in or
 
 ### passing constructor args
 
-To provide constructor args, you can inject deployed contract addresses by their name in latter contract deployments using the `{placeholder}` syntax.
+Provide constructor args by specifying the Solidity constructor type `signature` and the `args` list. Placeholders are supported in `args` and will be resolved at runtime. Contender will ABI-encode the args and append them to `bytecode` automatically.
 
-For example, in the [builtin UniV2 scenario](../scenarios/uniV2.toml#L34), we use several placeholders. Here’s a snippet:
+For example, in the [builtin UniV2 scenario](../scenarios/uniV2.toml#L34), the router takes two addresses:
 
 ```toml
 [[create]]
 name = "uniRouterV2"
 from_pool = "admin"
-# requires {univ2Factory} and {weth}
-bytecode = "0x60c06040...060033000000000000000000000000{uniV2Factory}000000000000000000000000{weth}"
+signature = "(address,address)"   # or "constructor(address,address)"
+args = [
+    "{uniV2Factory}",
+    "{weth}",
+]
+bytecode = "0x60c06040..."
 ```
 
-> 💡Note that we have to manually insert leading zeros to pad the address to 32 bytes.
-> 
-
-In this example, `{uniV2Factory}` and `{weth}` were deployed before `{uniRouterV2}`, so we’re able to use them as constructor args.
-
-This [may change soon](https://github.com/flashbots/contender/issues/105).
+> 💡 Do not manually append or zero-pad values in `bytecode`. Constructor args are ABI-encoded and appended for you.
 
 ## defining setup steps
 

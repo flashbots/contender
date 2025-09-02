@@ -65,6 +65,10 @@ impl CompiledContract {
 pub struct CreateDefinition {
     #[serde(flatten)]
     pub contract: CompiledContract,
+    /// Constructor signature. Formats supported: "constructor(type1,type2,...)" or "(type1,type2,...)".
+    pub signature: Option<String>,
+    /// Constructor arguments. May include placeholders.
+    pub args: Option<Vec<String>>,
     /// Address of the tx sender.
     pub from: Option<String>,
     /// Get a `from` address from the pool of signers specified here.
@@ -75,6 +79,8 @@ impl CreateDefinition {
     pub fn new(contract: &CompiledContract) -> Self {
         CreateDefinition {
             contract: contract.to_owned(),
+            signature: None,
+            args: None,
             from: None,
             from_pool: None,
         }
@@ -95,4 +101,6 @@ pub struct CreateDefinitionStrict {
     pub bytecode: String,
     pub name: String,
     pub from: Address,
+    pub signature: Option<String>,
+    pub args: Vec<String>,
 }
