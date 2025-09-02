@@ -637,13 +637,13 @@ where
                     gas
                 } else {
                     let res = wallet.estimate_gas(tx_req.tx.to_owned().into()).await;
-                    if res.is_err() {
+                    if let Ok(res) = res {
+                        res
+                    } else {
                         warn!(
                             "failed to estimate gas for setup step '{tx_label}', skipping step..."
                         );
                         return Ok(());
-                    } else {
-                        res.expect("gas_limit borked")
                     }
                 };
                 let mut tx = tx_req.tx;
