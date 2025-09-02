@@ -641,13 +641,15 @@ where
                 let gas_limit = if let Some(gas) = tx_req.tx.gas {
                     gas
                 } else {
-                    wallet
-                        .estimate_gas(tx_req.tx.to_owned().into())
-                        .await
-                        .map_err(|e| {
-                            warn!("failed to estimate gas for setup step '{tx_label}'");
-                            ContenderError::with_err(e, "failed to estimate gas")
-                        })?
+                    let res = wallet.estimate_gas(tx_req.tx.to_owned().into()).await;
+                    if res.is_err() {
+                        warn!(
+                            "failed to estimate gas for setup step '{tx_label}', skipping step..."
+                        );
+                        return Ok(());
+                    } else {
+                        res.expect("gas_limit borked")
+                    }
                 };
                 let mut tx = tx_req.tx;
                 complete_tx_request(
