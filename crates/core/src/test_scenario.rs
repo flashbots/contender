@@ -21,7 +21,7 @@ use alloy::network::{
     AnyNetwork, AnyTxEnvelope, EthereumWallet, NetworkWallet, TransactionBuilder,
 };
 use alloy::node_bindings::Anvil;
-use alloy::primitives::{keccak256, Address, Bytes, FixedBytes, U256};
+use alloy::primitives::{keccak256, Address, Bytes, FixedBytes, TxKind, U256};
 use alloy::providers::{DynProvider, PendingTransactionConfig, Provider, ProviderBuilder};
 use alloy::rpc::client::ClientBuilder;
 use alloy::rpc::types::TransactionRequest;
@@ -699,32 +699,10 @@ where
                 .insert(setcode_signer_addr, setcode_signer_nonce + 1);
         }
 
-        let key = keccak256(tx_req.input.input.to_owned().unwrap_or_default());
-
-        if let std::collections::hash_map::Entry::Vacant(_) = self.gas_limits.entry(key) {
-            let mut tx_req = tx_req.to_owned();
-            if let Some(sidecar) = &tx_req.sidecar {
-                tx_req.max_fee_per_blob_gas = Some(blob_gas_price);
-                tx_req.blob_versioned_hashes = Some(sidecar.versioned_hashes().collect());
-            }
-            let gas_limit = if let Some(gas) = tx_req.gas {
-                gas
-            } else {
-                self.rpc_client
-                    .estimate_gas(WithOtherFields::new(tx_req.to_owned()))
-                    .await
-                    .map_err(|e| {
-                        if e.as_error_resp().is_some() {
-                            tracing::error!("failed tx: {tx_req:?}");
-                        }
-                        ContenderError::with_err(e, "failed to estimate gas for tx")
-                    })?
-            };
-            self.gas_limits.insert(key, gas_limit);
-        }
+        self.update_gas_map(tx_req, blob_gas_price).await?;
         let gas_limit = self
             .gas_limits
-            .get(&key)
+            .get(&tx_req.key())
             .ok_or(ContenderError::SetupError(
                 "failed to lookup gas limit",
                 None,
@@ -775,6 +753,7 @@ where
 
         let mut payloads = vec![];
         info!("preparing {} spam payloads", tx_requests.len());
+
         for tx in tx_requests {
             let payload = match tx {
                 ExecutionRequest::Bundle(reqs) => {
@@ -787,8 +766,7 @@ where
                     for req in reqs {
                         let (tx_req, signer) = self
                             .prepare_tx_request(&req.tx, gas_price, blob_gas_price)
-                            .await
-                            .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
+                            .await?;
 
                         trace!("bundle tx: {tx_req:?}");
                         // sign tx
@@ -1395,6 +1373,52 @@ where
         }
         latency_map
     }
+
+    /// Updates gas limits hashmap for a given tx, returns the key used to index the tx to its gas limit.
+    async fn update_gas_map(
+        &mut self,
+        tx_req: &TransactionRequest,
+        blob_gas_price: u128,
+    ) -> Result<FixedBytes<32>> {
+        let key = tx_req.key();
+        if let std::collections::hash_map::Entry::Vacant(_) = self.gas_limits.entry(key) {
+            let mut tx_req = tx_req.to_owned();
+            if let Some(sidecar) = &tx_req.sidecar {
+                tx_req.max_fee_per_blob_gas = Some(blob_gas_price);
+                tx_req.blob_versioned_hashes = Some(sidecar.versioned_hashes().collect());
+            }
+            let gas_limit = if let Some(gas) = tx_req.gas {
+                gas
+            } else {
+                if let Some(TxKind::Call(address)) = &tx_req.to {
+                    let data = tx_req.input.input.to_owned().unwrap_or_default();
+                    if !data.is_empty() {
+                        // assume that with calldata, we're trying to call a contract, so it should have code
+                        let code = self.rpc_client.get_code_at(*address).await.map_err(|e| {
+                            ContenderError::with_err(
+                                e,
+                                "failed to read bytecode at contract address",
+                            )
+                        })?;
+                        if code.is_empty() {
+                            warn!("Trying to call an address with no code... If you're targeting a smart contract, you may need to run contender setup to re-deploy it.");
+                        }
+                    }
+                }
+                self.rpc_client
+                    .estimate_gas(WithOtherFields::new(tx_req.to_owned()))
+                    .await
+                    .map_err(|e| {
+                        if e.as_error_resp().is_some() {
+                            tracing::error!("failed tx: {tx_req:?}");
+                        }
+                        ContenderError::with_err(e, "failed to estimate gas for tx")
+                    })?
+            };
+            self.gas_limits.insert(key, gas_limit);
+        }
+        Ok(key)
+    }
 }
 
 async fn sync_nonces(
@@ -1487,6 +1511,17 @@ where
 struct SpamContextHandler {
     add_gas: tokio::sync::mpsc::Sender<u128>,
     success_send_tx: tokio::sync::mpsc::Sender<()>,
+}
+
+trait TxKey {
+    /// Defines a key to index a unique transaction request (e.g. in a hashmap).
+    fn key(&self) -> FixedBytes<32>;
+}
+
+impl TxKey for TransactionRequest {
+    fn key(&self) -> FixedBytes<32> {
+        keccak256(self.input.input.to_owned().unwrap_or_default())
+    }
 }
 
 #[cfg(test)]

@@ -31,7 +31,6 @@ fn blob_txs(blob_data: impl AsRef<str>, recipient: Option<String>) -> Vec<SpamRe
                 .map(|a| a.to_string())
                 .unwrap_or("{_sender}".to_owned()),
         )
-        .with_from_pool("spammers")
         .with_blob_data(blob_data),
     ))]
 }

@@ -7,7 +7,7 @@ Usage:
 ```toml
 [[create]]
 name = "MyToken"
-from_pool = "admin"
+
 signature = "(uint256 initialSupply)"   # or "constructor(uint256 initialSupply)"
 args = ["{initialSupply}"]
 bytecode = "0x6080..."  # compiled runtime bytecode

@@ -20,7 +20,7 @@ name = "testToken"
 [[setup]]
 kind = "univ2_create_pair"
 to = "{uniV2Factory}"
-from_pool = "admin"
+
 signature = "function createPair(address tokenA, address tokenB) external returns (address pair)"
 args = ["{weth}", "{testToken}"]
 ```
@@ -32,7 +32,7 @@ initialSupply = "00fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 
 [[create]]
 name = "testToken"
-from_pool = "admin"
+
 bytecode = "0x60806040...{initialSupply}"
 ```
 
@@ -41,7 +41,7 @@ Sender placeholder:
 [[setup]]
 kind = "admin_univ2_add_liquidity_weth-testToken"
 to = "{uniRouterV2}"
-from_pool = "admin"
+
 signature = "addLiquidity(address,address,uint,uint,uint,uint,address,uint) returns (uint,uint,uint)"
 args = [
   "{weth}", "{testToken}",
