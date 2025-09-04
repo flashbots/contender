@@ -21,7 +21,7 @@ use alloy::network::{
     AnyNetwork, AnyTxEnvelope, EthereumWallet, NetworkWallet, TransactionBuilder,
 };
 use alloy::node_bindings::Anvil;
-use alloy::primitives::{keccak256, Address, Bytes, FixedBytes, U256};
+use alloy::primitives::{keccak256, Address, Bytes, FixedBytes, TxKind, U256};
 use alloy::providers::{DynProvider, PendingTransactionConfig, Provider, ProviderBuilder};
 use alloy::rpc::client::ClientBuilder;
 use alloy::rpc::types::TransactionRequest;
@@ -710,6 +710,23 @@ where
             let gas_limit = if let Some(gas) = tx_req.gas {
                 gas
             } else {
+                if let Some(to) = &tx_req.to {
+                    match to {
+                        TxKind::Call(address) => {
+                            let code =
+                                self.rpc_client.get_code_at(*address).await.map_err(|e| {
+                                    ContenderError::with_err(
+                                        e,
+                                        "failed to read bytecode at contract address",
+                                    )
+                                })?;
+                            if code.is_empty() {
+                                return Err(ContenderError::SpamError("Found a smart contract address, but it has no code. Please run setup steps to re-deploy it.", None));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 self.rpc_client
                     .estimate_gas(WithOtherFields::new(tx_req.to_owned()))
                     .await
@@ -775,6 +792,7 @@ where
 
         let mut payloads = vec![];
         info!("preparing {} spam payloads", tx_requests.len());
+
         for tx in tx_requests {
             let payload = match tx {
                 ExecutionRequest::Bundle(reqs) => {
@@ -787,8 +805,7 @@ where
                     for req in reqs {
                         let (tx_req, signer) = self
                             .prepare_tx_request(&req.tx, gas_price, blob_gas_price)
-                            .await
-                            .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
+                            .await?;
 
                         trace!("bundle tx: {tx_req:?}");
                         // sign tx
