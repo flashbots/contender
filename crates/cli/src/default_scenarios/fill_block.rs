@@ -77,7 +77,6 @@ impl ToTestConfig for FillBlockArgs {
                 SpamRequest::Tx(
                     FunctionCallDefinition::new(contracts::SPAM_ME.template_name())
                         .with_signature("consumeGas()")
-                        .with_from_pool("spammers")
                         .with_kind("fill-block")
                         .with_gas_limit(gas_per_tx)
                         .into(),

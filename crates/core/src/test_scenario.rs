@@ -713,15 +713,19 @@ where
                 if let Some(to) = &tx_req.to {
                     match to {
                         TxKind::Call(address) => {
-                            let code =
-                                self.rpc_client.get_code_at(*address).await.map_err(|e| {
-                                    ContenderError::with_err(
-                                        e,
-                                        "failed to read bytecode at contract address",
-                                    )
-                                })?;
-                            if code.is_empty() {
-                                return Err(ContenderError::SpamError("Found a smart contract address, but it has no code. Please run setup steps to re-deploy it.", None));
+                            let data = tx_req.input.input.to_owned().unwrap_or_default();
+                            if !data.is_empty() {
+                                // assume that with calldata, we're trying to call a contract, so it should have code
+                                let code =
+                                    self.rpc_client.get_code_at(*address).await.map_err(|e| {
+                                        ContenderError::with_err(
+                                            e,
+                                            "failed to read bytecode at contract address",
+                                        )
+                                    })?;
+                                if code.is_empty() {
+                                    warn!("Trying to call an address with no code... If you're targeting a smart contract, you may need to run contender setup to re-deploy it.");
+                                }
                             }
                         }
                         _ => {}
