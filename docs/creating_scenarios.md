@@ -37,7 +37,7 @@ In the [UniV2 example](../scenarios/uniV2.toml#L14-L17), the `initialSupply` var
 ```toml
 [[create]]
 name = "testToken"
-from_pool = "admin"
+
 signature = "(uint256 initialSupply)"  # or "constructor(uint256 initialSupply)"
 args = [
     "{initialSupply}",
@@ -53,7 +53,7 @@ Copy in the following boilerplate:
 [[create]]
 bytecode = ""
 name = ""
-from_pool = "admin"
+
 ```
 
 This is how contender defines a contract deployment.
@@ -81,7 +81,7 @@ When you’re done, it should look something like this:
 [[create]]
 bytecode = "0x608060405..." # truncated; it's usually very long
 name = "SpamMe2"
-from_pool = "admin"
+
 ```
 
 Add as many of these `[[create]]` steps as you need. They will be deployed in order.
@@ -95,7 +95,7 @@ For example, in the [builtin UniV2 scenario](../scenarios/uniV2.toml#L34), the r
 ```toml
 [[create]]
 name = "uniRouterV2"
-from_pool = "admin"
+
 signature = "(address,address)"   # or "constructor(address,address)"
 args = [
     "{uniV2Factory}",
@@ -116,7 +116,7 @@ Copy in this boilerplate definition for a `[[setup]]` step:
 [[setup]]
 kind = ""
 to = ""
-from_pool = "admin"
+
 signature = ""
 args = [
 ]
@@ -142,7 +142,7 @@ Here’s a snippet from the [UniV2 scenario](../scenarios/uniV2.toml#L43-L62), w
 [[setup]]
 kind = "admin_weth_deposit"
 to = "{weth}"
-from_pool = "admin"
+
 signature = "function deposit() public payable"
 value = "10000000000000000000"
 
@@ -150,7 +150,7 @@ value = "10000000000000000000"
 [[setup]]
 kind = "univ2_create_pair_token1-weth"
 to = "{uniV2Factory}"
-from_pool = "admin"
+
 signature = "function createPair(address tokenA, address tokenB) external returns (address pair)"
 args = [
      "{weth}",
