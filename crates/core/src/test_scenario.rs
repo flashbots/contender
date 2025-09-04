@@ -699,10 +699,10 @@ where
                 .insert(setcode_signer_addr, setcode_signer_nonce + 1);
         }
 
-        let key = self.update_gas_get_key(tx_req, blob_gas_price).await?;
+        self.update_gas_map(tx_req, blob_gas_price).await?;
         let gas_limit = self
             .gas_limits
-            .get(&key)
+            .get(&tx_req.key())
             .ok_or(ContenderError::SetupError(
                 "failed to lookup gas limit",
                 None,
@@ -1375,12 +1375,12 @@ where
     }
 
     /// Updates gas limits hashmap for a given tx, returns the key used to index the tx to its gas limit.
-    async fn update_gas_get_key(
+    async fn update_gas_map(
         &mut self,
         tx_req: &TransactionRequest,
         blob_gas_price: u128,
     ) -> Result<FixedBytes<32>> {
-        let key = keccak256(tx_req.input.input.to_owned().unwrap_or_default());
+        let key = tx_req.key();
         if let std::collections::hash_map::Entry::Vacant(_) = self.gas_limits.entry(key) {
             let mut tx_req = tx_req.to_owned();
             if let Some(sidecar) = &tx_req.sidecar {
@@ -1511,6 +1511,17 @@ where
 struct SpamContextHandler {
     add_gas: tokio::sync::mpsc::Sender<u128>,
     success_send_tx: tokio::sync::mpsc::Sender<()>,
+}
+
+trait TxKey {
+    /// Defines a key to index a unique transaction request (e.g. in a hashmap).
+    fn key(&self) -> FixedBytes<32>;
+}
+
+impl TxKey for TransactionRequest {
+    fn key(&self) -> FixedBytes<32> {
+        keccak256(self.input.input.to_owned().unwrap_or_default())
+    }
 }
 
 #[cfg(test)]
