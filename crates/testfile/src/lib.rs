@@ -421,7 +421,6 @@ mod more_tests {
 
         let config = TestConfig::new().with_spam(vec![SpamRequest::new_tx(
             &FunctionCallDefinition::new("{_sender}") // send tx to self
-                .with_from_pool("spammers")
                 .with_kind("cargo_test"),
         )]);
 
