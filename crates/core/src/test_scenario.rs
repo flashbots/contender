@@ -699,44 +699,7 @@ where
                 .insert(setcode_signer_addr, setcode_signer_nonce + 1);
         }
 
-        let key = keccak256(tx_req.input.input.to_owned().unwrap_or_default());
-
-        if let std::collections::hash_map::Entry::Vacant(_) = self.gas_limits.entry(key) {
-            let mut tx_req = tx_req.to_owned();
-            if let Some(sidecar) = &tx_req.sidecar {
-                tx_req.max_fee_per_blob_gas = Some(blob_gas_price);
-                tx_req.blob_versioned_hashes = Some(sidecar.versioned_hashes().collect());
-            }
-            let gas_limit = if let Some(gas) = tx_req.gas {
-                gas
-            } else {
-                if let Some(TxKind::Call(address)) = &tx_req.to {
-                    let data = tx_req.input.input.to_owned().unwrap_or_default();
-                    if !data.is_empty() {
-                        // assume that with calldata, we're trying to call a contract, so it should have code
-                        let code = self.rpc_client.get_code_at(*address).await.map_err(|e| {
-                            ContenderError::with_err(
-                                e,
-                                "failed to read bytecode at contract address",
-                            )
-                        })?;
-                        if code.is_empty() {
-                            warn!("Trying to call an address with no code... If you're targeting a smart contract, you may need to run contender setup to re-deploy it.");
-                        }
-                    }
-                }
-                self.rpc_client
-                    .estimate_gas(WithOtherFields::new(tx_req.to_owned()))
-                    .await
-                    .map_err(|e| {
-                        if e.as_error_resp().is_some() {
-                            tracing::error!("failed tx: {tx_req:?}");
-                        }
-                        ContenderError::with_err(e, "failed to estimate gas for tx")
-                    })?
-            };
-            self.gas_limits.insert(key, gas_limit);
-        }
+        let key = self.update_gas_get_key(tx_req, blob_gas_price).await?;
         let gas_limit = self
             .gas_limits
             .get(&key)
@@ -1409,6 +1372,52 @@ where
             }
         }
         latency_map
+    }
+
+    /// Updates gas limits hashmap for a given tx, returns the key used to index the tx to its gas limit.
+    async fn update_gas_get_key(
+        &mut self,
+        tx_req: &TransactionRequest,
+        blob_gas_price: u128,
+    ) -> Result<FixedBytes<32>> {
+        let key = keccak256(tx_req.input.input.to_owned().unwrap_or_default());
+        if let std::collections::hash_map::Entry::Vacant(_) = self.gas_limits.entry(key) {
+            let mut tx_req = tx_req.to_owned();
+            if let Some(sidecar) = &tx_req.sidecar {
+                tx_req.max_fee_per_blob_gas = Some(blob_gas_price);
+                tx_req.blob_versioned_hashes = Some(sidecar.versioned_hashes().collect());
+            }
+            let gas_limit = if let Some(gas) = tx_req.gas {
+                gas
+            } else {
+                if let Some(TxKind::Call(address)) = &tx_req.to {
+                    let data = tx_req.input.input.to_owned().unwrap_or_default();
+                    if !data.is_empty() {
+                        // assume that with calldata, we're trying to call a contract, so it should have code
+                        let code = self.rpc_client.get_code_at(*address).await.map_err(|e| {
+                            ContenderError::with_err(
+                                e,
+                                "failed to read bytecode at contract address",
+                            )
+                        })?;
+                        if code.is_empty() {
+                            warn!("Trying to call an address with no code... If you're targeting a smart contract, you may need to run contender setup to re-deploy it.");
+                        }
+                    }
+                }
+                self.rpc_client
+                    .estimate_gas(WithOtherFields::new(tx_req.to_owned()))
+                    .await
+                    .map_err(|e| {
+                        if e.as_error_resp().is_some() {
+                            tracing::error!("failed tx: {tx_req:?}");
+                        }
+                        ContenderError::with_err(e, "failed to estimate gas for tx")
+                    })?
+            };
+            self.gas_limits.insert(key, gas_limit);
+        }
+        Ok(key)
     }
 }
 
