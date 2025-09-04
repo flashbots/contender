@@ -710,21 +710,18 @@ where
             let gas_limit = if let Some(gas) = tx_req.gas {
                 gas
             } else {
-                if let Some(to) = &tx_req.to {
-                    if let TxKind::Call(address) = to {
-                        let data = tx_req.input.input.to_owned().unwrap_or_default();
-                        if !data.is_empty() {
-                            // assume that with calldata, we're trying to call a contract, so it should have code
-                            let code =
-                                self.rpc_client.get_code_at(*address).await.map_err(|e| {
-                                    ContenderError::with_err(
-                                        e,
-                                        "failed to read bytecode at contract address",
-                                    )
-                                })?;
-                            if code.is_empty() {
-                                warn!("Trying to call an address with no code... If you're targeting a smart contract, you may need to run contender setup to re-deploy it.");
-                            }
+                if let Some(TxKind::Call(address)) = &tx_req.to {
+                    let data = tx_req.input.input.to_owned().unwrap_or_default();
+                    if !data.is_empty() {
+                        // assume that with calldata, we're trying to call a contract, so it should have code
+                        let code = self.rpc_client.get_code_at(*address).await.map_err(|e| {
+                            ContenderError::with_err(
+                                e,
+                                "failed to read bytecode at contract address",
+                            )
+                        })?;
+                        if code.is_empty() {
+                            warn!("Trying to call an address with no code... If you're targeting a smart contract, you may need to run contender setup to re-deploy it.");
                         }
                     }
                 }
