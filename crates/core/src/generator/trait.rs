@@ -157,7 +157,12 @@ where
                     Some(format!("from_pool={from_pool}, idx={idx}")),
                 ))?
         } else if let Some(from) = &create_def.from {
-            from.parse().map_err(|e| {
+            // inject env vars into placeholders where/if present
+            let placeholder_map = self.get_plan_conf().get_env()?;
+            let from_address = self
+                .get_templater()
+                .replace_placeholders(&from, &placeholder_map);
+            from_address.parse().map_err(|e| {
                 ContenderError::SpamError(
                     "failed to parse 'from' address",
                     Some(format!("from={from}, error={e}")),
@@ -215,13 +220,17 @@ where
                     ))?;
             signer.address()
         } else if let Some(from) = &funcdef.from {
-            let from_addr = from.parse::<Address>().map_err(|e| {
+            // inject env vars into placeholders where/if present
+            let placeholder_map = self.get_plan_conf().get_env()?;
+            let from_address = self
+                .get_templater()
+                .replace_placeholders(&from, &placeholder_map);
+            from_address.parse::<Address>().map_err(|e| {
                 ContenderError::SpamError(
                     "failed to parse 'from' address",
                     Some(format!("from={from}, error={e}")),
                 )
-            })?;
-            from_addr
+            })?
         } else {
             return Err(ContenderError::SpamError(
                 "invalid runtime config: must specify 'from' or 'from_pool'",
@@ -341,9 +350,6 @@ where
                 let create_steps = conf.get_create_steps()?;
 
                 for step in create_steps.iter() {
-                    // populate step with from address
-                    let step = self.make_strict_create(step, 0)?;
-
                     // lookup placeholder values in DB & update map before templating (bytecode + args)
                     templater.find_create_placeholders(
                         &step,
@@ -351,6 +357,9 @@ where
                         &mut placeholder_map,
                         &self.get_rpc_url(),
                     )?;
+
+                    // populate step with from address
+                    let step = self.make_strict_create(step, 0)?;
 
                     // create tx with template values
                     let tx = NamedTxRequestBuilder::new(
