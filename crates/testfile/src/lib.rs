@@ -12,6 +12,9 @@ pub mod tests {
         primitives::{Address, U256},
         signers::local::PrivateKeySigner,
     };
+    use contender_core::generator::{
+        templater::Templater, BundleCallDefinition, CompiledContract, CreateDefinition,
+    };
     use contender_core::{
         db::MockDb,
         generator::{
@@ -20,12 +23,6 @@ pub mod tests {
             FunctionCallDefinition, FuzzParam, Generator, RandSeed,
         },
         test_scenario::{TestScenario, TestScenarioParams},
-    };
-    use contender_core::{
-        generator::{
-            templater::Templater, BundleCallDefinition, CompiledContract, CreateDefinition,
-        },
-        test_scenario::Url,
     };
     use std::{collections::HashMap, fs, str::FromStr};
     use tokio::sync::OnceCell;
@@ -407,6 +404,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn placeholders_work_in_from_field() {
+        let anvil = Anvil::new().spawn();
         let config = TestConfig::from_str(
             "
 [env]
@@ -424,7 +422,7 @@ value = \"1eth\"
             MockDb.into(),
             RandSeed::default(),
             TestScenarioParams {
-                rpc_url: Url::from_str("http://localhost:8545").unwrap(),
+                rpc_url: anvil.endpoint_url(),
                 builder_rpc_url: None,
                 signers: get_test_signers(),
                 agent_store: Default::default(),
