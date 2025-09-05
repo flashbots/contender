@@ -161,7 +161,7 @@ where
             let placeholder_map = self.get_plan_conf().get_env()?;
             let from_address = self
                 .get_templater()
-                .replace_placeholders(&from, &placeholder_map);
+                .replace_placeholders(from, &placeholder_map);
             from_address.parse().map_err(|e| {
                 ContenderError::SpamError(
                     "failed to parse 'from' address",
@@ -224,7 +224,7 @@ where
             let placeholder_map = self.get_plan_conf().get_env()?;
             let from_address = self
                 .get_templater()
-                .replace_placeholders(&from, &placeholder_map);
+                .replace_placeholders(from, &placeholder_map);
             from_address.parse::<Address>().map_err(|e| {
                 ContenderError::SpamError(
                     "failed to parse 'from' address",
@@ -352,7 +352,7 @@ where
                 for step in create_steps.iter() {
                     // lookup placeholder values in DB & update map before templating (bytecode + args)
                     templater.find_create_placeholders(
-                        &step,
+                        step,
                         db,
                         &mut placeholder_map,
                         &self.get_rpc_url(),
