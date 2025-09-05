@@ -401,6 +401,59 @@ pub mod tests {
 
         assert_eq!(placeholder_map.len(), 3);
     }
+
+    #[tokio::test]
+    async fn placeholders_work_in_from_field() {
+        let anvil = Anvil::new().spawn();
+        let config = TestConfig::from_str(
+            "
+[env]
+mySender = \"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\"
+[[spam]]
+[spam.tx]
+from = \"{mySender}\"
+to = \"{_sender}\"
+value = \"1eth\"
+",
+        )
+        .unwrap();
+        let scenario = TestScenario::new(
+            config,
+            MockDb.into(),
+            RandSeed::default(),
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers: get_test_signers(),
+                agent_store: Default::default(),
+                tx_type: Default::default(),
+                bundle_type: Default::default(),
+                pending_tx_timeout_secs: 12,
+                extra_msg_handles: None,
+            },
+            None,
+            (&PROM, &HIST).into(),
+        )
+        .await
+        .unwrap();
+
+        let spam = scenario.get_spam_tx_chunks(1, 1).await.unwrap();
+        for tx in &spam[0] {
+            match tx {
+                ExecutionRequest::Tx(tx) => {
+                    assert_eq!(
+                        tx.tx.from.unwrap(),
+                        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+                            .parse::<Address>()
+                            .unwrap()
+                    );
+                }
+                ExecutionRequest::Bundle(_) => {
+                    panic!("there should be no bundles in this config");
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
