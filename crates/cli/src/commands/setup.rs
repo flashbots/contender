@@ -56,6 +56,7 @@ pub async fn setup(
         engine_params,
         env,
         bundle_type,
+        reinit  
     } = args;
 
     let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
@@ -159,6 +160,18 @@ pub async fn setup(
         (&PROM, &HIST).into(),
     )
     .await?;
+
+    // Explicit setup: force redeploy + fail on setup errors by default; allow CLI override
+    let reinit_override = reinit
+        .as_ref()
+        .map(|s| s.eq_ignore_ascii_case("on"))
+        .unwrap_or(true);
+    scenario.set_always_reinit(reinit_override);
+    tracing::info!(
+        "setup mode: always_reinit={} ({} )",
+        reinit_override,
+        if reinit_override { "will redeploy and run all setup" } else { "will skip redeploy when possible" }
+    );
 
     let total_cost = scenario.estimate_setup_cost().await?;
     if min_balance < total_cost {
@@ -267,4 +280,5 @@ pub struct SetupCommandArgs {
     pub bundle_type: BundleType,
     pub engine_params: EngineParams,
     pub env: Option<Vec<(String, String)>>,
+    pub reinit: Option<String>,
 }

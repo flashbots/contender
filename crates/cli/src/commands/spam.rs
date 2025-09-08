@@ -140,6 +140,7 @@ pub struct SpamCommandArgs {
     pub loops: Option<u64>,
     pub accounts_per_agent: u64,
     pub spam_timeout: Duration,
+    pub reinit: Option<String>,
 }
 
 impl SpamCommandArgs {
@@ -342,6 +343,19 @@ impl SpamCommandArgs {
             (&PROM, &HIST).into(),
         )
         .await?;
+
+        // Builtin/default behavior: best-effort (skip redeploy if code exists); allow CLI override
+        let reinit_override = match &self.reinit {
+            Some(s) if s.eq_ignore_ascii_case("on") => true,
+            Some(s) if s.eq_ignore_ascii_case("off") => false,
+            _ => false,
+        };
+        test_scenario.set_always_reinit(reinit_override);
+        tracing::info!(
+            "spam mode: always_reinit={} ({} )",
+            reinit_override,
+            if reinit_override { "will redeploy and run all setup" } else { "will skip redeploy when possible" }
+        );
 
         if self.scenario.is_builtin() {
             let test_scenario = &mut test_scenario;

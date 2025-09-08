@@ -96,6 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 bundle_type,
                 auth_args,
                 env,
+                reinit,
             } = args.args;
             let seed = seed.unwrap_or(stored_seed);
             let engine_params = auth_args.engine_params().await?;
@@ -106,19 +107,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 warn!("No testfile provided, using default testfile \"scenario:simple.toml\"");
                 "scenario:simple.toml".to_owned()
             };
+            let args = SetupCommandArgs {
+                testfile,
+                rpc_url,
+                private_keys,
+                min_balance,
+                seed: RandSeed::seed_from_str(&seed),
+                tx_type: tx_type.into(),
+                bundle_type: bundle_type.into(),
+                engine_params,
+                env,
+                reinit,
+            };
+            tracing::info!("CLI override: setup reinit={:?}", args.reinit);
+
             commands::setup(
                 &db,
-                SetupCommandArgs {
-                    testfile,
-                    rpc_url,
-                    private_keys,
-                    min_balance,
-                    seed: RandSeed::seed_from_str(&seed),
-                    tx_type: tx_type.into(),
-                    bundle_type: bundle_type.into(),
-                    engine_params,
-                    env,
-                },
+                args,
             )
             .await?
         }
@@ -150,6 +155,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         bundle_type,
                         auth_args,
                         env,
+                        reinit,
                     },
                 spam_args,
                 disable_reporting,
@@ -219,6 +225,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 loops: real_loops,
                 accounts_per_agent,
                 spam_timeout,
+                reinit,
             };
 
             commands::spamd(&db, spam_args, gen_report, real_loops).await?;

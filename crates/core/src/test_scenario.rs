@@ -107,6 +107,7 @@ where
     pub ctx: ExecutionContext,
     prometheus: PrometheusCollector,
     setcode_signer: PrivateKeySigner,
+    always_reinit: bool,
 }
 
 pub struct TestScenarioParams {
@@ -274,6 +275,7 @@ where
             auth_provider,
             prometheus,
             setcode_signer,
+            always_reinit: false,
         })
     }
 
@@ -285,6 +287,11 @@ where
             self.setcode_signer.address(),
         )
         .await
+    }
+
+    /// Control whether create/setup should always redeploy/re-run
+    pub fn set_always_reinit(&mut self, value: bool) {
+        self.always_reinit = value;
     }
 
     pub async fn estimate_setup_cost(&self) -> Result<U256> {
@@ -450,6 +457,7 @@ where
 
         // we do everything in the callback so no need to actually capture the returned txs
         // we have to do this to populate the database with new named transaction after each deployment
+        let force_reinit = self.always_reinit;
         self.load_txs(PlanType::Create(|tx_req| {
             let from = tx_req.tx.from.to_owned().ok_or(ContenderError::SetupError(
                 "failed to get 'from' address",
@@ -476,6 +484,7 @@ where
                     tx_type,
                     &rpc_url,
                     &wallet,
+                    force_reinit,
                 )
                 .await
             });
@@ -499,6 +508,7 @@ where
         tx_type: TxType,
         rpc_url: &Url,
         signer: &PrivateKeySigner,
+        always_reinit: bool,
     ) -> Result<()> {
         let wallet = EthereumWallet::from(signer.to_owned());
         let wallet_client = ProviderBuilder::new()
@@ -506,25 +516,24 @@ where
             .network::<AnyNetwork>()
             .connect_http(rpc_url.to_owned());
 
-        // If we have a previously deployed address for this named contract and
-        // the on-chain code is present (non-empty), skip redeploying.
-        if let Some(name) = tx_req.name.as_ref() {
-            if let Some(existing) = db.get_named_tx(name, rpc_url.as_str())? {
-                if let Some(addr) = existing.address {
-                    // eth_getCode at latest block
-                    let code: Bytes = wallet_client
-                        .client()
-                        .request("eth_getCode", (addr, "latest"))
-                        .await
-                        .map_err(|e| ContenderError::with_err(e, "failed to get on-chain code"))?;
-                    // Non-empty runtime code means the contract exists on-chain
-                    if !code.as_ref().is_empty() {
-                        info!(
-                            contract = %name,
-                            address = %addr,
-                            "skipping deploy; on-chain code already present"
-                        );
-                        return Ok(());
+        // If not forcing reinit, skip redeploy when on-chain code exists
+        if !always_reinit {
+            if let Some(name) = tx_req.name.as_ref() {
+                if let Some(existing) = db.get_named_tx(name, rpc_url.as_str())? {
+                    if let Some(addr) = existing.address {
+                        let code: Bytes = wallet_client
+                            .client()
+                            .request("eth_getCode", (addr, "latest"))
+                            .await
+                            .map_err(|e| ContenderError::with_err(e, "failed to get on-chain code"))?;
+                        if !code.as_ref().is_empty() {
+                            info!(
+                                contract = %name,
+                                address = %addr,
+                                "skipping deploy; on-chain code already present"
+                            );
+                            return Ok(());
+                        }
                     }
                 }
             }
