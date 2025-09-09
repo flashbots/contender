@@ -296,16 +296,19 @@ where
 "
         );
         // start anvil with dev accounts holding 1M eth
-        let anvil = Anvil::new()
-            .args(["--balance", "1000000"])
-            .try_spawn()
+        let mut anvil = Anvil::new().args(["--balance", "1000000"]);
+        if !cfg!(test) {
+            anvil = anvil.fork(self.rpc_url.to_string());
+        }
+        let anvil = anvil.try_spawn()
             .map_err(|e| {
                 if e.to_string().to_lowercase().contains("no such file") {
-                    ContenderError::SetupError("failed to spawn anvil. You may need to install foundry (https://book.getfoundry.sh/getting-started/installation).", None)
+                ContenderError::SetupError("failed to spawn anvil. You may need to install foundry (https://book.getfoundry.sh/getting-started/installation).", None)
                 } else {
-                    ContenderError::with_err(e, "failed to spawn anvil.")
+                ContenderError::with_err(e, "failed to spawn anvil.")
                 }
             })?;
+
         let admin_signer = LocalSigner::from_str(
             "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
         )
