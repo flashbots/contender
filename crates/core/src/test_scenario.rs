@@ -298,6 +298,7 @@ where
         // start anvil with dev accounts holding 1M eth
         let anvil = Anvil::new()
             .args(["--balance", "1000000"])
+            .fork(self.rpc_url.to_string())
             .try_spawn()
             .map_err(|e| {
                 if e.to_string().to_lowercase().contains("no such file") {
