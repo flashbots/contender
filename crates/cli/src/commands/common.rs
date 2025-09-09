@@ -87,11 +87,12 @@ May be specified multiple times."
     /// Force re-initialization behavior (override defaults)
     #[arg(
         long,
-        value_name="on|off",
-        long_help = "Override reinit behavior: on = always redeploy & run setup; off = skip when possible",
-        value_parser = clap::builder::PossibleValuesParser::new(["on", "off"]),
+        value_name = "true|false",
+        long_help = "Override reinit behavior: true = always redeploy & run setup; false = skip when possible",
+        num_args = 0..=1,
+        default_missing_value = "true",
     )]
-    pub reinit: Option<String>,
+    pub reinit: Option<bool>,
 }
 
 #[derive(Clone, Debug, clap::Args)]

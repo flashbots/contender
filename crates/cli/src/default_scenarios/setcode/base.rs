@@ -98,7 +98,7 @@ impl ToTestConfig for SetCodeArgs {
                     .unwrap_or(SMART_WALLET.template_name()),
             );
 
-        let spam = vec![fn_call].iter().map(SpamRequest::new_tx).collect();
+        let spam = [fn_call].iter().map(SpamRequest::new_tx).collect();
         let mut config = TestConfig::new().with_spam(spam);
 
         // add default create steps if contract_address (must be already deployed) is NOT provided

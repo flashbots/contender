@@ -525,7 +525,9 @@ where
                             .client()
                             .request("eth_getCode", (addr, "latest"))
                             .await
-                            .map_err(|e| ContenderError::with_err(e, "failed to get on-chain code"))?;
+                            .map_err(|e| {
+                                ContenderError::with_err(e, "failed to get on-chain code")
+                            })?;
                         if !code.as_ref().is_empty() {
                             info!(
                                 contract = %name,

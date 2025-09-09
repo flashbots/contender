@@ -121,11 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             tracing::info!("CLI override: setup reinit={:?}", args.reinit);
 
-            commands::setup(
-                &db,
-                args,
-            )
-            .await?
+            commands::setup(&db, args).await?
         }
 
         ContenderSubcommand::Spam {
