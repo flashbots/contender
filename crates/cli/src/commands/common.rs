@@ -83,13 +83,6 @@ May be specified multiple times."
         action = clap::ArgAction::Append,
     )]
     pub env: Option<Vec<(String, String)>>,
-
-    /// Force re-initialization behavior (override defaults). If set, always redeploy & run setup.
-    #[arg(
-        long,
-        long_help = "If set, always redeploy & run setup. Omit to skip when possible"
-    )]
-    pub reinit: bool,
 }
 
 #[derive(Clone, Debug, clap::Args)]

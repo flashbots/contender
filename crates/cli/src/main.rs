@@ -96,7 +96,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 bundle_type,
                 auth_args,
                 env,
-                reinit,
             } = args.args;
             let seed = seed.unwrap_or(stored_seed);
             let engine_params = auth_args.engine_params().await?;
@@ -117,9 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 bundle_type: bundle_type.into(),
                 engine_params,
                 env,
-                reinit,
             };
-            tracing::info!("CLI flag: setup --reinit={}", args.reinit);
 
             commands::setup(&db, args).await?
         }
@@ -151,12 +148,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         bundle_type,
                         auth_args,
                         env,
-                        reinit,
                     },
                 spam_args,
                 disable_reporting,
                 gen_report,
                 spam_timeout,
+                redeploy,
                 ..
             } = *args.to_owned();
 
@@ -221,7 +218,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 loops: real_loops,
                 accounts_per_agent,
                 spam_timeout,
-                reinit,
+                redeploy,
             };
 
             commands::spamd(&db, spam_args, gen_report, real_loops).await?;
