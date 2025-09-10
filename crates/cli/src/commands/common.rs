@@ -84,15 +84,12 @@ May be specified multiple times."
     )]
     pub env: Option<Vec<(String, String)>>,
 
-    /// Force re-initialization behavior (override defaults)
+    /// Force re-initialization behavior (override defaults). If set, always redeploy & run setup.
     #[arg(
         long,
-        value_name = "true|false",
-        long_help = "Override reinit behavior: true = always redeploy & run setup; false = skip when possible",
-        num_args = 0..=1,
-        default_missing_value = "true",
+        long_help = "If set, always redeploy & run setup. Omit to skip when possible",
     )]
-    pub reinit: Option<bool>,
+    pub reinit: bool,
 }
 
 #[derive(Clone, Debug, clap::Args)]

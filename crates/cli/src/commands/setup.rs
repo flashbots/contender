@@ -161,17 +161,18 @@ pub async fn setup(
     )
     .await?;
 
-    // Explicit setup: force redeploy + fail on setup errors by default; allow CLI override
-    let reinit_override = reinit.unwrap_or(true);
+    // Explicit setup: always force redeploy + fail on setup errors
+    let reinit_override = true;
     scenario.set_always_reinit(reinit_override);
     tracing::info!(
-        "setup mode: always_reinit={} ({} )",
+        "setup mode: always_reinit={} ({} ) [--reinit flag set? {}]",
         reinit_override,
         if reinit_override {
             "will redeploy and run all setup"
         } else {
             "will skip redeploy when possible"
-        }
+        },
+        reinit,
     );
 
     let total_cost = scenario.estimate_setup_cost().await?;
@@ -281,5 +282,5 @@ pub struct SetupCommandArgs {
     pub bundle_type: BundleType,
     pub engine_params: EngineParams,
     pub env: Option<Vec<(String, String)>>,
-    pub reinit: Option<bool>,
+    pub reinit: bool,
 }

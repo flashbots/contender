@@ -119,7 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 env,
                 reinit,
             };
-            tracing::info!("CLI override: setup reinit={:?}", args.reinit);
+            tracing::info!("CLI flag: setup --reinit={}", args.reinit);
 
             commands::setup(&db, args).await?
         }
