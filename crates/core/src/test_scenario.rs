@@ -291,11 +291,6 @@ where
         .await
     }
 
-    /// Control whether contracts should be redeployed automatically
-    pub fn set_redeploy(&mut self, value: bool) {
-        self.redeploy = value;
-    }
-
     pub async fn estimate_setup_cost(&self) -> Result<U256> {
         info!(
             "

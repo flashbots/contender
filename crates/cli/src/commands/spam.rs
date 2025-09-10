@@ -353,7 +353,6 @@ impl SpamCommandArgs {
         .await?;
 
         // Builtin/default behavior: best-effort (skip redeploy if code exists); allow CLI override
-        test_scenario.set_redeploy(self.redeploy);
         tracing::trace!(
             "spam mode: redeploy={} ({} ) [--redeploy flag set? {}]",
             self.redeploy,

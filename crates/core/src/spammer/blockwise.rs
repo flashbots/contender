@@ -130,6 +130,7 @@ mod tests {
                 bundle_type: BundleType::default(),
                 pending_tx_timeout_secs: 12,
                 extra_msg_handles: None,
+                redeploy: false,
             },
             None,
             (&PROM, &HIST).into(),
