@@ -96,6 +96,13 @@ pub struct SpamCliArgs {
         default_value = "5min"
     )]
     pub spam_timeout: Duration,
+
+    /// Re-deploy contracts in builtin scenarios.
+    #[arg(
+        long,
+        long_help = "If set, re-deploy contracts that have already been deployed. Only builtin scenarios are affected."
+    )]
+    pub redeploy: bool,
 }
 
 pub enum SpamScenario {
@@ -140,6 +147,7 @@ pub struct SpamCommandArgs {
     pub loops: Option<u64>,
     pub accounts_per_agent: u64,
     pub spam_timeout: Duration,
+    pub redeploy: bool,
 }
 
 impl SpamCommandArgs {
@@ -296,6 +304,7 @@ impl SpamCommandArgs {
             bundle_type: self.bundle_type,
             pending_tx_timeout_secs: self.pending_timeout_secs,
             extra_msg_handles: None,
+            redeploy: self.redeploy,
         };
 
         fund_accounts(
@@ -343,6 +352,19 @@ impl SpamCommandArgs {
         )
         .await?;
 
+        // Builtin/default behavior: best-effort (skip redeploy if code exists); allow CLI override
+        tracing::trace!(
+            "spam mode: redeploy={} ({} ) [--redeploy flag set? {}]",
+            self.redeploy,
+            if self.redeploy {
+                "will redeploy and run all setup"
+            } else {
+                "will skip redeploy when possible"
+            },
+            self.redeploy
+        );
+
+        // run deployments & setup for builtin scenarios
         if self.scenario.is_builtin() {
             let test_scenario = &mut test_scenario;
             let setup_cost = test_scenario.estimate_setup_cost().await?;

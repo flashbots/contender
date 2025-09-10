@@ -138,6 +138,7 @@ pub async fn setup(
         bundle_type,
         pending_tx_timeout_secs: 12,
         extra_msg_handles: None,
+        redeploy: true,
     };
 
     fund_accounts(

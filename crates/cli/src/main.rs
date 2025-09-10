@@ -106,21 +106,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 warn!("No testfile provided, using default testfile \"scenario:simple.toml\"");
                 "scenario:simple.toml".to_owned()
             };
-            commands::setup(
-                &db,
-                SetupCommandArgs {
-                    testfile,
-                    rpc_url,
-                    private_keys,
-                    min_balance,
-                    seed: RandSeed::seed_from_str(&seed),
-                    tx_type: tx_type.into(),
-                    bundle_type: bundle_type.into(),
-                    engine_params,
-                    env,
-                },
-            )
-            .await?
+            let args = SetupCommandArgs {
+                testfile,
+                rpc_url,
+                private_keys,
+                min_balance,
+                seed: RandSeed::seed_from_str(&seed),
+                tx_type: tx_type.into(),
+                bundle_type: bundle_type.into(),
+                engine_params,
+                env,
+            };
+
+            commands::setup(&db, args).await?
         }
 
         ContenderSubcommand::Spam {
@@ -155,6 +153,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 disable_reporting,
                 gen_report,
                 spam_timeout,
+                redeploy,
                 ..
             } = *args.to_owned();
 
@@ -219,6 +218,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 loops: real_loops,
                 accounts_per_agent,
                 spam_timeout,
+                redeploy,
             };
 
             commands::spamd(&db, spam_args, gen_report, real_loops).await?;
