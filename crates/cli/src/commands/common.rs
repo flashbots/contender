@@ -87,7 +87,7 @@ May be specified multiple times."
     /// Force re-initialization behavior (override defaults). If set, always redeploy & run setup.
     #[arg(
         long,
-        long_help = "If set, always redeploy & run setup. Omit to skip when possible",
+        long_help = "If set, always redeploy & run setup. Omit to skip when possible"
     )]
     pub reinit: bool,
 }
