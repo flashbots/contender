@@ -89,7 +89,6 @@ impl SetCodeArgs {
 impl ToTestConfig for SetCodeArgs {
     fn to_testconfig(&self) -> contender_testfile::TestConfig {
         let fn_call = FunctionCallDefinition::new(&self.signer_address)
-            .with_from_pool("spammers")
             .with_args(&self.args)
             .with_signature(&self.signature)
             .with_authorization(
@@ -106,7 +105,7 @@ impl ToTestConfig for SetCodeArgs {
             config = config.with_create(
                 [COUNTER, SMART_WALLET]
                     .into_iter()
-                    .map(|contract| CreateDefinition::new(&contract.into()).with_from_pool("admin"))
+                    .map(|contract| CreateDefinition::new(&contract.into()))
                     .collect(),
             );
         }

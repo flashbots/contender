@@ -5,6 +5,7 @@ use crate::{
         constants::{SENDER_KEY, SETCODE_KEY},
         function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict},
         util::encode_calldata,
+        CreateDefinition,
     },
     Result,
 };
@@ -21,6 +22,7 @@ pub trait Templater<K>
 where
     K: Eq + std::hash::Hash + ToString + std::fmt::Debug + Send + Sync,
 {
+    /// Searches input for {placeholders} and replaces them, then returns the formatted string containing the new value injected into the placeholder.
     fn replace_placeholders(&self, input: &str, placeholder_map: &HashMap<K, String>) -> String;
     fn terminator_start(&self, input: &str) -> Option<usize>;
     fn terminator_end(&self, input: &str) -> Option<usize>;
@@ -103,6 +105,9 @@ where
         for arg in fn_args.iter() {
             self.find_placeholder_values(arg, placeholder_map, db, rpc_url)?;
         }
+        if let Some(from) = &fncall.from {
+            self.find_placeholder_values(from, placeholder_map, db, rpc_url)?;
+        }
         self.find_placeholder_values(&fncall.to, placeholder_map, db, rpc_url)?;
         if let Some(auth) = &fncall.authorization_address {
             self.find_placeholder_values(auth, placeholder_map, db, rpc_url)?;
@@ -113,16 +118,21 @@ where
     /// Finds {placeholders} in create constructor args and updates the placeholder map.
     fn find_create_placeholders(
         &self,
-        createdef: &CreateDefinitionStrict,
+        createdef: &CreateDefinition,
         db: &impl DbOps,
         placeholder_map: &mut HashMap<K, String>,
         rpc_url: &str,
     ) -> Result<()> {
-        for arg in createdef.args.iter() {
-            self.find_placeholder_values(arg, placeholder_map, db, rpc_url)?;
+        if let Some(args) = &createdef.args {
+            for arg in args.iter() {
+                self.find_placeholder_values(arg, placeholder_map, db, rpc_url)?;
+            }
+        }
+        if let Some(from) = &createdef.from {
+            self.find_placeholder_values(from, placeholder_map, db, rpc_url)?;
         }
         // also scan bytecode for placeholders
-        self.find_placeholder_values(&createdef.bytecode, placeholder_map, db, rpc_url)?;
+        self.find_placeholder_values(&createdef.contract.bytecode, placeholder_map, db, rpc_url)?;
         Ok(())
     }
 

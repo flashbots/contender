@@ -259,7 +259,6 @@ impl CustomContractArgs {
         for fn_call in spam_function_calls {
             spam.push(
                 FunctionCallDefinition::new(contract.template_name())
-                    .with_from_pool("spammers")
                     .with_signature(fn_call.signature(&abi)?)
                     .with_args(&fn_call.args),
             );
@@ -270,7 +269,6 @@ impl CustomContractArgs {
         for fn_call in setup_function_calls {
             setup.push(
                 FunctionCallDefinition::new(contract.template_name())
-                    .with_from_pool("admin")
                     .with_signature(fn_call.signature(&abi)?)
                     .with_args(&fn_call.args),
             )
@@ -391,9 +389,7 @@ impl NameAndArgs {
 impl ToTestConfig for CustomContractArgs {
     fn to_testconfig(&self) -> contender_testfile::TestConfig {
         TestConfig::new()
-            .with_create(vec![
-                CreateDefinition::new(&self.contract).with_from_pool("admin")
-            ])
+            .with_create(vec![CreateDefinition::new(&self.contract)])
             .with_setup(self.setup.to_owned())
             .with_spam(self.spam.iter().map(SpamRequest::new_tx).collect())
     }

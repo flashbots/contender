@@ -120,6 +120,10 @@ pub fn check_private_keys(testconfig: &TestConfig, prv_keys: &[PrivateKeySigner]
 pub fn check_private_keys_fns(fn_calls: &[FunctionCallDefinition], prv_keys: &[PrivateKeySigner]) {
     for fn_call in fn_calls {
         if let Some(from) = &fn_call.from {
+            // ignore placeholder values in the `from` field; you're on your own if you use those...
+            if from.starts_with("{") {
+                continue;
+            }
             let address = from.parse::<Address>().expect("invalid 'from' address");
             if prv_keys.iter().all(|k| k.address() != address) {
                 panic!("No private key found for address: {address}");
