@@ -11,7 +11,7 @@ use crate::{
 };
 use alloy::{
     hex::{FromHex, ToHexExt},
-    primitives::{Address, Bytes, TxKind, U256},
+    primitives::{Address, Bytes, FixedBytes, TxKind, U256},
     rpc::types::TransactionRequest,
 };
 use std::collections::HashMap;
@@ -37,6 +37,7 @@ where
         placeholder_map: &mut HashMap<K, String>,
         db: &impl DbOps,
         rpc_url: &str,
+        genesis_hash: FixedBytes<32>,
     ) -> Result<()> {
         // count number of placeholders (by left brace) in arg
         let num_template_vals = self.num_placeholders(arg);
@@ -65,7 +66,7 @@ where
             }
 
             let template_value = db
-                .get_named_tx(&template_key.to_string(), rpc_url)
+                .get_named_tx(&template_key.to_string(), rpc_url, genesis_hash)
                 .map_err(|e| {
                     ContenderError::SpamError(
                         "Failed to get named tx from DB. There may be an issue with your database.",
@@ -99,18 +100,19 @@ where
         db: &impl DbOps,
         placeholder_map: &mut HashMap<K, String>,
         rpc_url: &str,
+        genesis_hash: FixedBytes<32>,
     ) -> Result<()> {
         // find templates in fn args & `to`
         let fn_args = fncall.args.to_owned().unwrap_or_default();
         for arg in fn_args.iter() {
-            self.find_placeholder_values(arg, placeholder_map, db, rpc_url)?;
+            self.find_placeholder_values(arg, placeholder_map, db, rpc_url, genesis_hash)?;
         }
         if let Some(from) = &fncall.from {
-            self.find_placeholder_values(from, placeholder_map, db, rpc_url)?;
+            self.find_placeholder_values(from, placeholder_map, db, rpc_url, genesis_hash)?;
         }
-        self.find_placeholder_values(&fncall.to, placeholder_map, db, rpc_url)?;
+        self.find_placeholder_values(&fncall.to, placeholder_map, db, rpc_url, genesis_hash)?;
         if let Some(auth) = &fncall.authorization_address {
-            self.find_placeholder_values(auth, placeholder_map, db, rpc_url)?;
+            self.find_placeholder_values(auth, placeholder_map, db, rpc_url, genesis_hash)?;
         }
         Ok(())
     }
@@ -122,17 +124,24 @@ where
         db: &impl DbOps,
         placeholder_map: &mut HashMap<K, String>,
         rpc_url: &str,
+        genesis_hash: FixedBytes<32>,
     ) -> Result<()> {
         if let Some(args) = &createdef.args {
             for arg in args.iter() {
-                self.find_placeholder_values(arg, placeholder_map, db, rpc_url)?;
+                self.find_placeholder_values(arg, placeholder_map, db, rpc_url, genesis_hash)?;
             }
         }
         if let Some(from) = &createdef.from {
-            self.find_placeholder_values(from, placeholder_map, db, rpc_url)?;
+            self.find_placeholder_values(from, placeholder_map, db, rpc_url, genesis_hash)?;
         }
         // also scan bytecode for placeholders
-        self.find_placeholder_values(&createdef.contract.bytecode, placeholder_map, db, rpc_url)?;
+        self.find_placeholder_values(
+            &createdef.contract.bytecode,
+            placeholder_map,
+            db,
+            rpc_url,
+            genesis_hash,
+        )?;
         Ok(())
     }
 

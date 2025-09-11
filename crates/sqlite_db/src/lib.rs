@@ -1,6 +1,6 @@
 use alloy::{
     hex::{FromHex, ToHexExt},
-    primitives::{Address, TxHash},
+    primitives::{Address, FixedBytes, TxHash},
 };
 use contender_core::{
     buckets::Bucket,
@@ -13,9 +13,10 @@ use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, types::FromSql, Row};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use tracing::debug;
 
 /// Increment this whenever making changes to the DB schema.
-pub static DB_VERSION: u64 = 3;
+pub static DB_VERSION: u64 = 4;
 
 pub type SqliteCtxBuilder<P> =
     contender_core::orchestrator::ContenderCtxBuilder<SqliteDb, RandSeed, P>;
@@ -103,6 +104,7 @@ impl SqliteDb {
         params: P,
         with_row: F,
     ) -> Result<T> {
+        tracing::debug!("executing query: {query}");
         self.get_pool()?
             .query_row(query, params, with_row)
             .map_err(|e| ContenderError::DbError("failed to query row", Some(e.to_string())))
@@ -230,7 +232,9 @@ impl DbOps for SqliteDb {
             )",
             "CREATE TABLE rpc_urls (
                 id INTEGER PRIMARY KEY,
-                url TEXT NOT NULL UNIQUE
+                url TEXT NOT NULL,
+                genesis_hash TEXT NOT NULL,
+                UNIQUE(url, genesis_hash)
             )",
             "CREATE TABLE named_txs (
                 id INTEGER PRIMARY KEY,
@@ -263,7 +267,9 @@ impl DbOps for SqliteDb {
         ];
 
         for query in queries {
-            self.execute(query, params![])?;
+            self.execute(query, params![]).unwrap_or_else(|e| {
+                debug!("error from create_tables: {e}");
+            });
         }
 
         Ok(())
@@ -341,20 +347,30 @@ impl DbOps for SqliteDb {
         Ok(res.map(|r| r.into()))
     }
 
-    fn insert_named_txs(&self, named_txs: &[NamedTx], rpc_url: &str) -> Result<()> {
+    fn insert_named_txs(
+        &self,
+        named_txs: &[NamedTx],
+        rpc_url: &str,
+        genesis_hash: FixedBytes<32>,
+    ) -> Result<()> {
         let pool = self.get_pool()?;
 
         // first check the rpc_urls table; insert if not present
         pool.execute(
-            "INSERT OR IGNORE INTO rpc_urls (url) VALUES (?)",
-            params![rpc_url],
+            "INSERT OR IGNORE INTO rpc_urls (url, genesis_hash) VALUES (?, ?)",
+            params![rpc_url, genesis_hash.to_string()],
         )
         .map_err(|e| ContenderError::with_err(e, "failed to insert rpc_url into DB"))?;
+        println!("inserted RPC URL ({rpc_url} @ {genesis_hash}) into DB");
 
         // then get the rpc_url ID
         let rpc_url_id: i64 = self.query_row(
-            "SELECT id FROM rpc_urls WHERE url = ?1",
-            params![rpc_url],
+            &format!(
+                "SELECT id FROM rpc_urls WHERE url = '{}' AND genesis_hash = '{}'",
+                rpc_url,
+                genesis_hash.to_string().to_lowercase()
+            ),
+            params![],
             |row| row.get(0),
         )?;
 
@@ -379,18 +395,26 @@ impl DbOps for SqliteDb {
         Ok(())
     }
 
-    fn get_named_tx(&self, name: &str, rpc_url: &str) -> Result<Option<NamedTx>> {
+    fn get_named_tx(
+        &self,
+        name: &str,
+        rpc_url: &str,
+        genesis_hash: FixedBytes<32>,
+    ) -> Result<Option<NamedTx>> {
         let pool = self.get_pool()?;
         let mut stmt = pool
             .prepare(
                 "SELECT name, tx_hash, contract_address, rpc_url_id FROM named_txs WHERE name = ?1 AND rpc_url_id = (
-                    SELECT id FROM rpc_urls WHERE url = ?2
+                    SELECT id FROM rpc_urls WHERE url = ?2 AND genesis_hash = ?3
                 ) ORDER BY id DESC LIMIT 1",
             )
             .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
 
         let row = stmt
-            .query_map(params![name, rpc_url], NamedTxRow::from_row)
+            .query_map(
+                params![name, rpc_url, genesis_hash.to_string().to_lowercase()],
+                NamedTxRow::from_row,
+            )
             .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
         let res = row
             .last()
@@ -517,6 +541,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use alloy::primitives::FixedBytes;
     use contender_core::db::SpamDuration;
 
     #[test]
@@ -564,6 +589,7 @@ mod tests {
                 NamedTx::new(name2.to_string(), tx_hash, contract_address),
             ],
             rpc_url,
+            FixedBytes::default(),
         )
         .unwrap();
         let count: i64 = db
@@ -575,11 +601,16 @@ mod tests {
             .unwrap();
         assert_eq!(count, 2);
 
-        let res1 = db.get_named_tx(&name1, rpc_url).unwrap().unwrap();
+        let res1 = db
+            .get_named_tx(&name1, rpc_url, Default::default())
+            .unwrap()
+            .unwrap();
         assert_eq!(res1.name, name1);
         assert_eq!(res1.tx_hash, tx_hash);
         assert_eq!(res1.address, contract_address);
-        let res2 = db.get_named_tx(&name1, "http://wrong.url:8545").unwrap();
+        let res2 = db
+            .get_named_tx(&name1, "http://wrong.url:8545", Default::default())
+            .unwrap();
         assert!(res2.is_none());
     }
 

@@ -17,7 +17,7 @@ use alloy::{
     consensus::{SidecarBuilder, SimpleCoder},
     eips::eip7702::SignedAuthorization,
     hex::{FromHex, ToHexExt},
-    primitives::{Address, Bytes, U256},
+    primitives::{Address, Bytes, FixedBytes, U256},
     rpc::types::Authorization,
     signers::{local::PrivateKeySigner, SignerSync},
 };
@@ -114,6 +114,7 @@ where
     fn get_rpc_provider(&self) -> &AnyProvider;
     fn get_nonce_map(&self) -> &HashMap<Address, u64>;
     fn get_setcode_signer(&self) -> &PrivateKeySigner;
+    fn get_genesis_hash(&self) -> FixedBytes<32>;
 
     /// Generates a map of N=`num_values` fuzzed values for each parameter in `fuzz_args`.
     fn create_fuzz_map(
@@ -283,6 +284,7 @@ where
                 self.get_db(),
                 &mut placeholder_map,
                 &self.get_rpc_url(),
+                self.get_genesis_hash(),
             )?;
             // contract address; we'll copy its code to our EOA
             let actual_auth_address = self
@@ -356,6 +358,7 @@ where
                         db,
                         &mut placeholder_map,
                         &self.get_rpc_url(),
+                        self.get_genesis_hash(),
                     )?;
 
                     // populate step with from address
@@ -383,7 +386,13 @@ where
 
                 for step in setup_steps.iter() {
                     // lookup placeholders in DB & update map before templating
-                    templater.find_fncall_placeholders(step, db, &mut placeholder_map, &rpc_url)?;
+                    templater.find_fncall_placeholders(
+                        step,
+                        db,
+                        &mut placeholder_map,
+                        &rpc_url,
+                        self.get_genesis_hash(),
+                    )?;
 
                     // setup tx with template values
                     let tx = NamedTxRequest::new(
@@ -422,8 +431,13 @@ where
                 // finds placeholders in a function call definition and populates `placeholder_map` and `canonical_fuzz_map` with injectable values.
                 let rpc_url = self.get_rpc_url();
                 let mut lookup_tx_placeholders = |tx: &FunctionCallDefinition| {
-                    let res =
-                        templater.find_fncall_placeholders(tx, db, &mut placeholder_map, &rpc_url);
+                    let res = templater.find_fncall_placeholders(
+                        tx,
+                        db,
+                        &mut placeholder_map,
+                        &rpc_url,
+                        self.get_genesis_hash(),
+                    );
                     if let Err(e) = res {
                         return Err(ContenderError::SpamError(
                             "failed to find placeholder value",

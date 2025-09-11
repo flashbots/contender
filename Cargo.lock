@@ -2211,6 +2211,7 @@ dependencies = [
  "r2d2_sqlite",
  "rusqlite",
  "serde",
+ "tracing",
 ]
 
 [[package]]
