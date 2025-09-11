@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use alloy::primitives::{Address, TxHash};
+use alloy::primitives::{Address, FixedBytes, TxHash};
 
 use super::{DbOps, NamedTx, RunTx, SpamRunRequest};
 use crate::{buckets::Bucket, Result};
@@ -28,11 +28,21 @@ impl DbOps for MockDb {
         Ok(0)
     }
 
-    fn insert_named_txs(&self, _named_txs: &[NamedTx], _rpc_url: &str) -> Result<()> {
+    fn insert_named_txs(
+        &self,
+        _named_txs: &[NamedTx],
+        _rpc_url: &str,
+        _genesis_hash: FixedBytes<32>,
+    ) -> Result<()> {
         Ok(())
     }
 
-    fn get_named_tx(&self, _name: &str, _rpc_url: &str) -> Result<Option<NamedTx>> {
+    fn get_named_tx(
+        &self,
+        _name: &str,
+        _rpc_url: &str,
+        _genesis_hash: FixedBytes<32>,
+    ) -> Result<Option<NamedTx>> {
         Ok(Some(NamedTx::new(
             String::default(),
             TxHash::default(),

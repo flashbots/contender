@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, fmt::Display, time::Duration};
 pub use mock::MockDb;
 
 use crate::{buckets::Bucket, Result};
-use alloy::primitives::{Address, TxHash};
+use alloy::primitives::{Address, FixedBytes, TxHash};
 use serde::Serialize;
 
 #[derive(Debug, Serialize, Clone)]
@@ -117,7 +117,12 @@ pub trait DbOps {
 
     fn get_latency_metrics(&self, run_id: u64, method: &str) -> Result<Vec<Bucket>>;
 
-    fn get_named_tx(&self, name: &str, rpc_url: &str) -> Result<Option<NamedTx>>;
+    fn get_named_tx(
+        &self,
+        name: &str,
+        rpc_url: &str,
+        genesis_hash: FixedBytes<32>,
+    ) -> Result<Option<NamedTx>>;
 
     fn get_named_tx_by_address(&self, address: &Address) -> Result<Option<NamedTx>>;
 
@@ -126,7 +131,12 @@ pub trait DbOps {
     fn get_run_txs(&self, run_id: u64) -> Result<Vec<RunTx>>;
 
     /// Insert a new named tx into the database. Used for named contracts.
-    fn insert_named_txs(&self, named_txs: &[NamedTx], rpc_url: &str) -> Result<()>;
+    fn insert_named_txs(
+        &self,
+        named_txs: &[NamedTx],
+        rpc_url: &str,
+        genesis_hash: FixedBytes<32>,
+    ) -> Result<()>;
 
     /// Insert a new run into the database. Returns run_id.
     fn insert_run(&self, run: &SpamRunRequest) -> Result<u64>;

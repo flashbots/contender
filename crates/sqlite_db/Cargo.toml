@@ -10,9 +10,10 @@ rust-version.workspace = true
 version = "0.4.4"
 
 [dependencies]
-alloy = {workspace = true}
-contender_core = {workspace = true}
-r2d2 = {workspace = true}
-r2d2_sqlite = {workspace = true}
-rusqlite = {workspace = true}
-serde = {workspace = true}
+alloy = { workspace = true }
+contender_core = { workspace = true }
+r2d2 = { workspace = true }
+r2d2_sqlite = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+tracing = { workspace = true }
