@@ -144,6 +144,17 @@ impl ExecutionContext {
     }
 }
 
+struct DeployContractParams<'a, D: DbOps> {
+    db: &'a D,
+    tx_req: &'a NamedTxRequest,
+    extra_tx_params: ExtraTxParams,
+    tx_type: TxType,
+    rpc_url: &'a Url,
+    signer: &'a PrivateKeySigner,
+    redeploy: bool,
+    genesis_hash: FixedBytes<32>,
+}
+
 impl<D, S, P> TestScenario<D, S, P>
 where
     D: DbOps + Send + Sync + 'static,
@@ -494,16 +505,16 @@ where
             let db = self.db.clone();
 
             let handle = tokio::task::spawn(async move {
-                Self::deploy_contract(
-                    &db,
-                    &tx_req,
-                    (gas_price, blob_gas_price, chain_id).into(),
+                Self::deploy_contract(DeployContractParams {
+                    db: &db,
+                    tx_req: &tx_req,
+                    extra_tx_params: (gas_price, blob_gas_price, chain_id).into(),
                     tx_type,
-                    &rpc_url,
-                    &wallet,
+                    rpc_url: &rpc_url,
+                    signer: &wallet,
                     redeploy,
                     genesis_hash,
-                )
+                })
                 .await
             });
 
@@ -516,16 +527,17 @@ where
         Ok(())
     }
 
-    async fn deploy_contract(
-        db: &D,
-        tx_req: &NamedTxRequest,
-        extra_tx_params: ExtraTxParams,
-        tx_type: TxType,
-        rpc_url: &Url,
-        signer: &PrivateKeySigner,
-        redeploy: bool,
-        genesis_hash: FixedBytes<32>,
-    ) -> Result<()> {
+    async fn deploy_contract<'a>(params: DeployContractParams<'a, D>) -> Result<()> {
+        let DeployContractParams {
+            db,
+            tx_req,
+            extra_tx_params,
+            tx_type,
+            rpc_url,
+            signer,
+            redeploy,
+            genesis_hash,
+        } = params;
         let wallet = EthereumWallet::from(signer.to_owned());
         let wallet_client = ProviderBuilder::new()
             .wallet(&wallet)
