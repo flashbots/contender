@@ -15,12 +15,14 @@ pub struct SpamCommandArgsJsonAdapter {
     pub timeout_secs: u64,
     pub env: Option<Vec<(String, String)>>,
     pub loops: Option<u64>,
-    // TODO: These params are hardcoded for now, I'll need some more info in these before implementing them
+    pub seed: Option<String>,
 
-    // pub engine_params: EngineParamsAdat,
-    // pub gas_price_percent_add: Option<u64>,
-    // pub seed: String,
-    // pub disable_reporting: bool,
+    pub call_fcu: bool,
+    pub use_op: bool,
+    pub auth_rpc_url: Option<String>,
+    pub jwt_secret: Option<String>,
+    pub disable_reporting: bool,
+    pub gas_price_percent_add: Option<u64>,
 }
 
 // In `contender_cli` we can retrieve the SetupCommandArgs struct from this using SetupCommandArgs::from<SetupCommandArgsJsonAdapter>()
@@ -32,8 +34,10 @@ pub struct SetupCommandArgsJsonAdapter {
     pub min_balance: String,
     pub tx_type: String,
     pub env: Option<Vec<(String, String)>>,
-    // TODO: These params are hardcoded for now, I'll need some more info in these before implementing them
-
-    // pub seed: RandSeed,
+    pub call_fcu: bool,
+    pub use_op: bool,
+    pub auth_rpc_url: Option<String>,
+    pub jwt_secret: Option<String>,
+    pub seed: Option<String>,
     // pub engine_params: EngineParams,
 }

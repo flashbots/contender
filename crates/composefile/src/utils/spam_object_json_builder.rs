@@ -73,6 +73,60 @@ pub fn spam_object_json_builder(
         None => Some(1),
     };
 
+    let seed: Option<String> = match spam_object.get(&Yaml::String("seed".into())) {
+        Some(seed_value) => match seed_value.as_str() {
+            Some(value) => Some(String::from_str(value)?),
+            None => return Err("Invalid data type for value of 'seed'".into()),
+        },
+        None => None,
+    };
+
+    let call_forkchoice = match spam_object.get(&Yaml::String("call_forkchoice".into())) {
+        Some(fcu) => match fcu.as_bool() {
+            Some(value) => value,
+            None => return Err("Invalid data type for 'call_forkchoice'".into()),
+        },
+        None => false,
+    };
+
+    let use_op = match spam_object.get(&Yaml::String("optimism".into())) {
+        Some(optimism) => match optimism.as_bool() {
+            Some(value) => value,
+            None => return Err("Invalid data type for 'optimism'".into()),
+        },
+        None => false,
+    };
+
+    let auth_rpc_url = match spam_object.get(&Yaml::String("auth_rpc_url".into())) {
+        Some(auth_rpc_url_value) => match auth_rpc_url_value.as_str() {
+            Some(value) => Some(String::from_str(value)?),
+            None => return Err("Invalid data type for value of 'auth_rpc_url'".into()),
+        },
+        None => None,
+    };
+
+    let jwt_secret = match spam_object.get(&Yaml::String("auth_rpc_url".into())) {
+        Some(jwt_secret_value) => match jwt_secret_value.as_str() {
+            Some(value) => Some(String::from_str(value)?),
+            None => return Err("Invalid data type for value of 'jwt_secret'".into()),
+        },
+        None => None,
+    };
+
+    let disable_reporting: bool = match spam_object.get(&Yaml::String("disable_reporting".into())) {
+        Some(disable_reporting_value) => match disable_reporting_value.as_bool() {
+            Some(value) => value,
+            None => return Err("Invalid data type for 'disable_reporting'".into()),
+        },
+        None => false,
+    };
+
+    let gas_price_percent_add = match spam_object.get(&Yaml::String("gas_price_percent_add".into()))
+    {
+        Some(value) => value.as_i64().map(|value| value as u64),
+        None => None,
+    };
+
     let spam_command_args = SpamCommandArgsJsonAdapter {
         scenario: testfile_path,
         txs_per_block,
@@ -86,6 +140,13 @@ pub fn spam_object_json_builder(
         min_balance,
         tx_type,
         loops,
+        seed,
+        call_fcu: call_forkchoice,
+        use_op,
+        auth_rpc_url,
+        jwt_secret,
+        disable_reporting,
+        gas_price_percent_add,
     };
     Ok(spam_command_args)
 }

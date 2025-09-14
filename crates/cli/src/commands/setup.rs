@@ -1,12 +1,14 @@
 use crate::{
+    commands::EngineArgs,
     util::{
-        check_private_keys_fns, find_insufficient_balances, fund_accounts,
+        check_private_keys_fns, data_dir, find_insufficient_balances, fund_accounts,
         get_signers_with_defaults, load_testconfig, EngineParams,
     },
     LATENCY_HIST as HIST, PROM,
 };
 use alloy::{
     consensus::TxType,
+    hex,
     network::AnyNetwork,
     primitives::utils::{format_ether, parse_ether},
     providers::{DynProvider, Provider, ProviderBuilder},
@@ -22,7 +24,9 @@ use contender_core::{
     test_scenario::{TestScenario, TestScenarioParams},
 };
 use contender_engine_provider::DEFAULT_BLOCK_TIME;
+use rand::Rng;
 use std::{
+    error::Error,
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -281,5 +285,56 @@ impl SetupCommandArgs {
         let mut setup_object = self.clone();
         setup_object.private_keys = private_keys;
         setup_object
+    }
+
+    pub async fn from_json(
+        setup_object: SetupCommandArgsJsonAdapter,
+    ) -> Result<Self, Box<dyn Error>> {
+        let data_path = data_dir()?;
+
+        let seed_path = format!("{}/seed", &data_path);
+        if !std::path::Path::new(&seed_path).exists() {
+            info!("generating seed file at {}", &seed_path);
+            let mut rng = rand::thread_rng();
+            let seed: [u8; 32] = rng.gen();
+            let seed_hex = hex::encode(seed);
+            std::fs::write(&seed_path, seed_hex).expect("failed to write seed file");
+        }
+
+        let stored_seed = format!(
+            "0x{}",
+            std::fs::read_to_string(&seed_path).expect("failed to read seed file")
+        );
+
+        let engine_params =
+            if setup_object.auth_rpc_url.is_some() && setup_object.jwt_secret.is_some() {
+                EngineParams::new(
+                    EngineArgs {
+                        auth_rpc_url: setup_object.auth_rpc_url.expect("auth_rpc_url"),
+                        jwt_secret: setup_object.jwt_secret.expect("jwt_secret").into(),
+                        use_op: setup_object.use_op,
+                    }
+                    .new_provider()
+                    .await?,
+                    setup_object.call_fcu,
+                )
+            } else {
+                EngineParams::default()
+            };
+
+        Ok(SetupCommandArgs {
+            testfile: setup_object.testfile,
+            rpc_url: setup_object.rpc_url,
+            private_keys: None,
+            env: setup_object.env,
+            min_balance: setup_object.min_balance,
+            tx_type: match setup_object.tx_type.as_str() {
+                "eip1559" => alloy::consensus::TxType::Eip1559,
+                "legacy" => alloy::consensus::TxType::Legacy,
+                _ => panic!("Unknown transaction type"),
+            },
+            seed: RandSeed::seed_from_str(&setup_object.seed.unwrap_or(stored_seed)),
+            engine_params,
+        })
     }
 }

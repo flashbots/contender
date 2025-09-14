@@ -2,6 +2,10 @@ setup:
   simpler:
     testfile: ./scenarios/simpler.toml
     min_balance: 12.1
+    call_forkchoice: true
+    optimism: false
+    auth_rpc_url: "https://rpc.chain.com"
+    jwt_secret: SECRET
   uniV2:
     testfile: ./scenarios/uniV2.toml
     rpc_url: http://localhost:8545 # Optional
@@ -18,6 +22,7 @@ spam:
         tps: 3
         duration: 3
         loop: 2
+        seed: "123"
       - testfile: ./scenarios/simpler.toml
         tps: 1
         duration: 3
@@ -26,6 +31,11 @@ spam:
         tps: 4
         duration: 3
         loop: 2
+
+        call_forkchoice: true
+        optimism: false
+        auth_rpc_url: "https://rpc.chain.com"
+        jwt_secret: SECRET
     medium:
       - testfile: ./scenarios/uniV2.toml
         tps: 10

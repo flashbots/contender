@@ -2,7 +2,7 @@ use super::common::{ScenarioSendTxsCliArgs, SendSpamCliArgs};
 use crate::{
     default_scenarios::BuiltinScenario,
     util::{
-        check_private_keys, fund_accounts, get_signers_with_defaults, load_testconfig,
+        check_private_keys, data_dir, fund_accounts, get_signers_with_defaults, load_testconfig,
         spam_callback_default, EngineParams, SpamCallbackType,
     },
     LATENCY_HIST as HIST, PROM,
@@ -11,6 +11,7 @@ use contender_composefile::types::SpamCommandArgsJsonAdapter;
 
 use alloy::{
     consensus::TxType,
+    hex,
     network::AnyNetwork,
     primitives::{
         utils::{format_ether, parse_ether},
@@ -34,7 +35,8 @@ use contender_core::{
 use contender_engine_provider::{AdvanceChain, AuthProvider};
 use contender_testfile::TestConfig;
 use op_alloy_network::Optimism;
-use std::sync::Arc;
+use rand::Rng;
+use std::{error::Error, str::FromStr, sync::Arc};
 use std::{path::PathBuf, sync::atomic::AtomicBool};
 use tracing::{info, warn};
 
@@ -332,38 +334,6 @@ impl SpamCommandArgs {
     }
 }
 
-impl From<SpamCommandArgsJsonAdapter> for SpamCommandArgs {
-    fn from(spam_object: SpamCommandArgsJsonAdapter) -> Self {
-        SpamCommandArgs {
-            scenario: SpamScenario::Testfile(spam_object.scenario),
-            txs_per_block: spam_object.txs_per_block,
-            txs_per_second: spam_object.txs_per_second,
-            rpc_url: spam_object.rpc_url,
-            builder_url: spam_object.builder_url,
-            timeout_secs: spam_object.timeout_secs,
-            duration: spam_object.duration,
-            env: spam_object.env,
-            private_keys: None,
-            min_balance: spam_object.min_balance,
-            tx_type: match spam_object.tx_type.as_str() {
-                "eip1559" => alloy::consensus::TxType::Eip1559,
-                "legacy" => alloy::consensus::TxType::Legacy,
-                _ => panic!("Unknown transaction type"),
-            },
-            loops: spam_object.loops,
-
-            // TODO: Need more knowledge, hence hardcoding them for now
-            seed: "0x01".into(),
-            disable_reporting: true,
-            engine_params: EngineParams {
-                engine_provider: None,
-                call_fcu: false,
-            },
-            gas_price_percent_add: None,
-        }
-    }
-}
-
 pub async fn spam<
     D: DbOps + Clone + Send + Sync + 'static,
     S: Seeder + Send + Sync + Clone,
@@ -495,5 +465,64 @@ impl SpamCommandArgs {
         let mut spam_object = self.clone();
         spam_object.private_keys = private_keys;
         spam_object
+    }
+
+    pub async fn from_json(
+        spam_object: SpamCommandArgsJsonAdapter,
+    ) -> Result<Self, Box<dyn Error>> {
+        let data_path = data_dir()?;
+
+        let seed_path = format!("{}/seed", &data_path);
+        if !std::path::Path::new(&seed_path).exists() {
+            info!("generating seed file at {}", &seed_path);
+            let mut rng = rand::thread_rng();
+            let seed: [u8; 32] = rng.gen();
+            let seed_hex = hex::encode(seed);
+            std::fs::write(&seed_path, seed_hex).expect("failed to write seed file");
+        }
+
+        let stored_seed = format!(
+            "0x{}",
+            std::fs::read_to_string(&seed_path).expect("failed to read seed file")
+        );
+
+        let engine_params =
+            if spam_object.auth_rpc_url.is_some() && spam_object.jwt_secret.is_some() {
+                EngineParams::new(
+                    EngineArgs {
+                        auth_rpc_url: spam_object.auth_rpc_url.expect("auth_rpc_url"),
+                        jwt_secret: spam_object.jwt_secret.expect("jwt_secret").into(),
+                        use_op: spam_object.use_op,
+                    }
+                    .new_provider()
+                    .await?,
+                    spam_object.call_fcu,
+                )
+            } else {
+                EngineParams::default()
+            };
+
+        Ok(SpamCommandArgs {
+            scenario: SpamScenario::Testfile(spam_object.scenario),
+            txs_per_block: spam_object.txs_per_block,
+            txs_per_second: spam_object.txs_per_second,
+            rpc_url: spam_object.rpc_url,
+            builder_url: spam_object.builder_url,
+            timeout_secs: spam_object.timeout_secs,
+            duration: spam_object.duration,
+            env: spam_object.env,
+            private_keys: None,
+            min_balance: spam_object.min_balance,
+            tx_type: match spam_object.tx_type.as_str() {
+                "eip1559" => alloy::consensus::TxType::Eip1559,
+                "legacy" => alloy::consensus::TxType::Legacy,
+                _ => panic!("Unknown transaction type"),
+            },
+            loops: spam_object.loops,
+            seed: spam_object.seed.unwrap_or(stored_seed),
+            engine_params,
+            disable_reporting: spam_object.disable_reporting,
+            gas_price_percent_add: spam_object.gas_price_percent_add,
+        })
     }
 }

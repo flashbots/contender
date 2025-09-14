@@ -22,6 +22,46 @@ pub fn setup_object_json_builder(
 
     let tx_type = get_tx_type(&setup_object)?;
 
+    let seed: Option<String> = match setup_object.get(&Yaml::String("seed".into())) {
+        Some(seed_value) => match seed_value.as_str() {
+            Some(value) => Some(value.to_owned()),
+            None => return Err("Invalid data type for value of 'seed'".into()),
+        },
+        None => None,
+    };
+
+    let call_forkchoice = match setup_object.get(&Yaml::String("call_forkchoice".into())) {
+        Some(fcu) => match fcu.as_bool() {
+            Some(value) => value,
+            None => return Err("Invalid data type for 'call_forkchoice'".into()),
+        },
+        None => false,
+    };
+
+    let use_op = match setup_object.get(&Yaml::String("optimism".into())) {
+        Some(optimism) => match optimism.as_bool() {
+            Some(value) => value,
+            None => return Err("Invalid data type for 'optimism'".into()),
+        },
+        None => false,
+    };
+
+    let auth_rpc_url = match setup_object.get(&Yaml::String("auth_rpc_url".into())) {
+        Some(auth_rpc_url_value) => match auth_rpc_url_value.as_str() {
+            Some(value) => Some(value.to_owned()),
+            None => return Err("Invalid data type for value of 'auth_rpc_url'".into()),
+        },
+        None => None,
+    };
+
+    let jwt_secret = match setup_object.get(&Yaml::String("auth_rpc_url".into())) {
+        Some(jwt_secret_value) => match jwt_secret_value.as_str() {
+            Some(value) => Some(value.to_owned()),
+            None => return Err("Invalid data type for value of 'jwt_secret'".into()),
+        },
+        None => None,
+    };
+
     Ok(SetupCommandArgsJsonAdapter {
         testfile,
         rpc_url,
@@ -29,6 +69,11 @@ pub fn setup_object_json_builder(
         env: env_variables,
         tx_type,
         private_keys: None,
+        seed,
+        call_fcu: call_forkchoice,
+        use_op,
+        auth_rpc_url,
+        jwt_secret,
     })
 }
 

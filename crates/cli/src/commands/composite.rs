@@ -23,6 +23,7 @@ pub async fn composite(
 
     let compose_file = ComposeFile::init_from_path(compose_file_name)?;
     let sharable_db = Arc::new(Mutex::new(db.clone()));
+    let sharable_private_keys = Arc::new(Mutex::new(args.private_keys));
 
     let setup_scenarios = compose_file.get_setup_config()?;
     let setup_tasks: Vec<_> = setup_scenarios
@@ -31,18 +32,21 @@ pub async fn composite(
         .map(|(index, scenario)| {
             let db_clone = sharable_db.clone();
             let scenario_config = scenario.clone();
-            let setup_command_args = SetupCommandArgs::from(scenario_config.config)
-                .with_private_keys(args.private_keys.clone());
+            let private_keys = sharable_private_keys.clone();
+            let setup_command_args = SetupCommandArgs::from_json(scenario_config.config);
 
             task::spawn(async move {
-                let result = setup(&*db_clone.lock().await, setup_command_args).await;
-                match &result {
+                let setup_command = setup_command_args
+                    .await
+                    .expect("msg")
+                    .with_private_keys(private_keys.lock().await.clone());
+                match setup(&*db_clone.lock().await, setup_command).await {
                     Ok(_) => info!(
-                        "Scenario [{index}] - {}: completed successfully",
+                        "Setup [{index}] - {}: completed successfully",
                         &scenario_config.name
                     ),
                     Err(err) => error!(
-                        "Scenario [{index}] - {} failed: {err:?}",
+                        "Setup [{index}] - {} failed: {err:?}",
                         &scenario_config.name
                     ),
                 };
@@ -68,12 +72,14 @@ pub async fn composite(
         for (spam_scenario_index, spam_command) in spam_configs.into_iter().enumerate() {
             info!("Starting scenario [{spam_scenario_index:?}]");
             let db_clone = sharable_db.clone();
-            let private_keys = Arc::new(Mutex::new(args.private_keys.clone()));
+            let private_keys = sharable_private_keys.clone();
             let private_keys_clone = private_keys.clone().lock().await.clone();
             let task = task::spawn(async move {
-                let spam_command_args =
-                    SpamCommandArgs::from(spam_command).with_private_keys(private_keys_clone);
                 let spam_call = async || -> Result<(), Box<dyn std::error::Error>> {
+                    let spam_command_args = SpamCommandArgs::from_json(spam_command)
+                        .await?
+                        .with_private_keys(private_keys_clone);
+
                     let mut test_scenario = spam_command_args
                         .init_scenario(&*db_clone.lock().await)
                         .await?;
