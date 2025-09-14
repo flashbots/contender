@@ -105,6 +105,8 @@ pub struct SpamCliArgs {
     )]
     pub skip_deploy_prompt: bool,
 }
+
+#[derive(Clone)]
 pub enum SpamScenario {
     Testfile(String),
     Builtin(BuiltinScenario),
@@ -127,6 +129,7 @@ impl SpamScenario {
     }
 }
 
+#[derive(Clone)]
 pub struct SpamCommandArgs {
     pub scenario: SpamScenario,
     pub rpc_url: String,
@@ -340,7 +343,7 @@ impl From<SpamCommandArgsJsonAdapter> for SpamCommandArgs {
             timeout_secs: spam_object.timeout_secs,
             duration: spam_object.duration,
             env: spam_object.env,
-            private_keys: spam_object.private_keys,
+            private_keys: None,
             min_balance: spam_object.min_balance,
             tx_type: match spam_object.tx_type.as_str() {
                 "eip1559" => alloy::consensus::TxType::Eip1559,
@@ -484,4 +487,13 @@ pub async fn spam<
     };
 
     Ok(run_id)
+}
+
+impl SpamCommandArgs {
+    // Function to add private keys to a spam command args instance
+    pub fn with_private_keys(&self, private_keys: Option<Vec<String>>) -> Self {
+        let mut spam_object = self.clone();
+        spam_object.private_keys = private_keys;
+        spam_object
+    }
 }

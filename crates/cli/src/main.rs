@@ -97,8 +97,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             DbCommand::Export { out_path } => export_db(&db_path, out_path).await?,
             DbCommand::Import { src_path } => import_db(src_path, &db_path).await?,
         },
-        ContenderSubcommand::Composite { filename } => {
-            commands::composite(&db, CompositeScenarioArgs { filename }).await?;
+        ContenderSubcommand::Composite {
+            filename,
+            private_keys,
+        } => {
+            commands::composite(
+                &db,
+                CompositeScenarioArgs {
+                    filename,
+                    private_keys,
+                },
+            )
+            .await?;
         }
 
         ContenderSubcommand::Setup {

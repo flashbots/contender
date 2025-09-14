@@ -9,6 +9,7 @@ use crate::commands::{setup, spam, SetupCommandArgs, SpamCommandArgs};
 #[derive(Debug, clap::Args)]
 pub struct CompositeScenarioArgs {
     pub filename: Option<String>,
+    pub private_keys: Option<Vec<String>>,
 }
 
 pub async fn composite(
@@ -30,7 +31,8 @@ pub async fn composite(
         .map(|(index, scenario)| {
             let db_clone = sharable_db.clone();
             let scenario_config = scenario.clone();
-            let setup_command_args = SetupCommandArgs::from(scenario_config.config);
+            let setup_command_args = SetupCommandArgs::from(scenario_config.config)
+                .with_private_keys(args.private_keys.clone());
 
             task::spawn(async move {
                 let result = setup(&*db_clone.lock().await, setup_command_args).await;
@@ -66,9 +68,11 @@ pub async fn composite(
         for (spam_scenario_index, spam_command) in spam_configs.into_iter().enumerate() {
             info!("Starting scenario [{spam_scenario_index:?}]");
             let db_clone = sharable_db.clone();
+            let private_keys = Arc::new(Mutex::new(args.private_keys.clone()));
+            let private_keys_clone = private_keys.clone().lock().await.clone();
             let task = task::spawn(async move {
-                let spam_command_args = SpamCommandArgs::from(spam_command);
-
+                let spam_command_args =
+                    SpamCommandArgs::from(spam_command).with_private_keys(private_keys_clone);
                 let spam_call = async || -> Result<(), Box<dyn std::error::Error>> {
                     let mut test_scenario = spam_command_args
                         .init_scenario(&*db_clone.lock().await)

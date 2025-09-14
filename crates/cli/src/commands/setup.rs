@@ -257,7 +257,7 @@ impl From<SetupCommandArgsJsonAdapter> for SetupCommandArgs {
         SetupCommandArgs {
             testfile: setup_object.testfile,
             rpc_url: setup_object.rpc_url,
-            private_keys: setup_object.private_keys,
+            private_keys: None,
             env: setup_object.env,
             min_balance: setup_object.min_balance,
             tx_type: match setup_object.tx_type.as_str() {
@@ -272,5 +272,14 @@ impl From<SetupCommandArgsJsonAdapter> for SetupCommandArgs {
                 call_fcu: false,
             },
         }
+    }
+}
+
+impl SetupCommandArgs {
+    // FUnction to add private keys to a setup command atgs instance
+    pub fn with_private_keys(&self, private_keys: Option<Vec<String>>) -> Self {
+        let mut setup_object = self.clone();
+        setup_object.private_keys = private_keys;
+        setup_object
     }
 }

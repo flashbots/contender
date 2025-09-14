@@ -164,13 +164,6 @@ setup:
         assert_eq!(scenarios[0].config.min_balance, "5");
         assert_eq!(scenarios[0].config.tx_type, "eip1559".to_string());
 
-        let private_keys = scenarios[0].config.private_keys.as_ref().unwrap();
-        assert_eq!(private_keys.len(), 2);
-        assert_eq!(
-            private_keys[0],
-            "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-        );
-
         let env_vars = scenarios[0].config.env.as_ref().unwrap();
         assert_eq!(env_vars.len(), 2);
         // Assuming cli_env_vars_parser returns a tuple of (key, value)

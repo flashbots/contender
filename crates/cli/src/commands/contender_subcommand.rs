@@ -21,6 +21,13 @@ pub enum ContenderSubcommand {
             default_value = "./contender-compose.yml"
         )]
         filename: Option<String>,
+        #[arg(
+            short,
+            long = "priv-key",
+            long_help = "Add private keys to wallet map. Used to fund agent accounts or sign transactions.
+May be specified multiple times."
+        )]
+        private_keys: Option<Vec<String>>,
     },
 
     #[command(name = "admin", about = "Admin commands")]

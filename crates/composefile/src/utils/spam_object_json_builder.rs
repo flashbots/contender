@@ -2,9 +2,7 @@ use crate::types::SpamCommandArgsJsonAdapter;
 use std::{error::Error, str::FromStr};
 use yaml_rust2::Yaml;
 
-use super::{
-    get_env_variables, get_min_balance, get_private_keys, get_rpc_url, get_testfile, get_tx_type,
-};
+use super::{get_env_variables, get_min_balance, get_rpc_url, get_testfile, get_tx_type};
 
 pub fn spam_object_json_builder(
     spam_object_yaml: &Yaml,
@@ -22,8 +20,6 @@ pub fn spam_object_json_builder(
     let rpc_url = get_rpc_url(&spam_object)?;
 
     let min_balance = get_min_balance(&spam_object)?;
-
-    let private_keys = get_private_keys(&spam_object)?;
 
     let tx_type = get_tx_type(&spam_object)?;
 
@@ -86,7 +82,7 @@ pub fn spam_object_json_builder(
         timeout_secs,
         duration,
         env: env_variables,
-        private_keys,
+        private_keys: None,
         min_balance,
         tx_type,
         loops,
@@ -146,14 +142,6 @@ mod spam_object_json_builder_tests {
                 ("B".to_string(), "2".to_string())
             ])
         );
-        assert_eq!(
-            json.private_keys,
-            Some(vec![
-                "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80".to_string(),
-                "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d".to_string()
-            ])
-        );
-        // );
         assert_eq!(json.tx_type, "eip1559");
         assert_eq!(json.txs_per_second, Some(100));
         assert_eq!(json.txs_per_block, None);

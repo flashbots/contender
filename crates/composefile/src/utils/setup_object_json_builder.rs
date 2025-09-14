@@ -2,9 +2,7 @@ use crate::types::SetupCommandArgsJsonAdapter;
 use std::error::Error;
 use yaml_rust2::Yaml;
 
-use super::{
-    get_env_variables, get_min_balance, get_private_keys, get_rpc_url, get_testfile, get_tx_type,
-};
+use super::{get_env_variables, get_min_balance, get_rpc_url, get_testfile, get_tx_type};
 
 pub fn setup_object_json_builder(
     setup_object_yaml: &Yaml,
@@ -20,8 +18,6 @@ pub fn setup_object_json_builder(
 
     let min_balance = get_min_balance(&setup_object)?;
 
-    let private_keys = get_private_keys(&setup_object)?;
-
     let env_variables = get_env_variables(&setup_object)?;
 
     let tx_type = get_tx_type(&setup_object)?;
@@ -32,7 +28,7 @@ pub fn setup_object_json_builder(
         min_balance,
         env: env_variables,
         tx_type,
-        private_keys,
+        private_keys: None,
     })
 }
 
@@ -83,14 +79,6 @@ mod setup_object_json_builder_tests {
             Some(vec![
                 ("Key1".to_string(), "Valu1".to_string()),
                 ("Key2".to_string(), "Valu2".to_string())
-            ])
-        );
-
-        assert_eq!(
-            json.private_keys,
-            Some(vec![
-                "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80".to_string(),
-                "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d".to_string(),
             ])
         );
 
