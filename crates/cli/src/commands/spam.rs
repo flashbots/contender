@@ -342,10 +342,10 @@ impl From<SpamCommandArgsJsonAdapter> for SpamCommandArgs {
             env: spam_object.env,
             private_keys: spam_object.private_keys,
             min_balance: spam_object.min_balance,
-            tx_type: if spam_object.tx_type == *"eip1559" {
-                alloy::consensus::TxType::Eip1559
-            } else {
-                alloy::consensus::TxType::Legacy
+            tx_type: match spam_object.tx_type.as_str() {
+                "eip1559" => alloy::consensus::TxType::Eip1559,
+                "legacy" => alloy::consensus::TxType::Legacy,
+                _ => panic!("Unknown transaction type"),
             },
             loops: spam_object.loops,
 

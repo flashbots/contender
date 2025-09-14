@@ -260,12 +260,11 @@ impl From<SetupCommandArgsJsonAdapter> for SetupCommandArgs {
             private_keys: setup_object.private_keys,
             env: setup_object.env,
             min_balance: setup_object.min_balance,
-            tx_type: if setup_object.tx_type == *"eip1559" {
-                alloy::consensus::TxType::Eip1559
-            } else {
-                alloy::consensus::TxType::Legacy
+            tx_type: match setup_object.tx_type.as_str() {
+                "eip1559" => alloy::consensus::TxType::Eip1559,
+                "legacy" => alloy::consensus::TxType::Legacy,
+                _ => panic!("Unknown transaction type"),
             },
-
             // TODO: Hardcoded parameters for now, need more understanding on where to get these from
             seed: RandSeed::new(),
             engine_params: EngineParams {
