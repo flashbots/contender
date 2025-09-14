@@ -256,29 +256,6 @@ pub struct SetupCommandArgs {
     pub env: Option<Vec<(String, String)>>,
 }
 
-impl From<SetupCommandArgsJsonAdapter> for SetupCommandArgs {
-    fn from(setup_object: SetupCommandArgsJsonAdapter) -> Self {
-        SetupCommandArgs {
-            testfile: setup_object.testfile,
-            rpc_url: setup_object.rpc_url,
-            private_keys: None,
-            env: setup_object.env,
-            min_balance: setup_object.min_balance,
-            tx_type: match setup_object.tx_type.as_str() {
-                "eip1559" => alloy::consensus::TxType::Eip1559,
-                "legacy" => alloy::consensus::TxType::Legacy,
-                _ => panic!("Unknown transaction type"),
-            },
-            // TODO: Hardcoded parameters for now, need more understanding on where to get these from
-            seed: RandSeed::new(),
-            engine_params: EngineParams {
-                engine_provider: None,
-                call_fcu: false,
-            },
-        }
-    }
-}
-
 impl SetupCommandArgs {
     // FUnction to add private keys to a setup command atgs instance
     pub fn with_private_keys(&self, private_keys: Option<Vec<String>>) -> Self {
