@@ -16,6 +16,7 @@ use crate::Result;
 use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
 use alloy::consensus::{Transaction, TxType};
 use alloy::eips::eip2718::Encodable2718;
+use alloy::eips::BlockId;
 use alloy::hex::ToHexExt;
 use alloy::network::{
     AnyNetwork, AnyTxEnvelope, EthereumWallet, NetworkWallet, TransactionBuilder,
@@ -133,12 +134,25 @@ pub struct ExecutionContext {
     pub cancel_token: CancellationToken,
     /// Chain ID for target chain.
     pub chain_id: u64,
+    /// Genesis hash of target chain.
+    pub genesis_hash: FixedBytes<32>,
 }
 
 impl ExecutionContext {
     pub fn add_to_gas_price(&mut self, amount: i128) {
         self.gas_price_adder += amount;
     }
+}
+
+struct DeployContractParams<'a, D: DbOps> {
+    db: &'a D,
+    tx_req: &'a NamedTxRequest,
+    extra_tx_params: ExtraTxParams,
+    tx_type: TxType,
+    rpc_url: &'a Url,
+    signer: &'a PrivateKeySigner,
+    redeploy: bool,
+    genesis_hash: FixedBytes<32>,
 }
 
 impl<D, S, P> TestScenario<D, S, P>
@@ -179,6 +193,17 @@ where
                 .network::<AnyNetwork>()
                 .connect_client(client),
         ));
+        let genesis_block = rpc_client
+            .get_block(BlockId::earliest())
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to retrieve genesis block"))?;
+        if genesis_block.is_none() {
+            return Err(ContenderError::GenericError(
+                "no genesis block found",
+                String::new(),
+            ));
+        }
+        let genesis_block = genesis_block.expect("genesis block");
 
         let mut wallet_map = HashMap::new();
         let mut signer_map = HashMap::new();
@@ -273,6 +298,7 @@ where
                 block_time_secs,
                 cancel_token,
                 chain_id,
+                genesis_hash: genesis_block.header.hash,
             },
             auth_provider,
             prometheus,
@@ -459,6 +485,7 @@ where
         // we do everything in the callback so no need to actually capture the returned txs
         // we have to do this to populate the database with new named transaction after each deployment
         let redeploy = self.redeploy;
+        let genesis_hash = self.ctx.genesis_hash;
         self.load_txs(PlanType::Create(|tx_req| {
             let from = tx_req.tx.from.to_owned().ok_or(ContenderError::SetupError(
                 "failed to get 'from' address",
@@ -478,15 +505,16 @@ where
             let db = self.db.clone();
 
             let handle = tokio::task::spawn(async move {
-                Self::deploy_contract(
-                    &db,
-                    &tx_req,
-                    (gas_price, blob_gas_price, chain_id).into(),
+                Self::deploy_contract(DeployContractParams {
+                    db: &db,
+                    tx_req: &tx_req,
+                    extra_tx_params: (gas_price, blob_gas_price, chain_id).into(),
                     tx_type,
-                    &rpc_url,
-                    &wallet,
+                    rpc_url: &rpc_url,
+                    signer: &wallet,
                     redeploy,
-                )
+                    genesis_hash,
+                })
                 .await
             });
 
@@ -499,15 +527,17 @@ where
         Ok(())
     }
 
-    async fn deploy_contract(
-        db: &D,
-        tx_req: &NamedTxRequest,
-        extra_tx_params: ExtraTxParams,
-        tx_type: TxType,
-        rpc_url: &Url,
-        signer: &PrivateKeySigner,
-        redeploy: bool,
-    ) -> Result<()> {
+    async fn deploy_contract<'a>(params: DeployContractParams<'a, D>) -> Result<()> {
+        let DeployContractParams {
+            db,
+            tx_req,
+            extra_tx_params,
+            tx_type,
+            rpc_url,
+            signer,
+            redeploy,
+            genesis_hash,
+        } = params;
         let wallet = EthereumWallet::from(signer.to_owned());
         let wallet_client = ProviderBuilder::new()
             .wallet(&wallet)
@@ -515,7 +545,7 @@ where
             .connect_http(rpc_url.to_owned());
 
         if let Some(name) = tx_req.name.as_ref() {
-            if let Some(existing) = db.get_named_tx(name, rpc_url.as_str())? {
+            if let Some(existing) = db.get_named_tx(name, rpc_url.as_str(), genesis_hash)? {
                 if let Some(addr) = existing.address {
                     let code: Bytes = wallet_client
                         .client()
@@ -590,6 +620,7 @@ where
                     receipt.contract_address,
                 )],
                 rpc_url.as_str(),
+                genesis_hash,
             )?;
         } else {
             warn!("No name provided for named transaction. This may cause issues with tracking the entry in the database.");
@@ -599,6 +630,7 @@ where
 
     pub async fn run_setup(&mut self) -> Result<()> {
         let chain_id = self.chain_id;
+        let genesis_hash = self.ctx.genesis_hash;
         self.load_txs(PlanType::Setup(|tx_req| {
             /* callback */
             info!("{}", self.format_setup_log(&tx_req));
@@ -681,6 +713,7 @@ where
                             receipt.contract_address,
                         )],
                         rpc_url.as_str(),
+                        genesis_hash,
                     )?;
                 }
 
@@ -1536,6 +1569,10 @@ where
 
     fn get_setcode_signer(&self) -> &PrivateKeySigner {
         &self.setcode_signer
+    }
+
+    fn get_genesis_hash(&self) -> FixedBytes<32> {
+        self.ctx.genesis_hash
     }
 }
 

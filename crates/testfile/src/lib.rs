@@ -399,6 +399,7 @@ pub mod tests {
                 &mut placeholder_map,
                 &MockDb,
                 "http://localhost:8545",
+                Default::default(),
             )
             .unwrap();
 
