@@ -7,7 +7,6 @@ use alloy::{
     rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
 };
-use ansi_term::{ANSIGenericString, Color};
 use contender_core::{
     error::ContenderError,
     generator::{
@@ -19,6 +18,7 @@ use contender_core::{
 };
 use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
+use nu_ansi_term::{AnsiGenericString, Color, Style as ANSIStyle};
 use rand::Rng;
 use std::{ops::Deref, str::FromStr, sync::Arc, time::Duration};
 use tracing::{debug, info, warn};
@@ -364,7 +364,7 @@ pub fn spam_callback_default(
 }
 
 pub fn prompt_cli(msg: impl AsRef<str>) -> String {
-    println!("{}", Color::RGB(252, 186, 3).paint(msg.as_ref()));
+    println!("{}", Color::Rgb(252, 186, 3).paint(msg.as_ref()));
 
     let mut input = String::new();
     std::io::stdin()
@@ -410,10 +410,8 @@ pub fn db_file() -> Result<String, Box<dyn std::error::Error>> {
     Ok(format!("{data_path}/contender.db"))
 }
 
-pub fn bold<'a>(msg: impl AsRef<str> + 'a) -> ANSIGenericString<'a, str> {
-    ansi_term::Style::new()
-        .bold()
-        .paint(msg.as_ref().to_owned())
+pub fn bold<'a>(msg: impl AsRef<str> + 'a) -> AnsiGenericString<'a, str> {
+    ANSIStyle::new().bold().paint(msg.as_ref().to_owned())
 }
 
 /// Parses a string with time units into a Duration.
