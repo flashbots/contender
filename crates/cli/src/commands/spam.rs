@@ -16,7 +16,6 @@ use alloy::{
     providers::{DynProvider, ProviderBuilder},
     transports::http::reqwest::Url,
 };
-use ansi_term::Style;
 use contender_core::{
     agent_controller::AgentStore,
     db::{DbOps, SpamDuration, SpamRunRequest},
@@ -201,12 +200,8 @@ impl SpamCommandArgs {
                 "Not enough transactions per duration to cover spam requests.",
                 Some(format!(
                     "Set {} or {} to at least {spam_len}",
-                    ansi_term::Style::new()
-                        .bold()
-                        .paint("--txs-per-block (--tpb)"),
-                    ansi_term::Style::new()
-                        .bold()
-                        .paint("--txs-per-second (--tps)"),
+                    bold("--txs-per-block (--tpb)"),
+                    bold("--txs-per-second (--tps)"),
                 )),
             ));
         }
@@ -222,7 +217,7 @@ impl SpamCommandArgs {
                     "Builder URL is required to send bundles.",
                     Some(format!(
                         "Pass the builder's URL with {}",
-                        ansi_term::Style::new().bold().paint("--builder-url <URL>")
+                        bold("--builder-url <URL>")
                     )),
                 ));
             }
@@ -431,8 +426,9 @@ impl SpamCommandArgs {
         done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
 
         if loops.is_some_and(|inner_loops| inner_loops.is_none()) {
-            warn!(
-                "Spammer agents will eventually run out of funds. Make sure you add plenty of funds with {} (set your pre-funded account with {}).",
+            warn!("Spammer agents will eventually run out of funds.");
+            println!(
+                "Make sure you add plenty of funds with {} (set your pre-funded account with {}).",
                 bold("spam --min-balance"),
                 bold("spam -p"),
             );
@@ -447,9 +443,7 @@ impl SpamCommandArgs {
                     "min_balance: {}, total_cost: {}\nUse {} to increase the amount of funds sent to agent wallets.",
                     format_ether(min_balance),
                     format_ether(total_cost),
-                    ansi_term::Style::new()
-                        .bold()
-                        .paint("spam --min-balance <ETH amount>"),
+                    bold("spam --min-balance <ETH amount>"),
                 )
                 .into(),
             ));
@@ -564,7 +558,7 @@ pub async fn spam<
                 "Invalid bundle type.",
                 Some(format!(
                     "Set a different bundle type with {}",
-                    ansi_term::Style::new().bold().paint("--bundle-type")
+                    bold("--bundle-type")
                 )),
             ),
             err => err.into(),
@@ -589,8 +583,8 @@ pub async fn spam<
             "Missing params.",
             Some(format!(
                 "Either {} or {} must be set.",
-                Style::new().bold().paint("--txs-per-block"),
-                Style::new().bold().paint("--txs-per-second"),
+                bold("--txs-per-block"),
+                bold("--txs-per-second"),
             )),
         )));
     };

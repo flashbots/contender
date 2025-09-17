@@ -65,10 +65,11 @@ impl SetCodeArgs {
         if cli_args.contract_address.is_some() {
             // require signature & args to be provided, else error
             if cli_args.args.is_none() || cli_args.signature.is_none() {
-                warn!(
-                    "No args or signature provided, using defaults: {}",
+                warn!("No args or signature provided.");
+                println!(
+                    "using default sig & args: {}",
                     bold(format!("--sig \"{DEFAULT_SIG}\" --args \"{DEFAULT_ARGS}\""))
-                )
+                );
             }
         }
 

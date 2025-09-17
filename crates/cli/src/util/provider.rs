@@ -27,17 +27,19 @@ impl AdvanceChain for AuthClient {
                     AuthProviderError::InternalError(_, err) => {
                         error!("AuthClient encountered an internal error. Please check contender_engine_provider debug logs for more details.");
                         if err.to_string().contains("Invalid newPayload") {
-                            error!("You may need to specify a different engine message version with {}", bold("--message-version (-m)"));
+                            println!("You may need to specify a different engine message version with {}", bold("--message-version (-m)"));
                         }
                     }
                     AuthProviderError::ConnectionFailed(_) => {
                         error!("Failed to connect to the auth API. You may need to enable the auth API on your target node.");
                     }
                     AuthProviderError::ExtraDataTooShort => {
-                        error!("You may need to remove the {} flag to target this node.", bold("--op"));
+                        error!("Invalid payload.");
+                        println!("You may need to remove the {} flag to target this node.", bold("--op"));
                     }
                     AuthProviderError::GasLimitRequired => {
-                        error!("You may need to pass the {} flag to target this node.", bold("--op"));
+                        error!("Invalid payload.");
+                        println!("You may need to pass the {} flag to target this node.", bold("--op"));
                     }
                 }
             })

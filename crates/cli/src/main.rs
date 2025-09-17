@@ -228,7 +228,7 @@ fn check_spam_args(args: &SpamCliArgs) -> Result<bool, ContenderError> {
             .testfile
             .as_deref()
             .unwrap_or_default();
-        let suggestion_cmd = ansi_term::Style::new().bold().paint(format!(
+        let suggestion_cmd = bold(format!(
             "contender spam {scenario} -d {max_duration} -l {time_limit} ..."
         ));
         println!(
