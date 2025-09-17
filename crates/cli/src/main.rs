@@ -74,8 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let db = DB.clone();
     let db_path = db_file()?;
-
-    let stored_seed = load_seedfile()?;
+    let stored_seed = load_seedfile()?; // TODO: delete me
 
     match args.command {
         ContenderSubcommand::Db { command } => match command {
@@ -139,37 +138,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let SpamCliArgs {
                 eth_json_rpc_args:
                     ScenarioSendTxsCliArgs {
-                        testfile,
-                        rpc_url,
-                        seed,
-                        private_keys,
-                        min_balance,
-                        tx_type,
-                        bundle_type,
-                        auth_args,
-                        env,
+                        testfile, rpc_url, ..
                     },
                 spam_args,
-                disable_reporting,
                 gen_report,
-                spam_timeout,
-                redeploy,
                 ..
             } = *args.to_owned();
 
-            let SendSpamCliArgs {
-                builder_url,
-                txs_per_block,
-                txs_per_second,
-                duration,
-                pending_timeout,
-                loops,
-                accounts_per_agent,
-                ..
-            } = spam_args.to_owned();
+            let SendSpamCliArgs { loops, .. } = spam_args.to_owned();
 
-            let seed = seed.unwrap_or(stored_seed);
-            let engine_params = auth_args.engine_params().await?;
             let client = ClientBuilder::default().http(Url::from_str(&rpc_url)?);
             let provider = DynProvider::new(
                 ProviderBuilder::new()
@@ -199,29 +176,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // loops flag is not set, so only loop once
                 Some(1)
             };
-            let spam_args = SpamCommandArgs {
-                scenario,
-                rpc_url,
-                builder_url,
-                txs_per_block,
-                txs_per_second,
-                duration,
-                seed,
-                private_keys,
-                disable_reporting,
-                min_balance,
-                tx_type: tx_type.into(),
-                bundle_type: bundle_type.into(),
-                engine_params,
-                pending_timeout_secs: pending_timeout,
-                env,
-                loops: real_loops,
-                accounts_per_agent,
-                spam_timeout,
-                redeploy,
-            };
-
-            commands::spamd(&db, spam_args, gen_report, real_loops).await?;
+            let spamd_args = SpamCommandArgs::new(scenario, *args)?;
+            commands::spamd(&db, spamd_args, gen_report, real_loops).await?;
         }
 
         ContenderSubcommand::Report {

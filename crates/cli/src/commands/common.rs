@@ -317,6 +317,24 @@ impl From<TxTypeCli> for alloy::consensus::TxType {
     }
 }
 
+impl PartialEq<alloy::consensus::TxType> for TxTypeCli {
+    fn eq(&self, other: &alloy::consensus::TxType) -> bool {
+        match (self, other) {
+            (TxTypeCli::Legacy, alloy::consensus::TxType::Legacy) => true,
+            (TxTypeCli::Eip1559, alloy::consensus::TxType::Eip1559) => true,
+            (TxTypeCli::Eip4844, alloy::consensus::TxType::Eip4844) => true,
+            (TxTypeCli::Eip7702, alloy::consensus::TxType::Eip7702) => true,
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq<TxTypeCli> for alloy::consensus::TxType {
+    fn eq(&self, other: &TxTypeCli) -> bool {
+        other == self
+    }
+}
+
 pub fn cli_env_vars_parser(s: &str) -> Result<(String, String), String> {
     let equal_sign_index = s.find('=').ok_or("Invalid KEY=VALUE: No \"=\" found")?;
 
