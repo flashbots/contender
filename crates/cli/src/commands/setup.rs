@@ -1,20 +1,19 @@
+use super::common::ScenarioSendTxsCliArgs;
 use crate::{
-    commands::common::EngineParams,
+    commands::{common::EngineParams, SpamScenario},
     util::{
         check_private_keys_fns, find_insufficient_balances, fund_accounts,
-        get_signers_with_defaults, load_testconfig,
+        get_signers_with_defaults, load_seedfile,
     },
     LATENCY_HIST as HIST, PROM,
 };
 use alloy::{
-    consensus::TxType,
     network::AnyNetwork,
-    primitives::{utils::format_ether, U256},
+    primitives::utils::format_ether,
     providers::{DynProvider, ProviderBuilder},
     signers::local::PrivateKeySigner,
     transports::http::reqwest::Url,
 };
-use contender_core::BundleType;
 use contender_core::{
     agent_controller::{AgentStore, SignerStore},
     error::ContenderError,
@@ -24,6 +23,7 @@ use contender_core::{
 use contender_core::{generator::PlanConfig, util::get_block_time};
 use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use std::{
+    ops::Deref,
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -34,29 +34,20 @@ use std::{
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
-use super::common::ScenarioSendTxsCliArgs;
-
-#[derive(Debug, clap::Args)]
-pub struct SetupCliArgs {
-    #[command(flatten)]
-    pub args: ScenarioSendTxsCliArgs,
-}
-
 pub async fn setup(
     db: &(impl contender_core::db::DbOps + Clone + Send + Sync + 'static),
     args: SetupCommandArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let SetupCommandArgs {
-        testfile,
+    let ScenarioSendTxsCliArgs {
         rpc_url,
         private_keys,
         min_balance,
-        seed,
         tx_type,
-        engine_params,
         env,
         bundle_type,
-    } = args;
+        ..
+    } = args.eth_json_rpc_args.clone();
+    let engine_params = args.engine_params().await?;
 
     let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
     let rpc_client = DynProvider::new(
@@ -64,7 +55,7 @@ pub async fn setup(
             .network::<AnyNetwork>()
             .connect_http(url.to_owned()),
     );
-    let mut testconfig = load_testconfig(&testfile).await?;
+    let mut testconfig = args.scenario.testconfig().await?;
 
     // Setup env variables
     let mut env_variables = testconfig.env.clone().unwrap_or_default();
@@ -121,7 +112,7 @@ pub async fn setup(
             continue;
         }
 
-        let agent = SignerStore::new(1, &seed, from_pool);
+        let agent = SignerStore::new(1, &args.seed, from_pool);
         agents.add_agent(from_pool, agent);
     }
 
@@ -134,8 +125,8 @@ pub async fn setup(
         builder_rpc_url: None,
         signers: user_signers_with_defaults,
         agent_store: agents,
-        tx_type,
-        bundle_type,
+        tx_type: tx_type.into(),
+        bundle_type: bundle_type.into(),
         pending_tx_timeout_secs: 12,
         extra_msg_handles: None,
         redeploy: true,
@@ -146,7 +137,7 @@ pub async fn setup(
         &admin_signer,
         &rpc_client,
         min_balance,
-        tx_type,
+        tx_type.into(),
         &engine_params,
     )
     .await?;
@@ -154,7 +145,7 @@ pub async fn setup(
     let mut scenario = TestScenario::new(
         testconfig.to_owned(),
         db.clone().into(),
-        seed,
+        args.seed.clone(),
         params,
         engine_params.engine_provider,
         (&PROM, &HIST).into(),
@@ -259,13 +250,34 @@ pub async fn setup(
 }
 
 pub struct SetupCommandArgs {
-    pub testfile: String,
-    pub rpc_url: String,
-    pub private_keys: Option<Vec<String>>,
-    pub min_balance: U256,
+    pub scenario: SpamScenario,
+    pub eth_json_rpc_args: ScenarioSendTxsCliArgs,
     pub seed: RandSeed,
-    pub tx_type: TxType,
-    pub bundle_type: BundleType,
-    pub engine_params: EngineParams,
-    pub env: Option<Vec<(String, String)>>,
+}
+
+impl SetupCommandArgs {
+    pub fn new(
+        scenario: SpamScenario,
+        cli_args: ScenarioSendTxsCliArgs,
+    ) -> contender_core::Result<Self> {
+        let seed = RandSeed::seed_from_str(
+            &cli_args.seed.to_owned().unwrap_or(
+                load_seedfile()
+                    .map_err(|e| ContenderError::with_err(e.deref(), "failed to load seedfile"))?,
+            ),
+        );
+        Ok(Self {
+            scenario,
+            eth_json_rpc_args: cli_args.clone(),
+            seed,
+        })
+    }
+
+    async fn engine_params(&self) -> contender_core::Result<EngineParams> {
+        self.eth_json_rpc_args
+            .auth_args
+            .engine_params()
+            .await
+            .map_err(|e| ContenderError::with_err(e.deref(), "failed to build engine params"))
+    }
 }

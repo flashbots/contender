@@ -15,7 +15,7 @@ use commands::{
     ContenderCli, ContenderSubcommand, DbCommand, SetupCommandArgs, SpamCliArgs, SpamCommandArgs,
     SpamScenario,
 };
-use contender_core::{db::DbOps, error::ContenderError, generator::RandSeed};
+use contender_core::{db::DbOps, error::ContenderError};
 use contender_sqlite::{SqliteDb, DB_VERSION};
 use default_scenarios::{fill_block::FillBlockCliArgs, BuiltinScenarioCli};
 use std::{str::FromStr, sync::LazyLock};
@@ -24,7 +24,7 @@ use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 use util::{data_dir, db_file, prompt_continue};
 
-use crate::util::{bold, init_reports_dir, load_seedfile};
+use crate::util::{bold, init_reports_dir};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     let path = db_file().expect("failed to get DB file path");
@@ -74,7 +74,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let db = DB.clone();
     let db_path = db_file()?;
-    let stored_seed = load_seedfile()?; // TODO: delete me
 
     match args.command {
         ContenderSubcommand::Db { command } => match command {
@@ -85,37 +84,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
 
         ContenderSubcommand::Setup { args } => {
-            let ScenarioSendTxsCliArgs {
-                testfile,
-                rpc_url,
-                private_keys,
-                min_balance,
-                seed,
-                tx_type,
-                bundle_type,
-                auth_args,
-                env,
-            } = args.args;
-            let seed = seed.unwrap_or(stored_seed);
-            let engine_params = auth_args.engine_params().await?;
-            let testfile = if let Some(testfile) = testfile {
+            let testfile = if let Some(testfile) = &args.testfile {
                 testfile
             } else {
                 // if no testfile is provided, use the default one
                 warn!("No testfile provided, using default testfile \"scenario:simple.toml\"");
-                "scenario:simple.toml".to_owned()
+                "scenario:simple.toml"
             };
-            let args = SetupCommandArgs {
-                testfile,
-                rpc_url,
-                private_keys,
-                min_balance,
-                seed: RandSeed::seed_from_str(&seed),
-                tx_type: tx_type.into(),
-                bundle_type: bundle_type.into(),
-                engine_params,
-                env,
-            };
+            let scenario = SpamScenario::Testfile(testfile.to_owned());
+            let args = SetupCommandArgs::new(scenario, *args)?;
 
             commands::setup(&db, args).await?
         }

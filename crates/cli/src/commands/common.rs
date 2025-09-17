@@ -319,13 +319,13 @@ impl From<TxTypeCli> for alloy::consensus::TxType {
 
 impl PartialEq<alloy::consensus::TxType> for TxTypeCli {
     fn eq(&self, other: &alloy::consensus::TxType) -> bool {
-        match (self, other) {
-            (TxTypeCli::Legacy, alloy::consensus::TxType::Legacy) => true,
-            (TxTypeCli::Eip1559, alloy::consensus::TxType::Eip1559) => true,
-            (TxTypeCli::Eip4844, alloy::consensus::TxType::Eip4844) => true,
-            (TxTypeCli::Eip7702, alloy::consensus::TxType::Eip7702) => true,
-            _ => false,
-        }
+        matches!(
+            (self, other),
+            (TxTypeCli::Legacy, alloy::consensus::TxType::Legacy)
+                | (TxTypeCli::Eip1559, alloy::consensus::TxType::Eip1559)
+                | (TxTypeCli::Eip4844, alloy::consensus::TxType::Eip4844)
+                | (TxTypeCli::Eip7702, alloy::consensus::TxType::Eip7702)
+        )
     }
 }
 
