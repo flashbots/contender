@@ -41,7 +41,7 @@ strum = "0.27.1"
 
 ## cli
 console-subscriber = "0.4.1"
-ansi_term = "0.12.1"
+nu-ansi-term = "0.50.1"
 clap = { version = "4.5.16" }
 csv = "1.3.0"
 

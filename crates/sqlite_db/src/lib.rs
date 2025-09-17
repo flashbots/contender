@@ -361,7 +361,7 @@ impl DbOps for SqliteDb {
             params![rpc_url, genesis_hash.to_string()],
         )
         .map_err(|e| ContenderError::with_err(e, "failed to insert rpc_url into DB"))?;
-        println!("inserted RPC URL ({rpc_url} @ {genesis_hash}) into DB");
+        debug!("inserted RPC URL ({rpc_url} @ {genesis_hash}) into DB");
 
         // then get the rpc_url ID
         let rpc_url_id: i64 = self.query_row(
