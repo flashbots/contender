@@ -312,7 +312,11 @@ impl SpamCommandArgs {
             panic!("Cannot set both --txs-per-block and --txs-per-second");
         }
         if txs_per_block.is_none() && txs_per_second.is_none() {
-            panic!("Must set either --txs-per-block (--tpb) or --txs-per-second (--tps)");
+            panic!(
+                "Must set either {} or {}",
+                bold("--txs-per-block (--tpb)"),
+                bold("--txs-per-second (--tps)")
+            );
         }
 
         let all_signer_addrs = agents.all_signer_addresses();
@@ -398,9 +402,7 @@ impl SpamCommandArgs {
                         "min_balance: {}, setup_cost: {}\nUse {} to increase the amount of funds sent to agent wallets.",
                         format_ether(min_balance),
                         format_ether(setup_cost),
-                        ansi_term::Style::new()
-                            .bold()
-                            .paint("spam --min-balance <ETH amount>"),
+                        bold("spam --min-balance <ETH amount>"),
                     )
                     .into(),
                 ));
@@ -428,11 +430,11 @@ impl SpamCommandArgs {
         }
         done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
 
-        if loops.is_none() {
+        if loops.is_some_and(|inner_loops| inner_loops.is_none()) {
             warn!(
                 "Spammer agents will eventually run out of funds. Make sure you add plenty of funds with {} (set your pre-funded account with {}).",
-                ansi_term::Style::new().bold().paint("spam --min-balance"),
-                ansi_term::Style::new().bold().paint("spam -p"),
+                bold("spam --min-balance"),
+                bold("spam -p"),
             );
         }
 

@@ -186,6 +186,7 @@ fn init_tracing() {
             .with_default_env()
             .spawn();
         let fmt_layer = fmt::layer()
+            .with_ansi(true)
             .with_target(true)
             .with_line_number(true)
             .with_filter(filter);

@@ -84,6 +84,7 @@ pub fn default_signers() -> Vec<PrivateKeySigner> {
 pub fn init_core_tracing(filter: Option<EnvFilter>) {
     let filter = filter.unwrap_or(EnvFilter::new("info"));
     tracing_subscriber::fmt()
+        .with_ansi(true)
         .with_env_filter(filter)
         .with_target(true)
         .with_line_number(true)
