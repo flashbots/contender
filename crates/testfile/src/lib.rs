@@ -251,8 +251,8 @@ pub mod tests {
         println!("{}", "-".repeat(80));
     }
 
-    #[tokio::test]
-    async fn encodes_testconfig_toml() {
+    #[test]
+    fn encodes_testconfig_toml() {
         let cfg = get_composite_testconfig();
         let encoded = cfg.encode_toml().unwrap();
         print_testconfig(&encoded);
