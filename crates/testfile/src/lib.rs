@@ -229,8 +229,8 @@ pub mod tests {
         files
     }
 
-    #[tokio::test]
-    async fn parses_all_repo_scenarios() {
+    #[test]
+    fn parses_all_repo_scenarios() {
         let repo_root = repo_root_path();
         let scenarios_dir = repo_root.join("scenarios");
         assert!(
