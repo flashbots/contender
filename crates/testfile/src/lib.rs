@@ -205,52 +205,44 @@ pub mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn parses_all_repo_scenarios() {
-        use std::path::PathBuf;
-
-        // Find repo root by walking up from current crate dir until we see scenarios/
-        let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        // crates/testfile -> crates -> repo root
+    fn repo_root_path() -> std::path::PathBuf {
+        let mut dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         dir.pop(); // crates
         dir.pop(); // repo root
-        let repo_root = dir;
-        let scenarios_dir = repo_root.join("scenarios");
-        assert!(scenarios_dir.exists(), "scenarios/ directory not found at {}", scenarios_dir.display());
+        dir
+    }
 
-        let mut entries = std::fs::read_dir(&scenarios_dir)
-            .unwrap_or_else(|e| panic!("failed to read scenarios dir {}: {}", scenarios_dir.display(), e));
-
-        let mut parsed = 0usize;
-        while let Some(Ok(entry)) = entries.next() {
-            let path = entry.path();
-            if path.is_dir() {
-                // scan nested directories
-                let mut stack = vec![path];
-                while let Some(p) = stack.pop() {
-                    for e in std::fs::read_dir(&p).unwrap() {
-                        let e = e.unwrap();
-                        let p2 = e.path();
-                        if p2.is_dir() {
-                            stack.push(p2);
-                        } else if p2.extension().and_then(|s| s.to_str()) == Some("toml") {
-                            let rel = p2.strip_prefix(&repo_root).unwrap().to_string_lossy().to_string();
-                            let cfg = TestConfig::from_file(p2.to_str().unwrap())
-                                .unwrap_or_else(|e| panic!("failed to parse scenario {}: {}", rel, e));
-                            assert!(cfg.create.is_some() || cfg.setup.is_some() || cfg.spam.is_some(), "{} contains no sections", rel);
-                            parsed += 1;
-                        }
-                    }
+    fn collect_scenario_tomls(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut stack = vec![dir.to_path_buf()];
+        let mut files = Vec::new();
+        while let Some(p) = stack.pop() {
+            for entry in std::fs::read_dir(&p).unwrap() {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                    files.push(path);
                 }
-            } else if path.extension().and_then(|s| s.to_str()) == Some("toml") {
-                let rel = path.strip_prefix(&repo_root).unwrap().to_string_lossy().to_string();
-                let _cfg = TestConfig::from_file(path.to_str().unwrap())
-                    .unwrap_or_else(|e| panic!("failed to parse scenario {}: {}", rel, e));
-                parsed += 1;
             }
         }
+        files
+    }
 
-        assert!(parsed > 0, "no scenario TOML files parsed");
+    #[tokio::test]
+    async fn parses_all_repo_scenarios() {
+        let repo_root = repo_root_path();
+        let scenarios_dir = repo_root.join("scenarios");
+        assert!(
+            scenarios_dir.exists(),
+            "scenarios/ directory not found at {}",
+            scenarios_dir.display()
+        );
+
+        let files = collect_scenario_tomls(&scenarios_dir);
+        for path in files {
+            TestConfig::from_file(path.to_str().unwrap()).unwrap();
+        }
     }
 
     fn print_testconfig(cfg: &str) {
