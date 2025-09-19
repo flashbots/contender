@@ -205,14 +205,54 @@ pub mod tests {
         }
     }
 
+    fn repo_root_path() -> std::path::PathBuf {
+        let mut dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        dir.pop(); // crates
+        dir.pop(); // repo root
+        dir
+    }
+
+    fn collect_scenario_tomls(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut stack = vec![dir.to_path_buf()];
+        let mut files = Vec::new();
+        while let Some(p) = stack.pop() {
+            for entry in std::fs::read_dir(&p).unwrap() {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                    files.push(path);
+                }
+            }
+        }
+        files
+    }
+
+    #[test]
+    fn parses_all_repo_scenarios() {
+        let repo_root = repo_root_path();
+        let scenarios_dir = repo_root.join("scenarios");
+        assert!(
+            scenarios_dir.exists(),
+            "scenarios/ directory not found at {}",
+            scenarios_dir.display()
+        );
+
+        let files = collect_scenario_tomls(&scenarios_dir);
+        for path in files {
+            TestConfig::from_file(path.to_str().unwrap()).unwrap();
+        }
+    }
+
     fn print_testconfig(cfg: &str) {
         println!("{}", "-".repeat(80));
         println!("{cfg}");
         println!("{}", "-".repeat(80));
     }
 
-    #[tokio::test]
-    async fn encodes_testconfig_toml() {
+    #[test]
+    fn encodes_testconfig_toml() {
         let cfg = get_composite_testconfig();
         let encoded = cfg.encode_toml().unwrap();
         print_testconfig(&encoded);
