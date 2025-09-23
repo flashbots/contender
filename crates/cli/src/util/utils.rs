@@ -480,8 +480,52 @@ pub fn load_seedfile() -> Result<String, Box<dyn std::error::Error>> {
     Ok(stored_seed)
 }
 
+/// Returns a human-readable "gas" string.
+///
+/// ## Example:
+/// ```rs
+/// assert_eq!(human_readable_gas(500), "500 gas");
+/// assert_eq!(human_readable_gas(500_000_000), "500 Mgas");
+/// assert_eq!(human_readable_gas(5_000_000_000), "5 Ggas");
+/// ```
+pub fn human_readable_gas(gas: u128) -> String {
+    let unit_divisors = [
+        ("Ggas", 1_000_000_000.0),
+        ("Mgas", 1_000_000.0),
+        ("Kgas", 1_000.0),
+        ("gas", 1.0),
+    ];
+    let (gas_unit, divisor) = unit_divisors
+        .iter()
+        .find(|(_, divisor)| gas as f64 >= *divisor)
+        .unwrap_or(unit_divisors.last().expect("empty unit_divisors"));
+    format!("{} {gas_unit}", gas as f64 / divisor)
+}
+
+/// Returns a human-readable duration, which only goes up to minutes.
+/// Doesn't display minutes until >2 minutes have elapsed.
+///
+/// ## Example:
+/// ```rs
+/// assert_eq!(human_readable_duration(Duration::from_secs(60)), "60 seconds");
+/// assert_eq!(human_readable_duration(Duration::from_secs(240)), "4 minutes");
+/// assert_eq!(human_readable_duration(Duration::from_millis(600)), "600 milliseconds");
+/// ```
+pub fn human_readable_duration(duration: Duration) -> String {
+    if duration > Duration::from_secs(60 * 2) {
+        format!("{} minutes", duration.as_secs_f32() / 60.0)
+    } else if duration > Duration::from_secs(1) {
+        format!("{} seconds", duration.as_secs_f32())
+    } else {
+        format!("{} milliseconds", duration.as_millis())
+    }
+}
+
 #[cfg(test)]
 mod test {
+    use crate::util::human_readable_duration;
+    use crate::util::utils::human_readable_gas;
+
     use super::fund_accounts;
     use super::load_testconfig;
     use super::parse_duration;
@@ -672,5 +716,29 @@ mod test {
         .await;
         println!("res: {res:?}");
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn human_readable_gas_works() {
+        assert_eq!(human_readable_gas(500), "500 gas");
+        assert_eq!(human_readable_gas(500_000_000), "500 Mgas");
+        assert_eq!(human_readable_gas(5_000_000_000), "5 Ggas");
+        assert_eq!(human_readable_gas(5_101_000_000), "5.101 Ggas");
+    }
+
+    #[test]
+    fn human_readable_duration_works() {
+        assert_eq!(
+            human_readable_duration(Duration::from_secs(60)),
+            "60 seconds"
+        );
+        assert_eq!(
+            human_readable_duration(Duration::from_secs(240)),
+            "4 minutes"
+        );
+        assert_eq!(
+            human_readable_duration(Duration::from_millis(600)),
+            "600 milliseconds"
+        );
     }
 }

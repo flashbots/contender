@@ -468,11 +468,15 @@ impl<N: Network + NetworkAttributes> AdvanceChain for AuthProvider<N> {
 
 #[async_trait]
 impl ReplayChain for AuthProvider<Ethereum> {
-    async fn replay_chain_segment(&self, start_block: u64) -> AuthResult<ChainReplayResults> {
+    async fn replay_chain_segment(
+        &self,
+        start_block: u64,
+        end_block: Option<u64>,
+    ) -> AuthResult<ChainReplayResults> {
         let engine_client = &self.inner;
 
         // check block range
-        let blocknum_head = engine_client.get_block_number().await?;
+        let blocknum_head = end_block.unwrap_or(engine_client.get_block_number().await?);
         if start_block >= blocknum_head {
             return Err(AuthProviderError::InvalidBlockRange(
                 start_block,
@@ -549,7 +553,11 @@ impl ReplayChain for AuthProvider<Ethereum> {
 
 #[async_trait]
 impl ReplayChain for AuthProvider<Optimism> {
-    async fn replay_chain_segment(&self, _start_block: u64) -> AuthResult<ChainReplayResults> {
+    async fn replay_chain_segment(
+        &self,
+        _start_block: u64,
+        _end_block: Option<u64>,
+    ) -> AuthResult<ChainReplayResults> {
         todo!()
     }
 }

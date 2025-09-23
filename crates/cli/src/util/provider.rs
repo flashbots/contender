@@ -85,9 +85,13 @@ impl AdvanceChain for AuthClient {
 
 #[async_trait]
 impl ReplayChain for AuthClient {
-    async fn replay_chain_segment(&self, start_block: u64) -> AuthResult<ChainReplayResults> {
+    async fn replay_chain_segment(
+        &self,
+        start_block: u64,
+        end_block: Option<u64>,
+    ) -> AuthResult<ChainReplayResults> {
         self.auth_provider
-            .replay_chain_segment(start_block)
+            .replay_chain_segment(start_block, end_block)
             .await
             .inspect_err(inspect_auth_err)
     }

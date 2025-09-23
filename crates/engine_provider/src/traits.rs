@@ -32,7 +32,11 @@ impl ChainReplayResults {
 pub trait ReplayChain {
     /// Re-send & re-validate a range of previously-committed blocks.
     /// Returns relevant results from the replay execution.
-    async fn replay_chain_segment(&self, start_block: u64) -> AuthResult<ChainReplayResults>;
+    async fn replay_chain_segment(
+        &self,
+        start_block: u64,
+        end_block: Option<u64>,
+    ) -> AuthResult<ChainReplayResults>;
 }
 
 pub trait ControlChain: AdvanceChain + ReplayChain {}
