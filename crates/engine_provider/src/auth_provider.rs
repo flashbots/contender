@@ -1,7 +1,7 @@
 use super::{auth_transport::AuthenticatedTransportConnect, AdvanceChain};
 use crate::{engine::Signer, read_jwt_file};
 use crate::{error::AuthProviderError, valid_payload::EngineApiValidWaitExt};
-use crate::{ControlChain, ReplayChain};
+use crate::{ChainReplayResults, ControlChain, ReplayChain};
 use alloy::consensus::Transaction;
 use alloy::consensus::{BlobTransactionSidecar, TxEnvelope};
 use alloy::eips::eip7685::Requests;
@@ -29,6 +29,7 @@ use op_alloy_network::{primitives::HeaderResponse, BlockResponse, Network, Optim
 use reth_node_api::EngineApiMessageVersion;
 use reth_optimism_node::OpPayloadAttributes;
 use std::path::PathBuf;
+use std::time::Instant;
 use tracing::{debug, info};
 
 pub const FJORD_DATA: &[u8] = &alloy::hex!(
@@ -467,7 +468,7 @@ impl<N: Network + NetworkAttributes> AdvanceChain for AuthProvider<N> {
 
 #[async_trait]
 impl ReplayChain for AuthProvider<Ethereum> {
-    async fn replay_chain_segment(&self, start_block: u64) -> AuthResult<()> {
+    async fn replay_chain_segment(&self, start_block: u64) -> AuthResult<ChainReplayResults> {
         let engine_client = &self.inner;
 
         // check block range
@@ -482,6 +483,8 @@ impl ReplayChain for AuthProvider<Ethereum> {
             return Err(AuthProviderError::InvalidBlockStart(start_block));
         }
 
+        info!("replaying blocks: {start_block} - {blocknum_head}...");
+
         let get_block = async |blocknum: u64| {
             Ok::<_, AuthProviderError>(
                 engine_client
@@ -492,22 +495,33 @@ impl ReplayChain for AuthProvider<Ethereum> {
             )
         };
 
+        // get all blocks first, so we only account for the execution speed
+        // (time spent processing after we've retrieved all the blocks)
+        let mut blocks = vec![];
         // start at parent of start_block to get parent hash
-        let mut current_block = get_block(start_block - 1).await?;
-        for i in start_block..blocknum_head {
-            let prev_hash = current_block.header().hash();
-            let new_block = get_block(i).await?;
-            current_block = new_block;
+        for i in start_block - 1..blocknum_head {
+            blocks.push(get_block(i).await?);
+        }
+
+        let mut gas_used = 0u128;
+        let start_timestamp = Instant::now();
+
+        // windows will allow us to read the first block while using the second as the block to execute
+        for blockwin in blocks.windows(2) {
+            let prev_block = &blockwin[0];
+            let current_block = &blockwin[1];
+            let prev_hash = prev_block.header.hash();
+            gas_used += current_block.header.gas_used as u128;
 
             /*** update chain head w/ FCU ***/
-            self.call_fcu_default(prev_hash, current_block.header().hash(), None)
+            self.call_fcu_default(prev_hash, current_block.header.hash(), None)
                 .await?;
 
             /*** recreate block payload ***/
-            let payload = self.block_to_payload(i).await?;
+            let payload = self.block_to_payload(current_block.header.number).await?;
 
             let sidecars = None; // TODO: do we need to support sidecars?
-            let versioned_hashes = derive_blob_versioned_hashes(&current_block, sidecars)?;
+            let versioned_hashes = derive_blob_versioned_hashes(current_block, sidecars)?;
 
             let execution_requests = None; // TODO: support execution requests
                                            /*
@@ -518,20 +532,24 @@ impl ReplayChain for AuthProvider<Ethereum> {
 
             self.call_new_payload(
                 payload,
-                current_block.header().parent_beacon_block_root,
+                current_block.header.parent_beacon_block_root,
                 versioned_hashes,
                 execution_requests,
             )
             .await?;
         }
+        let time_elapsed = Instant::now().duration_since(start_timestamp);
 
-        Ok(())
+        Ok(ChainReplayResults {
+            gas_used,
+            time_elapsed,
+        })
     }
 }
 
 #[async_trait]
 impl ReplayChain for AuthProvider<Optimism> {
-    async fn replay_chain_segment(&self, _start_block: u64) -> AuthResult<()> {
+    async fn replay_chain_segment(&self, _start_block: u64) -> AuthResult<ChainReplayResults> {
         todo!()
     }
 }

@@ -276,7 +276,7 @@ impl SetupCommandArgs {
     async fn engine_params(&self) -> contender_core::Result<EngineParams> {
         self.eth_json_rpc_args
             .auth_args
-            .engine_params()
+            .engine_params(self.eth_json_rpc_args.call_forkchoice)
             .await
             .map_err(|e| ContenderError::with_err(e.deref(), "failed to build engine params"))
     }

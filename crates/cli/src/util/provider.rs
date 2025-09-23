@@ -2,7 +2,8 @@
 
 use async_trait::async_trait;
 use contender_engine_provider::{
-    error::AuthProviderError, AdvanceChain, AuthResult, ControlChain, ReplayChain,
+    error::AuthProviderError, AdvanceChain, AuthResult, ChainReplayResults, ControlChain,
+    ReplayChain,
 };
 use tracing::error;
 
@@ -84,7 +85,7 @@ impl AdvanceChain for AuthClient {
 
 #[async_trait]
 impl ReplayChain for AuthClient {
-    async fn replay_chain_segment(&self, start_block: u64) -> AuthResult<()> {
+    async fn replay_chain_segment(&self, start_block: u64) -> AuthResult<ChainReplayResults> {
         self.auth_provider
             .replay_chain_segment(start_block)
             .await

@@ -74,6 +74,15 @@ May be specified multiple times."
     #[command(flatten)]
     pub auth_args: AuthCliArgs,
 
+    /// Call `engine_forkchoiceUpdated` after each block.
+    #[arg(
+        long,
+        long_help = "Call engine_forkchoiceUpdated on Auth RPC after each block.
+Requires --auth-rpc-url and --jwt-secret to be set.",
+        visible_aliases = &["fcu"]
+    )]
+    pub call_forkchoice: bool,
+
     #[arg(
         short,
         long,
@@ -104,15 +113,6 @@ Required if --auth-rpc-url is set.",
     )]
     pub jwt_secret: Option<String>,
 
-    /// Call `engine_forkchoiceUpdated` after each block
-    #[arg(
-        long,
-        long_help = "Call engine_forkchoiceUpdated on Auth RPC after each block.
-Requires --auth-rpc-url and --jwt-secret to be set.",
-        visible_aliases = &["fcu"]
-    )]
-    pub call_forkchoice: bool,
-
     /// Use OP engine provider
     #[arg(
         long = "optimism",
@@ -141,8 +141,11 @@ enum EngineMessageVersion {
 }
 
 impl AuthCliArgs {
-    pub async fn engine_params(&self) -> Result<EngineParams, Box<dyn std::error::Error>> {
-        if self.call_forkchoice && (self.auth_rpc_url.is_none() || self.jwt_secret.is_none()) {
+    pub async fn engine_params(
+        &self,
+        call_forkchoice: bool,
+    ) -> Result<EngineParams, Box<dyn std::error::Error>> {
+        if call_forkchoice && (self.auth_rpc_url.is_none() || self.jwt_secret.is_none()) {
             return Err("engine args required for forkchoice".into());
         }
 
@@ -159,7 +162,7 @@ impl AuthCliArgs {
                     // EngineMessageVersion::V5 => EngineApiMessageVersion::V5,
                 },
             };
-            EngineParams::new(Arc::new(args.new_provider().await?), self.call_forkchoice)
+            EngineParams::new(Arc::new(args.new_provider().await?), call_forkchoice)
         } else {
             EngineParams::default()
         };
