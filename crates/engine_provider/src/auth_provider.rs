@@ -15,7 +15,6 @@ use alloy::{
     primitives::{address, BlockHash, Bytes, FixedBytes, TxKind, B256, U256},
     providers::{ext::EngineApi, Provider, RootProvider},
     rpc::client::ClientBuilder,
-    rpc::types::eth,
     transports::{http::reqwest::Url, TransportResult},
 };
 use alloy_rpc_types_engine::{
@@ -525,7 +524,14 @@ impl ReplayChain for AuthProvider<Ethereum> {
             let payload = self.block_to_payload(current_block.header.number).await?;
 
             let sidecars = None; // TODO: do we need to support sidecars?
-            let versioned_hashes = derive_blob_versioned_hashes(current_block, sidecars)?;
+            let txs = current_block
+                .to_owned()
+                .try_into_transactions()
+                .map_err(|_| AuthProviderError::InvalidTxs)?
+                .into_iter()
+                .map(|t| TxEnvelope::from(t))
+                .collect::<Vec<_>>();
+            let versioned_hashes = derive_blob_versioned_hashes(&txs, sidecars)?;
 
             let execution_requests = None; // TODO: support execution requests
                                            /*
@@ -607,24 +613,18 @@ fn kzg_to_versioned_hash(commitment: &[u8; 48]) -> B256 {
 /// Return all blob versioned hashes for all 4844 txs in `blk`.
 /// Prefers vhashes embedded in the tx; falls back to sidecar commitments.
 pub fn derive_blob_versioned_hashes(
-    blk: &eth::Block<eth::Transaction>,
+    txs: &[TxEnvelope],
     sidecars: Option<&HashMap<B256, BlobTransactionSidecar>>,
 ) -> AuthResult<Vec<B256>> {
     let mut out = Vec::new();
-    for tx in blk
-        .to_owned()
-        .try_into_transactions()
-        .map_err(|_| AuthProviderError::InvalidTxs)?
-        .into_iter()
-    {
-        let env: &TxEnvelope = tx.as_ref();
 
-        if let Some(vhs) = env.blob_versioned_hashes() {
+    for tx in txs {
+        if let Some(vhs) = tx.blob_versioned_hashes() {
             out.extend_from_slice(vhs);
             continue;
         }
 
-        if let Some(sc) = sidecars.and_then(|m| m.get(env.hash())) {
+        if let Some(sc) = sidecars.and_then(|m| m.get(tx.hash())) {
             for c in &sc.commitments {
                 let c48: FixedBytes<48> = *c;
                 out.push(kzg_to_versioned_hash(c48.as_slice().try_into().unwrap()));
@@ -633,8 +633,6 @@ pub fn derive_blob_versioned_hashes(
     }
     Ok(out)
 }
-
-// impl<N: Network + NetworkAttributes> ControlChain for AuthProvider<N> {}
 
 fn get_op_block_info_tx() -> Bytes {
     let deposit_tx = TxDeposit {
