@@ -24,7 +24,10 @@ use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 use util::{data_dir, db_file, prompt_continue};
 
-use crate::util::{bold, init_reports_dir};
+use crate::{
+    commands::replay::ReplayArgs,
+    util::{bold, init_reports_dir},
+};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     let path = db_file().expect("failed to get DB file path");
@@ -155,6 +158,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             let spamd_args = SpamCommandArgs::new(scenario, *args)?;
             commands::spamd(&db, spamd_args, gen_report, real_loops).await?;
+        }
+
+        ContenderSubcommand::Replay { args } => {
+            let args = ReplayArgs::from_cli_args(*args).await?;
+            commands::replay::replay(args).await?;
         }
 
         ContenderSubcommand::Report {

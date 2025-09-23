@@ -4,7 +4,7 @@ use crate::{
     generator::{types::AnyProvider, NamedTxRequest},
 };
 use alloy::providers::PendingTransactionConfig;
-use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
+use contender_engine_provider::{ControlChain, DEFAULT_BLOCK_TIME};
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -95,7 +95,7 @@ pub struct NilCallback;
 
 pub struct LogCallback {
     pub rpc_provider: Arc<AnyProvider>,
-    pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    pub auth_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
     pub send_fcu: bool,
     pub cancel_token: tokio_util::sync::CancellationToken,
 }
@@ -111,7 +111,7 @@ impl LogCallback {
     }
     pub fn auth_provider(
         mut self,
-        provider: Arc<dyn AdvanceChain + Send + Sync + 'static>,
+        provider: Arc<dyn ControlChain + Send + Sync + 'static>,
     ) -> Self {
         self.auth_provider = Some(provider);
         self

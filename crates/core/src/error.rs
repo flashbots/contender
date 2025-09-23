@@ -100,18 +100,28 @@ impl From<BundleProviderError> for ContenderError {
 
 impl From<AuthProviderError> for ContenderError {
     fn from(err: AuthProviderError) -> ContenderError {
+        use AuthProviderError::*;
         match err {
-            AuthProviderError::InternalError(msg, e) => {
+            InvalidPayload(_, _) => ContenderError::with_err(err, "invalid payload"),
+            MissingBlock(_) => ContenderError::with_err(err, "block not found onchain"),
+            InvalidTxs => ContenderError::with_err(err, "invalid txs in block"),
+            InvalidBlockRange(start, end) => ContenderError::InvalidRuntimeParams(
+                RuntimeParamErrorKind::InvalidArgs(format!("start={start}, end={end}")),
+            ),
+            InvalidBlockStart(blk) => ContenderError::InvalidRuntimeParams(
+                RuntimeParamErrorKind::InvalidArgs(format!("start={blk}")),
+            ),
+            InternalError(msg, e) => {
                 ContenderError::AdminError(msg.unwrap_or("internal error"), e.to_string())
             }
-            AuthProviderError::ConnectionFailed(e) => {
+            ConnectionFailed(e) => {
                 ContenderError::AdminError("Failed to connect to auth provider", e.to_string())
             }
-            AuthProviderError::ExtraDataTooShort => ContenderError::AdminError(
+            ExtraDataTooShort => ContenderError::AdminError(
                 "Extra data too short",
                 "Genesis block extra data is too short".to_string(),
             ),
-            AuthProviderError::GasLimitRequired => ContenderError::AdminError(
+            GasLimitRequired => ContenderError::AdminError(
                 "Gas limit required",
                 "Gas limit parameter is required".to_string(),
             ),

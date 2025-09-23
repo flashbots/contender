@@ -6,7 +6,7 @@ use alloy::primitives::utils::parse_units;
 use alloy::primitives::U256;
 use contender_core::BundleType;
 use contender_engine_provider::reth_node_api::EngineApiMessageVersion;
-use contender_engine_provider::AdvanceChain;
+use contender_engine_provider::ControlChain;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, clap::Args)]
@@ -260,14 +260,15 @@ impl Default for BundleTypeCli {
     }
 }
 
+#[derive(Clone)]
 pub struct EngineParams {
-    pub engine_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    pub engine_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
     pub call_fcu: bool,
 }
 
 impl EngineParams {
     pub fn new(
-        engine_provider: Arc<dyn AdvanceChain + Send + Sync + 'static>,
+        engine_provider: Arc<dyn ControlChain + Send + Sync + 'static>,
         call_forkchoice: bool,
     ) -> Self {
         Self {

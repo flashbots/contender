@@ -23,7 +23,7 @@ use alloy::{
     signers::local::PrivateKeySigner, transports::http::reqwest::Url,
 };
 use contender_bundle_provider::bundle::BundleType;
-use contender_engine_provider::AdvanceChain;
+use contender_engine_provider::ControlChain;
 use std::sync::LazyLock;
 
 static SMOL_AMOUNT: LazyLock<U256> = LazyLock::new(|| WEI_IN_ETHER / U256::from(100));
@@ -50,7 +50,7 @@ where
     pub bundle_type: BundleType,
     pub pending_tx_timeout_secs: u64,
     pub extra_msg_handles: Option<HashMap<String, Arc<TxActorHandle>>>,
-    pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    pub auth_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
     pub prometheus: PrometheusCollector,
     /// The amount of ether each agent account gets.
     pub funding: U256,
@@ -240,7 +240,7 @@ where
     bundle_type: BundleType,
     pending_tx_timeout_secs: u64,
     extra_msg_handles: Option<HashMap<String, Arc<TxActorHandle>>>,
-    auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    auth_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
     prometheus: PrometheusCollector,
     funding: U256,
     redeploy: bool,
@@ -280,7 +280,7 @@ where
         self.extra_msg_handles = Some(m);
         self
     }
-    pub fn auth_provider(mut self, a: Arc<dyn AdvanceChain + Send + Sync + 'static>) -> Self {
+    pub fn auth_provider(mut self, a: Arc<dyn ControlChain + Send + Sync + 'static>) -> Self {
         self.auth_provider = Some(a);
         self
     }

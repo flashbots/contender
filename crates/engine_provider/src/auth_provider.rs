@@ -1,22 +1,30 @@
 use super::{auth_transport::AuthenticatedTransportConnect, AdvanceChain};
 use crate::{engine::Signer, read_jwt_file};
 use crate::{error::AuthProviderError, valid_payload::EngineApiValidWaitExt};
+use crate::{ControlChain, ReplayChain};
+use alloy::consensus::Transaction;
+use alloy::consensus::{BlobTransactionSidecar, TxEnvelope};
 use alloy::eips::eip7685::Requests;
+use alloy::primitives::map::HashMap;
+use alloy::signers::k256::sha2::Digest;
+use alloy::signers::k256::sha2::Sha256;
 use alloy::{
     consensus::BlockHeader,
     eips::{BlockId, Encodable2718},
     network::AnyNetwork,
     primitives::{address, BlockHash, Bytes, FixedBytes, TxKind, B256, U256},
-    providers::{ext::EngineApi, DynProvider, Provider, RootProvider},
+    providers::{ext::EngineApi, Provider, RootProvider},
     rpc::client::ClientBuilder,
+    rpc::types::eth,
     transports::{http::reqwest::Url, TransportResult},
 };
 use alloy_rpc_types_engine::{
-    ExecutionPayload, ExecutionPayloadInputV2, ForkchoiceState, ForkchoiceUpdated, JwtSecret,
-    PayloadAttributes,
+    ExecutionPayload, ExecutionPayloadInputV2, ExecutionPayloadV1, ExecutionPayloadV2,
+    ExecutionPayloadV3, ForkchoiceState, ForkchoiceUpdated, JwtSecret, PayloadAttributes,
 };
 use async_trait::async_trait;
 use op_alloy_consensus::{OpTypedTransaction, TxDeposit};
+use op_alloy_network::Ethereum;
 use op_alloy_network::{primitives::HeaderResponse, BlockResponse, Network, Optimism};
 use reth_node_api::EngineApiMessageVersion;
 use reth_optimism_node::OpPayloadAttributes;
@@ -34,7 +42,7 @@ pub struct AuthProvider<Net = AnyNetwork>
 where
     Net: Network,
 {
-    pub inner: DynProvider<Net>,
+    pub inner: RootProvider<Net>,
     genesis_block: Net::HeaderResponse,
     pub message_version: EngineApiMessageVersion,
 }
@@ -112,12 +120,12 @@ where
             .connect_with(auth_transport)
             .await
             .map_err(|e| AuthProviderError::ConnectionFailed(e.into()))?;
-        let auth_provider = DynProvider::new(RootProvider::<N>::new(client));
+        let auth_provider = RootProvider::<N>::new(client);
         let genesis_block = auth_provider
             .get_block_by_number(alloy::eips::BlockNumberOrTag::Earliest)
             .await
             .map_err(|e| {
-                AuthProviderError::InternalError("failed to get genesis block".into(), e.into())
+                AuthProviderError::InternalError("failed to get genesis block".into(), Box::new(e))
             })?
             .expect("no genesis block found")
             .header()
@@ -221,14 +229,17 @@ where
         parent_beacon_block_root: Option<B256>,
         versioned_hashes: Vec<B256>,
         execution_requests: Option<Requests>,
-    ) -> TransportResult<EngineApiMessageVersion> {
+    ) -> AuthResult<EngineApiMessageVersion> {
         match payload {
             ExecutionPayload::V3(payload) => {
                 match self.message_version {
                     EngineApiMessageVersion::V3 => {
                         // We expect the caller
-                        let parent_beacon_block_root = parent_beacon_block_root
-                            .expect("parent_beacon_block_root is required for V3 payloads");
+                        let parent_beacon_block_root =
+                            parent_beacon_block_root.ok_or(AuthProviderError::InvalidPayload(
+                                self.message_version,
+                                Some("parent_beacon_block_root is required for V3 payloads"),
+                            ))?;
                         self.inner
                             .new_payload_v3_wait(
                                 payload,
@@ -241,11 +252,17 @@ where
                     }
                     EngineApiMessageVersion::V4 => {
                         // We expect the caller
-                        let parent_beacon_block_root = parent_beacon_block_root
-                            .expect("parent_beacon_block_root is required for V3 payloads");
+                        let parent_beacon_block_root =
+                            parent_beacon_block_root.ok_or(AuthProviderError::InvalidPayload(
+                                self.message_version,
+                                Some("parent_beacon_block_root is required for V4 payloads"),
+                            ))?;
                         // ... and executionRequests
-                        let execution_requests = execution_requests
-                            .expect("execution_requests is required for V4 payloads");
+                        let execution_requests =
+                            execution_requests.ok_or(AuthProviderError::InvalidPayload(
+                                self.message_version,
+                                Some("execution_requests is required for V4 payloads"),
+                            ))?;
                         self.inner
                             .new_payload_v4_wait(
                                 payload,
@@ -275,6 +292,71 @@ where
                 Ok(EngineApiMessageVersion::V1)
             }
         }
+    }
+}
+
+impl AuthProvider<Ethereum> {
+    async fn block_to_payload(&self, block_num: u64) -> AuthResult<ExecutionPayload> {
+        let blk = self
+            .inner
+            .get_block(block_num.into())
+            .full()
+            .await?
+            .expect("block");
+
+        // 2) encode txs to raw rlp as required by payloads
+        let txs: Vec<Bytes> = blk
+            .transactions()
+            .clone()
+            .into_transactions()
+            .map(|t| Bytes::from(t.inner.encoded_2718()))
+            .collect();
+
+        // 3) choose payload version by era:
+        //    - pre-Shanghai: V1
+        //    - Shanghai+: V2 (withdrawals)
+        //    - Cancun/4844: V3 (blob fields) or V4 (adds parentBeaconBlockRoot)
+        let header = blk.header().to_owned();
+
+        let payload_v1 = ExecutionPayloadV1 {
+            block_hash: header.hash(),
+            parent_hash: header.parent_hash(),
+            fee_recipient: header.beneficiary(),
+            state_root: header.state_root(),
+            receipts_root: header.receipts_root(),
+            logs_bloom: header.logs_bloom(),
+            prev_randao: header.mix_hash().unwrap_or_default(),
+            block_number: header.number(),
+            gas_limit: header.gas_limit(),
+            gas_used: header.gas_used(),
+            timestamp: header.timestamp(),
+            extra_data: header.extra_data().to_owned(),
+            base_fee_per_gas: header
+                .base_fee_per_gas()
+                .map(U256::from)
+                .unwrap_or_default(),
+            transactions: txs,
+        };
+        let payload_v2 = ExecutionPayloadV2 {
+            withdrawals: blk.withdrawals.unwrap_or_default().0,
+            payload_inner: payload_v1,
+        };
+
+        let payload: ExecutionPayload = if let (Some(blob_gas_used), Some(excess_blob_gas)) =
+            (header.blob_gas_used(), header.excess_blob_gas())
+        {
+            ExecutionPayloadV3 {
+                payload_inner: payload_v2,
+                blob_gas_used,
+                excess_blob_gas,
+            }
+            .into()
+        } else {
+            // Shanghai+ (withdrawals) → V2; pre-Shanghai → V1
+            payload_v2.into()
+        };
+
+        Ok(payload)
     }
 }
 
@@ -383,10 +465,91 @@ impl<N: Network + NetworkAttributes> AdvanceChain for AuthProvider<N> {
     }
 }
 
+#[async_trait]
+impl ReplayChain for AuthProvider<Ethereum> {
+    async fn replay_chain_segment(&self, start_block: u64) -> AuthResult<()> {
+        let engine_client = &self.inner;
+
+        // check block range
+        let blocknum_head = engine_client.get_block_number().await?;
+        if start_block >= blocknum_head {
+            return Err(AuthProviderError::InvalidBlockRange(
+                start_block,
+                blocknum_head,
+            ));
+        }
+        if start_block < 1 {
+            return Err(AuthProviderError::InvalidBlockStart(start_block));
+        }
+
+        let get_block = async |blocknum: u64| {
+            Ok::<_, AuthProviderError>(
+                engine_client
+                    .get_block(blocknum.into())
+                    .full()
+                    .await?
+                    .ok_or(AuthProviderError::MissingBlock(blocknum_head))?,
+            )
+        };
+
+        // start at parent of start_block to get parent hash
+        let mut current_block = get_block(start_block - 1).await?;
+        for i in start_block..blocknum_head {
+            let prev_hash = current_block.header().hash();
+            let new_block = get_block(i).await?;
+            current_block = new_block;
+
+            /*** update chain head w/ FCU ***/
+            self.call_fcu_default(prev_hash, current_block.header().hash(), None)
+                .await?;
+
+            /*** recreate block payload ***/
+            let payload = self.block_to_payload(i).await?;
+
+            let sidecars = None; // TODO: do we need to support sidecars?
+            let versioned_hashes = derive_blob_versioned_hashes(&current_block, sidecars)?;
+
+            let execution_requests = None; // TODO: support execution requests
+                                           /*
+                                           execution requests are much more involved,
+                                           they rely on a direct DB connection,
+                                           which necessitates first-class support for each node (reth/geth/etc.)
+                                           */
+
+            self.call_new_payload(
+                payload,
+                current_block.header().parent_beacon_block_root,
+                versioned_hashes,
+                execution_requests,
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl ReplayChain for AuthProvider<Optimism> {
+    async fn replay_chain_segment(&self, _start_block: u64) -> AuthResult<()> {
+        todo!()
+    }
+}
+
+impl ControlChain for AuthProvider<Optimism> {}
+impl ControlChain for AuthProvider<Ethereum> {}
+
 impl NetworkAttributes for Optimism {
     type PayloadAttributes = OpPayloadAttributes;
     fn is_op() -> bool {
         true
+    }
+}
+
+impl NetworkAttributes for Ethereum {
+    type PayloadAttributes = PayloadAttributes;
+    fn is_op() -> bool {
+        false
     }
 }
 
@@ -404,6 +567,48 @@ impl<N: Network + NetworkAttributes> ProviderExt for AuthProvider<N> {
 
     type PayloadAttributes = N::PayloadAttributes;
 }
+
+/// EIP-4844: versioned_hash = 0x01 || sha256(commitment)[1..32]
+#[inline]
+fn kzg_to_versioned_hash(commitment: &[u8; 48]) -> B256 {
+    let mut out = [0u8; 32];
+    out[0] = 0x01;
+    let d = Sha256::digest(commitment);
+    out[1..32].copy_from_slice(&d[1..32]);
+    B256::from(out)
+}
+
+/// Return all blob versioned hashes for all 4844 txs in `blk`.
+/// Prefers vhashes embedded in the tx; falls back to sidecar commitments.
+pub fn derive_blob_versioned_hashes(
+    blk: &eth::Block<eth::Transaction>,
+    sidecars: Option<&HashMap<B256, BlobTransactionSidecar>>,
+) -> AuthResult<Vec<B256>> {
+    let mut out = Vec::new();
+    for tx in blk
+        .to_owned()
+        .try_into_transactions()
+        .map_err(|_| AuthProviderError::InvalidTxs)?
+        .into_iter()
+    {
+        let env: &TxEnvelope = tx.as_ref();
+
+        if let Some(vhs) = env.blob_versioned_hashes() {
+            out.extend_from_slice(vhs);
+            continue;
+        }
+
+        if let Some(sc) = sidecars.and_then(|m| m.get(env.hash())) {
+            for c in &sc.commitments {
+                let c48: FixedBytes<48> = *c;
+                out.push(kzg_to_versioned_hash(c48.as_slice().try_into().unwrap()));
+            }
+        }
+    }
+    Ok(out)
+}
+
+// impl<N: Network + NetworkAttributes> ControlChain for AuthProvider<N> {}
 
 fn get_op_block_info_tx() -> Bytes {
     let deposit_tx = TxDeposit {

@@ -33,7 +33,7 @@ use contender_bundle_provider::bundle::BundleType;
 use contender_bundle_provider::bundle_provider::new_basic_bundle;
 use contender_bundle_provider::revert_bundle::RevertProtectBundleRequest;
 use contender_bundle_provider::BundleClient;
-use contender_engine_provider::AdvanceChain;
+use contender_engine_provider::ControlChain;
 use futures::{Stream, StreamExt};
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Deref;
@@ -90,7 +90,7 @@ where
     pub db: Arc<D>,
     pub rpc_url: Url,
     pub builder_rpc_url: Option<Url>,
-    pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    pub auth_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
     pub bundle_client: Option<Arc<BundleClient>>,
     pub rpc_client: Arc<AnyProvider>,
     pub rand_seed: S,
@@ -166,7 +166,7 @@ where
         db: Arc<D>,
         rand_seed: S,
         params: TestScenarioParams,
-        auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+        auth_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
         prometheus: PrometheusCollector,
     ) -> Result<Self> {
         let TestScenarioParams {

@@ -16,7 +16,7 @@ use contender_core::{
     spammer::{LogCallback, NilCallback},
     util::get_blob_fee_maybe,
 };
-use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
+use contender_engine_provider::{ControlChain, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
 use nu_ansi_term::{AnsiGenericString, Color, Style as ANSIStyle};
 use rand::Rng;
@@ -346,7 +346,7 @@ pub fn spam_callback_default(
     log_txs: bool,
     send_fcu: bool,
     rpc_client: Option<Arc<AnyProvider>>,
-    auth_client: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    auth_client: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
     cancel_token: tokio_util::sync::CancellationToken,
 ) -> TypedSpamCallback {
     if let Some(rpc_client) = rpc_client {

@@ -26,10 +26,10 @@ use contender_core::{
     util::get_block_time,
 };
 use contender_engine_provider::{
-    reth_node_api::EngineApiMessageVersion, AdvanceChain, AuthProvider,
+    reth_node_api::EngineApiMessageVersion, AuthProvider, ControlChain,
 };
 use contender_testfile::TestConfig;
-use op_alloy_network::Optimism;
+use op_alloy_network::{Ethereum, Optimism};
 use std::{ops::Deref, path::PathBuf, sync::atomic::AtomicBool};
 use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
@@ -44,7 +44,7 @@ pub struct EngineArgs {
 
 impl EngineArgs {
     pub async fn new_provider(&self) -> Result<AuthClient, Box<dyn std::error::Error>> {
-        let provider: Box<dyn AdvanceChain + Send + Sync + 'static> = if self.use_op {
+        let provider: Box<dyn ControlChain + Send + Sync + 'static> = if self.use_op {
             Box::new(
                 AuthProvider::<Optimism>::from_jwt_file(
                     &self.auth_rpc_url,
@@ -55,7 +55,7 @@ impl EngineArgs {
             )
         } else {
             Box::new(
-                AuthProvider::<AnyNetwork>::from_jwt_file(
+                AuthProvider::<Ethereum>::from_jwt_file(
                     &self.auth_rpc_url,
                     &self.jwt_secret,
                     self.message_version,
