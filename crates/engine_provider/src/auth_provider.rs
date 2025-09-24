@@ -6,7 +6,7 @@ use crate::{
     BlockToPayload, ChainReplayResults, ControlChain, FcuDefault, GetBlockTxs, ReplayChain, TxLike,
 };
 use alloy::consensus::BlobTransactionSidecar;
-use alloy::eips::eip7685::Requests;
+use alloy::eips::eip7685::RequestsOrHash;
 use alloy::primitives::map::HashMap;
 use alloy::signers::k256::sha2::Digest;
 use alloy::signers::k256::sha2::Sha256;
@@ -191,7 +191,7 @@ where
         payload: ExecutionPayload,
         parent_beacon_block_root: Option<B256>,
         versioned_hashes: Vec<B256>,
-        execution_requests: Option<Requests>,
+        execution_requests: Option<RequestsOrHash>,
     ) -> AuthResult<EngineApiMessageVersion> {
         match payload {
             ExecutionPayload::V3(payload) => {
@@ -326,6 +326,7 @@ impl<N: Network + NetworkAttributes> AdvanceChain for AuthProvider<N> {
         } else {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
+        let rq = header.requests_hash().unwrap_or_default();
 
         macro_rules! call_new_payload {
             ($payload:expr) => {
@@ -333,7 +334,7 @@ impl<N: Network + NetworkAttributes> AdvanceChain for AuthProvider<N> {
                     $payload.to_owned().into(),
                     Some(B256::ZERO),
                     vec![],
-                    Some(Requests::default()),
+                    Some(rq.into()),
                 )
                 .await?;
                 info!("new payload sent.");
@@ -557,19 +558,16 @@ macro_rules! impl_replay_chain_for_network {
                     let txs = self.get_block_txs(&current_block);
                     let versioned_hashes = derive_blob_versioned_hashes(&txs, sidecars)?;
 
-                    let execution_requests = Some(Requests::default());
-                    // TODO: support execution requests
-                    /*
-                    execution requests are much more involved,
-                    they rely on a direct DB connection,
-                    which necessitates first-class support for each node (reth/geth/etc.)
-                    */
+                    let requests = match current_block.header.requests_hash {
+                        Some(h) => RequestsOrHash::Hash(h),
+                        None => RequestsOrHash::Hash(B256::ZERO), // “no requests” hash; acceptable for pre-7685 eras
+                    };
 
                     self.call_new_payload(
                         payload,
                         current_block.header.parent_beacon_block_root,
                         versioned_hashes,
-                        execution_requests,
+                        Some(requests),
                     )
                     .await?;
                 }

@@ -3,9 +3,10 @@
 //! before sending additional calls.
 
 use crate::{auth_provider::NetworkAttributes, engine::EngineApi};
+use alloy::eips::eip7685::RequestsOrHash;
+use alloy::primitives::B256;
 use alloy::providers::Network;
 use alloy::transports::TransportResult;
-use alloy::{eips::eip7685::Requests, primitives::B256};
 use alloy_rpc_types_engine::{
     ExecutionPayloadInputV2, ExecutionPayloadV1, ExecutionPayloadV3, ForkchoiceState,
     ForkchoiceUpdated, PayloadStatus,
@@ -45,7 +46,7 @@ pub trait EngineApiValidWaitExt<N: NetworkAttributes>: Send + Sync {
         payload: ExecutionPayloadV3,
         versioned_hashes: Vec<B256>,
         parent_beacon_block_root: B256,
-        execution_requests: Requests,
+        execution_requests: RequestsOrHash,
     ) -> TransportResult<PayloadStatus>;
 
     /// Calls `engine_forkChoiceUpdatedV1` with the given [ForkchoiceState] and optional
@@ -160,7 +161,7 @@ where
         payload: ExecutionPayloadV3,
         versioned_hashes: Vec<B256>,
         parent_beacon_block_root: B256,
-        execution_requests: Requests,
+        execution_requests: RequestsOrHash,
     ) -> TransportResult<PayloadStatus> {
         let mut status = self
             .new_payload_v4(
