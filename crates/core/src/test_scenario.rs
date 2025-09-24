@@ -109,6 +109,8 @@ where
     prometheus: PrometheusCollector,
     setcode_signer: PrivateKeySigner,
     pub redeploy: bool,
+    /// Determines whether scenario.sync_nonces is called automatically after each spam run batch.
+    pub should_sync_nonces: bool,
 }
 
 pub struct TestScenarioParams {
@@ -121,6 +123,7 @@ pub struct TestScenarioParams {
     pub bundle_type: BundleType,
     pub extra_msg_handles: Option<HashMap<String, Arc<TxActorHandle>>>,
     pub redeploy: bool,
+    pub sync_nonces_after_batch: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -179,6 +182,7 @@ where
             bundle_type,
             extra_msg_handles,
             redeploy,
+            sync_nonces_after_batch,
         } = params;
 
         let (setcode_signer, _) = generate_setcode_signer(&rand_seed);
@@ -304,6 +308,7 @@ where
             prometheus,
             setcode_signer,
             redeploy,
+            should_sync_nonces: sync_nonces_after_batch,
         })
     }
 
@@ -360,6 +365,7 @@ where
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
                 extra_msg_handles: None,
                 redeploy: self.redeploy,
+                sync_nonces_after_batch: self.should_sync_nonces,
             },
             None,
             (&PROM, &HIST).into(),
@@ -1236,6 +1242,7 @@ where
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
                 extra_msg_handles: None,
                 redeploy: false,
+                sync_nonces_after_batch: self.should_sync_nonces,
             },
             None,
             (&PROM, &HIST).into(),
@@ -1820,6 +1827,7 @@ pub mod tests {
                 pending_tx_timeout_secs: 12,
                 extra_msg_handles: None,
                 redeploy: true,
+                sync_nonces_after_batch: true,
             },
             None,
             (&PROM, &HIST).into(),

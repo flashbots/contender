@@ -77,7 +77,8 @@ pub struct SpamCliArgs {
 
     #[arg(
             long,
-            long_help = "Prevent tx results from being saved to DB.",
+            help = "Don't check spam tx results after sending.",
+            long_help = "Don't fetch tx receipts after sending spam, and prevent tx results from being saved to DB.",
             visible_aliases = &["dr"]
         )]
     pub disable_reporting: bool,
@@ -328,6 +329,7 @@ impl SpamCommandArgs {
             pending_tx_timeout_secs: pending_timeout * block_time,
             extra_msg_handles: None,
             redeploy: self.spam_args.redeploy,
+            sync_nonces_after_batch: !self.spam_args.disable_reporting, // disable nonce sync if not reporting
         };
 
         fund_accounts(
