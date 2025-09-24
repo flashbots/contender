@@ -112,10 +112,10 @@ impl From<AuthProviderError> for ContenderError {
                 RuntimeParamErrorKind::InvalidArgs(format!("start={blk}")),
             ),
             InternalError(msg, e) => {
-                ContenderError::AdminError(msg.unwrap_or("internal error"), e.to_string())
+                ContenderError::with_err(e.deref(), msg.unwrap_or("internal error"))
             }
             ConnectionFailed(e) => {
-                ContenderError::AdminError("Failed to connect to auth provider", e.to_string())
+                ContenderError::with_err(e.deref(), "Failed to connect to auth provider")
             }
             ExtraDataTooShort => ContenderError::AdminError(
                 "Extra data too short",

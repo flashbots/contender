@@ -59,6 +59,11 @@ fn inspect_auth_err(err: &AuthProviderError) {
                     "You may need to add the {} flag to target this node.",
                     bold("--op")
                 )
+            } else if errs.contains("Unsupported fork") {
+                println!(
+                    "You may need to specify a different engine message version with {}",
+                    bold("--message-version (-m)")
+                );
             }
         }
         ConnectionFailed(_) => {
