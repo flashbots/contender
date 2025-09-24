@@ -407,7 +407,7 @@ impl GetBlockTxs for AuthProvider<Ethereum> {
             .transactions()
             .clone()
             .into_transactions()
-            .map(|tx| AnyTx::Eth(tx))
+            .map(AnyTx::Eth)
             .collect()
     }
 }
@@ -416,13 +416,12 @@ impl GetBlockTxs for AuthProvider<Optimism> {
     type Block = <op_alloy_network::Optimism as Network>::BlockResponse;
 
     fn get_block_txs(&self, block: &Self::Block) -> Vec<impl TxLike> {
-        let txs = block
+        block
             .transactions
             .clone()
             .into_transactions()
-            .map(|tx| AnyTx::Op(tx))
-            .collect::<Vec<_>>();
-        txs
+            .map(AnyTx::Op)
+            .collect::<Vec<_>>()
     }
 }
 
@@ -519,13 +518,11 @@ macro_rules! impl_replay_chain_for_network {
                 info!("replaying blocks: {start_block} - {blocknum_head}...");
 
                 let get_block = async |blocknum: u64| {
-                    Ok::<_, AuthProviderError>(
-                        engine_client
-                            .get_block(blocknum.into())
-                            .full()
-                            .await?
-                            .ok_or(AuthProviderError::MissingBlock(blocknum_head))?,
-                    )
+                    engine_client
+                        .get_block(blocknum.into())
+                        .full()
+                        .await?
+                        .ok_or(AuthProviderError::MissingBlock(blocknum_head))
                 };
 
                 // get all blocks first, so we only account for the execution speed
