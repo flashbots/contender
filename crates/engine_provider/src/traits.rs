@@ -1,10 +1,14 @@
 use std::time::Duration;
 
+use alloy::{
+    consensus::{transaction::TxHashRef, Transaction},
+    primitives::Bytes,
+};
 use alloy_rpc_types_engine::ExecutionPayload;
 use async_trait::async_trait;
 use tracing::warn;
 
-use crate::auth_provider::AuthResult;
+use crate::auth_provider::{AuthResult, OpPayloadParams};
 
 #[async_trait]
 pub trait AdvanceChain {
@@ -41,6 +45,20 @@ pub trait ReplayChain {
 
 pub trait ControlChain: AdvanceChain + ReplayChain {}
 
-pub trait ToExecutionPayload {
-    fn to_payload(&self) -> AuthResult<ExecutionPayload>;
+#[async_trait]
+pub trait BlockToPayload {
+    async fn block_to_payload(&self, block_num: u64) -> AuthResult<ExecutionPayload>;
+}
+
+pub trait TxEnvelopeTransformer {
+    fn to_envelope(&self) -> impl Transaction + TxHashRef;
+}
+
+pub trait FcuDefault: reth_node_api::PayloadAttributes + Send + Sync {
+    fn fcu_payload_attributes(timestamp: u64, op_params: Option<OpPayloadParams>) -> Self;
+}
+
+pub trait DefaultTxEncoding {
+    type Tx;
+    fn encode_tx(tx: Self::Tx) -> Bytes;
 }
