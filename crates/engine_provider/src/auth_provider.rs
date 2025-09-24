@@ -1,13 +1,11 @@
 use super::{auth_transport::AuthenticatedTransportConnect, AdvanceChain};
+use crate::tx_adapter::AnyTx;
 use crate::{engine::Signer, read_jwt_file};
 use crate::{error::AuthProviderError, valid_payload::EngineApiValidWaitExt};
 use crate::{
-    BlockToPayload, ChainReplayResults, ControlChain, DefaultTxEncoding, FcuDefault, ReplayChain,
-    TxEnvelopeTransformer,
+    BlockToPayload, ChainReplayResults, ControlChain, FcuDefault, GetBlockTxs, ReplayChain, TxLike,
 };
-use alloy::consensus::transaction::TxHashRef;
-use alloy::consensus::Transaction;
-use alloy::consensus::{BlobTransactionSidecar, TxEnvelope};
+use alloy::consensus::BlobTransactionSidecar;
 use alloy::eips::eip7685::Requests;
 use alloy::primitives::map::HashMap;
 use alloy::signers::k256::sha2::Digest;
@@ -260,33 +258,6 @@ where
     }
 }
 
-impl DefaultTxEncoding for AuthProvider<Ethereum> {
-    type Tx = alloy::rpc::types::Transaction;
-    fn encode_tx(tx: Self::Tx) -> Bytes {
-        Bytes::from(tx.inner.encoded_2718())
-    }
-}
-
-impl DefaultTxEncoding for AuthProvider<Optimism> {
-    type Tx = op_alloy_rpc_types::Transaction;
-    fn encode_tx(tx: Self::Tx) -> Bytes {
-        Bytes::from(tx.inner.as_recovered().encoded_2718())
-    }
-}
-
-impl TxEnvelopeTransformer for alloy::rpc::types::eth::Transaction {
-    fn to_envelope(&self) -> impl Transaction + TxHashRef {
-        TxEnvelope::from(self.to_owned())
-    }
-}
-
-impl TxEnvelopeTransformer for op_alloy_rpc_types::Transaction {
-    fn to_envelope(&self) -> impl Transaction + TxHashRef {
-        let inner = self.inner.inner.clone_inner();
-        inner.try_into_eth_envelope().unwrap()
-    }
-}
-
 impl FcuDefault for OpPayloadAttributes {
     fn fcu_payload_attributes(timestamp: u64, op_params: Option<OpPayloadParams>) -> Self {
         let OpPayloadParams {
@@ -427,6 +398,33 @@ impl<N: Network + NetworkAttributes> AdvanceChain for AuthProvider<N> {
     }
 }
 
+impl GetBlockTxs for AuthProvider<Ethereum> {
+    type Block = alloy::rpc::types::eth::Block;
+
+    fn get_block_txs(&self, block: &Self::Block) -> Vec<impl TxLike> {
+        block
+            .transactions()
+            .clone()
+            .into_transactions()
+            .map(|tx| AnyTx::Eth(tx))
+            .collect()
+    }
+}
+
+impl GetBlockTxs for AuthProvider<Optimism> {
+    type Block = <op_alloy_network::Optimism as Network>::BlockResponse;
+
+    fn get_block_txs(&self, block: &Self::Block) -> Vec<impl TxLike> {
+        let txs = block
+            .transactions
+            .clone()
+            .into_transactions()
+            .map(|tx| AnyTx::Op(tx))
+            .collect::<Vec<_>>();
+        txs
+    }
+}
+
 macro_rules! impl_block_to_payload_for_network {
     ($net:path) => {
         #[async_trait]
@@ -440,12 +438,8 @@ macro_rules! impl_block_to_payload_for_network {
                     .expect("block");
 
                 // 2) encode txs to raw rlp as required by payloads
-                let txs: Vec<Bytes> = blk
-                    .transactions()
-                    .clone()
-                    .into_transactions()
-                    .map(|t| Self::encode_tx(t))
-                    .collect();
+                let txs = self.get_block_txs(&blk);
+                let txs: Vec<Bytes> = txs.into_iter().map(|t| t.encoded_2718()).collect();
 
                 // 3) choose payload version by era:
                 //    - pre-Shanghai: V1
@@ -538,7 +532,8 @@ macro_rules! impl_replay_chain_for_network {
                 let mut blocks = vec![];
                 // start at parent of start_block to get parent hash
                 for i in start_block - 1..blocknum_head {
-                    blocks.push(get_block(i).await?);
+                    let blk = get_block(i).await?;
+                    blocks.push(blk);
                 }
 
                 let mut gas_used = 0u128;
@@ -559,21 +554,16 @@ macro_rules! impl_replay_chain_for_network {
                     let payload = self.block_to_payload(current_block.header.number).await?;
 
                     let sidecars = None; // TODO: do we need to support sidecars?
-                    let txs = current_block
-                        .to_owned()
-                        .try_into_transactions()
-                        .map_err(|_| AuthProviderError::InvalidTxs)?
-                        .iter()
-                        .map(|t| t.to_envelope())
-                        .collect::<Vec<_>>();
+                    let txs = self.get_block_txs(&current_block);
                     let versioned_hashes = derive_blob_versioned_hashes(&txs, sidecars)?;
 
-                    let execution_requests = None; // TODO: support execution requests
-                                                   /*
-                                                   execution requests are much more involved,
-                                                   they rely on a direct DB connection,
-                                                   which necessitates first-class support for each node (reth/geth/etc.)
-                                                   */
+                    let execution_requests = Some(Requests::default());
+                    // TODO: support execution requests
+                    /*
+                    execution requests are much more involved,
+                    they rely on a direct DB connection,
+                    which necessitates first-class support for each node (reth/geth/etc.)
+                    */
 
                     self.call_new_payload(
                         payload,
@@ -643,7 +633,7 @@ fn kzg_to_versioned_hash(commitment: &[u8; 48]) -> B256 {
 /// Return all blob versioned hashes for all 4844 txs in `blk`.
 /// Prefers vhashes embedded in the tx; falls back to sidecar commitments.
 pub fn derive_blob_versioned_hashes(
-    txs: &[impl Transaction + TxHashRef],
+    txs: &[impl TxLike],
     sidecars: Option<&HashMap<B256, BlobTransactionSidecar>>,
 ) -> AuthResult<Vec<B256>> {
     let mut out = Vec::new();
@@ -654,7 +644,7 @@ pub fn derive_blob_versioned_hashes(
             continue;
         }
 
-        if let Some(sc) = sidecars.and_then(|m| m.get(tx.tx_hash())) {
+        if let Some(sc) = sidecars.and_then(|m| m.get(&tx.tx_hash())) {
             for c in &sc.commitments {
                 let c48: FixedBytes<48> = *c;
                 out.push(kzg_to_versioned_hash(c48.as_slice().try_into().unwrap()));

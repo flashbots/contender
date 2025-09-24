@@ -46,11 +46,19 @@ fn inspect_auth_err(err: &AuthProviderError) {
         }
         InternalError(_, err) => {
             error!("AuthClient encountered an internal error. Please check contender_engine_provider debug logs for more details.");
-            if err.to_string().contains("Invalid newPayload") {
+            let errs = err.to_string();
+            if errs.contains("Invalid newPayload") {
                 println!(
                     "You may need to specify a different engine message version with {}",
                     bold("--message-version (-m)")
                 );
+            } else if errs
+                .contains("data did not match any variant of untagged enum BlockTransactions")
+            {
+                println!(
+                    "You may need to add the {} flag to target this node.",
+                    bold("--op")
+                )
             }
         }
         ConnectionFailed(_) => {

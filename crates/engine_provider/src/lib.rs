@@ -2,8 +2,8 @@ mod auth_provider;
 mod auth_transport;
 pub mod engine;
 pub mod error;
-// mod payload_builder;
 mod traits;
+mod tx_adapter;
 mod util;
 mod valid_payload;
 

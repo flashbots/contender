@@ -1,11 +1,8 @@
-use std::time::Duration;
-
-use alloy::{
-    consensus::{transaction::TxHashRef, Transaction},
-    primitives::Bytes,
-};
+use alloy::primitives::{Bytes, B256};
 use alloy_rpc_types_engine::ExecutionPayload;
 use async_trait::async_trait;
+use op_alloy_network::BlockResponse;
+use std::time::Duration;
 use tracing::warn;
 
 use crate::auth_provider::{AuthResult, OpPayloadParams};
@@ -45,20 +42,25 @@ pub trait ReplayChain {
 
 pub trait ControlChain: AdvanceChain + ReplayChain {}
 
+/// Defines logic for converting a `Block` into an `ExecutionPayload`.
 #[async_trait]
 pub trait BlockToPayload {
     async fn block_to_payload(&self, block_num: u64) -> AuthResult<ExecutionPayload>;
-}
-
-pub trait TxEnvelopeTransformer {
-    fn to_envelope(&self) -> impl Transaction + TxHashRef;
 }
 
 pub trait FcuDefault: reth_node_api::PayloadAttributes + Send + Sync {
     fn fcu_payload_attributes(timestamp: u64, op_params: Option<OpPayloadParams>) -> Self;
 }
 
-pub trait DefaultTxEncoding {
-    type Tx;
-    fn encode_tx(tx: Self::Tx) -> Bytes;
+pub trait GetBlockTxs {
+    type Block: BlockResponse;
+
+    fn get_block_txs(&self, block: &Self::Block) -> Vec<impl TxLike>;
+}
+
+/// Small adapter trait to unify the things we need of `Transaction`s from different `Network`s
+pub trait TxLike {
+    fn tx_hash(&self) -> B256;
+    fn encoded_2718(&self) -> Bytes; // raw bytes for payloads
+    fn blob_versioned_hashes(&self) -> Option<&[B256]>;
 }
