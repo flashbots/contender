@@ -1,5 +1,6 @@
 use crate::commands::common::{AuthCliArgs, EngineParams};
 use crate::util::{human_readable_duration, human_readable_gas};
+use contender_core::db::{DbOps, ReplayReportRequest};
 use contender_core::error::ContenderError;
 use tracing::info;
 
@@ -50,7 +51,7 @@ impl ReplayArgs {
     }
 }
 
-pub async fn replay(args: ReplayArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn replay(args: ReplayArgs, db: impl DbOps) -> Result<(), Box<dyn std::error::Error>> {
     let engine_provider =
         args.engine_params
             .engine_provider
@@ -64,11 +65,21 @@ pub async fn replay(args: ReplayArgs) -> Result<(), Box<dyn std::error::Error>> 
         .replay_chain_segment(args.start_block, args.end_block)
         .await?;
 
+    let rpc_url_id =
+        db.get_rpc_url_id(engine_provider.rpc_url(), engine_provider.genesis_hash())?;
+
     info!("finished in {}.", human_readable_duration(res.time_elapsed));
     info!(
         "average engine speed: {}/second",
         human_readable_gas(res.gas_per_second())
     );
+
+    let report = ReplayReportRequest {
+        rpc_url_id,
+        gas_per_second: res.gas_per_second() as u64,
+        gas_used: res.gas_used as u64,
+    };
+    db.insert_replay_report(report)?;
 
     Ok(())
 }

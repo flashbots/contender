@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use contender_engine_provider::{
     error::AuthProviderError, AdvanceChain, AuthResult, ChainReplayResults, ControlChain,
-    ReplayChain,
+    ReplayChain, RpcId,
 };
 use tracing::error;
 
@@ -107,5 +107,15 @@ impl ReplayChain for AuthClient {
             .replay_chain_segment(start_block, end_block)
             .await
             .inspect_err(inspect_auth_err)
+    }
+}
+
+impl RpcId for AuthClient {
+    fn genesis_hash(&self) -> alloy::primitives::FixedBytes<32> {
+        self.auth_provider.genesis_hash()
+    }
+
+    fn rpc_url(&self) -> String {
+        self.auth_provider.rpc_url()
     }
 }

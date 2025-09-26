@@ -162,7 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         ContenderSubcommand::Replay { args } => {
             let args = ReplayArgs::from_cli_args(*args).await?;
-            commands::replay::replay(args).await?;
+            commands::replay::replay(args, DB.clone()).await?;
         }
 
         ContenderSubcommand::Report {

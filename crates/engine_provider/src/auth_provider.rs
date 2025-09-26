@@ -3,7 +3,8 @@ use crate::tx_adapter::AnyTx;
 use crate::{engine::Signer, read_jwt_file};
 use crate::{error::AuthProviderError, valid_payload::EngineApiValidWaitExt};
 use crate::{
-    BlockToPayload, ChainReplayResults, ControlChain, FcuDefault, GetBlockTxs, ReplayChain, TxLike,
+    BlockToPayload, ChainReplayResults, ControlChain, FcuDefault, GetBlockTxs, ReplayChain, RpcId,
+    TxLike,
 };
 use alloy::consensus::BlobTransactionSidecar;
 use alloy::eips::eip7685::RequestsOrHash;
@@ -47,6 +48,7 @@ where
     pub inner: RootProvider<Net>,
     genesis_block: Net::HeaderResponse,
     pub message_version: EngineApiMessageVersion,
+    pub rpc_url: String,
 }
 
 pub trait NetworkAttributes {
@@ -97,6 +99,7 @@ where
             inner: auth_provider,
             genesis_block,
             message_version,
+            rpc_url: auth_rpc_url.to_owned(),
         })
     }
 
@@ -577,6 +580,16 @@ macro_rules! impl_replay_chain_for_network {
             }
         }
     };
+}
+
+impl<N: Network + NetworkAttributes> RpcId for AuthProvider<N> {
+    fn genesis_hash(&self) -> FixedBytes<32> {
+        self.genesis_block.hash()
+    }
+
+    fn rpc_url(&self) -> String {
+        self.rpc_url.clone()
+    }
 }
 
 impl_block_to_payload_for_network!(Ethereum);

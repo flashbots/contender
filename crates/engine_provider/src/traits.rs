@@ -1,4 +1,4 @@
-use alloy::primitives::{Bytes, B256};
+use alloy::primitives::{Bytes, FixedBytes, B256};
 use alloy_rpc_types_engine::ExecutionPayload;
 use async_trait::async_trait;
 use op_alloy_network::BlockResponse;
@@ -40,7 +40,12 @@ pub trait ReplayChain {
     ) -> AuthResult<ChainReplayResults>;
 }
 
-pub trait ControlChain: AdvanceChain + ReplayChain {}
+pub trait RpcId {
+    fn rpc_url(&self) -> String;
+    fn genesis_hash(&self) -> FixedBytes<32>;
+}
+
+pub trait ControlChain: AdvanceChain + ReplayChain + RpcId {}
 
 /// Defines logic for converting a `Block` into an `ExecutionPayload`.
 #[async_trait]
