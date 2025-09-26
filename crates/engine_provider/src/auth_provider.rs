@@ -1,26 +1,37 @@
 use super::{auth_transport::AuthenticatedTransportConnect, AdvanceChain};
+use crate::tx_adapter::AnyTx;
 use crate::{engine::Signer, read_jwt_file};
 use crate::{error::AuthProviderError, valid_payload::EngineApiValidWaitExt};
-use alloy::eips::eip7685::Requests;
+use crate::{
+    BlockToPayload, ChainReplayResults, ControlChain, FcuDefault, GetBlockTxs, ReplayChain, RpcId,
+    TxLike,
+};
+use alloy::consensus::BlobTransactionSidecar;
+use alloy::eips::eip7685::RequestsOrHash;
+use alloy::primitives::map::HashMap;
+use alloy::signers::k256::sha2::Digest;
+use alloy::signers::k256::sha2::Sha256;
 use alloy::{
     consensus::BlockHeader,
     eips::{BlockId, Encodable2718},
     network::AnyNetwork,
     primitives::{address, BlockHash, Bytes, FixedBytes, TxKind, B256, U256},
-    providers::{ext::EngineApi, DynProvider, Provider, RootProvider},
+    providers::{ext::EngineApi, Provider, RootProvider},
     rpc::client::ClientBuilder,
     transports::{http::reqwest::Url, TransportResult},
 };
 use alloy_rpc_types_engine::{
-    ExecutionPayload, ExecutionPayloadInputV2, ForkchoiceState, ForkchoiceUpdated, JwtSecret,
-    PayloadAttributes,
+    ExecutionPayload, ExecutionPayloadInputV2, ExecutionPayloadV1, ExecutionPayloadV2,
+    ExecutionPayloadV3, ForkchoiceState, ForkchoiceUpdated, JwtSecret, PayloadAttributes,
 };
 use async_trait::async_trait;
 use op_alloy_consensus::{OpTypedTransaction, TxDeposit};
+use op_alloy_network::Ethereum;
 use op_alloy_network::{primitives::HeaderResponse, BlockResponse, Network, Optimism};
 use reth_node_api::EngineApiMessageVersion;
 use reth_optimism_node::OpPayloadAttributes;
 use std::path::PathBuf;
+use std::time::Instant;
 use tracing::{debug, info};
 
 pub const FJORD_DATA: &[u8] = &alloy::hex!(
@@ -34,9 +45,10 @@ pub struct AuthProvider<Net = AnyNetwork>
 where
     Net: Network,
 {
-    pub inner: DynProvider<Net>,
+    pub inner: RootProvider<Net>,
     genesis_block: Net::HeaderResponse,
     pub message_version: EngineApiMessageVersion,
+    pub rpc_url: String,
 }
 
 pub trait NetworkAttributes {
@@ -56,45 +68,6 @@ pub struct OpPayloadParams {
     pub eip_1559_params: Option<FixedBytes<8>>,
 }
 
-pub trait FcuDefault: reth_node_api::PayloadAttributes + Send + Sync {
-    fn fcu_payload_attributes(timestamp: u64, op_params: Option<OpPayloadParams>) -> Self;
-}
-
-impl FcuDefault for OpPayloadAttributes {
-    fn fcu_payload_attributes(timestamp: u64, op_params: Option<OpPayloadParams>) -> Self {
-        let OpPayloadParams {
-            transactions,
-            gas_limit,
-            eip_1559_params,
-        } = op_params.unwrap_or_default();
-        OpPayloadAttributes {
-            payload_attributes: PayloadAttributes {
-                timestamp,
-                prev_randao: B256::ZERO,
-                suggested_fee_recipient: Default::default(),
-                withdrawals: Some(vec![]),
-                parent_beacon_block_root: Some(B256::ZERO),
-            },
-            transactions,
-            no_tx_pool: Some(false),
-            gas_limit,
-            eip_1559_params,
-        }
-    }
-}
-
-impl FcuDefault for PayloadAttributes {
-    fn fcu_payload_attributes(timestamp: u64, _op_params: Option<OpPayloadParams>) -> Self {
-        PayloadAttributes {
-            timestamp,
-            prev_randao: B256::ZERO,
-            suggested_fee_recipient: Default::default(),
-            withdrawals: Some(vec![]),
-            parent_beacon_block_root: Some(B256::ZERO),
-        }
-    }
-}
-
 impl<N> AuthProvider<N>
 where
     N: Network + NetworkAttributes,
@@ -112,12 +85,12 @@ where
             .connect_with(auth_transport)
             .await
             .map_err(|e| AuthProviderError::ConnectionFailed(e.into()))?;
-        let auth_provider = DynProvider::new(RootProvider::<N>::new(client));
+        let auth_provider = RootProvider::<N>::new(client);
         let genesis_block = auth_provider
             .get_block_by_number(alloy::eips::BlockNumberOrTag::Earliest)
             .await
             .map_err(|e| {
-                AuthProviderError::InternalError("failed to get genesis block".into(), e.into())
+                AuthProviderError::InternalError("failed to get genesis block".into(), Box::new(e))
             })?
             .expect("no genesis block found")
             .header()
@@ -126,6 +99,7 @@ where
             inner: auth_provider,
             genesis_block,
             message_version,
+            rpc_url: auth_rpc_url.to_owned(),
         })
     }
 
@@ -220,15 +194,18 @@ where
         payload: ExecutionPayload,
         parent_beacon_block_root: Option<B256>,
         versioned_hashes: Vec<B256>,
-        execution_requests: Option<Requests>,
-    ) -> TransportResult<EngineApiMessageVersion> {
+        execution_requests: Option<RequestsOrHash>,
+    ) -> AuthResult<EngineApiMessageVersion> {
         match payload {
             ExecutionPayload::V3(payload) => {
                 match self.message_version {
                     EngineApiMessageVersion::V3 => {
                         // We expect the caller
-                        let parent_beacon_block_root = parent_beacon_block_root
-                            .expect("parent_beacon_block_root is required for V3 payloads");
+                        let parent_beacon_block_root =
+                            parent_beacon_block_root.ok_or(AuthProviderError::InvalidPayload(
+                                self.message_version,
+                                Some("parent_beacon_block_root is required for V3 payloads"),
+                            ))?;
                         self.inner
                             .new_payload_v3_wait(
                                 payload,
@@ -241,11 +218,17 @@ where
                     }
                     EngineApiMessageVersion::V4 => {
                         // We expect the caller
-                        let parent_beacon_block_root = parent_beacon_block_root
-                            .expect("parent_beacon_block_root is required for V3 payloads");
+                        let parent_beacon_block_root =
+                            parent_beacon_block_root.ok_or(AuthProviderError::InvalidPayload(
+                                self.message_version,
+                                Some("parent_beacon_block_root is required for V4 payloads"),
+                            ))?;
                         // ... and executionRequests
-                        let execution_requests = execution_requests
-                            .expect("execution_requests is required for V4 payloads");
+                        let execution_requests =
+                            execution_requests.ok_or(AuthProviderError::InvalidPayload(
+                                self.message_version,
+                                Some("execution_requests is required for V4 payloads"),
+                            ))?;
                         self.inner
                             .new_payload_v4_wait(
                                 payload,
@@ -274,6 +257,41 @@ where
 
                 Ok(EngineApiMessageVersion::V1)
             }
+        }
+    }
+}
+
+impl FcuDefault for OpPayloadAttributes {
+    fn fcu_payload_attributes(timestamp: u64, op_params: Option<OpPayloadParams>) -> Self {
+        let OpPayloadParams {
+            transactions,
+            gas_limit,
+            eip_1559_params,
+        } = op_params.unwrap_or_default();
+        OpPayloadAttributes {
+            payload_attributes: PayloadAttributes {
+                timestamp,
+                prev_randao: B256::ZERO,
+                suggested_fee_recipient: Default::default(),
+                withdrawals: Some(vec![]),
+                parent_beacon_block_root: Some(B256::ZERO),
+            },
+            transactions,
+            no_tx_pool: Some(false),
+            gas_limit,
+            eip_1559_params,
+        }
+    }
+}
+
+impl FcuDefault for PayloadAttributes {
+    fn fcu_payload_attributes(timestamp: u64, _op_params: Option<OpPayloadParams>) -> Self {
+        PayloadAttributes {
+            timestamp,
+            prev_randao: B256::ZERO,
+            suggested_fee_recipient: Default::default(),
+            withdrawals: Some(vec![]),
+            parent_beacon_block_root: Some(B256::ZERO),
         }
     }
 }
@@ -311,6 +329,7 @@ impl<N: Network + NetworkAttributes> AdvanceChain for AuthProvider<N> {
         } else {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
+        let rq = header.requests_hash().unwrap_or_default();
 
         macro_rules! call_new_payload {
             ($payload:expr) => {
@@ -318,7 +337,7 @@ impl<N: Network + NetworkAttributes> AdvanceChain for AuthProvider<N> {
                     $payload.to_owned().into(),
                     Some(B256::ZERO),
                     vec![],
-                    Some(Requests::default()),
+                    Some(rq.into()),
                 )
                 .await?;
                 info!("new payload sent.");
@@ -383,10 +402,214 @@ impl<N: Network + NetworkAttributes> AdvanceChain for AuthProvider<N> {
     }
 }
 
+impl GetBlockTxs for AuthProvider<Ethereum> {
+    type Block = alloy::rpc::types::eth::Block;
+
+    fn get_block_txs(&self, block: &Self::Block) -> Vec<impl TxLike> {
+        block
+            .transactions()
+            .clone()
+            .into_transactions()
+            .map(AnyTx::Eth)
+            .collect()
+    }
+}
+
+impl GetBlockTxs for AuthProvider<Optimism> {
+    type Block = <op_alloy_network::Optimism as Network>::BlockResponse;
+
+    fn get_block_txs(&self, block: &Self::Block) -> Vec<impl TxLike> {
+        block
+            .transactions
+            .clone()
+            .into_transactions()
+            .map(AnyTx::Op)
+            .collect::<Vec<_>>()
+    }
+}
+
+macro_rules! impl_block_to_payload_for_network {
+    ($net:path) => {
+        #[async_trait]
+        impl BlockToPayload for AuthProvider<$net> {
+            async fn block_to_payload(&self, block_num: u64) -> AuthResult<ExecutionPayload> {
+                let blk = self
+                    .inner
+                    .get_block(block_num.into())
+                    .full()
+                    .await?
+                    .expect("block");
+
+                // 2) encode txs to raw rlp as required by payloads
+                let txs = self.get_block_txs(&blk);
+                let txs: Vec<Bytes> = txs.into_iter().map(|t| t.encoded_2718()).collect();
+
+                // 3) choose payload version by era:
+                //    - pre-Shanghai: V1
+                //    - Shanghai+: V2 (withdrawals)
+                //    - Cancun/4844: V3 (blob fields) or V4 (adds parentBeaconBlockRoot)
+                let header = blk.header().to_owned();
+
+                let payload_v1 = ExecutionPayloadV1 {
+                    block_hash: header.hash(),
+                    parent_hash: header.parent_hash(),
+                    fee_recipient: header.beneficiary(),
+                    state_root: header.state_root(),
+                    receipts_root: header.receipts_root(),
+                    logs_bloom: header.logs_bloom(),
+                    prev_randao: header.mix_hash().unwrap_or_default(),
+                    block_number: header.number(),
+                    gas_limit: header.gas_limit(),
+                    gas_used: header.gas_used(),
+                    timestamp: header.timestamp(),
+                    extra_data: header.extra_data().to_owned(),
+                    base_fee_per_gas: header
+                        .base_fee_per_gas()
+                        .map(U256::from)
+                        .unwrap_or_default(),
+                    transactions: txs,
+                };
+                let payload_v2 = ExecutionPayloadV2 {
+                    withdrawals: blk.withdrawals.unwrap_or_default().0,
+                    payload_inner: payload_v1,
+                };
+
+                let payload: ExecutionPayload =
+                    if let (Some(blob_gas_used), Some(excess_blob_gas)) =
+                        (header.blob_gas_used(), header.excess_blob_gas())
+                    {
+                        ExecutionPayloadV3 {
+                            payload_inner: payload_v2,
+                            blob_gas_used,
+                            excess_blob_gas,
+                        }
+                        .into()
+                    } else {
+                        // Shanghai+ (withdrawals) → V2; pre-Shanghai → V1
+                        payload_v2.into()
+                    };
+
+                Ok(payload)
+            }
+        }
+    };
+}
+
+macro_rules! impl_replay_chain_for_network {
+    ($net:path) => {
+        #[async_trait]
+        impl ReplayChain for AuthProvider<$net> {
+            async fn replay_chain_segment(
+                &self,
+                start_block: u64,
+                end_block: Option<u64>,
+            ) -> AuthResult<ChainReplayResults> {
+                let engine_client = &self.inner;
+
+                // check block range
+                let blocknum_head = end_block.unwrap_or(engine_client.get_block_number().await?);
+                if start_block >= blocknum_head {
+                    return Err(AuthProviderError::InvalidBlockRange(
+                        start_block,
+                        blocknum_head,
+                    ));
+                }
+                if start_block < 1 {
+                    return Err(AuthProviderError::InvalidBlockStart(start_block));
+                }
+
+                info!("replaying blocks: {start_block} - {blocknum_head}...");
+
+                let get_block = async |blocknum: u64| {
+                    engine_client
+                        .get_block(blocknum.into())
+                        .full()
+                        .await?
+                        .ok_or(AuthProviderError::MissingBlock(blocknum_head))
+                };
+
+                // get all blocks first, so we only account for the execution speed
+                // (time spent processing after we've retrieved all the blocks)
+                let mut blocks = vec![];
+                // start at parent of start_block to get parent hash
+                for i in start_block - 1..blocknum_head {
+                    let blk = get_block(i).await?;
+                    blocks.push(blk);
+                }
+
+                let mut gas_used = 0u128;
+                let start_timestamp = Instant::now();
+
+                // windows will allow us to read the first block while using the second as the block to execute
+                for blockwin in blocks.windows(2) {
+                    let prev_block = &blockwin[0];
+                    let current_block = &blockwin[1];
+                    let prev_hash = prev_block.header.hash();
+                    gas_used += current_block.header.gas_used as u128;
+
+                    /*** update chain head w/ FCU ***/
+                    self.call_fcu_default(prev_hash, current_block.header.hash(), None)
+                        .await?;
+
+                    /*** recreate block payload ***/
+                    let payload = self.block_to_payload(current_block.header.number).await?;
+
+                    let sidecars = None; // TODO: do we need to support sidecars?
+                    let txs = self.get_block_txs(&current_block);
+                    let versioned_hashes = derive_blob_versioned_hashes(&txs, sidecars)?;
+
+                    let requests = match current_block.header.requests_hash {
+                        Some(h) => RequestsOrHash::Hash(h),
+                        None => RequestsOrHash::Hash(B256::ZERO), // “no requests” hash; acceptable for pre-7685 eras
+                    };
+
+                    self.call_new_payload(
+                        payload,
+                        current_block.header.parent_beacon_block_root,
+                        versioned_hashes,
+                        Some(requests),
+                    )
+                    .await?;
+                }
+                let time_elapsed = Instant::now().duration_since(start_timestamp);
+
+                Ok(ChainReplayResults {
+                    gas_used,
+                    time_elapsed,
+                })
+            }
+        }
+    };
+}
+
+impl<N: Network + NetworkAttributes> RpcId for AuthProvider<N> {
+    fn genesis_hash(&self) -> FixedBytes<32> {
+        self.genesis_block.hash()
+    }
+
+    fn rpc_url(&self) -> String {
+        self.rpc_url.clone()
+    }
+}
+
+impl_block_to_payload_for_network!(Ethereum);
+impl_block_to_payload_for_network!(Optimism);
+impl_replay_chain_for_network!(Ethereum);
+impl_replay_chain_for_network!(Optimism);
+impl ControlChain for AuthProvider<Optimism> {}
+impl ControlChain for AuthProvider<Ethereum> {}
+
 impl NetworkAttributes for Optimism {
     type PayloadAttributes = OpPayloadAttributes;
     fn is_op() -> bool {
         true
+    }
+}
+
+impl NetworkAttributes for Ethereum {
+    type PayloadAttributes = PayloadAttributes;
+    fn is_op() -> bool {
+        false
     }
 }
 
@@ -403,6 +626,40 @@ impl<N: Network + NetworkAttributes> ProviderExt for AuthProvider<N> {
     }
 
     type PayloadAttributes = N::PayloadAttributes;
+}
+
+/// EIP-4844: versioned_hash = 0x01 || sha256(commitment)[1..32]
+#[inline]
+fn kzg_to_versioned_hash(commitment: &[u8; 48]) -> B256 {
+    let mut out = [0u8; 32];
+    out[0] = 0x01;
+    let d = Sha256::digest(commitment);
+    out[1..32].copy_from_slice(&d[1..32]);
+    B256::from(out)
+}
+
+/// Return all blob versioned hashes for all 4844 txs in `blk`.
+/// Prefers vhashes embedded in the tx; falls back to sidecar commitments.
+pub fn derive_blob_versioned_hashes(
+    txs: &[impl TxLike],
+    sidecars: Option<&HashMap<B256, BlobTransactionSidecar>>,
+) -> AuthResult<Vec<B256>> {
+    let mut out = Vec::new();
+
+    for tx in txs {
+        if let Some(vhs) = tx.blob_versioned_hashes() {
+            out.extend_from_slice(vhs);
+            continue;
+        }
+
+        if let Some(sc) = sidecars.and_then(|m| m.get(&tx.tx_hash())) {
+            for c in &sc.commitments {
+                let c48: FixedBytes<48> = *c;
+                out.push(kzg_to_versioned_hash(c48.as_slice().try_into().unwrap()));
+            }
+        }
+    }
+    Ok(out)
 }
 
 fn get_op_block_info_tx() -> Bytes {

@@ -26,10 +26,10 @@ use contender_core::{
     util::get_block_time,
 };
 use contender_engine_provider::{
-    reth_node_api::EngineApiMessageVersion, AdvanceChain, AuthProvider,
+    reth_node_api::EngineApiMessageVersion, AuthProvider, ControlChain,
 };
 use contender_testfile::TestConfig;
-use op_alloy_network::Optimism;
+use op_alloy_network::{Ethereum, Optimism};
 use std::{ops::Deref, path::PathBuf, sync::atomic::AtomicBool};
 use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
@@ -44,7 +44,7 @@ pub struct EngineArgs {
 
 impl EngineArgs {
     pub async fn new_provider(&self) -> Result<AuthClient, Box<dyn std::error::Error>> {
-        let provider: Box<dyn AdvanceChain + Send + Sync + 'static> = if self.use_op {
+        let provider: Box<dyn ControlChain + Send + Sync + 'static> = if self.use_op {
             Box::new(
                 AuthProvider::<Optimism>::from_jwt_file(
                     &self.auth_rpc_url,
@@ -55,7 +55,7 @@ impl EngineArgs {
             )
         } else {
             Box::new(
-                AuthProvider::<AnyNetwork>::from_jwt_file(
+                AuthProvider::<Ethereum>::from_jwt_file(
                     &self.auth_rpc_url,
                     &self.jwt_secret,
                     self.message_version,
@@ -159,7 +159,7 @@ impl SpamCommandArgs {
         self.spam_args
             .eth_json_rpc_args
             .auth_args
-            .engine_params()
+            .engine_params(self.spam_args.eth_json_rpc_args.call_forkchoice)
             .await
             .map_err(|e| ContenderError::with_err(e.deref(), "failed to build engine params"))
     }
@@ -544,9 +544,13 @@ pub async fn spam<
         pending_timeout,
         ..
     } = spam_args;
-    let ScenarioSendTxsCliArgs { auth_args, .. } = eth_json_rpc_args;
+    let ScenarioSendTxsCliArgs {
+        auth_args,
+        call_forkchoice,
+        ..
+    } = eth_json_rpc_args;
     let engine_params = auth_args
-        .engine_params()
+        .engine_params(call_forkchoice)
         .await
         .map_err(|e| ContenderError::with_err(e.deref(), "failed to build engine params"))?;
 

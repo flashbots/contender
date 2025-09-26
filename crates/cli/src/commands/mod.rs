@@ -2,6 +2,7 @@ pub mod admin;
 pub mod common;
 mod contender_subcommand;
 pub mod db;
+pub mod replay;
 mod setup;
 mod spam;
 mod spamd;
