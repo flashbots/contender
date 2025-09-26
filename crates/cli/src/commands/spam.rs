@@ -76,11 +76,19 @@ pub struct SpamCliArgs {
     pub spam_args: SendSpamCliArgs,
 
     #[arg(
-            long,
-            long_help = "Prevent tx results from being saved to DB.",
-            visible_aliases = &["dr"]
-        )]
-    pub disable_reporting: bool,
+        long,
+        help = "Ignore transaction receipts.",
+        long_help = "Keep sending transactions without waiting for receipts.",
+        visible_aliases = ["ir", "no-receipts"]
+    )]
+    pub ignore_receipts: bool,
+
+    #[arg(
+        long,
+        help = "Disable nonce synchronization between batches.",
+        visible_aliases = ["disable-nonce-sync", "fast-nonces"]
+    )]
+    pub optimistic_nonces: bool,
 
     #[arg(
         long,
@@ -328,6 +336,7 @@ impl SpamCommandArgs {
             pending_tx_timeout_secs: pending_timeout * block_time,
             extra_msg_handles: None,
             redeploy: self.spam_args.redeploy,
+            sync_nonces_after_batch: !self.spam_args.optimistic_nonces,
         };
 
         fund_accounts(
@@ -525,7 +534,7 @@ pub async fn spam<
     let SpamCliArgs {
         eth_json_rpc_args,
         spam_args,
-        disable_reporting,
+        ignore_receipts,
         ..
     } = spam_args.to_owned();
     let SendSpamCliArgs {
@@ -590,7 +599,7 @@ pub async fn spam<
     };
 
     let callback = spam_callback_default(
-        !disable_reporting,
+        !ignore_receipts,
         engine_params.call_fcu,
         Some(rpc_client),
         auth_client,
