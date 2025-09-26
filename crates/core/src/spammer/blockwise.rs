@@ -131,6 +131,7 @@ mod tests {
                 pending_tx_timeout_secs: 12,
                 extra_msg_handles: None,
                 redeploy: false,
+                sync_nonces_after_batch: true,
             },
             None,
             (&PROM, &HIST).into(),

@@ -130,6 +130,7 @@ pub async fn setup(
         pending_tx_timeout_secs: 12,
         extra_msg_handles: None,
         redeploy: true,
+        sync_nonces_after_batch: true,
     };
 
     fund_accounts(

@@ -56,6 +56,7 @@ where
     pub funding: U256,
     /// Redeploys contracts that have already been deployed.
     pub redeploy: bool,
+    pub sync_nonces_after_batch: bool,
 }
 
 impl<P> ContenderCtx<MockDb, RandSeed, P>
@@ -119,6 +120,7 @@ where
             prometheus: PrometheusCollector::default(),
             funding: *SMOL_AMOUNT,
             redeploy: false,
+            sync_nonces_after_batch: true,
         }
     }
 }
@@ -192,6 +194,7 @@ where
             prometheus: PrometheusCollector::default(),
             funding: *SMOL_AMOUNT,
             redeploy: false,
+            sync_nonces_after_batch: true,
         }
     }
 
@@ -207,6 +210,7 @@ where
             bundle_type: self.bundle_type,
             extra_msg_handles: self.extra_msg_handles.clone(),
             redeploy: self.redeploy,
+            sync_nonces_after_batch: self.sync_nonces_after_batch,
         };
 
         TestScenario::new(
@@ -244,6 +248,7 @@ where
     prometheus: PrometheusCollector,
     funding: U256,
     redeploy: bool,
+    sync_nonces_after_batch: bool,
 }
 
 impl<D, S, P> ContenderCtxBuilder<D, S, P>
@@ -322,6 +327,7 @@ where
             prometheus: self.prometheus,
             funding: self.funding,
             redeploy: self.redeploy,
+            sync_nonces_after_batch: self.sync_nonces_after_batch,
         }
     }
 }
