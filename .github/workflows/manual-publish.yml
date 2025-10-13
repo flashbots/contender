@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 env:
   REGISTRY_IMAGE: flashbots/contender
@@ -87,8 +88,6 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - release
-    permissions:
-      packages: write
     steps:
       - name: Download digests
         uses: actions/download-artifact@v4
