@@ -4,8 +4,8 @@ use alloy::{
     consensus::{
         crypto::secp256k1::public_key_to_address, transaction::Recovered, SignableTransaction,
     },
-    eips::eip7685::Requests,
-    primitives::{BlockHash, B256, U256},
+    eips::eip7685::{Requests, RequestsOrHash},
+    primitives::{BlockHash, Bytes, B256, U256},
     providers::Provider,
     signers::Signature,
     transports::TransportResult,
@@ -62,7 +62,7 @@ pub trait EngineApi<N: NetworkAttributes>: Send + Sync {
         payload: ExecutionPayloadV3,
         versioned_hashes: Vec<B256>,
         parent_beacon_block_root: B256,
-        execution_requests: Requests,
+        execution_requests: RequestsOrHash,
     ) -> TransportResult<PayloadStatus>;
 
     /// Updates the execution layer client with the given fork choice, as specified for the Paris
@@ -233,8 +233,12 @@ where
         payload: ExecutionPayloadV3,
         versioned_hashes: Vec<B256>,
         parent_beacon_block_root: B256,
-        execution_requests: Requests,
+        execution_requests: RequestsOrHash,
     ) -> TransportResult<PayloadStatus> {
+        let ex_req_bytes = match execution_requests {
+            RequestsOrHash::Hash(h) => vec![h.into()],
+            RequestsOrHash::Requests(rs) => requests_to_bytes(&rs),
+        };
         self.client()
             .request(
                 "engine_newPayloadV4",
@@ -242,10 +246,13 @@ where
                     payload,
                     versioned_hashes,
                     parent_beacon_block_root,
-                    execution_requests,
+                    ex_req_bytes,
                 ),
             )
             .await
+        /*
+
+        */
     }
 
     async fn fork_choice_updated_v1(
@@ -356,6 +363,13 @@ where
             .request("engine_exchangeCapabilities", (capabilities,))
             .await
     }
+}
+
+fn requests_to_bytes(reqs: &Requests) -> Vec<Bytes> {
+    // Each item already includes the type prefix per 7685 (opaque to EL).
+    reqs.iter()
+        .map(|r| Bytes::copy_from_slice(r.as_ref()))
+        .collect()
 }
 
 /// Simple struct to sign txs/messages.

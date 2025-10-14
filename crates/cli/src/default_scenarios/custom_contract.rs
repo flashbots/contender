@@ -251,7 +251,7 @@ impl CustomContractArgs {
         if let Ok(constructor_sig) = constructor_sig(&abi) {
             contract = contract.with_constructor_args(constructor_sig, &args.constructor_args())?;
         } else {
-            println!("no constructor found");
+            debug!("no constructor found");
         }
 
         // build spam steps
