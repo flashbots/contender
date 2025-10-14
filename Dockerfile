@@ -10,7 +10,7 @@ COPY . /app
 WORKDIR /app
 
 # Build contender cli from source
-RUN cargo install --path ./crates/cli --root /app/contender-dist
+RUN cargo install --locked --path ./crates/cli --root /app/contender-dist
 
 # Install anvil (foundry)
 RUN curl -L https://foundry.paradigm.xyz | bash && \
