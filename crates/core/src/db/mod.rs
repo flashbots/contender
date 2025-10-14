@@ -5,7 +5,7 @@ pub use mock::MockDb;
 
 use crate::{buckets::Bucket, Result};
 use alloy::primitives::{Address, FixedBytes, TxHash};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Clone)]
 pub struct RunTx {
@@ -112,6 +112,38 @@ pub struct SpamRunRequest {
     pub pending_timeout: Duration,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ReplayReportRequest {
+    pub rpc_url_id: u64,
+    pub gas_per_second: u64,
+    pub gas_used: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ReplayReport {
+    pub id: u64,
+    #[serde(flatten)]
+    req: ReplayReportRequest,
+}
+
+impl ReplayReport {
+    pub fn new(id: u64, req: ReplayReportRequest) -> Self {
+        Self { id, req }
+    }
+
+    pub fn gas_used(&self) -> u64 {
+        self.req.gas_used
+    }
+
+    pub fn gas_per_second(&self) -> u64 {
+        self.req.gas_per_second
+    }
+
+    pub fn rpc_url_id(&self) -> u64 {
+        self.req.rpc_url_id
+    }
+}
+
 pub trait DbOps {
     fn create_tables(&self) -> Result<()>;
 
@@ -157,4 +189,17 @@ pub trait DbOps {
     fn num_runs(&self) -> Result<u64>;
 
     fn version(&self) -> u64;
+
+    /// Returns the COUNT of the replay_reports table. Used to get the `id` for inserting a new report.
+    fn num_replay_reports(&self) -> Result<u64>;
+
+    /// Insert a new replay report into the `replay_reports` table.
+    fn insert_replay_report(&self, report: ReplayReportRequest) -> Result<ReplayReport>;
+
+    /// Get a replay report by its `id`.
+    fn get_replay_report(&self, id: u64) -> Result<ReplayReport>;
+
+    /// Get id for a given RPC URL and genesis hash. Adds to DB if not present.
+    fn get_rpc_url_id(&self, rpc_url: impl AsRef<str>, genesis_hash: FixedBytes<32>)
+        -> Result<u64>;
 }
