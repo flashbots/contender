@@ -7,7 +7,7 @@ name = "contender_sqlite"
 description = "SQLite database for contender"
 repository.workspace = true
 rust-version.workspace = true
-version = "0.5.1"
+version = "0.5.2"
 
 [dependencies]
 alloy = { workspace = true }
