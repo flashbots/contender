@@ -271,8 +271,41 @@ pub async fn fund_accounts(
             }
         }
         for tx in txs_chunk {
-            let pending = rpc_client.watch_pending_transaction(tx.to_owned()).await?;
-            info!("funding tx confirmed ({})", pending.await?);
+            // Use a timeout for funding transactions to prevent indefinite hanging
+            // This prevents stalls when transactions get stuck in mempool or dropped
+            let timeout_duration = Duration::from_secs(24);
+            let tx_hash = *tx.tx_hash();
+
+            let watch_result = tokio::time::timeout(timeout_duration, async {
+                let pending = rpc_client.watch_pending_transaction(tx.to_owned()).await?;
+                pending.await
+            })
+            .await;
+
+            match watch_result {
+                Ok(Ok(receipt)) => {
+                    info!("funding tx confirmed ({})", receipt);
+                }
+                Ok(Err(e)) => {
+                    return Err(format!("funding tx {} failed: {}", tx_hash, e).into());
+                }
+                Err(_) => {
+                    warn!(
+                        "funding tx {} timed out after {} seconds",
+                        tx_hash,
+                        timeout_duration.as_secs()
+                    );
+                    return Err(format!(
+                        "funding transaction {} timed out after {} seconds. This may indicate:\n\
+                         - Transaction stuck in mempool (try increasing gas price)\n\
+                         - Network congestion or RPC connectivity issues\n\
+                         - Transaction was dropped or replaced",
+                        tx_hash,
+                        timeout_duration.as_secs()
+                    )
+                    .into());
+                }
+            }
         }
     }
 
