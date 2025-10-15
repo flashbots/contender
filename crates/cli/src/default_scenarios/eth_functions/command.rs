@@ -6,7 +6,7 @@ use crate::default_scenarios::{
         precompiles::{precompile_txs, EthereumPrecompile},
     },
 };
-use clap::{arg, Parser};
+use clap::Parser;
 use contender_core::generator::CreateDefinition;
 use contender_testfile::TestConfig;
 
