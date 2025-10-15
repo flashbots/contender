@@ -3,7 +3,7 @@ use crate::{
     default_scenarios::{builtin::ToTestConfig, contracts, BuiltinScenario},
 };
 use alloy::providers::Provider;
-use clap::{arg, Parser};
+use clap::Parser;
 use contender_core::{
     error::ContenderError,
     generator::{

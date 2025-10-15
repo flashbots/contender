@@ -1,6 +1,6 @@
 use crate::{commands::common::parse_amount, default_scenarios::builtin::ToTestConfig};
 use alloy::primitives::{Address, U256};
-use clap::{arg, Parser};
+use clap::Parser;
 use contender_core::generator::{types::SpamRequest, FunctionCallDefinition};
 
 #[derive(Parser, Clone, Debug)]

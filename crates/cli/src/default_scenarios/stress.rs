@@ -1,4 +1,4 @@
-use clap::{arg, Parser};
+use clap::Parser;
 use contender_core::generator::{types::SpamRequest, CreateDefinition, FunctionCallDefinition};
 use contender_testfile::TestConfig;
 use strum::IntoEnumIterator;
