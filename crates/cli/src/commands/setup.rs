@@ -45,6 +45,7 @@ pub struct SetupCliArgs {
 pub async fn setup(
     db: &(impl contender_core::db::DbOps + Clone + Send + Sync + 'static),
     args: SetupCommandArgs,
+    override_senders: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let SetupCommandArgs {
         testfile,
@@ -111,8 +112,16 @@ pub async fn setup(
     }
 
     // load agents from setup and create pools
-    let from_pool_declarations =
+    let mut from_pool_declarations =
         [testconfig.get_setup_pools(), testconfig.get_create_pools()].concat();
+
+    // replace the `from_pool` declaration with the first signer if override_senders is true
+    if override_senders {
+        let from = user_signers_with_defaults[0].address().to_string();
+        from_pool_declarations
+            .iter_mut()
+            .for_each(|from_pool| *from_pool = from.clone());
+    }
 
     // create agents for each from_pool declaration
     let mut agents = AgentStore::new();
@@ -140,15 +149,18 @@ pub async fn setup(
         extra_msg_handles: None,
     };
 
-    fund_accounts(
-        &all_agent_addresses,
-        &admin_signer,
-        &rpc_client,
-        min_balance,
-        tx_type,
-        &engine_params,
-    )
-    .await?;
+    // skip funding accounts if override_senders is false
+    if !override_senders {
+        fund_accounts(
+            &all_agent_addresses,
+            &admin_signer,
+            &rpc_client,
+            min_balance,
+            tx_type,
+            &engine_params,
+        )
+        .await?;
+    }
 
     let mut scenario = TestScenario::new(
         testconfig.to_owned(),

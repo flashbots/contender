@@ -83,6 +83,12 @@ May be specified multiple times."
         action = clap::ArgAction::Append,
     )]
     pub env: Option<Vec<(String, String)>>,
+
+    #[arg(
+        long,
+        long_help = "Override senders to send all transactions from one account."
+    )]
+    pub override_senders: bool,
 }
 
 #[derive(Clone, Debug, clap::Args)]

@@ -96,6 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 bundle_type,
                 auth_args,
                 env,
+                override_senders,
             } = args.args;
             let seed = seed.unwrap_or(stored_seed);
             let engine_params = auth_args.engine_params().await?;
@@ -119,6 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     engine_params,
                     env,
                 },
+                override_senders,
             )
             .await?
         }
@@ -150,6 +152,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         bundle_type,
                         auth_args,
                         env,
+                        override_senders,
                     },
                 spam_args,
                 disable_reporting,
@@ -221,7 +224,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 spam_timeout,
             };
 
-            commands::spamd(&db, spam_args, gen_report, real_loops).await?;
+            commands::spamd(&db, spam_args, gen_report, real_loops, override_senders).await?;
         }
 
         ContenderSubcommand::Report {
