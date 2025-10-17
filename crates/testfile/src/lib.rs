@@ -147,6 +147,8 @@ pub mod tests {
                     COUNTER_BYTECODE.to_string(),
                     "test_counter".to_string(),
                 ),
+                signature: None,
+                args: None,
                 from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
                 from_pool: None,
             }]),
@@ -203,14 +205,54 @@ pub mod tests {
         }
     }
 
+    fn repo_root_path() -> std::path::PathBuf {
+        let mut dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        dir.pop(); // crates
+        dir.pop(); // repo root
+        dir
+    }
+
+    fn collect_scenario_tomls(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut stack = vec![dir.to_path_buf()];
+        let mut files = Vec::new();
+        while let Some(p) = stack.pop() {
+            for entry in std::fs::read_dir(&p).unwrap() {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                    files.push(path);
+                }
+            }
+        }
+        files
+    }
+
+    #[test]
+    fn parses_all_repo_scenarios() {
+        let repo_root = repo_root_path();
+        let scenarios_dir = repo_root.join("scenarios");
+        assert!(
+            scenarios_dir.exists(),
+            "scenarios/ directory not found at {}",
+            scenarios_dir.display()
+        );
+
+        let files = collect_scenario_tomls(&scenarios_dir);
+        for path in files {
+            TestConfig::from_file(path.to_str().unwrap()).unwrap();
+        }
+    }
+
     fn print_testconfig(cfg: &str) {
         println!("{}", "-".repeat(80));
         println!("{cfg}");
         println!("{}", "-".repeat(80));
     }
 
-    #[tokio::test]
-    async fn encodes_testconfig_toml() {
+    #[test]
+    fn encodes_testconfig_toml() {
         let cfg = get_composite_testconfig();
         let encoded = cfg.encode_toml().unwrap();
         print_testconfig(&encoded);
@@ -259,6 +301,8 @@ pub mod tests {
                 bundle_type: Default::default(),
                 pending_tx_timeout_secs: 12,
                 extra_msg_handles: None,
+                redeploy: false,
+                sync_nonces_after_batch: true,
             },
             None,
             (&PROM, &HIST).into(),
@@ -308,6 +352,8 @@ pub mod tests {
                 bundle_type: Default::default(),
                 pending_tx_timeout_secs: 12,
                 extra_msg_handles: None,
+                redeploy: false,
+                sync_nonces_after_batch: true,
             },
             None,
             (&PROM, &HIST).into(),
@@ -327,6 +373,8 @@ pub mod tests {
                 bundle_type: Default::default(),
                 pending_tx_timeout_secs: 12,
                 extra_msg_handles: None,
+                redeploy: false,
+                sync_nonces_after_batch: true,
             },
             None,
             (&PROM, &HIST).into(),
@@ -394,9 +442,100 @@ pub mod tests {
                 &mut placeholder_map,
                 &MockDb,
                 "http://localhost:8545",
+                Default::default(),
             )
             .unwrap();
 
         assert_eq!(placeholder_map.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn placeholders_work_in_from_field() {
+        let anvil = Anvil::new().spawn();
+        let config = TestConfig::from_str(
+            "
+[env]
+mySender = \"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\"
+[[spam]]
+[spam.tx]
+from = \"{mySender}\"
+to = \"{_sender}\"
+value = \"1eth\"
+",
+        )
+        .unwrap();
+        let scenario = TestScenario::new(
+            config,
+            MockDb.into(),
+            RandSeed::default(),
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers: get_test_signers(),
+                agent_store: Default::default(),
+                tx_type: Default::default(),
+                bundle_type: Default::default(),
+                pending_tx_timeout_secs: 12,
+                extra_msg_handles: None,
+                redeploy: false,
+                sync_nonces_after_batch: true,
+            },
+            None,
+            (&PROM, &HIST).into(),
+        )
+        .await
+        .unwrap();
+
+        let spam = scenario.get_spam_tx_chunks(1, 1).await.unwrap();
+        for tx in &spam[0] {
+            match tx {
+                ExecutionRequest::Tx(tx) => {
+                    assert_eq!(
+                        tx.tx.from.unwrap(),
+                        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+                            .parse::<Address>()
+                            .unwrap()
+                    );
+                }
+                ExecutionRequest::Bundle(_) => {
+                    panic!("there should be no bundles in this config");
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod more_tests {
+    use super::*;
+    use alloy::node_bindings::Anvil;
+    use contender_core::{
+        db::MockDb,
+        generator::{types::SpamRequest, FunctionCallDefinition, RandSeed},
+        spammer::{NilCallback, TimedSpammer},
+        Contender, ContenderCtx, RunOpts,
+    };
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn contender_ctx_builder_runs() -> Result<(), Box<dyn std::error::Error>> {
+        let anvil = Anvil::new().spawn();
+
+        let config = TestConfig::new().with_spam(vec![SpamRequest::new_tx(
+            &FunctionCallDefinition::new("{_sender}") // send tx to self
+                .with_kind("cargo_test"),
+        )]);
+
+        let db = MockDb;
+        let seeder = RandSeed::new();
+        let ctx = ContenderCtx::builder(config, db, seeder, anvil.endpoint_url()).build();
+        let mut contender = Contender::new(ctx);
+
+        let spammer = TimedSpammer::new(Duration::from_secs(1));
+        let callback = NilCallback;
+        let opts = RunOpts::new().txs_per_period(100).periods(3);
+        contender.spam(spammer, callback.into(), opts).await?;
+
+        Ok(())
     }
 }

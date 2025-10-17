@@ -1,6 +1,6 @@
 use crate::{commands::common::parse_amount, default_scenarios::builtin::ToTestConfig};
 use alloy::primitives::{Address, U256};
-use clap::{arg, Parser};
+use clap::Parser;
 use contender_core::generator::{types::SpamRequest, FunctionCallDefinition};
 
 #[derive(Parser, Clone, Debug)]
@@ -45,13 +45,11 @@ impl From<TransferStressCliArgs> for TransferStressArgs {
 impl ToTestConfig for TransferStressArgs {
     fn to_testconfig(&self) -> contender_testfile::TestConfig {
         let TransferStressArgs { amount, recipient } = self;
-        let txs = [FunctionCallDefinition::new(recipient)
-            .with_value(*amount)
-            .with_from_pool("spammers")]
-        .into_iter()
-        .map(Box::new)
-        .map(SpamRequest::Tx)
-        .collect::<Vec<_>>();
+        let txs = [FunctionCallDefinition::new(recipient).with_value(*amount)]
+            .into_iter()
+            .map(Box::new)
+            .map(SpamRequest::Tx)
+            .collect::<Vec<_>>();
         contender_testfile::TestConfig {
             env: None,
             create: None,

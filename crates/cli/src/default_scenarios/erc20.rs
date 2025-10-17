@@ -65,7 +65,6 @@ impl ToTestConfig for Erc20Args {
             .iter()
             .map(|recipient| {
                 FunctionCallDefinition::new(token.template_name())
-                    .with_from_pool("admin")
                     .with_signature("transfer(address guy, uint256 wad)")
                     .with_args(&[recipient.to_string(), self.fund_amount.to_string()])
             })
@@ -75,6 +74,8 @@ impl ToTestConfig for Erc20Args {
             env: None,
             create: Some(vec![CreateDefinition {
                 contract: token.to_owned(),
+                signature: None,
+                args: None,
                 from: None,
                 from_pool: Some("admin".to_owned()),
             }]),
@@ -82,7 +83,6 @@ impl ToTestConfig for Erc20Args {
             // transfer tokens to self
             spam: Some(vec![SpamRequest::new_tx(
                 &FunctionCallDefinition::new(token.template_name())
-                    .with_from_pool("spammers")
                     .with_signature("transfer(address guy, uint256 wad)")
                     .with_args(&[
                         self.token_recipient

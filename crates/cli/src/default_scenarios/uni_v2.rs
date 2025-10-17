@@ -121,6 +121,8 @@ impl ToTestConfig for UniV2Args {
         for i in 0..self.num_tokens {
             let deployment = CreateDefinition {
                 contract: test_token(i + 1, self.initial_token_supply),
+                signature: None,
+                args: None,
                 from: None,
                 from_pool: Some("admin".to_owned()),
             };
@@ -152,7 +154,6 @@ impl ToTestConfig for UniV2Args {
         let weth_value = self.weth_per_token * U256::from(self.num_tokens + 1);
         let mut setup_steps = vec![FunctionCallDefinition::new(weth.template_name())
             .with_signature("deposit()")
-            .with_from_pool("admin")
             .with_kind("weth_deposit")
             .with_value(weth_value)];
         // we'll make a spam step for every token pair and trade direction
@@ -162,7 +163,6 @@ impl ToTestConfig for UniV2Args {
         let create_pair = |token_a: &CompiledContract, token_b: &CompiledContract| {
             FunctionCallDefinition::new(univ2_factory.template_name())
                 .with_signature("createPair(address,address)")
-                .with_from_pool("admin")
                 .with_kind(format!(
                     "univ2_create_pair_{}-{}",
                     token_a.name, token_b.name
@@ -183,7 +183,6 @@ impl ToTestConfig for UniV2Args {
                 .with_signature(
                     "addLiquidity(address,address,uint256,uint256,uint256,uint256,address,uint256)",
                 )
-                .with_from_pool("admin")
                 .with_kind(format!(
                     "univ2_add_liquidity_{}-{}",
                     token_a.name, token_b.name
@@ -202,21 +201,18 @@ impl ToTestConfig for UniV2Args {
         let transfer = |token: &CompiledContract, to: &CompiledContract, amount: U256| {
             FunctionCallDefinition::new(token.template_name())
                 .with_signature("transfer(address,uint256)")
-                .with_from_pool("admin")
                 .with_kind(format!("{}_transfer_to_{}", token.name, to.name))
                 .with_args(&[to.template_name(), amount.to_string()])
         };
         let approve_max = |token: &CompiledContract, spender: &CompiledContract| {
             FunctionCallDefinition::new(token.template_name())
                 .with_signature("approve(address,uint256)")
-                .with_from_pool("admin")
                 .with_kind(format!("{}_approve_{}", token.name, spender.name))
                 .with_args(&[spender.template_name(), U256::MAX.to_string()])
         };
         let swap = |token_a: &CompiledContract, token_b: &CompiledContract, amount: U256| {
             FunctionCallDefinition::new(unicheat.template_name())
                 .with_signature("swap(address,address,uint256)")
-                .with_from_pool("spammers")
                 .with_kind(format!("univ2_swap_{}-{}", token_a.name, token_b.name))
                 .with_args(&[
                     token_a.template_name(),

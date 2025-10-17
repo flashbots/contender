@@ -1,9 +1,9 @@
 # Placeholders in scenarios
 
-Placeholders substitute contract addresses, sender address, or `[env]` values.
+Placeholders are used to substitute contract addresses, or custom values defined in `[env]`.
 
-- In `[[create]]`: allowed in `bytecode` only.
-- In `[[setup]]`/`[[spam]]`: allowed in `to`, `args`, and `value`.
+- In `[[create]]`: allowed in `bytecode` & `from`.
+- In `[[setup]]`/`[[spam]]`: allowed in `to`, `args`, `from`, and `value`.
 - `{_sender}` resolves to the `from` address at runtime.
 
 ### Examples
@@ -20,28 +20,31 @@ name = "testToken"
 [[setup]]
 kind = "univ2_create_pair"
 to = "{uniV2Factory}"
-from_pool = "admin"
+
 signature = "function createPair(address tokenA, address tokenB) external returns (address pair)"
 args = ["{weth}", "{testToken}"]
 ```
 
-Custom variable:
+Custom variables:
 ```toml
 [env]
-initialSupply = "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+initialSupply = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+customSender = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 
 [[create]]
 name = "testToken"
-from_pool = "admin"
-bytecode = "0x60806040...{initialSupply}"
+from = "{customSender}"
+bytecode = "0x60806040..."
+signature = "(uint256 _initialSupply)"
+args = ["{initialSupply}"]
 ```
 
-Sender placeholder:
+`{_sender}` is a special placeholder that injects the sender's address:
+
 ```toml
 [[setup]]
 kind = "admin_univ2_add_liquidity_weth-testToken"
 to = "{uniRouterV2}"
-from_pool = "admin"
 signature = "addLiquidity(address,address,uint,uint,uint,uint,address,uint) returns (uint,uint,uint)"
 args = [
   "{weth}", "{testToken}",

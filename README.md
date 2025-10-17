@@ -38,7 +38,6 @@ See [examples](docs/examples.md) for more usage patterns.
 Contender is a high-performance Ethereum transaction spammer and benchmarking tool, built for repeatable load tests against EL clients and live networks.
 It supports both **per-second** (TPS) and **per-block** (TPB) timing, seeded fuzzing for reproducibility, and SQLite-backed state for contracts, runs, and reports.
 
-
 ### 1. Introduction
 - [Overview](docs/overview.md)
 
@@ -51,6 +50,7 @@ It supports both **per-second** (TPS) and **per-block** (TPB) timing, seeded fuz
 - [Scenario File Structure](docs/scenarios.md)
 - [Placeholders](docs/placeholders.md)
 - [Creating a New Scenario](docs/creating_scenarios.md)
+- [Constructor Args](docs/constructor_args.md)
 
 ### 4. Advanced Usage
 - [Engine API Spamming](docs/engine-api.md)

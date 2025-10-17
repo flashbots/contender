@@ -65,10 +65,11 @@ impl SetCodeArgs {
         if cli_args.contract_address.is_some() {
             // require signature & args to be provided, else error
             if cli_args.args.is_none() || cli_args.signature.is_none() {
-                warn!(
-                    "No args or signature provided, using defaults: {}",
+                warn!("No args or signature provided.");
+                println!(
+                    "using default sig & args: {}",
                     bold(format!("--sig \"{DEFAULT_SIG}\" --args \"{DEFAULT_ARGS}\""))
-                )
+                );
             }
         }
 
@@ -89,7 +90,6 @@ impl SetCodeArgs {
 impl ToTestConfig for SetCodeArgs {
     fn to_testconfig(&self) -> contender_testfile::TestConfig {
         let fn_call = FunctionCallDefinition::new(&self.signer_address)
-            .with_from_pool("spammers")
             .with_args(&self.args)
             .with_signature(&self.signature)
             .with_authorization(
@@ -98,7 +98,7 @@ impl ToTestConfig for SetCodeArgs {
                     .unwrap_or(SMART_WALLET.template_name()),
             );
 
-        let spam = vec![fn_call].iter().map(SpamRequest::new_tx).collect();
+        let spam = [fn_call].iter().map(SpamRequest::new_tx).collect();
         let mut config = TestConfig::new().with_spam(spam);
 
         // add default create steps if contract_address (must be already deployed) is NOT provided
@@ -106,7 +106,7 @@ impl ToTestConfig for SetCodeArgs {
             config = config.with_create(
                 [COUNTER, SMART_WALLET]
                     .into_iter()
-                    .map(|contract| CreateDefinition::new(&contract.into()).with_from_pool("admin"))
+                    .map(|contract| CreateDefinition::new(&contract.into()))
                     .collect(),
             );
         }

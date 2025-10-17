@@ -7,8 +7,8 @@ use contender_core::{
     },
 };
 use serde::{Deserialize, Serialize};
-use std::fs::read;
 use std::{collections::HashMap, str::FromStr};
+use std::{fs::read, ops::Deref};
 
 /// Configuration to run a test scenario; used to generate PlanConfigs.
 /// Defines TOML schema for scenario files.
@@ -95,17 +95,68 @@ impl FromStr for TestConfig {
     }
 }
 
+/// Assigns a given default from_pool if `from_pool` and `from` are `None`.
+macro_rules! set_default_from_pool {
+    ($fn_call:expr, $from_pool:expr) => {{
+        let mut fn_call = $fn_call.to_owned();
+        if fn_call.from.is_none() && fn_call.from_pool.is_none() {
+            fn_call.from_pool = Some($from_pool.to_owned());
+        }
+        fn_call
+    }};
+}
+
 impl PlanConfig<String> for TestConfig {
     fn get_spam_steps(&self) -> Result<Vec<SpamRequest>, ContenderError> {
-        Ok(self.spam.to_owned().unwrap_or_default())
+        use SpamRequest::*;
+        let spam_steps: Vec<SpamRequest> = self
+            .spam
+            .to_owned()
+            .unwrap_or_default()
+            .iter()
+            .map(|step| {
+                // process every spam step, including bundle txs
+                match step {
+                    Tx(fn_call) => Tx(Box::new(set_default_from_pool!(
+                        fn_call.deref(),
+                        "spammers"
+                    ))),
+                    Bundle(bundle) => {
+                        let mut bundle = bundle.to_owned();
+                        let new_txs = bundle
+                            .txs
+                            .iter()
+                            .map(|fn_call| set_default_from_pool!(fn_call, "spammers"))
+                            .collect();
+                        bundle.txs = new_txs;
+                        Bundle(bundle)
+                    }
+                }
+            })
+            .collect();
+        Ok(spam_steps.to_owned())
     }
 
     fn get_setup_steps(&self) -> Result<Vec<FunctionCallDefinition>, ContenderError> {
-        Ok(self.setup.to_owned().unwrap_or_default())
+        let setup_steps = self
+            .setup
+            .to_owned()
+            .unwrap_or_default()
+            .iter()
+            .map(|fn_call| set_default_from_pool!(fn_call, "admin"))
+            .collect();
+        Ok(setup_steps)
     }
 
     fn get_create_steps(&self) -> Result<Vec<CreateDefinition>, ContenderError> {
-        Ok(self.create.to_owned().unwrap_or_default())
+        let create_steps = self
+            .create
+            .to_owned()
+            .unwrap_or_default()
+            .iter()
+            .map(|fn_call| set_default_from_pool!(fn_call, "admin"))
+            .collect();
+        Ok(create_steps)
     }
 
     fn get_env(&self) -> Result<HashMap<String, String>, ContenderError> {

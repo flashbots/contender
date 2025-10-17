@@ -17,7 +17,7 @@ use alloy::{
     consensus::{SidecarBuilder, SimpleCoder},
     eips::eip7702::SignedAuthorization,
     hex::{FromHex, ToHexExt},
-    primitives::{Address, Bytes, U256},
+    primitives::{Address, Bytes, FixedBytes, U256},
     rpc::types::Authorization,
     signers::{local::PrivateKeySigner, SignerSync},
 };
@@ -114,6 +114,7 @@ where
     fn get_rpc_provider(&self) -> &AnyProvider;
     fn get_nonce_map(&self) -> &HashMap<Address, u64>;
     fn get_setcode_signer(&self) -> &PrivateKeySigner;
+    fn get_genesis_hash(&self) -> FixedBytes<32>;
 
     /// Generates a map of N=`num_values` fuzzed values for each parameter in `fuzz_args`.
     fn create_fuzz_map(
@@ -157,7 +158,12 @@ where
                     Some(format!("from_pool={from_pool}, idx={idx}")),
                 ))?
         } else if let Some(from) = &create_def.from {
-            from.parse().map_err(|e| {
+            // inject env vars into placeholders where/if present
+            let placeholder_map = self.get_plan_conf().get_env()?;
+            let from_address = self
+                .get_templater()
+                .replace_placeholders(from, &placeholder_map);
+            from_address.parse().map_err(|e| {
                 ContenderError::SpamError(
                     "failed to parse 'from' address",
                     Some(format!("from={from}, error={e}")),
@@ -170,16 +176,20 @@ where
             ));
         };
 
-        let bytecode = create_def
-            .contract
-            .bytecode
-            .to_owned()
-            .replace("{_sender}", &from_address.encode_hex()); // inject address WITHOUT 0x prefix
+        // handle direct variable injection
+        // (backwards-compatible for bytecode defs that include placeholders,
+        // rather than using `args` + `signature` in the `CreateDefinition`)
+        let bytecode = create_def.contract.bytecode.to_owned().replace(
+            "{_sender}",
+            &format!("{}{}", "0".repeat(24), from_address.encode_hex()),
+        ); // inject address WITHOUT 0x prefix, padded with 24 zeroes
 
         Ok(CreateDefinitionStrict {
             name: create_def.contract.name.to_owned(),
             bytecode,
             from: from_address,
+            signature: create_def.signature.to_owned(),
+            args: create_def.args.to_owned().unwrap_or_default(),
         })
     }
 
@@ -211,13 +221,17 @@ where
                     ))?;
             signer.address()
         } else if let Some(from) = &funcdef.from {
-            let from_addr = from.parse::<Address>().map_err(|e| {
+            // inject env vars into placeholders where/if present
+            let placeholder_map = self.get_plan_conf().get_env()?;
+            let from_address = self
+                .get_templater()
+                .replace_placeholders(from, &placeholder_map);
+            from_address.parse::<Address>().map_err(|e| {
                 ContenderError::SpamError(
                     "failed to parse 'from' address",
                     Some(format!("from={from}, error={e}")),
                 )
-            })?;
-            from_addr
+            })?
         } else {
             return Err(ContenderError::SpamError(
                 "invalid runtime config: must specify 'from' or 'from_pool'",
@@ -270,6 +284,7 @@ where
                 self.get_db(),
                 &mut placeholder_map,
                 &self.get_rpc_url(),
+                self.get_genesis_hash(),
             )?;
             // contract address; we'll copy its code to our EOA
             let actual_auth_address = self
@@ -337,16 +352,17 @@ where
                 let create_steps = conf.get_create_steps()?;
 
                 for step in create_steps.iter() {
+                    // lookup placeholder values in DB & update map before templating (bytecode + args)
+                    templater.find_create_placeholders(
+                        step,
+                        db,
+                        &mut placeholder_map,
+                        &self.get_rpc_url(),
+                        self.get_genesis_hash(),
+                    )?;
+
                     // populate step with from address
                     let step = self.make_strict_create(step, 0)?;
-
-                    // lookup placeholder values in DB & update map before templating
-                    templater.find_placeholder_values(
-                        &step.bytecode,
-                        &mut placeholder_map,
-                        db,
-                        &self.get_rpc_url(),
-                    )?;
 
                     // create tx with template values
                     let tx = NamedTxRequestBuilder::new(
@@ -370,7 +386,13 @@ where
 
                 for step in setup_steps.iter() {
                     // lookup placeholders in DB & update map before templating
-                    templater.find_fncall_placeholders(step, db, &mut placeholder_map, &rpc_url)?;
+                    templater.find_fncall_placeholders(
+                        step,
+                        db,
+                        &mut placeholder_map,
+                        &rpc_url,
+                        self.get_genesis_hash(),
+                    )?;
 
                     // setup tx with template values
                     let tx = NamedTxRequest::new(
@@ -409,8 +431,13 @@ where
                 // finds placeholders in a function call definition and populates `placeholder_map` and `canonical_fuzz_map` with injectable values.
                 let rpc_url = self.get_rpc_url();
                 let mut lookup_tx_placeholders = |tx: &FunctionCallDefinition| {
-                    let res =
-                        templater.find_fncall_placeholders(tx, db, &mut placeholder_map, &rpc_url);
+                    let res = templater.find_fncall_placeholders(
+                        tx,
+                        db,
+                        &mut placeholder_map,
+                        &rpc_url,
+                        self.get_genesis_hash(),
+                    );
                     if let Err(e) = res {
                         return Err(ContenderError::SpamError(
                             "failed to find placeholder value",

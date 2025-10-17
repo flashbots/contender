@@ -21,13 +21,14 @@ impl ToTestConfig for RevertCliArgs {
             env: None,
             create: Some(vec![CreateDefinition {
                 contract: SPAM_ME_6.into(),
+                signature: None,
+                args: None,
                 from: None,
                 from_pool: Some("admin".to_owned()),
             }]),
             setup: None,
             spam: Some(vec![SpamRequest::new_tx(
                 &FunctionCallDefinition::new(SPAM_ME_6.template_name())
-                    .with_from_pool("spammers")
                     .with_signature("consumeGasAndRevert(uint256 gas)")
                     .with_args(&[self.gas_use.to_string()])
                     .with_gas_limit(self.gas_use + 35000),

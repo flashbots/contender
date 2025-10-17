@@ -126,8 +126,8 @@ impl BuiltinScenarioCli {
                     return Err(ContenderError::InvalidRuntimeParams(
                         RuntimeParamErrorKind::MissingArgs(format!(
                             "{} or {}",
-                            ansi_term::Style::new().bold().paint("--opcode (-o)"),
-                            ansi_term::Style::new().bold().paint("--precompile (-p)"),
+                            bold("--opcode (-o)"),
+                            bold("--precompile (-p)"),
                         )),
                     ));
                 }
@@ -187,10 +187,7 @@ impl BuiltinScenarioCli {
             BuiltinScenarioCli::Storage(args) => {
                 let bad_args_err = |name: &str| {
                     ContenderError::InvalidRuntimeParams(RuntimeParamErrorKind::InvalidArgs(
-                        format!(
-                            "{} must be greater than 0",
-                            ansi_term::Style::new().bold().paint(name)
-                        ),
+                        format!("{} must be greater than 0", bold(name)),
                     ))
                 };
                 if args.num_slots == 0 {
@@ -227,7 +224,7 @@ impl BuiltinScenarioCli {
                         return Err::<_, ContenderError>(
                             RuntimeParamErrorKind::InvalidArgs(format!(
                                 "{} must be greater than 0",
-                                ansi_term::Style::new().bold().paint(name),
+                                bold(name),
                             ))
                             .into(),
                         );

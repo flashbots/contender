@@ -16,12 +16,13 @@ use crate::Result;
 use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
 use alloy::consensus::{Transaction, TxType};
 use alloy::eips::eip2718::Encodable2718;
+use alloy::eips::BlockId;
 use alloy::hex::ToHexExt;
 use alloy::network::{
     AnyNetwork, AnyTxEnvelope, EthereumWallet, NetworkWallet, TransactionBuilder,
 };
 use alloy::node_bindings::Anvil;
-use alloy::primitives::{keccak256, Address, Bytes, FixedBytes, U256};
+use alloy::primitives::{keccak256, Address, Bytes, FixedBytes, TxKind, U256};
 use alloy::providers::{DynProvider, PendingTransactionConfig, Provider, ProviderBuilder};
 use alloy::rpc::client::ClientBuilder;
 use alloy::rpc::types::TransactionRequest;
@@ -32,7 +33,7 @@ use contender_bundle_provider::bundle::BundleType;
 use contender_bundle_provider::bundle_provider::new_basic_bundle;
 use contender_bundle_provider::revert_bundle::RevertProtectBundleRequest;
 use contender_bundle_provider::BundleClient;
-use contender_engine_provider::AdvanceChain;
+use contender_engine_provider::ControlChain;
 use futures::{Stream, StreamExt};
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Deref;
@@ -89,7 +90,7 @@ where
     pub db: Arc<D>,
     pub rpc_url: Url,
     pub builder_rpc_url: Option<Url>,
-    pub auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    pub auth_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
     pub bundle_client: Option<Arc<BundleClient>>,
     pub rpc_client: Arc<AnyProvider>,
     pub rand_seed: S,
@@ -107,6 +108,9 @@ where
     pub ctx: ExecutionContext,
     prometheus: PrometheusCollector,
     setcode_signer: PrivateKeySigner,
+    pub redeploy: bool,
+    /// Determines whether scenario.sync_nonces is called automatically after each spam run batch.
+    pub should_sync_nonces: bool,
 }
 
 pub struct TestScenarioParams {
@@ -118,6 +122,8 @@ pub struct TestScenarioParams {
     pub pending_tx_timeout_secs: u64,
     pub bundle_type: BundleType,
     pub extra_msg_handles: Option<HashMap<String, Arc<TxActorHandle>>>,
+    pub redeploy: bool,
+    pub sync_nonces_after_batch: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -131,12 +137,25 @@ pub struct ExecutionContext {
     pub cancel_token: CancellationToken,
     /// Chain ID for target chain.
     pub chain_id: u64,
+    /// Genesis hash of target chain.
+    pub genesis_hash: FixedBytes<32>,
 }
 
 impl ExecutionContext {
     pub fn add_to_gas_price(&mut self, amount: i128) {
         self.gas_price_adder += amount;
     }
+}
+
+struct DeployContractParams<'a, D: DbOps> {
+    db: &'a D,
+    tx_req: &'a NamedTxRequest,
+    extra_tx_params: ExtraTxParams,
+    tx_type: TxType,
+    rpc_url: &'a Url,
+    signer: &'a PrivateKeySigner,
+    redeploy: bool,
+    genesis_hash: FixedBytes<32>,
 }
 
 impl<D, S, P> TestScenario<D, S, P>
@@ -150,7 +169,7 @@ where
         db: Arc<D>,
         rand_seed: S,
         params: TestScenarioParams,
-        auth_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+        auth_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
         prometheus: PrometheusCollector,
     ) -> Result<Self> {
         let TestScenarioParams {
@@ -162,6 +181,8 @@ where
             pending_tx_timeout_secs,
             bundle_type,
             extra_msg_handles,
+            redeploy,
+            sync_nonces_after_batch,
         } = params;
 
         let (setcode_signer, _) = generate_setcode_signer(&rand_seed);
@@ -176,6 +197,17 @@ where
                 .network::<AnyNetwork>()
                 .connect_client(client),
         ));
+        let genesis_block = rpc_client
+            .get_block(BlockId::earliest())
+            .await
+            .map_err(|e| ContenderError::with_err(e, "failed to retrieve genesis block"))?;
+        if genesis_block.is_none() {
+            return Err(ContenderError::GenericError(
+                "no genesis block found",
+                String::new(),
+            ));
+        }
+        let genesis_block = genesis_block.expect("genesis block");
 
         let mut wallet_map = HashMap::new();
         let mut signer_map = HashMap::new();
@@ -270,10 +302,13 @@ where
                 block_time_secs,
                 cancel_token,
                 chain_id,
+                genesis_hash: genesis_block.header.hash,
             },
             auth_provider,
             prometheus,
             setcode_signer,
+            redeploy,
+            should_sync_nonces: sync_nonces_after_batch,
         })
     }
 
@@ -296,16 +331,19 @@ where
 "
         );
         // start anvil with dev accounts holding 1M eth
-        let anvil = Anvil::new()
-            .args(["--balance", "1000000"])
-            .try_spawn()
+        let mut anvil = Anvil::new().args(["--balance", "1000000"]);
+        if !cfg!(test) {
+            anvil = anvil.fork(self.rpc_url.to_string());
+        }
+        let anvil = anvil.try_spawn()
             .map_err(|e| {
                 if e.to_string().to_lowercase().contains("no such file") {
-                    ContenderError::SetupError("failed to spawn anvil. You may need to install foundry (https://book.getfoundry.sh/getting-started/installation).", None)
+                ContenderError::SetupError("failed to spawn anvil. You may need to install foundry (https://book.getfoundry.sh/getting-started/installation).", None)
                 } else {
-                    ContenderError::with_err(e, "failed to spawn anvil.")
+                ContenderError::with_err(e, "failed to spawn anvil.")
                 }
             })?;
+
         let admin_signer = LocalSigner::from_str(
             "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
         )
@@ -326,6 +364,8 @@ where
                 bundle_type: self.bundle_type,
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
                 extra_msg_handles: None,
+                redeploy: self.redeploy,
+                sync_nonces_after_batch: self.should_sync_nonces,
             },
             None,
             (&PROM, &HIST).into(),
@@ -450,6 +490,8 @@ where
 
         // we do everything in the callback so no need to actually capture the returned txs
         // we have to do this to populate the database with new named transaction after each deployment
+        let redeploy = self.redeploy;
+        let genesis_hash = self.ctx.genesis_hash;
         self.load_txs(PlanType::Create(|tx_req| {
             let from = tx_req.tx.from.to_owned().ok_or(ContenderError::SetupError(
                 "failed to get 'from' address",
@@ -469,14 +511,16 @@ where
             let db = self.db.clone();
 
             let handle = tokio::task::spawn(async move {
-                Self::deploy_contract(
-                    &db,
-                    &tx_req,
-                    (gas_price, blob_gas_price, chain_id).into(),
+                Self::deploy_contract(DeployContractParams {
+                    db: &db,
+                    tx_req: &tx_req,
+                    extra_tx_params: (gas_price, blob_gas_price, chain_id).into(),
                     tx_type,
-                    &rpc_url,
-                    &wallet,
-                )
+                    rpc_url: &rpc_url,
+                    signer: &wallet,
+                    redeploy,
+                    genesis_hash,
+                })
                 .await
             });
 
@@ -489,22 +533,42 @@ where
         Ok(())
     }
 
-    async fn deploy_contract(
-        db: &D,
-        tx_req: &NamedTxRequest,
-        extra_tx_params: ExtraTxParams,
-        // gas_price: u128,
-        // blob_gas_price: u128,
-        // chain_id: u64,
-        tx_type: TxType,
-        rpc_url: &Url,
-        signer: &PrivateKeySigner,
-    ) -> Result<()> {
+    async fn deploy_contract<'a>(params: DeployContractParams<'a, D>) -> Result<()> {
+        let DeployContractParams {
+            db,
+            tx_req,
+            extra_tx_params,
+            tx_type,
+            rpc_url,
+            signer,
+            redeploy,
+            genesis_hash,
+        } = params;
         let wallet = EthereumWallet::from(signer.to_owned());
         let wallet_client = ProviderBuilder::new()
             .wallet(&wallet)
             .network::<AnyNetwork>()
             .connect_http(rpc_url.to_owned());
+
+        if let Some(name) = tx_req.name.as_ref() {
+            if let Some(existing) = db.get_named_tx(name, rpc_url.as_str(), genesis_hash)? {
+                if let Some(addr) = existing.address {
+                    let code: Bytes = wallet_client
+                        .client()
+                        .request("eth_getCode", (addr, "latest"))
+                        .await
+                        .map_err(|e| ContenderError::with_err(e, "failed to get on-chain code"))?;
+                    if !code.as_ref().is_empty() && !redeploy {
+                        info!(
+                            contract = %name,
+                            address = %addr,
+                            "skipping deploy; on-chain code already present"
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+        }
 
         let ExtraTxParams {
             gas_price,
@@ -562,6 +626,7 @@ where
                     receipt.contract_address,
                 )],
                 rpc_url.as_str(),
+                genesis_hash,
             )?;
         } else {
             warn!("No name provided for named transaction. This may cause issues with tracking the entry in the database.");
@@ -571,6 +636,7 @@ where
 
     pub async fn run_setup(&mut self) -> Result<()> {
         let chain_id = self.chain_id;
+        let genesis_hash = self.ctx.genesis_hash;
         self.load_txs(PlanType::Setup(|tx_req| {
             /* callback */
             info!("{}", self.format_setup_log(&tx_req));
@@ -612,13 +678,15 @@ where
                 let gas_limit = if let Some(gas) = tx_req.tx.gas {
                     gas
                 } else {
-                    wallet
-                        .estimate_gas(tx_req.tx.to_owned().into())
-                        .await
-                        .map_err(|e| {
-                            warn!("failed to estimate gas for setup step '{tx_label}'");
-                            ContenderError::with_err(e, "failed to estimate gas")
-                        })?
+                    let res = wallet.estimate_gas(tx_req.tx.to_owned().into()).await;
+                    if let Ok(res) = res {
+                        res
+                    } else {
+                        warn!(
+                            "failed to estimate gas for setup step '{tx_label}', skipping step..."
+                        );
+                        return Ok(());
+                    }
                 };
                 let mut tx = tx_req.tx;
                 complete_tx_request(
@@ -651,6 +719,7 @@ where
                             receipt.contract_address,
                         )],
                         rpc_url.as_str(),
+                        genesis_hash,
                     )?;
                 }
 
@@ -699,32 +768,10 @@ where
                 .insert(setcode_signer_addr, setcode_signer_nonce + 1);
         }
 
-        let key = keccak256(tx_req.input.input.to_owned().unwrap_or_default());
-
-        if let std::collections::hash_map::Entry::Vacant(_) = self.gas_limits.entry(key) {
-            let mut tx_req = tx_req.to_owned();
-            if let Some(sidecar) = &tx_req.sidecar {
-                tx_req.max_fee_per_blob_gas = Some(blob_gas_price);
-                tx_req.blob_versioned_hashes = Some(sidecar.versioned_hashes().collect());
-            }
-            let gas_limit = if let Some(gas) = tx_req.gas {
-                gas
-            } else {
-                self.rpc_client
-                    .estimate_gas(WithOtherFields::new(tx_req.to_owned()))
-                    .await
-                    .map_err(|e| {
-                        if e.as_error_resp().is_some() {
-                            tracing::error!("failed tx: {tx_req:?}");
-                        }
-                        ContenderError::with_err(e, "failed to estimate gas for tx")
-                    })?
-            };
-            self.gas_limits.insert(key, gas_limit);
-        }
+        self.update_gas_map(tx_req, blob_gas_price).await?;
         let gas_limit = self
             .gas_limits
-            .get(&key)
+            .get(&tx_req.key())
             .ok_or(ContenderError::SetupError(
                 "failed to lookup gas limit",
                 None,
@@ -775,6 +822,7 @@ where
 
         let mut payloads = vec![];
         info!("preparing {} spam payloads", tx_requests.len());
+
         for tx in tx_requests {
             let payload = match tx {
                 ExecutionRequest::Bundle(reqs) => {
@@ -787,8 +835,7 @@ where
                     for req in reqs {
                         let (tx_req, signer) = self
                             .prepare_tx_request(&req.tx, gas_price, blob_gas_price)
-                            .await
-                            .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
+                            .await?;
 
                         trace!("bundle tx: {tx_req:?}");
                         // sign tx
@@ -1194,6 +1241,8 @@ where
                 bundle_type: self.bundle_type,
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
                 extra_msg_handles: None,
+                redeploy: false,
+                sync_nonces_after_batch: self.should_sync_nonces,
             },
             None,
             (&PROM, &HIST).into(),
@@ -1395,6 +1444,52 @@ where
         }
         latency_map
     }
+
+    /// Updates gas limits hashmap for a given tx, returns the key used to index the tx to its gas limit.
+    async fn update_gas_map(
+        &mut self,
+        tx_req: &TransactionRequest,
+        blob_gas_price: u128,
+    ) -> Result<FixedBytes<32>> {
+        let key = tx_req.key();
+        if let std::collections::hash_map::Entry::Vacant(_) = self.gas_limits.entry(key) {
+            let mut tx_req = tx_req.to_owned();
+            if let Some(sidecar) = &tx_req.sidecar {
+                tx_req.max_fee_per_blob_gas = Some(blob_gas_price);
+                tx_req.blob_versioned_hashes = Some(sidecar.versioned_hashes().collect());
+            }
+            let gas_limit = if let Some(gas) = tx_req.gas {
+                gas
+            } else {
+                if let Some(TxKind::Call(address)) = &tx_req.to {
+                    let data = tx_req.input.input.to_owned().unwrap_or_default();
+                    if !data.is_empty() {
+                        // assume that with calldata, we're trying to call a contract, so it should have code
+                        let code = self.rpc_client.get_code_at(*address).await.map_err(|e| {
+                            ContenderError::with_err(
+                                e,
+                                "failed to read bytecode at contract address",
+                            )
+                        })?;
+                        if code.is_empty() {
+                            warn!("Trying to call an address with no code... If you're targeting a smart contract, you may need to run contender setup to re-deploy it.");
+                        }
+                    }
+                }
+                self.rpc_client
+                    .estimate_gas(WithOtherFields::new(tx_req.to_owned()))
+                    .await
+                    .map_err(|e| {
+                        if e.as_error_resp().is_some() {
+                            tracing::error!("failed tx: {tx_req:?}");
+                        }
+                        ContenderError::with_err(e, "failed to estimate gas for tx")
+                    })?
+            };
+            self.gas_limits.insert(key, gas_limit);
+        }
+        Ok(key)
+    }
 }
 
 async fn sync_nonces(
@@ -1482,11 +1577,26 @@ where
     fn get_setcode_signer(&self) -> &PrivateKeySigner {
         &self.setcode_signer
     }
+
+    fn get_genesis_hash(&self) -> FixedBytes<32> {
+        self.ctx.genesis_hash
+    }
 }
 
 struct SpamContextHandler {
     add_gas: tokio::sync::mpsc::Sender<u128>,
     success_send_tx: tokio::sync::mpsc::Sender<()>,
+}
+
+trait TxKey {
+    /// Defines a key to index a unique transaction request (e.g. in a hashmap).
+    fn key(&self) -> FixedBytes<32>;
+}
+
+impl TxKey for TransactionRequest {
+    fn key(&self) -> FixedBytes<32> {
+        keccak256(self.input.input.to_owned().unwrap_or_default())
+    }
 }
 
 #[cfg(test)]
@@ -1543,6 +1653,8 @@ pub mod tests {
                         bytecode: COUNTER_BYTECODE.to_string(),
                         name: "test_counter2".to_string(),
                     },
+                    signature: None,
+                    args: None,
                     from: None,
                     from_pool: Some("admin1".to_owned()),
                 },
@@ -1551,6 +1663,8 @@ pub mod tests {
                         bytecode: UNI_V2_FACTORY_BYTECODE.to_string(),
                         name: "univ2_factory".to_string(),
                     },
+                    signature: None,
+                    args: None,
                     from: None,
                     from_pool: Some("admin2".to_owned()),
                 },
@@ -1712,6 +1826,8 @@ pub mod tests {
                 bundle_type,
                 pending_tx_timeout_secs: 12,
                 extra_msg_handles: None,
+                redeploy: true,
+                sync_nonces_after_batch: true,
             },
             None,
             (&PROM, &HIST).into(),

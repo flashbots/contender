@@ -45,8 +45,7 @@ impl ToTestConfig for StorageStressArgs {
         let txs = [
             FunctionCallDefinition::new(contracts::SPAM_ME.template_name())
                 .with_signature("fillStorageSlots(uint256 numSlots, uint256 iteration)")
-                .with_args(&[num_slots.to_string(), num_iterations.to_string()])
-                .with_from_pool("admin"),
+                .with_args(&[num_slots.to_string(), num_iterations.to_string()]),
             // ... add more transactions here if needed.
         ]
         .into_iter()
@@ -58,6 +57,8 @@ impl ToTestConfig for StorageStressArgs {
             env: None,
             create: Some(vec![CreateDefinition {
                 contract: contracts::SPAM_ME.into(),
+                signature: None,
+                args: None,
                 from: None,
                 from_pool: Some("admin".to_owned()),
             }]),

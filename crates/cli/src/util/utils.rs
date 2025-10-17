@@ -7,7 +7,6 @@ use alloy::{
     rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
 };
-use ansi_term::{ANSIGenericString, Color};
 use contender_core::{
     error::ContenderError,
     generator::{
@@ -17,8 +16,9 @@ use contender_core::{
     spammer::{LogCallback, NilCallback},
     util::get_blob_fee_maybe,
 };
-use contender_engine_provider::{AdvanceChain, DEFAULT_BLOCK_TIME};
+use contender_engine_provider::{ControlChain, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
+use nu_ansi_term::{AnsiGenericString, Color, Style as ANSIStyle};
 use rand::Rng;
 use std::{ops::Deref, str::FromStr, sync::Arc, time::Duration};
 use tracing::{debug, info, warn};
@@ -120,6 +120,10 @@ pub fn check_private_keys(testconfig: &TestConfig, prv_keys: &[PrivateKeySigner]
 pub fn check_private_keys_fns(fn_calls: &[FunctionCallDefinition], prv_keys: &[PrivateKeySigner]) {
     for fn_call in fn_calls {
         if let Some(from) = &fn_call.from {
+            // ignore placeholder values in the `from` field; you're on your own if you use those...
+            if from.starts_with("{") {
+                continue;
+            }
             let address = from.parse::<Address>().expect("invalid 'from' address");
             if prv_keys.iter().all(|k| k.address() != address) {
                 panic!("No private key found for address: {address}");
@@ -267,8 +271,41 @@ pub async fn fund_accounts(
             }
         }
         for tx in txs_chunk {
-            let pending = rpc_client.watch_pending_transaction(tx.to_owned()).await?;
-            info!("funding tx confirmed ({})", pending.await?);
+            // Use a timeout for funding transactions to prevent indefinite hanging
+            // This prevents stalls when transactions get stuck in mempool or dropped
+            let timeout_duration = Duration::from_secs(24);
+            let tx_hash = *tx.tx_hash();
+
+            let watch_result = tokio::time::timeout(timeout_duration, async {
+                let pending = rpc_client.watch_pending_transaction(tx.to_owned()).await?;
+                pending.await
+            })
+            .await;
+
+            match watch_result {
+                Ok(Ok(receipt)) => {
+                    info!("funding tx confirmed ({})", receipt);
+                }
+                Ok(Err(e)) => {
+                    return Err(format!("funding tx {} failed: {}", tx_hash, e).into());
+                }
+                Err(_) => {
+                    warn!(
+                        "funding tx {} timed out after {} seconds",
+                        tx_hash,
+                        timeout_duration.as_secs()
+                    );
+                    return Err(format!(
+                        "funding transaction {} timed out after {} seconds. This may indicate:\n\
+                         - Transaction stuck in mempool (try increasing gas price)\n\
+                         - Network congestion or RPC connectivity issues\n\
+                         - Transaction was dropped or replaced",
+                        tx_hash,
+                        timeout_duration.as_secs()
+                    )
+                    .into());
+                }
+            }
         }
     }
 
@@ -342,13 +379,17 @@ pub fn spam_callback_default(
     log_txs: bool,
     send_fcu: bool,
     rpc_client: Option<Arc<AnyProvider>>,
-    auth_client: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    auth_client: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
     cancel_token: tokio_util::sync::CancellationToken,
 ) -> TypedSpamCallback {
     if let Some(rpc_client) = rpc_client {
         if log_txs {
-            let log_callback =
-                LogCallback::new(rpc_client.clone(), auth_client, send_fcu, cancel_token);
+            let log_callback = LogCallback {
+                rpc_provider: rpc_client.clone(),
+                auth_provider: auth_client,
+                send_fcu,
+                cancel_token,
+            };
             return TypedSpamCallback::Log(log_callback);
         }
     }
@@ -356,7 +397,7 @@ pub fn spam_callback_default(
 }
 
 pub fn prompt_cli(msg: impl AsRef<str>) -> String {
-    println!("{}", Color::RGB(252, 186, 3).paint(msg.as_ref()));
+    println!("{}", Color::Rgb(252, 186, 3).paint(msg.as_ref()));
 
     let mut input = String::new();
     std::io::stdin()
@@ -402,10 +443,8 @@ pub fn db_file() -> Result<String, Box<dyn std::error::Error>> {
     Ok(format!("{data_path}/contender.db"))
 }
 
-pub fn bold<'a>(msg: impl AsRef<str> + 'a) -> ANSIGenericString<'a, str> {
-    ansi_term::Style::new()
-        .bold()
-        .paint(msg.as_ref().to_owned())
+pub fn bold<'a>(msg: impl AsRef<str> + 'a) -> AnsiGenericString<'a, str> {
+    ANSIStyle::new().bold().paint(msg.as_ref().to_owned())
 }
 
 /// Parses a string with time units into a Duration.
@@ -474,8 +513,52 @@ pub fn load_seedfile() -> Result<String, Box<dyn std::error::Error>> {
     Ok(stored_seed)
 }
 
+/// Returns a human-readable "gas" string.
+///
+/// ## Example:
+/// ```rs
+/// assert_eq!(human_readable_gas(500), "500 gas");
+/// assert_eq!(human_readable_gas(500_000_000), "500 Mgas");
+/// assert_eq!(human_readable_gas(5_000_000_000), "5 Ggas");
+/// ```
+pub fn human_readable_gas(gas: u128) -> String {
+    let unit_divisors = [
+        ("Ggas", 1_000_000_000.0),
+        ("Mgas", 1_000_000.0),
+        ("Kgas", 1_000.0),
+        ("gas", 1.0),
+    ];
+    let (gas_unit, divisor) = unit_divisors
+        .iter()
+        .find(|(_, divisor)| gas as f64 >= *divisor)
+        .unwrap_or(unit_divisors.last().expect("empty unit_divisors"));
+    format!("{} {gas_unit}", gas as f64 / divisor)
+}
+
+/// Returns a human-readable duration, which only goes up to minutes.
+/// Doesn't display minutes until >2 minutes have elapsed.
+///
+/// ## Example:
+/// ```rs
+/// assert_eq!(human_readable_duration(Duration::from_secs(60)), "60 seconds");
+/// assert_eq!(human_readable_duration(Duration::from_secs(240)), "4 minutes");
+/// assert_eq!(human_readable_duration(Duration::from_millis(600)), "600 milliseconds");
+/// ```
+pub fn human_readable_duration(duration: Duration) -> String {
+    if duration > Duration::from_secs(60 * 2) {
+        format!("{} minutes", duration.as_secs_f32() / 60.0)
+    } else if duration > Duration::from_secs(1) {
+        format!("{} seconds", duration.as_secs_f32())
+    } else {
+        format!("{} milliseconds", duration.as_millis())
+    }
+}
+
 #[cfg(test)]
 mod test {
+    use crate::util::human_readable_duration;
+    use crate::util::utils::human_readable_gas;
+
     use super::fund_accounts;
     use super::load_testconfig;
     use super::parse_duration;
@@ -666,5 +749,29 @@ mod test {
         .await;
         println!("res: {res:?}");
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn human_readable_gas_works() {
+        assert_eq!(human_readable_gas(500), "500 gas");
+        assert_eq!(human_readable_gas(500_000_000), "500 Mgas");
+        assert_eq!(human_readable_gas(5_000_000_000), "5 Ggas");
+        assert_eq!(human_readable_gas(5_101_000_000), "5.101 Ggas");
+    }
+
+    #[test]
+    fn human_readable_duration_works() {
+        assert_eq!(
+            human_readable_duration(Duration::from_secs(60)),
+            "60 seconds"
+        );
+        assert_eq!(
+            human_readable_duration(Duration::from_secs(240)),
+            "4 minutes"
+        );
+        assert_eq!(
+            human_readable_duration(Duration::from_millis(600)),
+            "600 milliseconds"
+        );
     }
 }

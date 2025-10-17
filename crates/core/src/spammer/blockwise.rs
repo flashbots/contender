@@ -54,6 +54,10 @@ where
             .boxed())
     }
 
+    fn duration_units(periods: u64) -> crate::db::SpamDuration {
+        crate::db::SpamDuration::Blocks(periods)
+    }
+
     fn context(&self) -> &SpamRunContext {
         &self.context
     }
@@ -126,6 +130,8 @@ mod tests {
                 bundle_type: BundleType::default(),
                 pending_tx_timeout_secs: 12,
                 extra_msg_handles: None,
+                redeploy: false,
+                sync_nonces_after_batch: true,
             },
             None,
             (&PROM, &HIST).into(),

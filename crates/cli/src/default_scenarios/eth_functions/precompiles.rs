@@ -45,7 +45,6 @@ pub fn precompile_txs(args: &[EthereumPrecompile], num_iterations: u64) -> Vec<S
                 FunctionCallDefinition::new(SPAM_ME.template_name())
                     .with_signature("callPrecompile(string memory method, uint256 iterations)")
                     .with_args(&[precompile.method().to_owned(), num_iterations.to_string()])
-                    .with_from_pool("spammers")
                     .with_kind("precompiles")
                     .into(),
             )

@@ -84,7 +84,9 @@ pub async fn spamd(
             }
 
             if let Some(timeout_start) = timeout_start {
-                if std::time::Instant::now().duration_since(timeout_start) > args.spam_timeout {
+                if std::time::Instant::now().duration_since(timeout_start)
+                    > args.spam_args.spam_timeout
+                {
                     warn!("timeout reached, quitting spam loop...");
                     scenario.ctx.cancel_token.cancel();
                     break;

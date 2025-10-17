@@ -1,4 +1,4 @@
-use clap::{arg, Parser};
+use clap::Parser;
 use contender_core::generator::{types::SpamRequest, CreateDefinition, FunctionCallDefinition};
 use contender_testfile::TestConfig;
 use strum::IntoEnumIterator;
@@ -145,7 +145,6 @@ impl ToTestConfig for StressCliArgs {
             FunctionCallDefinition::new(contracts::SPAM_ME.template_name())
                 .with_signature("consumeGas(string memory method, uint256 iterations)")
                 .with_args(args)
-                .with_from_pool("spammers")
         };
 
         // custom overrides for specific opcodes
@@ -175,6 +174,8 @@ impl ToTestConfig for StressCliArgs {
             env: None,
             create: Some(vec![CreateDefinition {
                 contract: contracts::SPAM_ME.into(),
+                signature: None,
+                args: None,
                 from: None,
                 from_pool: Some("admin".to_owned()),
             }]),

@@ -60,7 +60,7 @@ contender report -i 203 -p 3
 [[spam]]
 [spam.tx]
 to = "{testAddr}"
-from_pool = "spammers"
+
 signature = "call()"
 args = []
 ```

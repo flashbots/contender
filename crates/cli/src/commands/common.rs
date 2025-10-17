@@ -6,7 +6,7 @@ use alloy::primitives::utils::parse_units;
 use alloy::primitives::U256;
 use contender_core::BundleType;
 use contender_engine_provider::reth_node_api::EngineApiMessageVersion;
-use contender_engine_provider::AdvanceChain;
+use contender_engine_provider::ControlChain;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, clap::Args)]
@@ -74,6 +74,15 @@ May be specified multiple times."
     #[command(flatten)]
     pub auth_args: AuthCliArgs,
 
+    /// Call `engine_forkchoiceUpdated` after each block.
+    #[arg(
+        long,
+        long_help = "Call engine_forkchoiceUpdated on Auth RPC after each block.
+Requires --auth-rpc-url and --jwt-secret to be set.",
+        visible_aliases = &["fcu"]
+    )]
+    pub call_forkchoice: bool,
+
     #[arg(
         short,
         long,
@@ -110,15 +119,6 @@ Required if --auth-rpc-url is set.",
     )]
     pub jwt_secret: Option<String>,
 
-    /// Call `engine_forkchoiceUpdated` after each block
-    #[arg(
-        long,
-        long_help = "Call engine_forkchoiceUpdated on Auth RPC after each block.
-Requires --auth-rpc-url and --jwt-secret to be set.",
-        visible_aliases = &["fcu"]
-    )]
-    pub call_forkchoice: bool,
-
     /// Use OP engine provider
     #[arg(
         long = "optimism",
@@ -147,8 +147,11 @@ enum EngineMessageVersion {
 }
 
 impl AuthCliArgs {
-    pub async fn engine_params(&self) -> Result<EngineParams, Box<dyn std::error::Error>> {
-        if self.call_forkchoice && (self.auth_rpc_url.is_none() || self.jwt_secret.is_none()) {
+    pub async fn engine_params(
+        &self,
+        call_forkchoice: bool,
+    ) -> Result<EngineParams, Box<dyn std::error::Error>> {
+        if call_forkchoice && (self.auth_rpc_url.is_none() || self.jwt_secret.is_none()) {
             return Err("engine args required for forkchoice".into());
         }
 
@@ -165,7 +168,7 @@ impl AuthCliArgs {
                     // EngineMessageVersion::V5 => EngineApiMessageVersion::V5,
                 },
             };
-            EngineParams::new(Arc::new(args.new_provider().await?), self.call_forkchoice)
+            EngineParams::new(Arc::new(args.new_provider().await?), call_forkchoice)
         } else {
             EngineParams::default()
         };
@@ -266,14 +269,15 @@ impl Default for BundleTypeCli {
     }
 }
 
+#[derive(Clone)]
 pub struct EngineParams {
-    pub engine_provider: Option<Arc<dyn AdvanceChain + Send + Sync + 'static>>,
+    pub engine_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
     pub call_fcu: bool,
 }
 
 impl EngineParams {
     pub fn new(
-        engine_provider: Arc<dyn AdvanceChain + Send + Sync + 'static>,
+        engine_provider: Arc<dyn ControlChain + Send + Sync + 'static>,
         call_forkchoice: bool,
     ) -> Self {
         Self {
@@ -320,6 +324,24 @@ impl From<TxTypeCli> for alloy::consensus::TxType {
             TxTypeCli::Eip4844 => TxType::Eip4844,
             TxTypeCli::Eip7702 => TxType::Eip7702,
         }
+    }
+}
+
+impl PartialEq<alloy::consensus::TxType> for TxTypeCli {
+    fn eq(&self, other: &alloy::consensus::TxType) -> bool {
+        matches!(
+            (self, other),
+            (TxTypeCli::Legacy, alloy::consensus::TxType::Legacy)
+                | (TxTypeCli::Eip1559, alloy::consensus::TxType::Eip1559)
+                | (TxTypeCli::Eip4844, alloy::consensus::TxType::Eip4844)
+                | (TxTypeCli::Eip7702, alloy::consensus::TxType::Eip7702)
+        )
+    }
+}
+
+impl PartialEq<TxTypeCli> for alloy::consensus::TxType {
+    fn eq(&self, other: &TxTypeCli) -> bool {
+        other == self
     }
 }
 

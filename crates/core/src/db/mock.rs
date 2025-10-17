@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use alloy::primitives::{Address, TxHash};
+use alloy::primitives::{Address, FixedBytes, TxHash};
 
 use super::{DbOps, NamedTx, RunTx, SpamRunRequest};
 use crate::{buckets::Bucket, Result};
@@ -8,6 +8,36 @@ use crate::{buckets::Bucket, Result};
 pub struct MockDb;
 
 impl DbOps for MockDb {
+    fn get_rpc_url_id(
+        &self,
+        _rpc_url: impl AsRef<str>,
+        _genesis_hash: FixedBytes<32>,
+    ) -> Result<u64> {
+        Ok(0)
+    }
+
+    fn get_replay_report(&self, id: u64) -> Result<super::ReplayReport> {
+        Ok(super::ReplayReport {
+            id,
+            req: super::ReplayReportRequest {
+                rpc_url_id: 0,
+                gas_per_second: 0,
+                gas_used: 0,
+            },
+        })
+    }
+
+    fn insert_replay_report(
+        &self,
+        report: super::ReplayReportRequest,
+    ) -> Result<super::ReplayReport> {
+        Ok(super::ReplayReport { id: 0, req: report })
+    }
+
+    fn num_replay_reports(&self) -> Result<u64> {
+        Ok(0)
+    }
+
     fn version(&self) -> u64 {
         u64::MAX
     }
@@ -28,11 +58,21 @@ impl DbOps for MockDb {
         Ok(0)
     }
 
-    fn insert_named_txs(&self, _named_txs: &[NamedTx], _rpc_url: &str) -> Result<()> {
+    fn insert_named_txs(
+        &self,
+        _named_txs: &[NamedTx],
+        _rpc_url: &str,
+        _genesis_hash: FixedBytes<32>,
+    ) -> Result<()> {
         Ok(())
     }
 
-    fn get_named_tx(&self, _name: &str, _rpc_url: &str) -> Result<Option<NamedTx>> {
+    fn get_named_tx(
+        &self,
+        _name: &str,
+        _rpc_url: &str,
+        _genesis_hash: FixedBytes<32>,
+    ) -> Result<Option<NamedTx>> {
         Ok(Some(NamedTx::new(
             String::default(),
             TxHash::default(),

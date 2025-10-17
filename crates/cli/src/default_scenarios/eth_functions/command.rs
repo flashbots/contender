@@ -6,7 +6,7 @@ use crate::default_scenarios::{
         precompiles::{precompile_txs, EthereumPrecompile},
     },
 };
-use clap::{arg, Parser};
+use clap::Parser;
 use contender_core::generator::CreateDefinition;
 use contender_testfile::TestConfig;
 
@@ -77,6 +77,8 @@ impl ToTestConfig for EthFunctionsArgs {
             env: None,
             create: Some(vec![CreateDefinition {
                 contract: contracts::SPAM_ME.into(),
+                signature: None,
+                args: None,
                 from: None,
                 from_pool: Some("admin".to_owned()),
             }]),

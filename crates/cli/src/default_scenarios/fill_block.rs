@@ -3,7 +3,7 @@ use crate::{
     default_scenarios::{builtin::ToTestConfig, contracts, BuiltinScenario},
 };
 use alloy::providers::Provider;
-use clap::{arg, Parser};
+use clap::Parser;
 use contender_core::{
     error::ContenderError,
     generator::{
@@ -77,7 +77,6 @@ impl ToTestConfig for FillBlockArgs {
                 SpamRequest::Tx(
                     FunctionCallDefinition::new(contracts::SPAM_ME.template_name())
                         .with_signature("consumeGas()")
-                        .with_from_pool("spammers")
                         .with_kind("fill-block")
                         .with_gas_limit(gas_per_tx)
                         .into(),
@@ -89,6 +88,8 @@ impl ToTestConfig for FillBlockArgs {
             env: None,
             create: Some(vec![CreateDefinition {
                 contract: contracts::SPAM_ME.into(),
+                signature: None,
+                args: None,
                 from: None,
                 from_pool: Some("admin".to_owned()),
             }]),

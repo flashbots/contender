@@ -1,10 +1,11 @@
 use clap::Subcommand;
 use std::path::PathBuf;
 
+use crate::commands::common::ScenarioSendTxsCliArgs;
+use crate::commands::replay::ReplayCliArgs;
 use crate::default_scenarios::BuiltinScenarioCli;
 
 use super::admin::AdminCommand;
-use super::setup::SetupCliArgs;
 use super::spam::SpamCliArgs;
 
 #[derive(Debug, Subcommand)]
@@ -36,7 +37,16 @@ pub enum ContenderSubcommand {
     )]
     Setup {
         #[command(flatten)]
-        args: Box<SetupCliArgs>,
+        args: Box<ScenarioSendTxsCliArgs>,
+    },
+
+    #[command(
+        name = "replay",
+        long_about = "Replay a range of blocks with the engine_ API."
+    )]
+    Replay {
+        #[command(flatten)]
+        args: Box<ReplayCliArgs>,
     },
 
     #[command(

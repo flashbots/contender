@@ -41,7 +41,7 @@ strum = "0.27.1"
 
 ## cli
 console-subscriber = "0.4.1"
-ansi_term = "0.12.1"
+nu-ansi-term = "0.50.1"
 clap = { version = "4.5.16" }
 csv = "1.3.0"
 
@@ -56,10 +56,10 @@ tower = "0.5.2"
 alloy-rpc-types-engine = { version = "1.0.22", default-features = false }
 alloy-json-rpc = { version = "1.0.22", default-features = false }
 alloy-chains = { version = "0.2.5", default-features = false }
-reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.5.1", default-features = false }
-reth-rpc-layer = { git = "https://github.com/paradigmxyz/reth", tag = "v1.5.1", default-features = false }
-reth-optimism-node = { git = "https://github.com/paradigmxyz/reth", tag = "v1.5.1" }
-reth-optimism-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v1.5.1" }
+reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.6.0", default-features = false }
+reth-rpc-layer = { git = "https://github.com/paradigmxyz/reth", tag = "v1.6.0", default-features = false }
+reth-optimism-node = { git = "https://github.com/paradigmxyz/reth", tag = "v1.6.0" }
+reth-optimism-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v1.6.0" }
 op-alloy-consensus = { version = "0.18.9", default-features = false }
 op-alloy-network = { version = "0.18.9", default-features = false }
 op-alloy-rpc-types = { version = "0.18.9", default-features = false }

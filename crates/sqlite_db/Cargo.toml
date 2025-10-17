@@ -7,12 +7,13 @@ name = "contender_sqlite"
 description = "SQLite database for contender"
 repository.workspace = true
 rust-version.workspace = true
-version = "0.4.2"
+version = "0.5.2"
 
 [dependencies]
-alloy = {workspace = true}
-contender_core = {workspace = true}
-r2d2 = {workspace = true}
-r2d2_sqlite = {workspace = true}
-rusqlite = {workspace = true}
-serde = {workspace = true}
+alloy = { workspace = true }
+contender_core = { workspace = true }
+r2d2 = { workspace = true }
+r2d2_sqlite = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+tracing = { workspace = true }

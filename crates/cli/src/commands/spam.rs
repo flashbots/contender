@@ -3,8 +3,9 @@ use crate::{
     commands::common::EngineParams,
     default_scenarios::BuiltinScenario,
     util::{
-        bold, check_private_keys, fund_accounts, get_signers_with_defaults, load_testconfig,
-        parse_duration, provider::AuthClient, spam_callback_default, TypedSpamCallback,
+        bold, check_private_keys, fund_accounts, get_signers_with_defaults, load_seedfile,
+        load_testconfig, parse_duration, provider::AuthClient, spam_callback_default,
+        TypedSpamCallback,
     },
     LATENCY_HIST as HIST, PROM,
 };
@@ -15,7 +16,6 @@ use alloy::{
     providers::{DynProvider, ProviderBuilder},
     transports::http::reqwest::Url,
 };
-use ansi_term::Style;
 use contender_core::{
     agent_controller::AgentStore,
     db::{DbOps, SpamDuration, SpamRunRequest},
@@ -23,13 +23,13 @@ use contender_core::{
     generator::{seeder::Seeder, templater::Templater, types::SpamRequest, PlanConfig, RandSeed},
     spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
-    BundleType,
+    util::get_block_time,
 };
 use contender_engine_provider::{
-    reth_node_api::EngineApiMessageVersion, AdvanceChain, AuthProvider,
+    reth_node_api::EngineApiMessageVersion, AuthProvider, ControlChain,
 };
 use contender_testfile::TestConfig;
-use op_alloy_network::Optimism;
+use op_alloy_network::{Ethereum, Optimism};
 use std::{ops::Deref, path::PathBuf, sync::atomic::AtomicBool};
 use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
@@ -44,7 +44,7 @@ pub struct EngineArgs {
 
 impl EngineArgs {
     pub async fn new_provider(&self) -> Result<AuthClient, Box<dyn std::error::Error>> {
-        let provider: Box<dyn AdvanceChain + Send + Sync + 'static> = if self.use_op {
+        let provider: Box<dyn ControlChain + Send + Sync + 'static> = if self.use_op {
             Box::new(
                 AuthProvider::<Optimism>::from_jwt_file(
                     &self.auth_rpc_url,
@@ -55,7 +55,7 @@ impl EngineArgs {
             )
         } else {
             Box::new(
-                AuthProvider::<AnyNetwork>::from_jwt_file(
+                AuthProvider::<Ethereum>::from_jwt_file(
                     &self.auth_rpc_url,
                     &self.jwt_secret,
                     self.message_version,
@@ -76,11 +76,19 @@ pub struct SpamCliArgs {
     pub spam_args: SendSpamCliArgs,
 
     #[arg(
-            long,
-            long_help = "Prevent tx results from being saved to DB.",
-            visible_aliases = &["dr"]
-        )]
-    pub disable_reporting: bool,
+        long,
+        help = "Ignore transaction receipts.",
+        long_help = "Keep sending transactions without waiting for receipts.",
+        visible_aliases = ["ir", "no-receipts"]
+    )]
+    pub ignore_receipts: bool,
+
+    #[arg(
+        long,
+        help = "Disable nonce synchronization between batches.",
+        visible_aliases = ["disable-nonce-sync", "fast-nonces"]
+    )]
+    pub optimistic_nonces: bool,
 
     #[arg(
         long,
@@ -96,6 +104,13 @@ pub struct SpamCliArgs {
         default_value = "5min"
     )]
     pub spam_timeout: Duration,
+
+    /// Re-deploy contracts in builtin scenarios.
+    #[arg(
+        long,
+        long_help = "If set, re-deploy contracts that have already been deployed. Only builtin scenarios are affected."
+    )]
+    pub redeploy: bool,
 }
 
 pub enum SpamScenario {
@@ -121,39 +136,72 @@ impl SpamScenario {
 
 pub struct SpamCommandArgs {
     pub scenario: SpamScenario,
-    pub rpc_url: String,
-    pub builder_url: Option<String>,
-    pub txs_per_block: Option<u64>,
-    pub txs_per_second: Option<u64>,
-    pub duration: u64,
-    pub seed: String,
-    pub private_keys: Option<Vec<String>>,
-    pub disable_reporting: bool,
-    pub min_balance: U256,
-    pub tx_type: TxType,
-    pub bundle_type: BundleType,
-    /// Provide to enable engine calls (required to use `call_forkchoice`)
-    pub engine_params: EngineParams,
-    /// how long to wait for pending txs (in seconds) before quitting spam loop
-    pub pending_timeout_secs: u64,
-    pub env: Option<Vec<(String, String)>>,
-    pub loops: Option<u64>,
-    pub accounts_per_agent: u64,
-    pub spam_timeout: Duration,
+    pub spam_args: SpamCliArgs,
+    pub seed: RandSeed,
 }
 
 impl SpamCommandArgs {
+    pub fn new(scenario: SpamScenario, cli_args: SpamCliArgs) -> contender_core::Result<Self> {
+        Ok(Self {
+            scenario,
+            spam_args: cli_args.clone(),
+            seed: RandSeed::seed_from_str(
+                &cli_args.eth_json_rpc_args.seed.unwrap_or(
+                    load_seedfile().map_err(|e| {
+                        ContenderError::with_err(e.deref(), "failed to load seedfile")
+                    })?,
+                ),
+            ),
+        })
+    }
+
+    async fn engine_params(&self) -> contender_core::Result<EngineParams> {
+        self.spam_args
+            .eth_json_rpc_args
+            .auth_args
+            .engine_params(self.spam_args.eth_json_rpc_args.call_forkchoice)
+            .await
+            .map_err(|e| ContenderError::with_err(e.deref(), "failed to build engine params"))
+    }
+
     pub async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
         &self,
         db: &D,
         override_senders: bool,
     ) -> Result<TestScenario<D, RandSeed, TestConfig>, ContenderError> {
         info!("Initializing spammer...");
+
+        let SendSpamCliArgs {
+            builder_url,
+            txs_per_second,
+            txs_per_block,
+            duration,
+            pending_timeout,
+            loops,
+            accounts_per_agent,
+        } = self.spam_args.spam_args.clone();
+        let ScenarioSendTxsCliArgs {
+            rpc_url,
+            private_keys,
+            min_balance,
+            tx_type,
+            bundle_type,
+            env,
+            ..
+        } = self.spam_args.eth_json_rpc_args.clone();
+
+        let url = Url::parse(&rpc_url).expect("Invalid RPC URL");
+        let rpc_client = DynProvider::new(
+            ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .connect_http(url.to_owned()),
+        );
+
         let mut testconfig = self.scenario.testconfig().await?;
         let spam_len = testconfig.spam.as_ref().map(|s| s.len()).unwrap_or(0);
-        let txs_per_duration = self
-            .txs_per_block
-            .unwrap_or(self.txs_per_second.unwrap_or(spam_len as u64));
+        let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam_len as u64));
+        let block_time = get_block_time(&rpc_client).await?;
+        let engine_params = self.engine_params().await?;
 
         // check if txs_per_duration is enough to cover the spam requests
         if txs_per_duration < spam_len as u64 {
@@ -161,12 +209,8 @@ impl SpamCommandArgs {
                 "Not enough transactions per duration to cover spam requests.",
                 Some(format!(
                     "Set {} or {} to at least {spam_len}",
-                    ansi_term::Style::new()
-                        .bold()
-                        .paint("--txs-per-block (--tpb)"),
-                    ansi_term::Style::new()
-                        .bold()
-                        .paint("--txs-per-second (--tps)"),
+                    bold("--txs-per-block (--tpb)"),
+                    bold("--txs-per-second (--tps)"),
                 )),
             ));
         }
@@ -177,12 +221,12 @@ impl SpamCommandArgs {
                     "No spam calls found in testfile",
                     None,
                 ));
-            } else if self.builder_url.is_none() && spam.iter().any(|s| s.is_bundle()) {
+            } else if builder_url.is_none() && spam.iter().any(|s| s.is_bundle()) {
                 return Err(ContenderError::SpamError(
                     "Builder URL is required to send bundles.",
                     Some(format!(
                         "Pass the builder's URL with {}",
-                        ansi_term::Style::new().bold().paint("--builder-url <URL>")
+                        bold("--builder-url <URL>")
                     )),
                 ));
             }
@@ -199,7 +243,7 @@ impl SpamCommandArgs {
                     .filter(|sp| sp.is_some())
                     .collect::<Vec<_>>()
                     .is_empty()
-                    && self.tx_type != TxType::Eip4844
+                    && tx_type != TxType::Eip4844
                 {
                     return Err(ContenderError::SpamError(
                         "invalid tx type for blob transactions.",
@@ -217,7 +261,7 @@ impl SpamCommandArgs {
                     .filter(|sp| sp.is_some())
                     .collect::<Vec<_>>()
                     .is_empty()
-                    && self.tx_type != TxType::Eip7702
+                    && tx_type != TxType::Eip7702
                 {
                     return Err(ContenderError::SpamError(
                         "invalid tx type for setCode transactions.",
@@ -229,20 +273,12 @@ impl SpamCommandArgs {
 
         // Setup env variables
         let mut env_variables = testconfig.env.clone().unwrap_or_default();
-        if let Some(env) = &self.env {
+        if let Some(env) = &env {
             env_variables.extend(env.iter().cloned());
         }
         testconfig.env = Some(env_variables.clone());
 
-        let rand_seed = RandSeed::seed_from_str(&self.seed);
-        let url = Url::parse(&self.rpc_url).expect("Invalid RPC URL");
-        let rpc_client = DynProvider::new(
-            ProviderBuilder::new()
-                .network::<AnyNetwork>()
-                .connect_http(url.to_owned()),
-        );
-
-        let user_signers = get_signers_with_defaults(self.private_keys.to_owned());
+        let user_signers = get_signers_with_defaults(private_keys.to_owned());
 
         // distill all from_pool arguments from the spam requests
         let mut from_pool_declarations = testconfig.get_spam_pools();
@@ -258,15 +294,15 @@ impl SpamCommandArgs {
         let mut agents = AgentStore::new();
         agents.init(
             &from_pool_declarations,
-            self.accounts_per_agent as usize,
-            &rand_seed,
+            accounts_per_agent as usize,
+            &self.seed,
         );
 
         if self.scenario.is_builtin() {
             agents.init(
                 &[testconfig.get_create_pools(), testconfig.get_setup_pools()].concat(),
                 1,
-                &rand_seed,
+                &self.seed,
             );
         }
 
@@ -277,34 +313,39 @@ impl SpamCommandArgs {
                 } else if matches!(builtin, BuiltinScenario::SetCode(_)) {
                     TxType::Eip7702
                 } else {
-                    self.tx_type
+                    tx_type.into()
                 }
             }
-            _ => self.tx_type,
+            _ => tx_type.into(),
         };
 
         check_private_keys(&testconfig, &user_signers);
-        if self.txs_per_block.is_some() && self.txs_per_second.is_some() {
+        if txs_per_block.is_some() && txs_per_second.is_some() {
             panic!("Cannot set both --txs-per-block and --txs-per-second");
         }
-        if self.txs_per_block.is_none() && self.txs_per_second.is_none() {
-            panic!("Must set either --txs-per-block (--tpb) or --txs-per-second (--tps)");
+        if txs_per_block.is_none() && txs_per_second.is_none() {
+            panic!(
+                "Must set either {} or {}",
+                bold("--txs-per-block (--tpb)"),
+                bold("--txs-per-second (--tps)")
+            );
         }
 
         let all_signer_addrs = agents.all_signer_addresses();
 
         let params = TestScenarioParams {
             rpc_url: url,
-            builder_rpc_url: self
-                .builder_url
+            builder_rpc_url: builder_url
                 .to_owned()
                 .map(|url| Url::parse(&url).expect("Invalid builder URL")),
             signers: user_signers.to_owned(),
             agent_store: agents.to_owned(),
             tx_type,
-            bundle_type: self.bundle_type,
-            pending_tx_timeout_secs: self.pending_timeout_secs,
+            bundle_type: bundle_type.into(),
+            pending_tx_timeout_secs: pending_timeout * block_time,
             extra_msg_handles: None,
+            redeploy: self.spam_args.redeploy,
+            sync_nonces_after_batch: !self.spam_args.optimistic_nonces,
         };
 
         if !override_senders {
@@ -312,9 +353,9 @@ impl SpamCommandArgs {
                 &all_signer_addrs,
                 &user_signers[0],
                 &rpc_client,
-                self.min_balance,
+                min_balance,
                 TxType::Legacy,
-                &self.engine_params,
+                &engine_params,
             )
             .await
             .map_err(|e| ContenderError::with_err(e.deref(), "failed to fund accounts"))?;
@@ -322,8 +363,7 @@ impl SpamCommandArgs {
 
         let done_fcu = Arc::new(AtomicBool::new(false));
 
-        let fcu_handle = if let Some(auth_provider) = self.engine_params.engine_provider.to_owned()
-        {
+        let fcu_handle = if let Some(auth_provider) = engine_params.engine_provider.to_owned() {
             let auth_provider = auth_provider.clone();
             let done_fcu = done_fcu.clone();
             Some(tokio::task::spawn(async move {
@@ -347,26 +387,37 @@ impl SpamCommandArgs {
         let mut test_scenario = TestScenario::new(
             testconfig,
             db.clone().into(),
-            rand_seed,
+            self.seed.clone(),
             params,
-            self.engine_params.engine_provider.to_owned(),
+            engine_params.engine_provider.clone(),
             (&PROM, &HIST).into(),
         )
         .await?;
 
+        // Builtin/default behavior: best-effort (skip redeploy if code exists); allow CLI override
+        tracing::trace!(
+            "spam mode: redeploy={} ({} ) [--redeploy flag set? {}]",
+            self.spam_args.redeploy,
+            if self.spam_args.redeploy {
+                "will redeploy and run all setup"
+            } else {
+                "will skip redeploy when possible"
+            },
+            self.spam_args.redeploy
+        );
+
+        // run deployments & setup for builtin scenarios
         if self.scenario.is_builtin() {
             let test_scenario = &mut test_scenario;
             let setup_cost = test_scenario.estimate_setup_cost().await?;
-            if self.min_balance < setup_cost {
+            if min_balance < setup_cost {
                 return Err(ContenderError::SpamError(
                     "min_balance is not enough to cover the cost of the setup transactions.",
                     format!(
                         "min_balance: {}, setup_cost: {}\nUse {} to increase the amount of funds sent to agent wallets.",
-                        format_ether(self.min_balance),
+                        format_ether(min_balance),
                         format_ether(setup_cost),
-                        ansi_term::Style::new()
-                            .bold()
-                            .paint("spam --min-balance <ETH amount>"),
+                        bold("spam --min-balance <ETH amount>"),
                     )
                     .into(),
                 ));
@@ -394,26 +445,25 @@ impl SpamCommandArgs {
         }
         done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
 
-        if self.loops.is_none() {
-            warn!(
-                "Spammer agents will eventually run out of funds. Make sure you add plenty of funds with {} (set your pre-funded account with {}).",
-                ansi_term::Style::new().bold().paint("spam --min-balance"),
-                ansi_term::Style::new().bold().paint("spam -p"),
+        if loops.is_some_and(|inner_loops| inner_loops.is_none()) {
+            warn!("Spammer agents will eventually run out of funds.");
+            println!(
+                "Make sure you add plenty of funds with {} (set your pre-funded account with {}).",
+                bold("spam --min-balance"),
+                bold("spam -p"),
             );
         }
 
-        let total_cost = U256::from(self.duration * self.loops.unwrap_or(1))
+        let total_cost = U256::from(duration * loops.flatten().unwrap_or(1))
             * test_scenario.get_max_spam_cost(&user_signers).await?;
-        if self.min_balance < U256::from(total_cost) {
+        if min_balance < U256::from(total_cost) {
             return Err(ContenderError::SpamError(
                 "min_balance is not enough to cover the cost of the spam transactions.",
                 format!(
                     "min_balance: {}, total_cost: {}\nUse {} to increase the amount of funds sent to agent wallets.",
-                    format_ether(self.min_balance),
+                    format_ether(min_balance),
                     format_ether(total_cost),
-                    ansi_term::Style::new()
-                        .bold()
-                        .paint("spam --min-balance <ETH amount>"),
+                    bold("spam --min-balance <ETH amount>"),
                 )
                 .into(),
             ));
@@ -488,15 +538,32 @@ pub async fn spam<
     test_scenario: &mut TestScenario<D, S, P>,
 ) -> Result<Option<u64>, Box<dyn std::error::Error>> {
     let SpamCommandArgs {
-        txs_per_block,
-        txs_per_second,
         scenario,
-        duration,
-        disable_reporting,
-        engine_params,
-        pending_timeout_secs,
+        spam_args,
         ..
     } = args;
+    let SpamCliArgs {
+        eth_json_rpc_args,
+        spam_args,
+        ignore_receipts,
+        ..
+    } = spam_args.to_owned();
+    let SendSpamCliArgs {
+        txs_per_second,
+        txs_per_block,
+        duration,
+        pending_timeout,
+        ..
+    } = spam_args;
+    let ScenarioSendTxsCliArgs {
+        auth_args,
+        call_forkchoice,
+        ..
+    } = eth_json_rpc_args;
+    let engine_params = auth_args
+        .engine_params(call_forkchoice)
+        .await
+        .map_err(|e| ContenderError::with_err(e.deref(), "failed to build engine params"))?;
 
     let mut run_id = None;
     let scenario_name = match scenario {
@@ -507,13 +574,15 @@ pub async fn spam<
     let rpc_client = test_scenario.rpc_client.clone();
     let auth_client = test_scenario.auth_provider.to_owned();
 
+    let block_time = get_block_time(&rpc_client).await?;
+
     let err_parse = |e: ContenderError| match e {
         ContenderError::InvalidRuntimeParams(kind) => match kind {
             RuntimeParamErrorKind::BundleTypeInvalid => ContenderError::SpamError(
                 "Invalid bundle type.",
                 Some(format!(
                     "Set a different bundle type with {}",
-                    ansi_term::Style::new().bold().paint("--bundle-type")
+                    bold("--bundle-type")
                 )),
             ),
             err => err.into(),
@@ -525,27 +594,27 @@ pub async fn spam<
         info!("Blockwise spammer starting. Sending {txs_per_block} txs per block.");
         (
             TypedSpammer::Blockwise(BlockwiseSpammer::new()),
-            *txs_per_block,
+            txs_per_block,
         )
     } else if let Some(txs_per_second) = txs_per_second {
         info!("Timed spammer starting. Sending {txs_per_second} txs per second.");
         (
             TypedSpammer::Timed(TimedSpammer::new(std::time::Duration::from_secs(1))),
-            *txs_per_second,
+            txs_per_second,
         )
     } else {
         return Err(Box::new(ContenderError::SpamError(
             "Missing params.",
             Some(format!(
                 "Either {} or {} must be set.",
-                Style::new().bold().paint("--txs-per-block"),
-                Style::new().bold().paint("--txs-per-second"),
+                bold("--txs-per-block"),
+                bold("--txs-per-second"),
             )),
         )));
     };
 
     let callback = spam_callback_default(
-        !disable_reporting,
+        !ignore_receipts,
         engine_params.call_fcu,
         Some(rpc_client),
         auth_client,
@@ -563,14 +632,14 @@ pub async fn spam<
             scenario_name,
             rpc_url: test_scenario.rpc_url.to_string(),
             txs_per_duration: txs_per_batch,
-            duration: SpamDuration::Blocks(*duration),
-            pending_timeout: Duration::from_secs(*pending_timeout_secs),
+            duration: SpamDuration::Blocks(duration),
+            pending_timeout: Duration::from_secs(block_time * pending_timeout),
         };
         run_id = Some(db.insert_run(&run)?);
     }
 
     spammer
-        .spam_rpc(test_scenario, txs_per_batch, *duration, run_id, callback)
+        .spam_rpc(test_scenario, txs_per_batch, duration, run_id, callback)
         .await
         .map_err(err_parse)?;
 

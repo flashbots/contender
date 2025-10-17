@@ -1,6 +1,6 @@
 [package]
 name = "contender_cli"
-version = "0.4.2"
+version = "0.5.2"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -20,7 +20,7 @@ contender_testfile = { workspace = true }
 contender_engine_provider = { workspace = true }
 contender_report = { workspace = true }
 
-ansi_term = { workspace = true }
+nu-ansi-term = { workspace = true }
 console-subscriber = { workspace = true, optional = true }
 serde = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "tracing"] }
