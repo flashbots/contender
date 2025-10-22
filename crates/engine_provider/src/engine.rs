@@ -406,12 +406,13 @@ impl Signer {
         &self,
         tx: OpTypedTransaction,
     ) -> Result<Recovered<OpTransactionSigned>, secp256k1::Error> {
+        use OpTypedTransaction::*;
         let signature_hash = match &tx {
-            OpTypedTransaction::Legacy(tx) => tx.signature_hash(),
-            OpTypedTransaction::Eip2930(tx) => tx.signature_hash(),
-            OpTypedTransaction::Eip1559(tx) => tx.signature_hash(),
-            OpTypedTransaction::Eip7702(tx) => tx.signature_hash(),
-            OpTypedTransaction::Deposit(_) => B256::ZERO,
+            Legacy(tx) => tx.signature_hash(),
+            Eip2930(tx) => tx.signature_hash(),
+            Eip1559(tx) => tx.signature_hash(),
+            Eip7702(tx) => tx.signature_hash(),
+            Deposit(_) => B256::ZERO,
         };
         let signature = self.sign_message(signature_hash)?;
         let signed = OpTransactionSigned::new_unhashed(tx, signature);
