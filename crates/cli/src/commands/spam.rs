@@ -167,6 +167,7 @@ impl SpamCommandArgs {
     pub async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
         &self,
         db: &D,
+        override_senders: bool,
     ) -> Result<TestScenario<D, RandSeed, TestConfig>, ContenderError> {
         info!("Initializing spammer...");
 
@@ -280,7 +281,15 @@ impl SpamCommandArgs {
         let user_signers = get_signers_with_defaults(private_keys.to_owned());
 
         // distill all from_pool arguments from the spam requests
-        let from_pool_declarations = testconfig.get_spam_pools();
+        let mut from_pool_declarations = testconfig.get_spam_pools();
+
+        // replace the `from_pool` declaration with the first signer if override_senders is true
+        if override_senders {
+            let from = user_signers[0].address().to_string();
+            from_pool_declarations
+                .iter_mut()
+                .for_each(|from_pool| *from_pool = from.clone());
+        }
 
         let mut agents = AgentStore::new();
         agents.init(
@@ -339,16 +348,18 @@ impl SpamCommandArgs {
             sync_nonces_after_batch: !self.spam_args.optimistic_nonces,
         };
 
-        fund_accounts(
-            &all_signer_addrs,
-            &user_signers[0],
-            &rpc_client,
-            min_balance,
-            TxType::Legacy,
-            &engine_params,
-        )
-        .await
-        .map_err(|e| ContenderError::with_err(e.deref(), "failed to fund accounts"))?;
+        if !override_senders {
+            fund_accounts(
+                &all_signer_addrs,
+                &user_signers[0],
+                &rpc_client,
+                min_balance,
+                TxType::Legacy,
+                &engine_params,
+            )
+            .await
+            .map_err(|e| ContenderError::with_err(e.deref(), "failed to fund accounts"))?;
+        }
 
         let done_fcu = Arc::new(AtomicBool::new(false));
 

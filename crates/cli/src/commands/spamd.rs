@@ -26,9 +26,10 @@ pub async fn spamd(
     args: SpamCommandArgs,
     gen_report: bool,
     limit_loops: Option<u64>,
+    override_senders: bool,
 ) -> Result<(), ContenderError> {
     let is_done = Arc::new(AtomicBool::new(false));
-    let mut scenario = args.init_scenario(db).await?;
+    let mut scenario = args.init_scenario(db, override_senders).await?;
 
     // collects run IDs from the spam command
     let mut run_ids = vec![];
