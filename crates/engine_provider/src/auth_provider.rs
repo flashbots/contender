@@ -280,6 +280,7 @@ impl FcuDefault for OpPayloadAttributes {
             no_tx_pool: Some(false),
             gas_limit,
             eip_1559_params,
+            min_base_fee: None, // TODO: support min_base_fee
         }
     }
 }
