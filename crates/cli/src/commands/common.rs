@@ -35,6 +35,7 @@ pub struct ScenarioSendTxsCliArgs {
 
     /// Private key(s) to use for funding agent accounts or signing transactions.
     #[arg(
+        env = "CONTENDER_PRIVATE_KEY",
         short,
         long = "priv-key",
         long_help = "Add private keys to fund agent accounts. Scenarios with hard-coded `from` addresses may also use these to sign transactions.
