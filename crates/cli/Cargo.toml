@@ -1,6 +1,6 @@
 [package]
 name = "contender_cli"
-version = "0.5.2"
+version = "0.5.3"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -31,7 +31,7 @@ alloy = { workspace = true, features = [
     "rpc-types-debug",
     "rpc-types-trace",
 ] }
-clap = { workspace = true, features = ["derive"] }
+clap = { workspace = true, features = ["derive", "env"] }
 futures.workspace = true
 handlebars = { workspace = true }
 prometheus = { workspace = true }

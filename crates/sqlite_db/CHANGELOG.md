@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.5.2](https://github.com/flashbots/contender/releases/tag/contender_sqlite-v0.5.2) - 2025-05-14
+## [0.5.3](https://github.com/flashbots/contender/releases/tag/contender_sqlite-v0.5.3) - 2025-05-14
 
 ### Other
 
