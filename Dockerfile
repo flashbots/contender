@@ -31,9 +31,6 @@ COPY --from=builder /app/contender-dist /root/.cargo
 # Set permissions
 RUN mkdir -p /root/.contender
 
-# Import test fixtures into .contender
-COPY ./test_fixtures/* /root/.contender/
-
 # prevent contender from trying to open a browser
 ENV BROWSER=none
 # use cached test data for reports
