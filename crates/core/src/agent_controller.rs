@@ -179,43 +179,43 @@ impl SignerStore {
             })
             .collect::<Vec<_>>();
 
-        // sign and send txs
-        let mut handles = vec![];
+        // sign txs
+        let mut signed_txs = vec![];
         for tx_request in tx_requests {
-            let provider = provider.clone();
             let funder_wallet = funder_wallet.clone();
             let to_addr = match tx_request.to_owned().to.unwrap_or_default() {
                 TxKind::Call(addr) => addr,
                 TxKind::Create => Address::ZERO,
             };
-
-            handles.push(tokio::task::spawn(async move {
-                let signed_tx = tx_request
+            signed_txs.push((
+                tx_request
                     .build(&funder_wallet)
                     .await
-                    .map_err(|e| ContenderError::with_err(e, "failed to sign funding tx"))?;
-                let tx_hash = provider
-                    .send_tx_envelope(AnyTxEnvelope::Ethereum(signed_tx))
-                    .await
-                    .map_err(|e| ContenderError::with_err(e, "failed to send funding tx"))?
-                    .with_required_confirmations(1)
-                    .watch()
-                    .await
-                    .map_err(|e| {
-                        ContenderError::with_err(e, "funding tx failed to land onchain")
-                    })?;
-                info!(
-                    "Funded {to_addr} with {} ether, ({tx_hash})",
-                    format_ether(amount)
-                );
-                Ok::<_, ContenderError>(())
-            }));
-            // Sleep to avoid overwhelming the provider with requests
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    .map_err(|e| ContenderError::with_err(e, "failed to sign funding tx"))?,
+                to_addr,
+            ))
         }
 
-        for handle in handles {
-            handle.await??
+        // send txs
+        // let mut handles = vec![];
+        for (signed_tx, to_addr) in signed_txs {
+            let provider = provider.clone();
+
+            // Sleep to avoid overwhelming the provider with requests
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+            let tx_hash = provider
+                .send_tx_envelope(AnyTxEnvelope::Ethereum(signed_tx))
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to send funding tx"))?
+                // .with_required_confirmations(1)
+                .watch()
+                .await
+                .map_err(|e| ContenderError::with_err(e, "funding tx failed to land onchain"))?;
+            info!(
+                "Funded {to_addr} with {} ether, ({tx_hash})",
+                format_ether(amount)
+            );
         }
 
         Ok(())
