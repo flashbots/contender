@@ -90,7 +90,7 @@ impl TestConfig {
         if let Some(create) = &self.create {
             self.create = Some(
                 create
-                    .into_iter()
+                    .iter()
                     .map(|c| {
                         let mut new = c.to_owned();
                         new.from = Some(from_address.to_string());
@@ -103,7 +103,7 @@ impl TestConfig {
         if let Some(setup) = &self.setup {
             self.setup = Some(
                 setup
-                    .into_iter()
+                    .iter()
                     .map(|c| {
                         let mut new = c.to_owned();
                         new.from = Some(from_address.to_string());
@@ -115,7 +115,7 @@ impl TestConfig {
         }
         if let Some(spam) = &self.spam {
             self.spam = Some(
-                spam.into_iter()
+                spam.iter()
                     .map(|c| {
                         use SpamRequest::*;
                         match c {
