@@ -118,10 +118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let SpamCliArgs {
                 eth_json_rpc_args:
                     ScenarioSendTxsCliArgs {
-                        testfile,
-                        rpc_url,
-                        override_senders,
-                        ..
+                        testfile, rpc_url, ..
                     },
                 spam_args,
                 gen_report,
@@ -160,7 +157,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(1)
             };
             let spamd_args = SpamCommandArgs::new(scenario, *args)?;
-            commands::spamd(&db, spamd_args, gen_report, real_loops, override_senders).await?;
+            commands::spamd(&db, spamd_args, gen_report, real_loops).await?;
         }
 
         ContenderSubcommand::Replay { args } => {

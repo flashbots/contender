@@ -1,12 +1,21 @@
 //! This file contains type definition for CLI arguments.
 
+use crate::commands::SpamScenario;
+use crate::util::get_signers_with_defaults;
+
 use super::EngineArgs;
 use alloy::consensus::TxType;
 use alloy::primitives::utils::parse_units;
 use alloy::primitives::U256;
+use alloy::providers::{DynProvider, ProviderBuilder};
+use alloy::signers::local::PrivateKeySigner;
+use contender_core::test_scenario::Url;
 use contender_core::BundleType;
 use contender_engine_provider::reth_node_api::EngineApiMessageVersion;
 use contender_engine_provider::ControlChain;
+use contender_testfile::TestConfig;
+use op_alloy_network::AnyNetwork;
+use std::str::FromStr;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, clap::Args)]
@@ -99,6 +108,49 @@ Requires --auth-rpc-url and --jwt-secret to be set.",
         long_help = "Override senders to send all transactions from one account."
     )]
     pub override_senders: bool,
+}
+
+impl ScenarioSendTxsCliArgs {
+    pub fn rpc_url(&self) -> Result<Url, Box<dyn std::error::Error>> {
+        Ok(Url::parse(self.rpc_url.as_ref())?)
+    }
+
+    pub fn new_rpc_provider(&self) -> Result<DynProvider<AnyNetwork>, Box<dyn std::error::Error>> {
+        Ok(DynProvider::new(
+            ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .connect_http(self.rpc_url()?),
+        ))
+    }
+
+    pub fn user_signers(&self) -> Vec<PrivateKeySigner> {
+        self.private_keys
+            .as_ref()
+            .unwrap_or(&vec![])
+            .iter()
+            .map(|key| PrivateKeySigner::from_str(key).expect("invalid private key"))
+            .collect::<Vec<PrivateKeySigner>>()
+    }
+
+    pub fn user_signers_with_defaults(&self) -> Vec<PrivateKeySigner> {
+        get_signers_with_defaults(self.private_keys.to_owned())
+    }
+
+    /// This account is used to fund agent accounts, and is used as the signer when `--override-senders` is passed.
+    pub fn primary_signer(&self) -> PrivateKeySigner {
+        self.user_signers_with_defaults()[0].to_owned()
+    }
+
+    pub async fn testconfig(
+        &self,
+        scenario: &SpamScenario,
+    ) -> Result<TestConfig, Box<dyn std::error::Error>> {
+        let mut testconfig = scenario.testconfig().await?;
+        if self.override_senders {
+            testconfig.override_senders(self.primary_signer().address());
+        }
+        Ok(testconfig)
+    }
 }
 
 #[derive(Clone, Debug, clap::Args)]

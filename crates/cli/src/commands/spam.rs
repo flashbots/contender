@@ -3,17 +3,14 @@ use crate::{
     commands::common::EngineParams,
     default_scenarios::BuiltinScenario,
     util::{
-        bold, check_private_keys, fund_accounts, get_signers_with_defaults, load_seedfile,
-        load_testconfig, parse_duration, provider::AuthClient, spam_callback_default,
-        TypedSpamCallback,
+        bold, check_private_keys, fund_accounts, load_seedfile, load_testconfig, parse_duration,
+        provider::AuthClient, spam_callback_default, TypedSpamCallback,
     },
     LATENCY_HIST as HIST, PROM,
 };
 use alloy::{
     consensus::TxType,
-    network::AnyNetwork,
     primitives::{utils::format_ether, U256},
-    providers::{DynProvider, ProviderBuilder},
     transports::http::reqwest::Url,
 };
 use contender_core::{
@@ -120,11 +117,12 @@ pub enum SpamScenario {
 
 impl SpamScenario {
     pub async fn testconfig(&self) -> Result<TestConfig, ContenderError> {
+        use SpamScenario::*;
         let config: TestConfig = match self {
-            SpamScenario::Testfile(testfile) => load_testconfig(testfile)
+            Testfile(testfile) => load_testconfig(testfile)
                 .await
                 .map_err(|e| ContenderError::with_err(e.deref(), "failed to load testconfig"))?,
-            SpamScenario::Builtin(scenario) => scenario.to_owned().into(),
+            Builtin(scenario) => scenario.to_owned().into(),
         };
         Ok(config)
     }
@@ -167,7 +165,6 @@ impl SpamCommandArgs {
     pub async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
         &self,
         db: &D,
-        override_senders: bool,
     ) -> Result<TestScenario<D, RandSeed, TestConfig>, ContenderError> {
         info!("Initializing spammer...");
 
@@ -181,23 +178,21 @@ impl SpamCommandArgs {
             accounts_per_agent,
         } = self.spam_args.spam_args.clone();
         let ScenarioSendTxsCliArgs {
-            rpc_url,
-            private_keys,
             min_balance,
             tx_type,
             bundle_type,
             env,
+            override_senders,
             ..
         } = self.spam_args.eth_json_rpc_args.clone();
 
-        let url = Url::parse(&rpc_url).expect("Invalid RPC URL");
-        let rpc_client = DynProvider::new(
-            ProviderBuilder::new()
-                .network::<AnyNetwork>()
-                .connect_http(url.to_owned()),
-        );
+        let rpc_client = self
+            .spam_args
+            .eth_json_rpc_args
+            .new_rpc_provider()
+            .map_err(|e| ContenderError::with_err(e.deref(), "invalid RPC URL"))?;
 
-        let mut testconfig = self.scenario.testconfig().await?;
+        let mut testconfig = self.testconfig().await?;
         let spam_len = testconfig.spam.as_ref().map(|s| s.len()).unwrap_or(0);
         let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam_len as u64));
         let block_time = get_block_time(&rpc_client).await?;
@@ -278,18 +273,13 @@ impl SpamCommandArgs {
         }
         testconfig.env = Some(env_variables.clone());
 
-        let user_signers = get_signers_with_defaults(private_keys.to_owned());
+        let user_signers = self
+            .spam_args
+            .eth_json_rpc_args
+            .user_signers_with_defaults();
 
         // distill all from_pool arguments from the spam requests
-        let mut from_pool_declarations = testconfig.get_spam_pools();
-
-        // replace the `from_pool` declaration with the first signer if override_senders is true
-        if override_senders {
-            let from = user_signers[0].address().to_string();
-            from_pool_declarations
-                .iter_mut()
-                .for_each(|from_pool| *from_pool = from.clone());
-        }
+        let from_pool_declarations = testconfig.get_spam_pools();
 
         let mut agents = AgentStore::new();
         agents.init(
@@ -334,7 +324,11 @@ impl SpamCommandArgs {
         let all_signer_addrs = agents.all_signer_addresses();
 
         let params = TestScenarioParams {
-            rpc_url: url,
+            rpc_url: self
+                .spam_args
+                .eth_json_rpc_args
+                .rpc_url()
+                .map_err(|e| ContenderError::with_err(e.deref(), "invalid RPC URL"))?,
             builder_rpc_url: builder_url
                 .to_owned()
                 .map(|url| Url::parse(&url).expect("Invalid builder URL")),
@@ -470,6 +464,14 @@ impl SpamCommandArgs {
         }
 
         Ok(test_scenario)
+    }
+
+    pub async fn testconfig(&self) -> contender_core::Result<TestConfig> {
+        self.spam_args
+            .eth_json_rpc_args
+            .testconfig(&self.scenario)
+            .await
+            .map_err(|e| ContenderError::with_err(e.deref(), "failed to build testconfig"))
     }
 }
 

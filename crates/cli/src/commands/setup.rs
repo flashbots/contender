@@ -1,19 +1,10 @@
 use super::common::ScenarioSendTxsCliArgs;
 use crate::{
     commands::{common::EngineParams, SpamScenario},
-    util::{
-        check_private_keys_fns, find_insufficient_balances, fund_accounts,
-        get_signers_with_defaults, load_seedfile,
-    },
+    util::{check_private_keys_fns, find_insufficient_balances, fund_accounts, load_seedfile},
     LATENCY_HIST as HIST, PROM,
 };
-use alloy::{
-    network::AnyNetwork,
-    primitives::utils::format_ether,
-    providers::{DynProvider, ProviderBuilder},
-    signers::local::PrivateKeySigner,
-    transports::http::reqwest::Url,
-};
+use alloy::primitives::utils::format_ether;
 use contender_core::{
     agent_controller::{AgentStore, SignerStore},
     error::ContenderError,
@@ -22,9 +13,9 @@ use contender_core::{
 };
 use contender_core::{generator::PlanConfig, util::get_block_time};
 use contender_engine_provider::DEFAULT_BLOCK_TIME;
+use contender_testfile::TestConfig;
 use std::{
     ops::Deref,
-    str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -39,8 +30,6 @@ pub async fn setup(
     args: SetupCommandArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let ScenarioSendTxsCliArgs {
-        rpc_url,
-        private_keys,
         min_balance,
         tx_type,
         env,
@@ -49,14 +38,11 @@ pub async fn setup(
         ..
     } = args.eth_json_rpc_args.clone();
     let engine_params = args.engine_params().await?;
+    let rpc_client = args.eth_json_rpc_args.new_rpc_provider()?;
+    let user_signers = args.eth_json_rpc_args.user_signers();
+    let user_signers_with_defaults = args.eth_json_rpc_args.user_signers_with_defaults();
 
-    let url = Url::parse(rpc_url.as_ref()).expect("Invalid RPC URL");
-    let rpc_client = DynProvider::new(
-        ProviderBuilder::new()
-            .network::<AnyNetwork>()
-            .connect_http(url.to_owned()),
-    );
-    let mut testconfig = args.scenario.testconfig().await?;
+    let mut testconfig = args.testconfig().await?;
 
     // Setup env variables
     let mut env_variables = testconfig.env.clone().unwrap_or_default();
@@ -66,15 +52,6 @@ pub async fn setup(
         }
     }
     testconfig.env = Some(env_variables.clone());
-
-    let user_signers = private_keys
-        .as_ref()
-        .unwrap_or(&vec![])
-        .iter()
-        .map(|key| PrivateKeySigner::from_str(key).expect("invalid private key"))
-        .collect::<Vec<PrivateKeySigner>>();
-
-    let user_signers_with_defaults = get_signers_with_defaults(private_keys);
 
     check_private_keys_fns(
         &testconfig.setup.to_owned().unwrap_or_default(),
@@ -130,7 +107,7 @@ pub async fn setup(
     let all_agent_addresses = agents.all_signer_addresses();
 
     let params = TestScenarioParams {
-        rpc_url: url,
+        rpc_url: args.eth_json_rpc_args.rpc_url()?,
         builder_rpc_url: None,
         signers: user_signers_with_defaults,
         agent_store: agents,
@@ -292,5 +269,12 @@ impl SetupCommandArgs {
             .engine_params(self.eth_json_rpc_args.call_forkchoice)
             .await
             .map_err(|e| ContenderError::with_err(e.deref(), "failed to build engine params"))
+    }
+
+    pub async fn testconfig(&self) -> contender_core::Result<TestConfig> {
+        self.eth_json_rpc_args
+            .testconfig(&self.scenario)
+            .await
+            .map_err(|e| ContenderError::with_err(e.deref(), "failed to build testconfig"))
     }
 }

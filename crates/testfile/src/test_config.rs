@@ -1,9 +1,9 @@
-use alloy::transports::http::reqwest;
+use alloy::{primitives::Address, transports::http::reqwest};
 use contender_core::{
     error::ContenderError,
     generator::{
-        templater::Templater, types::SpamRequest, CreateDefinition, FunctionCallDefinition,
-        PlanConfig,
+        templater::Templater, types::SpamRequest, BundleCallDefinition, CreateDefinition,
+        FunctionCallDefinition, PlanConfig,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -83,6 +83,67 @@ impl TestConfig {
     pub fn with_spam(mut self, spam: Vec<SpamRequest>) -> Self {
         self.spam = Some(spam);
         self
+    }
+
+    /// Replaces every `from_pool` in the config with a `from` declaration set to the given `from_address`.
+    pub fn override_senders(&mut self, from_address: Address) -> Self {
+        if let Some(create) = &self.create {
+            self.create = Some(
+                create
+                    .into_iter()
+                    .map(|c| {
+                        let mut new = c.to_owned();
+                        new.from = Some(from_address.to_string());
+                        new.from_pool = None;
+                        new
+                    })
+                    .collect::<Vec<_>>(),
+            );
+        }
+        if let Some(setup) = &self.setup {
+            self.setup = Some(
+                setup
+                    .into_iter()
+                    .map(|c| {
+                        let mut new = c.to_owned();
+                        new.from = Some(from_address.to_string());
+                        new.from_pool = None;
+                        new
+                    })
+                    .collect::<Vec<_>>(),
+            );
+        }
+        if let Some(spam) = &self.spam {
+            self.spam = Some(
+                spam.into_iter()
+                    .map(|c| {
+                        use SpamRequest::*;
+                        match c {
+                            Bundle(txs) => {
+                                let new = txs
+                                    .txs
+                                    .iter()
+                                    .map(|tx| {
+                                        let mut new = tx.to_owned();
+                                        new.from = Some(from_address.to_string());
+                                        new.from_pool = None;
+                                        new
+                                    })
+                                    .collect::<Vec<_>>();
+                                Bundle(BundleCallDefinition { txs: new })
+                            }
+                            Tx(tx) => {
+                                let mut new = *tx.to_owned();
+                                new.from = Some(from_address.to_string());
+                                new.from_pool = None;
+                                Tx(Box::new(new))
+                            }
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+            );
+        }
+        self.to_owned()
     }
 }
 
