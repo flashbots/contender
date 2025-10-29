@@ -33,8 +33,6 @@ RUN mkdir -p /root/.contender
 
 # prevent contender from trying to open a browser
 ENV BROWSER=none
-# use cached test data for reports
-ENV DEBUG_USEFILE=true
 
 ENV PATH="/root/.cargo/bin:${PATH}"
 
