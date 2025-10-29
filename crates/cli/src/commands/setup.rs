@@ -1,7 +1,7 @@
 use super::common::ScenarioSendTxsCliArgs;
 use crate::{
     commands::{common::EngineParams, SpamScenario},
-    util::{check_private_keys_fns, find_insufficient_balances, fund_accounts, load_seedfile},
+    util::{check_private_keys, find_insufficient_balances, fund_accounts, load_seedfile},
     LATENCY_HIST as HIST, PROM,
 };
 use alloy::primitives::utils::format_ether;
@@ -39,7 +39,6 @@ pub async fn setup(
     } = args.eth_json_rpc_args.clone();
     let engine_params = args.engine_params().await?;
     let rpc_client = args.eth_json_rpc_args.new_rpc_provider()?;
-    let user_signers = args.eth_json_rpc_args.user_signers();
     let user_signers_with_defaults = args.eth_json_rpc_args.user_signers_with_defaults();
 
     let mut testconfig = args.testconfig().await?;
@@ -53,14 +52,16 @@ pub async fn setup(
     }
     testconfig.env = Some(env_variables.clone());
 
-    check_private_keys_fns(
-        &testconfig.setup.to_owned().unwrap_or_default(),
-        &user_signers_with_defaults,
-    );
+    check_private_keys(&testconfig, &user_signers_with_defaults);
 
     // ensure user-provided accounts have sufficient balance
     let broke_accounts = find_insufficient_balances(
-        &user_signers.iter().map(|s| s.address()).collect::<Vec<_>>(),
+        &args
+            .eth_json_rpc_args
+            .user_signers()
+            .iter()
+            .map(|s| s.address())
+            .collect::<Vec<_>>(),
         min_balance,
         &rpc_client,
     )
@@ -80,31 +81,40 @@ pub async fn setup(
     }
 
     // load agents from setup and create pools
-    let mut from_pool_declarations =
+    let from_pool_declarations =
         [testconfig.get_setup_pools(), testconfig.get_create_pools()].concat();
-
-    // replace the `from_pool` declaration with the first signer if override_senders is true
-    if override_senders {
-        let from = user_signers_with_defaults[0].address().to_string();
-        from_pool_declarations
-            .iter_mut()
-            .for_each(|from_pool| *from_pool = from.clone());
-    }
 
     // create agents for each from_pool declaration
     let mut agents = AgentStore::new();
-    for from_pool in &from_pool_declarations {
-        if agents.has_agent(from_pool) {
-            continue;
-        }
 
-        let agent = SignerStore::new(1, &args.seed, from_pool);
-        agents.add_agent(from_pool, agent);
+    // If override_senders is true, we don't need to create agents for pools
+    // since all transactions will use the primary signer
+    if !override_senders {
+        for from_pool in &from_pool_declarations {
+            if agents.has_agent(from_pool) {
+                continue;
+            }
+
+            let agent = SignerStore::new(1, &args.seed, from_pool);
+            agents.add_agent(from_pool, agent);
+        }
     }
 
     // user-provided signers must be pre-funded
-    let admin_signer = user_signers_with_defaults[0].to_owned();
-    let all_agent_addresses = agents.all_signer_addresses();
+    let admin_signer = args.eth_json_rpc_args.primary_signer();
+
+    // skip funding accounts if override_senders is false
+    if !override_senders {
+        fund_accounts(
+            &agents.all_signer_addresses(),
+            &admin_signer,
+            &rpc_client,
+            min_balance,
+            tx_type.into(),
+            &engine_params,
+        )
+        .await?;
+    }
 
     let params = TestScenarioParams {
         rpc_url: args.eth_json_rpc_args.rpc_url()?,
@@ -118,20 +128,6 @@ pub async fn setup(
         redeploy: true,
         sync_nonces_after_batch: true,
     };
-
-    // skip funding accounts if override_senders is false
-    if !override_senders {
-        fund_accounts(
-            &all_agent_addresses,
-            &admin_signer,
-            &rpc_client,
-            min_balance,
-            tx_type.into(),
-            &engine_params,
-        )
-        .await?;
-    }
-
     let mut scenario = TestScenario::new(
         testconfig.to_owned(),
         db.clone().into(),
