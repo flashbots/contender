@@ -20,7 +20,7 @@ pub struct StressCliArgs {
         long,
         long_help = "Remove storage stress txs from the scenario.",
         default_value_t = false,
-        visible_aliases = &["ds"]
+        visible_aliases = ["ds"]
     )]
     pub disable_storage: bool,
 
@@ -28,7 +28,7 @@ pub struct StressCliArgs {
         long,
         long_help = "Remove transfer stress txs from the scenario.",
         default_value_t = false,
-        visible_aliases = &["dt"]
+        visible_aliases = ["dt"]
     )]
     pub disable_transfers: bool,
 
@@ -37,7 +37,7 @@ pub struct StressCliArgs {
         long_help = "Comma-separated list of opcodes to be ignored in the scenario.",
         value_delimiter = ',',
         value_name = "OPCODES",
-        visible_aliases = &["do"]
+        visible_aliases = ["do"]
     )]
     pub disable_opcodes: Option<Vec<EthereumOpcode>>,
 
@@ -46,7 +46,7 @@ pub struct StressCliArgs {
         long_help = "Comma-separated list of precompiles to be ignored in the scenario.",
         value_delimiter = ',',
         value_name = "PRECOMPILES",
-        visible_aliases = &["dp"]
+        visible_aliases = ["dp"]
     )]
     pub disable_precompiles: Option<Vec<EthereumPrecompile>>,
 
@@ -54,7 +54,7 @@ pub struct StressCliArgs {
         long,
         long_help = "Disable all precompiles in the scenario.",
         default_value_t = false,
-        visible_aliases = &["dap"]
+        visible_aliases = ["dap"]
     )]
     pub disable_all_precompiles: bool,
 
@@ -62,7 +62,7 @@ pub struct StressCliArgs {
         long,
         long_help = "Disable all opcodes in the scenario.",
         default_value_t = false,
-        visible_aliases = &["dao"]
+        visible_aliases = ["dao"]
     )]
     pub disable_all_opcodes: bool,
 
@@ -76,9 +76,17 @@ pub struct StressCliArgs {
         long = "opcode-iterations",
         long_help = "Number of times to call an opcode in a single tx.",
         default_value_t = 10,
-        visible_aliases = &["ops"]
+        visible_aliases = ["ops"]
     )]
     pub opcode_iterations: u64,
+
+    #[arg(
+        long,
+        long_help = "Enables all precompiles & opcodes. By default, the ones that typically fail are disabled.",
+        default_value_t = false,
+        visible_aliases = ["fails"]
+    )]
+    pub with_fails: bool,
 }
 
 impl ToTestConfig for StressCliArgs {
@@ -104,24 +112,35 @@ impl ToTestConfig for StressCliArgs {
                     .contains(opcode)
             })
             .filter(|opcode| {
-                let o = opcode.to_owned();
-                o != EthereumOpcode::Revert
-                    && o != EthereumOpcode::Create2
-                    && o != EthereumOpcode::Invalid
+                // these will fail gas estimation so we filter them out,
+                // but we'll add them later if the user wants them
+                *opcode != EthereumOpcode::Revert
+                    && *opcode != EthereumOpcode::Create2
+                    && *opcode != EthereumOpcode::Invalid
             })
             .collect::<Vec<_>>();
 
+        let precompiles = EthereumPrecompile::iter()
+            .filter(|p| {
+                !self
+                    .disable_precompiles
+                    .as_deref()
+                    .unwrap_or(&[])
+                    .contains(p)
+            })
+            .filter(|p| {
+                if self.with_fails {
+                    true
+                } else {
+                    *p != EthereumPrecompile::Identity
+                    // && // TODO: add more failerz here
+                }
+            })
+            .collect();
+
         let mut eth_functions: EthFunctionsArgs = EthFunctionsCliArgs {
             opcodes,
-            precompiles: EthereumPrecompile::iter()
-                .filter(|p| {
-                    !self
-                        .disable_precompiles
-                        .as_deref()
-                        .unwrap_or(&[])
-                        .contains(p)
-                })
-                .collect(),
+            precompiles,
             num_iterations: self.opcode_iterations,
         }
         .into();
@@ -134,21 +153,21 @@ impl ToTestConfig for StressCliArgs {
         }
 
         let mut config = eth_functions.to_testconfig();
+
+        // circumvent gas estimation errors
         let disabled_opcodes = self.disable_opcodes.as_deref().unwrap_or_default();
         let mut push_spam = |req: FunctionCallDefinition| {
             if let Some(spam) = config.spam.as_mut() {
                 spam.push(SpamRequest::Tx(req.into()));
             }
         };
-
         let consume_gas = |args: &[&'static str]| {
             FunctionCallDefinition::new(contracts::SPAM_ME.template_name())
                 .with_signature("consumeGas(string memory method, uint256 iterations)")
                 .with_args(args)
         };
 
-        // custom overrides for specific opcodes
-        if !self.disable_all_opcodes {
+        if !self.disable_all_opcodes && self.with_fails {
             if !disabled_opcodes.contains(&EthereumOpcode::Revert) {
                 let tx = consume_gas(&["revert", "1"]).with_gas_limit(42000);
                 push_spam(tx);
