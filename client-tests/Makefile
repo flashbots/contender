@@ -117,7 +117,7 @@ op-stack-status:
 # Repo has ops/ (and ops-bedrock/). Start via makefile. :contentReference[oaicite:4]{index=4}
 mantle:
 	$(call GIT_CLONE_OR_UPDATE,main,mantle-v2,https://github.com/mantlenetworkio/mantle-v2.git)
-	cd $(VENDOR_DIR)/mantle-v2 && make devnet-up
+	cd $(VENDOR_DIR)/mantle-v2 && make devnet-up || true
 
 mantle-down:
 	cd $(VENDOR_DIR)/mantle-v2 && make devnet-down || true

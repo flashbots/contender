@@ -52,10 +52,15 @@ run_op() {
 
     make optimism-down
 }
+
+### what next?
+#
+
+
+# run tests
 if [ ${#RUN_TARGETS[@]} -eq 0 ]; then
     RUN_TARGETS=("${TARGETS[@]}")
 fi
-
 for target in "${RUN_TARGETS[@]}"; do
     case "$target" in
         arbitrum)
