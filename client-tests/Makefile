@@ -50,9 +50,9 @@ OP_LOG           ?= $(LOG_DIR)/optimism.log
 OP_PID           ?= $(PID_DIR)/optimism.pid
 OP_PROFILE       ?= opstack
 
-.PHONY: optimism-prepare optimism-build optimism optimism-detach optimism-down optimism-status
+.PHONY: bpg-prepare bpg-build op-stack op-stack-detach op-stack-down op-stack-status
 
-optimism-prepare:
+bpg-prepare:
 	@command -v go >/dev/null    || { echo "go not found"; exit 1; }
 	@command -v docker >/dev/null|| { echo "docker not found"; exit 1; }
 	@if [ -d "$(BP_DIR)" ]; then \
@@ -65,17 +65,17 @@ optimism-prepare:
 	fi
 
 # Build a stable binary so we can signal the real process (not the 'go run' wrapper)
-optimism-build: optimism-prepare
+bpg-build: bpg-prepare
 	@echo ">> building builder-playground binary -> $(BP_BIN)"
 	@mkdir -p "$(BP_BIN_DIR)"
 	@cd "$(BP_DIR)" && go build -o "$(BP_BIN)" ./
 
 # Foreground: run the binary; Ctrl-C works and tears down containers cleanly
-optimism: optimism-build
+op-stack: bpg-build
 	@cd "$(BP_DIR)" && "$(BP_BIN)" cook "$(OP_PROFILE)"
 
 # Detached: run the binary in background, capture *its* PID, tee logs
-optimism-detach: optimism-build
+op-stack-detach: bpg-build
 	@mkdir -p "$(LOG_DIR)" "$(PID_DIR)"
 	@echo ">> starting builder-playground (detached), logs -> $(OP_LOG)"
 	@nohup bash -lc 'cd "$(BP_DIR)"; exec "$(BP_BIN)" cook "$(OP_PROFILE)"' \
@@ -84,7 +84,7 @@ optimism-detach: optimism-build
 	@echo ">> tail -f $(OP_LOG)"
 
 # Stop: send SIGINT (Ctrl-C) to the binary's PID; fall back to TERM if needed
-optimism-down:
+op-stack-down:
 	@if [ -f "$(OP_PID)" ]; then \
 	  pid=$$(cat "$(OP_PID)"); \
 	  if kill -0 $$pid 2>/dev/null; then \
@@ -101,47 +101,26 @@ optimism-down:
 	  echo ">> no pid file at $(OP_PID); nothing to stop"; \
 	fi
 
-optimism-status:
+op-stack-status:
 	@if [ -f "$(OP_PID)" ]; then \
 	  pid=$$(cat "$(OP_PID)"); \
 	  if kill -0 $$pid 2>/dev/null; then \
-	    echo "optimism: RUNNING (pid $$pid) — logs: $(OP_LOG)"; \
+	    echo "op-stack: RUNNING (pid $$pid) — logs: $(OP_LOG)"; \
 	  else \
-	    echo "optimism: not running (stale pid file)"; \
+	    echo "op-stack: not running (stale pid file)"; \
 	  fi; \
 	else \
-	  echo "optimism: not running"; \
+	  echo "op-stack: not running"; \
 	fi
 
-
-# ---------- Base (official node repo, docker compose) ----------
-# Use upstream base/node compose. See README for ports. :contentReference[oaicite:2]{index=2}
-base:
-	$(call GIT_CLONE_OR_UPDATE,main,base-node,https://github.com/base/node.git)
-	cd $(VENDOR_DIR)/base-node && cp -n .env.sepolia .env || true
-	cd $(VENDOR_DIR)/base-node && docker compose up -d
-
-base-down:
-	cd $(VENDOR_DIR)/base-node && docker compose down -v || true
-
-# ---------- Polygon zkEVM (local stack) ----------
-# Docs show: clone, build docker, then test/make run; L2 RPC commonly on 8123. :contentReference[oaicite:3]{index=3}
-polygon-zkevm:
-	$(call GIT_CLONE_OR_UPDATE,main,zkevm-node,https://github.com/0xPolygonHermez/zkevm-node.git)
-	cd $(VENDOR_DIR)/zkevm-node && make build-docker
-	cd $(VENDOR_DIR)/zkevm-node/test && make run
-
-polygon-zkevm-down:
-	cd $(VENDOR_DIR)/zkevm-node/test && make stop || true
-
 # ---------- Mantle v2 (Bedrock-aligned local L1+L2) ----------
-# Repo has ops/ (and ops-bedrock/). Start via make up. :contentReference[oaicite:4]{index=4}
+# Repo has ops/ (and ops-bedrock/). Start via makefile. :contentReference[oaicite:4]{index=4}
 mantle:
 	$(call GIT_CLONE_OR_UPDATE,main,mantle-v2,https://github.com/mantlenetworkio/mantle-v2.git)
-	cd $(VENDOR_DIR)/mantle-v2/ops && make up
+	cd $(VENDOR_DIR)/mantle-v2 && make devnet-up
 
 mantle-down:
-	cd $(VENDOR_DIR)/mantle-v2/ops && make down || true
+	cd $(VENDOR_DIR)/mantle-v2 && make devnet-down || true
 
 # ---------- Linea (local dev stack) ----------
 # linea-tutorials exposes L2 on 8645 per README table. :contentReference[oaicite:5]{index=5}
