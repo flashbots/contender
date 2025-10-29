@@ -24,6 +24,7 @@ endef
 clean:
 	rm -rf $(VENDOR_DIR)
 
+
 # ---------- Arbitrum (Nitro dev node) ----------
 # Official dev node helper (has run-dev-node.sh)
 # Repo README shows default RPC at 127.0.0.1:8547. :contentReference[oaicite:0]{index=0}
@@ -34,14 +35,84 @@ arbitrum:
 arbitrum-down:
 	docker rm -f nitro-dev || true
 
-# ---------- Optimism (OP Stack devnet via Kurtosis) ----------
-# Follow official Kurtosis devnet docs. Requires kurtosis installed. :contentReference[oaicite:1]{index=1}
-optimism:
-	@command -v kurtosis >/dev/null || { echo "kurtosis not found (see OP docs)"; exit 1; }
-	kurtosis run github.com/ethereum-optimism/optimism --enclave optimism-devnet
 
+# --- Optimism via Flashbots builder-playground (build + run) ---
+SHELL            := /bin/bash
+VENDOR_DIR       ?= .vendor
+BP_REPO          ?= https://github.com/flashbots/builder-playground
+BP_BRANCH        ?= main
+BP_DIR           ?= $(VENDOR_DIR)/builder-playground
+BP_BIN_DIR       ?= $(BP_DIR)/.bin
+BP_BIN           ?= $(BP_BIN_DIR)/builder-playground
+LOG_DIR          ?= .logs
+PID_DIR          ?= .pids
+OP_LOG           ?= $(LOG_DIR)/optimism.log
+OP_PID           ?= $(PID_DIR)/optimism.pid
+OP_PROFILE       ?= opstack
+
+.PHONY: optimism-prepare optimism-build optimism optimism-detach optimism-down optimism-status
+
+optimism-prepare:
+	@command -v go >/dev/null    || { echo "go not found"; exit 1; }
+	@command -v docker >/dev/null|| { echo "docker not found"; exit 1; }
+	@if [ -d "$(BP_DIR)" ]; then \
+	  echo ">> updating builder-playground"; \
+	  git -C "$(BP_DIR)" fetch --all -p && git -C "$(BP_DIR)" reset --hard origin/$(BP_BRANCH); \
+	else \
+	  echo ">> cloning builder-playground"; \
+	  mkdir -p "$(VENDOR_DIR)"; \
+	  git clone --depth 1 -b $(BP_BRANCH) $(BP_REPO) "$(BP_DIR)"; \
+	fi
+
+# Build a stable binary so we can signal the real process (not the 'go run' wrapper)
+optimism-build: optimism-prepare
+	@echo ">> building builder-playground binary -> $(BP_BIN)"
+	@mkdir -p "$(BP_BIN_DIR)"
+	@cd "$(BP_DIR)" && go build -o "$(BP_BIN)" ./
+
+# Foreground: run the binary; Ctrl-C works and tears down containers cleanly
+optimism: optimism-build
+	@cd "$(BP_DIR)" && "$(BP_BIN)" cook "$(OP_PROFILE)"
+
+# Detached: run the binary in background, capture *its* PID, tee logs
+optimism-detach: optimism-build
+	@mkdir -p "$(LOG_DIR)" "$(PID_DIR)"
+	@echo ">> starting builder-playground (detached), logs -> $(OP_LOG)"
+	@nohup bash -lc 'cd "$(BP_DIR)"; exec "$(BP_BIN)" cook "$(OP_PROFILE)"' \
+	  >>"$(OP_LOG)" 2>&1 & echo $$! >"$(OP_PID)"
+	@echo ">> pid=$$(cat "$(OP_PID)")"
+	@echo ">> tail -f $(OP_LOG)"
+
+# Stop: send SIGINT (Ctrl-C) to the binary's PID; fall back to TERM if needed
 optimism-down:
-	kurtosis clean --delete-persistent-data --yes || true
+	@if [ -f "$(OP_PID)" ]; then \
+	  pid=$$(cat "$(OP_PID)"); \
+	  if kill -0 $$pid 2>/dev/null; then \
+	    echo ">> sending SIGINT to $$pid"; kill -INT $$pid || true; \
+	    sleep 2; \
+	    if kill -0 $$pid 2>/dev/null; then \
+	      echo ">> still running; sending SIGTERM"; kill -TERM $$pid || true; \
+	    fi; \
+	  else \
+	    echo ">> no running process (stale pid file)"; \
+	  fi; \
+	  rm -f "$(OP_PID)"; \
+	else \
+	  echo ">> no pid file at $(OP_PID); nothing to stop"; \
+	fi
+
+optimism-status:
+	@if [ -f "$(OP_PID)" ]; then \
+	  pid=$$(cat "$(OP_PID)"); \
+	  if kill -0 $$pid 2>/dev/null; then \
+	    echo "optimism: RUNNING (pid $$pid) — logs: $(OP_LOG)"; \
+	  else \
+	    echo "optimism: not running (stale pid file)"; \
+	  fi; \
+	else \
+	  echo "optimism: not running"; \
+	fi
+
 
 # ---------- Base (official node repo, docker compose) ----------
 # Use upstream base/node compose. See README for ports. :contentReference[oaicite:2]{index=2}
