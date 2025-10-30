@@ -323,14 +323,11 @@ where
     }
 
     // Polls anvil to ensure its initialized and ready to accept RPC requests
-    async fn wait_for_anvil_ready(
-        endpoint_url: &str,
-        timeout: Duration,
-    ) -> Result<()> {
+    async fn wait_for_anvil_ready(endpoint_url: &str, timeout: Duration) -> Result<()> {
         let start = std::time::Instant::now();
         let url = Url::parse(endpoint_url)
             .map_err(|e| ContenderError::with_err(e, "failed to parse Anvil endpoint URL"))?;
-        
+
         loop {
             if start.elapsed() > timeout {
                 return Err(ContenderError::SetupError(
@@ -338,16 +335,13 @@ where
                     Some(format!("Waited {} seconds", timeout.as_secs())),
                 ));
             }
-            
+
             // Try a simple RPC call to check if Anvil is responsive
             let provider = ProviderBuilder::new()
                 .network::<AnyNetwork>()
                 .connect_http(url.clone());
-            
-            match tokio::time::timeout(
-                Duration::from_secs(2),
-                provider.get_block_number()
-            ).await {
+
+            match tokio::time::timeout(Duration::from_secs(2), provider.get_block_number()).await {
                 Ok(Ok(_block_num)) => {
                     info!("anvil ready at {}", endpoint_url);
                     return Ok(());
@@ -359,11 +353,10 @@ where
                     info!("anvil health check timed out, retrying...");
                 }
             }
-            
+
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
     }
-
 
     pub async fn estimate_setup_cost(&self) -> Result<U256> {
         info!(
