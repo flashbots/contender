@@ -348,6 +348,18 @@ where
             "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
         )
         .expect("invalid signer");
+
+        // When override_senders is used, the agent_store might be empty but we still need
+        // the original signers for the simulation to work correctly
+        let simulation_signers = if self.agent_store.all_agents().count() == 0 {
+            // If agent store is empty (override_senders case), use the original signers
+            let mut signers = vec![admin_signer.to_owned()];
+            signers.extend(self.signer_map.values().cloned());
+            signers
+        } else {
+            vec![admin_signer.to_owned()]
+        };
+
         // separate prometheus registry for simulations; anvil doesn't count!
         static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
         static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
@@ -358,7 +370,7 @@ where
             TestScenarioParams {
                 rpc_url: anvil.endpoint_url(),
                 builder_rpc_url: None,
-                signers: vec![admin_signer.to_owned()],
+                signers: simulation_signers,
                 agent_store: self.agent_store.clone(),
                 tx_type: self.tx_type,
                 bundle_type: self.bundle_type,

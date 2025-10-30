@@ -26,6 +26,30 @@ contender spam  scenario:stress.toml -r $RPC_URL --tps 10 -d 3
 
 See [examples](docs/examples.md) for more usage patterns.
 
+### Docker Instructions
+
+Fetch the latest image:
+
+```bash
+docker pull flashbots/contender
+```
+
+Double-check your RPC URL:
+
+```bash
+export RPC="http://host.docker.internal:8545"
+# uncomment if host.docker.internal doesn't work:
+# export RPC="http://172.17.0.1:8545"
+```
+
+Run contender in a container with persistent state:
+
+```bash
+docker run -it -v /tmp/.contender:/root/.contender \
+contender spam --tps 20 -r $RPC transfers
+```
+
+> `-v` maps `/tmp/.contender` on the host machine to `/root/.contender` in the container, which contains the DB; used for generating reports and saving contract deployments.
 
 ## ⚙️ Prerequisites
 
