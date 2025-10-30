@@ -322,6 +322,49 @@ where
         .await
     }
 
+    // Polls anvil to ensure its initialized and ready to accept RPC requests
+    async fn wait_for_anvil_ready(
+        endpoint_url: &str,
+        timeout: Duration,
+    ) -> Result<()> {
+        let start = std::time::Instant::now();
+        let url = Url::parse(endpoint_url)
+            .map_err(|e| ContenderError::with_err(e, "failed to parse Anvil endpoint URL"))?;
+        
+        loop {
+            if start.elapsed() > timeout {
+                return Err(ContenderError::SetupError(
+                    "anvil failed to become ready within timeout",
+                    Some(format!("Waited {} seconds", timeout.as_secs())),
+                ));
+            }
+            
+            // Try a simple RPC call to check if Anvil is responsive
+            let provider = ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .connect_http(url.clone());
+            
+            match tokio::time::timeout(
+                Duration::from_secs(2),
+                provider.get_block_number()
+            ).await {
+                Ok(Ok(_block_num)) => {
+                    info!("anvil ready at {}", endpoint_url);
+                    return Ok(());
+                }
+                Ok(Err(e)) => {
+                    info!("anvil not ready yet (error: {}), retrying...", e);
+                }
+                Err(_) => {
+                    info!("anvil health check timed out, retrying...");
+                }
+            }
+            
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    }
+
+
     pub async fn estimate_setup_cost(&self) -> Result<U256> {
         info!(
             "
@@ -333,8 +376,12 @@ where
         // start anvil with dev accounts holding 1M eth
         let mut anvil = Anvil::new().args(["--balance", "1000000"]);
         if !cfg!(test) {
-            anvil = anvil.fork(self.rpc_url.to_string());
+            anvil = anvil
+                .fork(self.rpc_url.to_string())
+                .timeout(60000) // 60s timeout for fork operation
+                .block_time(1); // force anvil to produce a block every second
         }
+
         let anvil = anvil.try_spawn()
             .map_err(|e| {
                 if e.to_string().to_lowercase().contains("no such file") {
@@ -343,6 +390,8 @@ where
                 ContenderError::with_err(e, "failed to spawn anvil.")
                 }
             })?;
+
+        Self::wait_for_anvil_ready(anvil.endpoint_url().as_str(), Duration::from_secs(30)).await?;
 
         let admin_signer = LocalSigner::from_str(
             "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
