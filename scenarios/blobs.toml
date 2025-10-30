@@ -1,5 +1,4 @@
 [[spam]]
 [spam.tx]
 to = "{_sender}"
-
 blob_data = "f00d"
