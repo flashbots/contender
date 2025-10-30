@@ -1,7 +1,6 @@
 [[spam]]
 [spam.tx]
 to = "{_sender}"
-
 signature = "hey()"
 args = []
 value = "1"
