@@ -2,155 +2,252 @@ mod commands;
 mod default_scenarios;
 mod util;
 
-use std::sync::LazyLock;
-
-use alloy::hex;
-use commands::{ContenderCli, ContenderSubcommand, DbCommand, RunCommandArgs, SpamCommandArgs};
-use contender_core::{db::DbOps, generator::RandSeed};
+use alloy::{
+    network::AnyNetwork,
+    providers::{DynProvider, ProviderBuilder},
+    rpc::client::ClientBuilder,
+    transports::http::reqwest::Url,
+};
+use commands::{
+    admin::handle_admin_command,
+    common::{ScenarioSendTxsCliArgs, SendSpamCliArgs},
+    db::{drop_db, export_db, import_db, reset_db},
+    ContenderCli, ContenderSubcommand, DbCommand, SetupCommandArgs, SpamCliArgs, SpamCommandArgs,
+    SpamScenario,
+};
+use contender_core::{db::DbOps, error::ContenderError};
 use contender_sqlite::{SqliteDb, DB_VERSION};
-use rand::Rng;
-use util::{data_dir, db_file};
+use default_scenarios::{fill_block::FillBlockCliArgs, BuiltinScenarioCli};
+use std::{str::FromStr, sync::LazyLock};
+use tokio::sync::OnceCell;
+use tracing::{debug, info, warn};
+use tracing_subscriber::EnvFilter;
+use util::{data_dir, db_file, prompt_continue};
+
+use crate::{
+    commands::replay::ReplayArgs,
+    util::{bold, init_reports_dir},
+};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     let path = db_file().expect("failed to get DB file path");
-    println!("opening DB at {}", path);
+    debug!("opening DB at {path}");
     SqliteDb::from_file(&path).expect("failed to open contender DB file")
 });
+// prometheus
+static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
+static LATENCY_HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    init_tracing();
+    init_reports_dir();
+
     let args = ContenderCli::parse_args();
     if DB.table_exists("run_txs")? {
         // check version and exit if DB version is incompatible
-        let quit_early = DB.version() < DB_VERSION
-            && !matches!(&args.command, ContenderSubcommand::Db { command: _ });
+        let quit_early = DB.version() != DB_VERSION
+            && !matches!(
+                &args.command,
+                ContenderSubcommand::Db { command: _ } | ContenderSubcommand::Admin { command: _ }
+            );
         if quit_early {
-            println!("Your database is incompatible with this version of contender. To backup your data, run `contender db export`.\nPlease run `contender db drop` before trying again.");
-            return Ok(());
+            let recommendation = format!(
+                "To backup your data, run `contender db export`.\n{}",
+                if DB.version() < DB_VERSION {
+                    // contender version is newer than DB version, so user needs to upgrade DB
+                    "Please run `contender db drop` or `contender db reset` to update your DB."
+                } else {
+                    // DB version is newer than contender version, so user needs to downgrade DB or upgrade contender
+                    "Please upgrade contender or run `contender db drop` to delete your DB."
+                }
+            );
+            warn!("Your database is incompatible with this version of contender.");
+            warn!(
+                "Remote DB version = {}, contender expected version {}.",
+                DB.version(),
+                DB_VERSION
+            );
+            warn!("{recommendation}");
+            return Err("Incompatible DB detected".into());
         }
     } else {
-        println!("no DB found, creating new DB");
+        info!("no DB found, creating new DB");
         DB.create_tables()?;
     }
     let db = DB.clone();
-    let data_path = data_dir()?;
     let db_path = db_file()?;
-
-    let seed_path = format!("{}/seed", &data_path);
-    if !std::path::Path::new(&seed_path).exists() {
-        println!("generating seed file at {}", &seed_path);
-        let mut rng = rand::thread_rng();
-        let seed: [u8; 32] = rng.gen();
-        let seed_hex = hex::encode(seed);
-        std::fs::write(&seed_path, seed_hex).expect("failed to write seed file");
-    }
-
-    let stored_seed = format!(
-        "0x{}",
-        std::fs::read_to_string(&seed_path).expect("failed to read seed file")
-    );
 
     match args.command {
         ContenderSubcommand::Db { command } => match command {
-            DbCommand::Drop => commands::drop_db(&db_path).await?,
-            DbCommand::Reset => commands::reset_db(&db_path).await?,
-            DbCommand::Export { out_path } => commands::export_db(&db_path, out_path).await?,
-            DbCommand::Import { src_path } => commands::import_db(src_path, &db_path).await?,
+            DbCommand::Drop => drop_db(&db_path).await?,
+            DbCommand::Reset => reset_db(&db_path).await?,
+            DbCommand::Export { out_path } => export_db(&db_path, out_path).await?,
+            DbCommand::Import { src_path } => import_db(src_path, &db_path).await?,
         },
 
-        ContenderSubcommand::Setup {
-            testfile,
-            rpc_url,
-            private_keys,
-            min_balance,
-            seed,
-            tx_type,
-        } => {
-            let seed = seed.unwrap_or(stored_seed);
-            commands::setup(
-                &db,
-                testfile,
-                rpc_url,
-                private_keys,
-                min_balance,
-                RandSeed::seed_from_str(&seed),
-                tx_type.into(),
-            )
-            .await?
+        ContenderSubcommand::Setup { args } => {
+            let testfile = if let Some(testfile) = &args.testfile {
+                testfile
+            } else {
+                // if no testfile is provided, use the default one
+                warn!("No testfile provided, using default testfile \"scenario:simple.toml\"");
+                "scenario:simple.toml"
+            };
+            let scenario = SpamScenario::Testfile(testfile.to_owned());
+            let args = SetupCommandArgs::new(scenario, *args)?;
+
+            commands::setup(&db, args).await?
         }
 
         ContenderSubcommand::Spam {
-            testfile,
-            rpc_url,
-            builder_url,
-            txs_per_block,
-            txs_per_second,
-            duration,
-            seed,
-            private_keys,
-            disable_reports,
-            min_balance,
-            gen_report,
-            tx_type,
-            gas_price_percent_add,
+            args,
+            builtin_scenario_config,
         } => {
-            let seed = seed.unwrap_or(stored_seed);
-            let run_id = commands::spam(
-                &db,
-                SpamCommandArgs {
-                    testfile,
-                    rpc_url: rpc_url.to_owned(),
-                    builder_url,
-                    txs_per_block,
-                    txs_per_second,
-                    duration,
-                    seed,
-                    private_keys,
-                    disable_reports,
-                    min_balance,
-                    tx_type: tx_type.into(),
-                    gas_price_percent_add,
-                },
-            )
-            .await?;
-            if gen_report {
-                commands::report(Some(run_id), 0, &db, &rpc_url).await?;
+            if !check_spam_args(&args)? {
+                return Ok(());
             }
+            if builtin_scenario_config.is_some() && args.eth_json_rpc_args.testfile.is_some() {
+                return Err(ContenderError::SpamError(
+                    "Cannot use both builtin scenario and testfile",
+                    None,
+                )
+                .into());
+            }
+
+            let SpamCliArgs {
+                eth_json_rpc_args:
+                    ScenarioSendTxsCliArgs {
+                        testfile, rpc_url, ..
+                    },
+                spam_args,
+                gen_report,
+                ..
+            } = *args.to_owned();
+
+            let SendSpamCliArgs { loops, .. } = spam_args.to_owned();
+
+            let client = ClientBuilder::default().http(Url::from_str(&rpc_url)?);
+            let provider = DynProvider::new(
+                ProviderBuilder::new()
+                    .network::<AnyNetwork>()
+                    .connect_client(client),
+            );
+
+            let scenario = if let Some(testfile) = testfile {
+                SpamScenario::Testfile(testfile)
+            } else if let Some(config) = builtin_scenario_config {
+                SpamScenario::Builtin(config.to_builtin_scenario(&provider, &args).await?)
+            } else {
+                // default to fill-block scenario
+                SpamScenario::Builtin(
+                    BuiltinScenarioCli::FillBlock(FillBlockCliArgs {
+                        max_gas_per_block: None,
+                    })
+                    .to_builtin_scenario(&provider, &args)
+                    .await?,
+                )
+            };
+
+            let real_loops = if let Some(loops) = loops {
+                // loops flag is set; spamd will interpret a None value as infinite
+                loops
+            } else {
+                // loops flag is not set, so only loop once
+                Some(1)
+            };
+            let spamd_args = SpamCommandArgs::new(scenario, *args)?;
+            commands::spamd(&db, spamd_args, gen_report, real_loops).await?;
+        }
+
+        ContenderSubcommand::Replay { args } => {
+            let args = ReplayArgs::from_cli_args(*args).await?;
+            commands::replay::replay(args, DB.clone()).await?;
         }
 
         ContenderSubcommand::Report {
-            rpc_url,
             last_run_id,
             preceding_runs,
         } => {
-            commands::report(last_run_id, preceding_runs, &db, &rpc_url).await?;
+            contender_report::command::report(
+                last_run_id,
+                preceding_runs,
+                &db,
+                &data_dir().expect("invalid data dir"),
+            )
+            .await?;
         }
 
-        ContenderSubcommand::Run {
-            scenario,
-            rpc_url,
-            private_key,
-            interval,
-            duration,
-            txs_per_duration,
-            skip_deploy_prompt,
-            tx_type,
-        } => {
-            commands::run(
-                &db,
-                RunCommandArgs {
-                    scenario,
-                    rpc_url,
-                    private_key,
-                    interval,
-                    duration,
-                    txs_per_duration,
-                    skip_deploy_prompt,
-                    tx_type: tx_type.into(),
-                },
-            )
-            .await?
+        ContenderSubcommand::Admin { command } => {
+            handle_admin_command(command, db)?;
         }
     }
     Ok(())
+}
+
+fn init_tracing() {
+    let filter = EnvFilter::try_from_default_env().ok(); // fallback if RUST_LOG is unset
+    #[cfg(feature = "async-tracing")]
+    {
+        use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Layer};
+        let tokio_layer = console_subscriber::ConsoleLayer::builder()
+            .with_default_env()
+            .spawn();
+        let fmt_layer = fmt::layer()
+            .with_ansi(true)
+            .with_target(true)
+            .with_line_number(true)
+            .with_filter(filter);
+
+        tracing_subscriber::Registry::default()
+            .with(fmt_layer)
+            .with(tokio_layer)
+            .init();
+    }
+
+    #[cfg(not(feature = "async-tracing"))]
+    {
+        contender_core::util::init_core_tracing(filter);
+    }
+}
+
+/// Check if spam arguments are typical and prompt the user to continue if they are not.
+/// Returns true if the user chooses to continue, false otherwise.
+fn check_spam_args(args: &SpamCliArgs) -> Result<bool, ContenderError> {
+    let (units, max_duration) = if args.spam_args.txs_per_block.is_some() {
+        ("blocks", 50)
+    } else if args.spam_args.txs_per_second.is_some() {
+        ("seconds", 100)
+    } else {
+        return Err(ContenderError::SpamError(
+            "Missing params.",
+            Some(format!(
+                "Either {} or {} must be set.",
+                bold("--txs-per-block (--tpb)"),
+                bold("--txs-per-second (--tps)"),
+            )),
+        ));
+    };
+    let duration = args.spam_args.duration;
+    if duration > max_duration {
+        let time_limit = duration / max_duration;
+        let scenario = args
+            .eth_json_rpc_args
+            .testfile
+            .as_deref()
+            .unwrap_or_default();
+        let suggestion_cmd = bold(format!(
+            "contender spam {scenario} -d {max_duration} -l {time_limit} ..."
+        ));
+        println!(
+"Duration is set to {duration} {units}, which is quite high. Generating transactions and collecting results may take a long time.
+You may want to use {} with a lower spamming duration {} and a loop limit {}:\n
+\t{suggestion_cmd}\n",
+            bold("spam"),
+            bold("(-d)"),
+            bold("(-l)")
+    );
+        return Ok(prompt_continue(None));
+    }
+    Ok(true)
 }

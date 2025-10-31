@@ -10,21 +10,27 @@ use crate::{
     test_scenario::TestScenario,
 };
 
+use super::spammer_trait::SpamRunContext;
+use super::tx_callback::OnBatchSent;
 use super::{OnTxSent, SpamTrigger, Spammer};
 
 pub struct TimedSpammer {
     wait_interval: Duration,
+    context: SpamRunContext,
 }
 
 impl TimedSpammer {
     pub fn new(wait_interval: Duration) -> Self {
-        Self { wait_interval }
+        Self {
+            wait_interval,
+            context: SpamRunContext::new(),
+        }
     }
 }
 
 impl<F, D, S, P> Spammer<F, D, S, P> for TimedSpammer
 where
-    F: OnTxSent + Send + Sync + 'static,
+    F: OnTxSent + OnBatchSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
@@ -46,5 +52,13 @@ where
                     .boxed(),
             )
         }
+    }
+
+    fn duration_units(periods: u64) -> crate::db::SpamDuration {
+        crate::db::SpamDuration::Seconds(periods)
+    }
+
+    fn context(&self) -> &SpamRunContext {
+        &self.context
     }
 }

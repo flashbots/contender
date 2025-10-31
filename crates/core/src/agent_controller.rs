@@ -1,13 +1,16 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use alloy::{
-    primitives::{Address, FixedBytes, U256},
+    network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, TransactionBuilder},
+    primitives::{utils::format_ether, Address, FixedBytes, TxKind, U256},
+    rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
 };
+use tracing::info;
 
-use crate::generator::{
-    seeder::{SeedValue, Seeder},
-    RandSeed,
+use crate::{
+    error::ContenderError,
+    generator::seeder::{rand_seed::SeedGenerator, SeedValue},
 };
 
 pub trait SignerRegistry<Index: Ord> {
@@ -46,13 +49,13 @@ impl AgentStore {
         &mut self,
         agent_names: &[impl AsRef<str>],
         signers_per_agent: usize,
-        seed: &RandSeed,
+        seed: &impl SeedGenerator,
     ) {
         for agent in agent_names {
             if self.has_agent(agent) {
                 continue;
             }
-            self.add_random_agent(agent, signers_per_agent, seed);
+            self.add_new_agent(agent, signers_per_agent, seed);
         }
     }
 
@@ -60,13 +63,13 @@ impl AgentStore {
         self.agents.insert(name.as_ref().to_owned(), signers);
     }
 
-    pub fn add_random_agent(
+    pub fn add_new_agent(
         &mut self,
         name: impl AsRef<str>,
         num_signers: usize,
-        rand_seeder: &RandSeed,
+        rand_seeder: &impl SeedGenerator,
     ) {
-        let signers = SignerStore::new_random(num_signers, rand_seeder, name.as_ref());
+        let signers = SignerStore::new(num_signers, rand_seeder, name.as_ref());
         self.add_agent(name, signers);
     }
 
@@ -112,10 +115,10 @@ where
 }
 
 impl SignerStore {
-    pub fn new_random(num_signers: usize, rand_seeder: &RandSeed, acct_seed: &str) -> Self {
+    pub fn new<S: SeedGenerator>(num_signers: usize, rand_seeder: &S, acct_seed: &str) -> Self {
         // add numerical value of acct_seed to given seed
         let new_seed = rand_seeder.as_u256() + U256::from_be_slice(acct_seed.as_bytes());
-        let rand_seeder = RandSeed::seed_from_u256(new_seed);
+        let rand_seeder = S::seed_from_u256(new_seed);
 
         // generate random private keys with new seed
         let prv_keys = rand_seeder
@@ -136,5 +139,85 @@ impl SignerStore {
 
     pub fn remove_signer(&mut self, idx: usize) {
         self.signers.remove(idx);
+    }
+
+    pub fn all_addresses(&self) -> Vec<Address> {
+        self.signers.iter().map(|s| s.address()).collect()
+    }
+
+    pub async fn fund_signers(
+        &self,
+        funder: &PrivateKeySigner,
+        amount: U256,
+        provider: impl alloy::providers::Provider<AnyNetwork> + 'static,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let gas_price = provider.get_gas_price().await?;
+        // boost gas price by 10% to ensure the transaction is processed quickly
+        let gas_price = gas_price * 11 / 10;
+        let mut nonce = provider.get_transaction_count(funder.address()).await?;
+        let funder_wallet = EthereumWallet::new(funder.to_owned());
+        let provider = Arc::new(provider);
+        let signers = self.all_addresses();
+        let chain_id = provider.get_chain_id().await?;
+
+        // create transaction request for each signer
+        let tx_requests = signers
+            .into_iter()
+            .map(|address| {
+                let tx = TransactionRequest::default()
+                    .to(address)
+                    .value(amount)
+                    .from(funder.address())
+                    .nonce(nonce)
+                    .gas_limit(21000)
+                    .max_fee_per_gas(gas_price)
+                    .with_chain_id(chain_id)
+                    .max_priority_fee_per_gas(gas_price / 10);
+
+                nonce += 1;
+                tx
+            })
+            .collect::<Vec<_>>();
+
+        // sign txs
+        let mut signed_txs = vec![];
+        for tx_request in tx_requests {
+            let funder_wallet = funder_wallet.clone();
+            let to_addr = match tx_request.to_owned().to.unwrap_or_default() {
+                TxKind::Call(addr) => addr,
+                TxKind::Create => Address::ZERO,
+            };
+            signed_txs.push((
+                tx_request
+                    .build(&funder_wallet)
+                    .await
+                    .map_err(|e| ContenderError::with_err(e, "failed to sign funding tx"))?,
+                to_addr,
+            ))
+        }
+
+        // send txs
+        // let mut handles = vec![];
+        for (signed_tx, to_addr) in signed_txs {
+            let provider = provider.clone();
+
+            // Sleep to avoid overwhelming the provider with requests
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+            let tx_hash = provider
+                .send_tx_envelope(AnyTxEnvelope::Ethereum(signed_tx))
+                .await
+                .map_err(|e| ContenderError::with_err(e, "failed to send funding tx"))?
+                // .with_required_confirmations(1)
+                .watch()
+                .await
+                .map_err(|e| ContenderError::with_err(e, "funding tx failed to land onchain"))?;
+            info!(
+                "Funded {to_addr} with {} ether, ({tx_hash})",
+                format_ether(amount)
+            );
+        }
+
+        Ok(())
     }
 }

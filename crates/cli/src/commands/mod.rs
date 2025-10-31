@@ -1,20 +1,26 @@
+pub mod admin;
+pub mod common;
 mod contender_subcommand;
-mod db;
-mod report;
-mod run;
+pub mod db;
+pub mod replay;
 mod setup;
 mod spam;
+mod spamd;
 
 use clap::Parser;
 
 pub use contender_subcommand::{ContenderSubcommand, DbCommand};
-pub use db::*;
-pub use report::report;
-pub use run::{run, RunCommandArgs};
-pub use setup::setup;
-pub use spam::{spam, SpamCommandArgs};
+pub use setup::{setup, SetupCommandArgs};
+pub use spam::{spam, EngineArgs, SpamCliArgs, SpamCommandArgs, SpamScenario};
+pub use spamd::spamd;
 
 #[derive(Parser, Debug)]
+#[command(
+    name = "contender",
+    version,
+    author = "Flashbots",
+    about = "A flexible JSON-RPC spammer for EVM chains."
+)]
 pub struct ContenderCli {
     #[command(subcommand)]
     pub command: ContenderSubcommand,

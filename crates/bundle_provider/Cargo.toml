@@ -1,12 +1,15 @@
 [package]
 name = "contender_bundle_provider"
-version.workspace = true
+version = "0.5.5"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 homepage.workspace = true
 repository.workspace = true
+description = "Contender bundle provider"
 
 [dependencies]
 alloy = { workspace = true, features = ["node-bindings", "rpc-types-mev"] }
+serde = { workspace = true, features = ["derive"] }
+tracing = { workspace = true }

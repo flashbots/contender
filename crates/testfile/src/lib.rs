@@ -1,103 +1,6 @@
-mod types;
+mod test_config;
 
-pub use crate::types::TestConfig;
-use alloy::hex::ToHexExt;
-use alloy::primitives::Address;
-use contender_core::{
-    error::ContenderError,
-    generator::{
-        templater::Templater,
-        types::{CreateDefinition, FunctionCallDefinition, SpamRequest},
-        PlanConfig,
-    },
-};
-use std::collections::HashMap;
-use std::fs::read;
-
-impl TestConfig {
-    pub fn from_file(file_path: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
-        let file_contents = read(file_path)?;
-        let file_contents_str = String::from_utf8_lossy(&file_contents).to_string();
-        let test_file: TestConfig = toml::from_str(&file_contents_str)?;
-        Ok(test_file)
-    }
-
-    pub fn encode_toml(&self) -> Result<String, Box<dyn std::error::Error>> {
-        let encoded = toml::to_string(self)?;
-        Ok(encoded)
-    }
-
-    pub fn save_toml(&self, file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let encoded = self.encode_toml()?;
-        std::fs::write(file_path, encoded)?;
-        Ok(())
-    }
-}
-
-impl PlanConfig<String> for TestConfig {
-    fn get_spam_steps(&self) -> Result<Vec<SpamRequest>, ContenderError> {
-        Ok(self.spam.to_owned().unwrap_or_default())
-    }
-
-    fn get_setup_steps(&self) -> Result<Vec<FunctionCallDefinition>, ContenderError> {
-        Ok(self.setup.to_owned().unwrap_or_default())
-    }
-
-    fn get_create_steps(&self) -> Result<Vec<CreateDefinition>, ContenderError> {
-        Ok(self.create.to_owned().unwrap_or_default())
-    }
-
-    fn get_env(&self) -> Result<HashMap<String, String>, ContenderError> {
-        self.env.to_owned().ok_or(ContenderError::SetupError(
-            "no environment variables found",
-            None,
-        ))
-    }
-}
-
-impl Templater<String> for TestConfig {
-    /// Find values wrapped in brackets in a string and replace them with values from a hashmap whose key match the value in the brackets.
-    /// example: "hello {world}" with hashmap {"world": "earth"} will return "hello earth"
-    fn replace_placeholders(&self, input: &str, template_map: &HashMap<String, String>) -> String {
-        let mut output = input.to_owned();
-        for (key, value) in template_map.iter() {
-            let template = format!("{{{}}}", key);
-            output = output.replace(&template, value);
-        }
-        output
-    }
-
-    fn terminator_start(&self, input: &str) -> Option<usize> {
-        input.find("{")
-    }
-
-    fn terminator_end(&self, input: &str) -> Option<usize> {
-        input.find("}")
-    }
-
-    fn num_placeholders(&self, input: &str) -> usize {
-        input.chars().filter(|&c| c == '{').count()
-    }
-
-    fn copy_end(&self, input: &str, last_end: usize) -> String {
-        input.split_at(last_end).1.to_owned()
-    }
-
-    fn find_key(&self, input: &str) -> Option<(String, usize)> {
-        if let Some(template_start) = self.terminator_start(input) {
-            let template_end = self.terminator_end(input);
-            if let Some(template_end) = template_end {
-                let template_name = &input[template_start + 1..template_end];
-                return Some((template_name.to_owned(), template_end));
-            }
-        }
-        None
-    }
-
-    fn encode_contract_address(&self, input: &Address) -> String {
-        input.encode_hex()
-    }
-}
+pub use test_config::TestConfig;
 
 #[cfg(test)]
 pub mod tests {
@@ -109,19 +12,24 @@ pub mod tests {
         primitives::{Address, U256},
         signers::local::PrivateKeySigner,
     };
+    use contender_core::generator::{
+        templater::Templater, BundleCallDefinition, CompiledContract, CreateDefinition,
+    };
     use contender_core::{
         db::MockDb,
         generator::{
             named_txs::ExecutionRequest,
-            types::{
-                BundleCallDefinition, CreateDefinition, FunctionCallDefinition, FuzzParam,
-                PlanType, SpamRequest,
-            },
-            Generator, RandSeed,
+            types::{PlanType, SpamRequest},
+            FunctionCallDefinition, FuzzParam, Generator, RandSeed,
         },
         test_scenario::{TestScenario, TestScenarioParams},
     };
     use std::{collections::HashMap, fs, str::FromStr};
+    use tokio::sync::OnceCell;
+
+    // prometheus
+    static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
+    static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
 
     pub fn spawn_anvil() -> AnvilInstance {
         Anvil::new().block_time(1).try_spawn().unwrap()
@@ -142,75 +50,59 @@ pub mod tests {
     }
 
     pub fn get_testconfig() -> TestConfig {
-        let fncall = FunctionCallDefinition {
-            to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD".to_owned(),
-            from: "0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD"
-                .to_owned()
-                .into(),
-            from_pool: None,
-            signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
-            args: vec![
+        let fncall = FunctionCallDefinition::new("0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD")
+            .with_from("0x7a250d5630B4cF539739dF2C5dAcb4c659F248DD")
+            .with_signature("swap(uint256 x, uint256 y, address a, bytes b)")
+            .with_args(&[
                 "1".to_owned(),
                 "2".to_owned(),
                 Address::repeat_byte(0x11).encode_hex(),
                 "0xdead".to_owned(),
-            ]
-            .into(),
-            fuzz: None,
-            value: None,
-            kind: None,
-            gas_limit: None,
-        };
+            ]);
 
         TestConfig {
             env: None,
             create: None,
             setup: None,
-            spam: vec![SpamRequest::Tx(fncall)].into(),
+            spam: vec![SpamRequest::Tx(Box::new(fncall))].into(),
         }
     }
 
     pub fn get_fuzzy_testconfig() -> TestConfig {
-        let fn_call = |data: &str, from_addr: &str| FunctionCallDefinition {
-            to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-            from: from_addr.to_owned().into(),
-            from_pool: None,
-            value: None,
-            signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
-            args: vec![
-                "1".to_owned(),
-                "2".to_owned(),
-                Address::repeat_byte(0x11).encode_hex(),
-                data.to_owned(),
-            ]
-            .into(),
-            kind: None,
-            fuzz: vec![FuzzParam {
-                param: Some("x".to_string()),
-                value: None,
-                min: None,
-                max: None,
-            }]
-            .into(),
-            gas_limit: None,
+        let fn_call = |data: &str, from_addr: &str| {
+            FunctionCallDefinition::new("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
+                .with_from(from_addr)
+                .with_signature("swap(uint256 x, uint256 y, address a, bytes b)")
+                .with_args(&[
+                    "1".to_owned(),
+                    "2".to_owned(),
+                    Address::repeat_byte(0x11).encode_hex(),
+                    data.to_owned(),
+                ])
+                .with_fuzz(&[FuzzParam {
+                    param: Some("x".to_string()),
+                    value: None,
+                    min: None,
+                    max: None,
+                }])
         };
         TestConfig {
             env: None,
             create: None,
             setup: None,
             spam: vec![
-                SpamRequest::Tx(fn_call(
+                SpamRequest::Tx(Box::new(fn_call(
                     "0xbeef",
                     "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-                )),
-                SpamRequest::Tx(fn_call(
+                ))),
+                SpamRequest::Tx(Box::new(fn_call(
                     "0xea75",
                     "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-                )),
-                SpamRequest::Tx(fn_call(
+                ))),
+                SpamRequest::Tx(Box::new(fn_call(
                     "0xf00d",
                     "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
-                )),
+                ))),
                 SpamRequest::Bundle(BundleCallDefinition {
                     txs: vec![
                         fn_call("0xbeef", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
@@ -229,44 +121,16 @@ pub mod tests {
             create: None,
             spam: None,
             setup: vec![
-                FunctionCallDefinition {
-                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                    from: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-                        .to_owned()
-                        .into(),
-                    from_pool: None,
-                    value: Some("4096".to_owned()),
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
-                    args: vec![
-                        "1".to_owned(),
-                        "2".to_owned(),
-                        Address::repeat_byte(0x11).encode_hex(),
-                        "0xdead".to_owned(),
-                    ]
-                    .into(),
-                    kind: None,
-                    fuzz: None,
-                    gas_limit: None,
-                },
-                FunctionCallDefinition {
-                    to: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D".to_owned(),
-                    from: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-                        .to_owned()
-                        .into(),
-                    from_pool: None,
-                    value: Some("0x1000".to_owned()),
-                    signature: "swap(uint256 x, uint256 y, address a, bytes b)".to_owned(),
-                    args: vec![
-                        "1".to_owned(),
-                        "2".to_owned(),
-                        Address::repeat_byte(0x11).encode_hex(),
-                        "0xbeef".to_owned(),
-                    ]
-                    .into(),
-                    kind: None,
-                    fuzz: None,
-                    gas_limit: None,
-                },
+                FunctionCallDefinition::new("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
+                    .with_from("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
+                    .with_value(U256::from(4096))
+                    .with_signature("swap(uint256 x, uint256 y, address a, bytes b)")
+                    .with_args(&["1", "2", &Address::repeat_byte(0x11).encode_hex(), "0xdead"]),
+                FunctionCallDefinition::new("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
+                    .with_from("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
+                    .with_value(U256::from(0x1000))
+                    .with_signature("swap(uint256 x, uint256 y, address a, bytes b)")
+                    .with_args(&["1", "2", &Address::repeat_byte(0x11).encode_hex(), "0xbeef"]),
             ]
             .into(),
         }
@@ -279,8 +143,12 @@ pub mod tests {
         TestConfig {
             env: Some(env),
             create: Some(vec![CreateDefinition {
-                bytecode: COUNTER_BYTECODE.to_string(),
-                name: "test_counter".to_string(),
+                contract: CompiledContract::new(
+                    COUNTER_BYTECODE.to_string(),
+                    "test_counter".to_string(),
+                ),
+                signature: None,
+                args: None,
                 from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
                 from_pool: None,
             }]),
@@ -301,8 +169,8 @@ pub mod tests {
         }
     }
 
-    #[test]
-    fn parses_testconfig_toml() {
+    #[tokio::test]
+    async fn parses_testconfig_toml() {
         let test_file = TestConfig::from_file("testConfig.toml").unwrap();
         assert!(test_file.env.is_some());
         assert!(test_file.setup.is_some());
@@ -337,9 +205,49 @@ pub mod tests {
         }
     }
 
+    fn repo_root_path() -> std::path::PathBuf {
+        let mut dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        dir.pop(); // crates
+        dir.pop(); // repo root
+        dir
+    }
+
+    fn collect_scenario_tomls(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut stack = vec![dir.to_path_buf()];
+        let mut files = Vec::new();
+        while let Some(p) = stack.pop() {
+            for entry in std::fs::read_dir(&p).unwrap() {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                    files.push(path);
+                }
+            }
+        }
+        files
+    }
+
+    #[test]
+    fn parses_all_repo_scenarios() {
+        let repo_root = repo_root_path();
+        let scenarios_dir = repo_root.join("scenarios");
+        assert!(
+            scenarios_dir.exists(),
+            "scenarios/ directory not found at {}",
+            scenarios_dir.display()
+        );
+
+        let files = collect_scenario_tomls(&scenarios_dir);
+        for path in files {
+            TestConfig::from_file(path.to_str().unwrap()).unwrap();
+        }
+    }
+
     fn print_testconfig(cfg: &str) {
         println!("{}", "-".repeat(80));
-        println!("{}", cfg);
+        println!("{cfg}");
         println!("{}", "-".repeat(80));
     }
 
@@ -390,8 +298,14 @@ pub mod tests {
                 signers: get_test_signers(),
                 agent_store: Default::default(),
                 tx_type,
-                gas_price_percent_add: None,
+                bundle_type: Default::default(),
+                pending_tx_timeout_secs: 12,
+                extra_msg_handles: None,
+                redeploy: false,
+                sync_nonces_after_batch: true,
             },
+            None,
+            (&PROM, &HIST).into(),
         )
         .await
         .unwrap();
@@ -435,8 +349,14 @@ pub mod tests {
                 signers: signers.to_owned(),
                 agent_store: Default::default(),
                 tx_type,
-                gas_price_percent_add: None,
+                bundle_type: Default::default(),
+                pending_tx_timeout_secs: 12,
+                extra_msg_handles: None,
+                redeploy: false,
+                sync_nonces_after_batch: true,
             },
+            None,
+            (&PROM, &HIST).into(),
         )
         .await
         .unwrap();
@@ -450,8 +370,14 @@ pub mod tests {
                 signers,
                 agent_store: Default::default(),
                 tx_type,
-                gas_price_percent_add: None,
+                bundle_type: Default::default(),
+                pending_tx_timeout_secs: 12,
+                extra_msg_handles: None,
+                redeploy: false,
+                sync_nonces_after_batch: true,
             },
+            None,
+            (&PROM, &HIST).into(),
         )
         .await
         .unwrap();
@@ -498,7 +424,6 @@ pub mod tests {
 
     #[test]
     fn test_placeholders_count() {
-        use crate::{types::TestConfig, Templater};
         let test_config = TestConfig::default();
 
         let count = test_config.num_placeholders("{lol}{baa}{hahaa}");
@@ -508,8 +433,6 @@ pub mod tests {
 
     #[test]
     fn test_placeholders_find() {
-        use crate::{types::TestConfig, Templater};
-
         let test_config = TestConfig::default();
 
         let mut placeholder_map = HashMap::new();
@@ -519,9 +442,100 @@ pub mod tests {
                 &mut placeholder_map,
                 &MockDb,
                 "http://localhost:8545",
+                Default::default(),
             )
             .unwrap();
 
         assert_eq!(placeholder_map.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn placeholders_work_in_from_field() {
+        let anvil = Anvil::new().spawn();
+        let config = TestConfig::from_str(
+            "
+[env]
+mySender = \"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\"
+[[spam]]
+[spam.tx]
+from = \"{mySender}\"
+to = \"{_sender}\"
+value = \"1eth\"
+",
+        )
+        .unwrap();
+        let scenario = TestScenario::new(
+            config,
+            MockDb.into(),
+            RandSeed::default(),
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers: get_test_signers(),
+                agent_store: Default::default(),
+                tx_type: Default::default(),
+                bundle_type: Default::default(),
+                pending_tx_timeout_secs: 12,
+                extra_msg_handles: None,
+                redeploy: false,
+                sync_nonces_after_batch: true,
+            },
+            None,
+            (&PROM, &HIST).into(),
+        )
+        .await
+        .unwrap();
+
+        let spam = scenario.get_spam_tx_chunks(1, 1).await.unwrap();
+        for tx in &spam[0] {
+            match tx {
+                ExecutionRequest::Tx(tx) => {
+                    assert_eq!(
+                        tx.tx.from.unwrap(),
+                        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+                            .parse::<Address>()
+                            .unwrap()
+                    );
+                }
+                ExecutionRequest::Bundle(_) => {
+                    panic!("there should be no bundles in this config");
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod more_tests {
+    use super::*;
+    use alloy::node_bindings::Anvil;
+    use contender_core::{
+        db::MockDb,
+        generator::{types::SpamRequest, FunctionCallDefinition, RandSeed},
+        spammer::{NilCallback, TimedSpammer},
+        Contender, ContenderCtx, RunOpts,
+    };
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn contender_ctx_builder_runs() -> Result<(), Box<dyn std::error::Error>> {
+        let anvil = Anvil::new().spawn();
+
+        let config = TestConfig::new().with_spam(vec![SpamRequest::new_tx(
+            &FunctionCallDefinition::new("{_sender}") // send tx to self
+                .with_kind("cargo_test"),
+        )]);
+
+        let db = MockDb;
+        let seeder = RandSeed::new();
+        let ctx = ContenderCtx::builder(config, db, seeder, anvil.endpoint_url()).build();
+        let mut contender = Contender::new(ctx);
+
+        let spammer = TimedSpammer::new(Duration::from_secs(1));
+        let callback = NilCallback;
+        let opts = RunOpts::new().txs_per_period(100).periods(3);
+        contender.spam(spammer, callback.into(), opts).await?;
+
+        Ok(())
     }
 }

@@ -11,10 +11,11 @@ pub mod test {
         signers::local::PrivateKeySigner,
     };
     use tokio::task::JoinHandle;
+    use tracing::{debug, info};
 
     use crate::{
         generator::{types::AnyProvider, util::complete_tx_request, NamedTxRequest},
-        spammer::{tx_actor::TxActorHandle, OnTxSent},
+        spammer::{tx_actor::TxActorHandle, tx_callback::OnBatchSent, OnTxSent, RuntimeTxInfo},
     };
 
     pub struct MockCallback;
@@ -23,10 +24,17 @@ pub mod test {
             &self,
             _tx_res: PendingTransactionConfig,
             _req: &NamedTxRequest,
-            _extra: Option<HashMap<String, String>>,
-            _tx_handler: Option<Arc<TxActorHandle>>,
-        ) -> Option<JoinHandle<()>> {
-            println!("MockCallback::on_tx_sent: tx_hash={}", _tx_res.tx_hash());
+            _extra: RuntimeTxInfo,
+            _tx_handler: Option<HashMap<String, Arc<TxActorHandle>>>,
+        ) -> Option<JoinHandle<crate::Result<()>>> {
+            info!("MockCallback::on_tx_sent: tx_hash={}", _tx_res.tx_hash());
+            None
+        }
+    }
+
+    impl OnBatchSent for MockCallback {
+        fn on_batch_sent(&self) -> Option<JoinHandle<crate::Result<()>>> {
+            info!("MockCallback::on_batch_sent");
             None
         }
     }
@@ -50,13 +58,14 @@ pub mod test {
         nonce: Option<u64>,
         tx_type: TxType,
     ) -> Result<PendingTransactionConfig, Box<dyn std::error::Error>> {
-        println!(
+        debug!(
             "funding account {} with user account {}",
             recipient,
             sender.address()
         );
 
         let gas_price = rpc_client.get_gas_price().await?;
+        let blob_gas_price = rpc_client.get_blob_base_fee().await?;
         let nonce = nonce.unwrap_or(rpc_client.get_transaction_count(sender.address()).await?);
         let chain_id = rpc_client.get_chain_id().await?;
         let mut tx_req = TransactionRequest {
@@ -67,7 +76,15 @@ pub mod test {
             ..Default::default()
         };
 
-        complete_tx_request(&mut tx_req, tx_type, gas_price, 1_u128, 21000, chain_id);
+        complete_tx_request(
+            &mut tx_req,
+            tx_type,
+            gas_price,
+            gas_price / 10,
+            21000,
+            chain_id,
+            blob_gas_price,
+        );
 
         let eth_wallet = EthereumWallet::from(sender.to_owned());
         let tx = tx_req.build(&eth_wallet).await?;

@@ -1,11 +1,18 @@
 [package]
 name = "contender_testfile"
-version = "0.1.0"
-edition = "2021"
+version = "0.5.5"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Definitions for contender scenarios to be encoded as TOML files."
 
 [dependencies]
-toml = {workspace = true}
+toml = { workspace = true }
 alloy = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true }
 contender_core = { workspace = true }
+prometheus = { workspace = true }

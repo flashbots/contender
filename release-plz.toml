@@ -1,0 +1,14 @@
+[workspace]
+allow_dirty = true # allow updating repositories with uncommitted changes
+changelog_update = true # enable changelog updates
+dependencies_update = true # update dependencies with `cargo update`
+git_release_enable = true # enable GitHub/Gitea releases
+pr_branch_prefix = "release-plz-" # PR branch prefix
+pr_labels = ["release"] # add the `release` label to the release Pull Request
+publish_allow_dirty = true # add `--allow-dirty` to `cargo publish`
+semver_check = true # enable API breaking changes checks
+publish_timeout = "10m" # set a timeout for `cargo publish`
+publish = false # disable publishing to crates.io
+
+[changelog]
+protect_breaking_commits = true # always include commits with breaking changes in the changelog

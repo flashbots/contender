@@ -1,29 +1,34 @@
 use crate::{
     db::DbOps,
     error::ContenderError,
-    generator::{types::FunctionCallDefinition, util::encode_calldata},
+    generator::{
+        constants::{SENDER_KEY, SETCODE_KEY},
+        function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict},
+        util::encode_calldata,
+        CreateDefinition,
+    },
     Result,
 };
 use alloy::{
-    hex::FromHex,
-    primitives::{Address, Bytes, TxKind, U256},
+    hex::{FromHex, ToHexExt},
+    primitives::{Address, Bytes, FixedBytes, TxKind, U256},
     rpc::types::TransactionRequest,
 };
 use std::collections::HashMap;
 
-use super::types::{CreateDefinitionStrict, FunctionCallDefinitionStrict};
+use super::CreateDefinitionStrict;
 
 pub trait Templater<K>
 where
     K: Eq + std::hash::Hash + ToString + std::fmt::Debug + Send + Sync,
 {
+    /// Searches input for {placeholders} and replaces them, then returns the formatted string containing the new value injected into the placeholder.
     fn replace_placeholders(&self, input: &str, placeholder_map: &HashMap<K, String>) -> String;
     fn terminator_start(&self, input: &str) -> Option<usize>;
     fn terminator_end(&self, input: &str) -> Option<usize>;
     fn copy_end(&self, input: &str, last_end: usize) -> String;
     fn num_placeholders(&self, input: &str) -> usize;
     fn find_key(&self, input: &str) -> Option<(K, usize)>;
-    fn encode_contract_address(&self, input: &Address) -> String;
 
     /// Looks for {placeholders} in `arg` and updates `env` with the values found by querying the DB.
     fn find_placeholder_values(
@@ -32,6 +37,7 @@ where
         placeholder_map: &mut HashMap<K, String>,
         db: &impl DbOps,
         rpc_url: &str,
+        genesis_hash: FixedBytes<32>,
     ) -> Result<()> {
         // count number of placeholders (by left brace) in arg
         let num_template_vals = self.num_placeholders(arg);
@@ -49,7 +55,8 @@ where
             last_end = template_end + 1;
 
             // ignore {_sender} placeholder; it's handled outside the templater
-            if template_key.to_string() == "_sender" {
+            let key = template_key.to_string();
+            if key == SENDER_KEY || key == SETCODE_KEY {
                 continue;
             }
 
@@ -59,11 +66,11 @@ where
             }
 
             let template_value = db
-                .get_named_tx(&template_key.to_string(), rpc_url)
+                .get_named_tx(&template_key.to_string(), rpc_url, genesis_hash)
                 .map_err(|e| {
                     ContenderError::SpamError(
                         "Failed to get named tx from DB. There may be an issue with your database.",
-                        Some(format!("value={:?} ({})", template_key, e)),
+                        Some(format!("value={template_key:?} ({e})")),
                     )
                 })?;
             if let Some(template_value) = template_value {
@@ -71,7 +78,7 @@ where
                     template_key,
                     template_value
                         .address
-                        .map(|a| self.encode_contract_address(&a))
+                        .map(|a| a.encode_hex())
                         .unwrap_or_default(),
                 );
             } else {
@@ -86,20 +93,55 @@ where
 
     /// Finds {placeholders} in `fncall` and looks them up in `db`,
     /// then inserts the values it finds into `placeholder_map`.
-    /// NOTE: only finds placeholders in `args` and `to` fields.
+    /// NOTE: only finds placeholders in `args`, `authorization_addr`, and `to` fields.
     fn find_fncall_placeholders(
         &self,
         fncall: &FunctionCallDefinition,
         db: &impl DbOps,
         placeholder_map: &mut HashMap<K, String>,
         rpc_url: &str,
+        genesis_hash: FixedBytes<32>,
     ) -> Result<()> {
         // find templates in fn args & `to`
         let fn_args = fncall.args.to_owned().unwrap_or_default();
         for arg in fn_args.iter() {
-            self.find_placeholder_values(arg, placeholder_map, db, rpc_url)?;
+            self.find_placeholder_values(arg, placeholder_map, db, rpc_url, genesis_hash)?;
         }
-        self.find_placeholder_values(&fncall.to, placeholder_map, db, rpc_url)?;
+        if let Some(from) = &fncall.from {
+            self.find_placeholder_values(from, placeholder_map, db, rpc_url, genesis_hash)?;
+        }
+        self.find_placeholder_values(&fncall.to, placeholder_map, db, rpc_url, genesis_hash)?;
+        if let Some(auth) = &fncall.authorization_address {
+            self.find_placeholder_values(auth, placeholder_map, db, rpc_url, genesis_hash)?;
+        }
+        Ok(())
+    }
+
+    /// Finds {placeholders} in create constructor args and updates the placeholder map.
+    fn find_create_placeholders(
+        &self,
+        createdef: &CreateDefinition,
+        db: &impl DbOps,
+        placeholder_map: &mut HashMap<K, String>,
+        rpc_url: &str,
+        genesis_hash: FixedBytes<32>,
+    ) -> Result<()> {
+        if let Some(args) = &createdef.args {
+            for arg in args.iter() {
+                self.find_placeholder_values(arg, placeholder_map, db, rpc_url, genesis_hash)?;
+            }
+        }
+        if let Some(from) = &createdef.from {
+            self.find_placeholder_values(from, placeholder_map, db, rpc_url, genesis_hash)?;
+        }
+        // also scan bytecode for placeholders
+        self.find_placeholder_values(
+            &createdef.contract.bytecode,
+            placeholder_map,
+            db,
+            rpc_url,
+            genesis_hash,
+        )?;
         Ok(())
     }
 
@@ -133,6 +175,8 @@ where
             from: Some(funcdef.from),
             value,
             gas: funcdef.gas_limit,
+            sidecar: funcdef.sidecar.to_owned(),
+            authorization_list: funcdef.authorization.to_owned(),
             ..Default::default()
         })
     }
@@ -142,7 +186,37 @@ where
         createdef: &CreateDefinitionStrict,
         placeholder_map: &HashMap<K, String>,
     ) -> Result<TransactionRequest> {
-        let full_bytecode = self.replace_placeholders(&createdef.bytecode, placeholder_map);
+        let mut full_bytecode = self.replace_placeholders(&createdef.bytecode, placeholder_map);
+
+        // If a constructor signature is provided, encode args and append to bytecode
+        if let Some(sig) = &createdef.signature {
+            let mut args = Vec::new();
+            for arg in &createdef.args {
+                if arg == "{_sender}" {
+                    args.push(createdef.from.to_string());
+                } else {
+                    args.push(self.replace_placeholders(arg, placeholder_map));
+                }
+            }
+
+            // support both "constructor(type,...)" and "(type,...)" inputs
+            let sig = if sig.starts_with("(") {
+                format!("constructor{}", sig)
+            } else {
+                sig.to_owned()
+            };
+
+            let mut calldata = encode_calldata(&args, &sig)?;
+            // strip 4-byte selector
+            if calldata.len() >= 4 {
+                calldata = calldata[4..].to_vec();
+            } else {
+                calldata = Vec::new();
+            }
+            // append hex-encoded constructor calldata to bytecode
+            full_bytecode.push_str(&calldata.encode_hex());
+        }
+
         let tx = alloy::rpc::types::TransactionRequest {
             from: Some(createdef.from),
             to: Some(alloy::primitives::TxKind::Create),

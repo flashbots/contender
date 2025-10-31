@@ -1,31 +1,53 @@
 [package]
-edition = "2021"
 name = "contender_cli"
-version = "0.1.0"
+version = "0.5.5"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Contender CLI"
 
 [[bin]]
 name = "contender"
 path = "src/main.rs"
 
 [dependencies]
-contender_core = {workspace = true}
-contender_sqlite = {workspace = true}
-contender_testfile = {workspace = true}
-serde = {workspace = true}
-tokio = {workspace = true, features = ["rt-multi-thread"]}
+contender_core = { workspace = true }
+contender_sqlite = { workspace = true }
+contender_testfile = { workspace = true }
+contender_engine_provider = { workspace = true }
+contender_report = { workspace = true }
 
-alloy = {workspace = true, features = ["full", "node-bindings", "rpc-types-debug", "rpc-types-trace"]}
-chrono = "0.4.39"
-clap = {workspace = true, features = ["derive"]}
-csv = {workspace = true}
+nu-ansi-term = { workspace = true }
+console-subscriber = { workspace = true, optional = true }
+serde = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "tracing"] }
+tokio-util = { workspace = true }
+alloy = { workspace = true, features = [
+    "full",
+    "node-bindings",
+    "rpc-types-debug",
+    "rpc-types-trace",
+] }
+clap = { workspace = true, features = ["derive", "env"] }
 futures.workspace = true
-handlebars = {workspace = true}
-plotters = {workspace = true}
+handlebars = { workspace = true }
+prometheus = { workspace = true }
 rand.workspace = true
-regex = "1.11.1"
-serde_json = {workspace = true}
-termcolor = "1.4.1"
-webbrowser = {workspace = true}
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+webbrowser = { workspace = true }
+op-alloy-network = { workspace = true }
+async-trait = { workspace = true }
+strum = { workspace = true, features = ["derive"] }
+regex = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.15.0"
+
+[features]
+default = []
+async-tracing = ["dep:console-subscriber"]

@@ -2,6 +2,7 @@ use std::pin::Pin;
 
 use alloy::providers::Provider;
 use futures::{Stream, StreamExt};
+use tracing::info;
 
 use crate::{
     db::DbOps,
@@ -10,20 +11,26 @@ use crate::{
     test_scenario::TestScenario,
 };
 
-use super::{OnTxSent, SpamTrigger, Spammer};
+use super::{
+    spammer_trait::SpamRunContext, tx_callback::OnBatchSent, OnTxSent, SpamTrigger, Spammer,
+};
 
 #[derive(Default)]
-pub struct BlockwiseSpammer;
+pub struct BlockwiseSpammer {
+    context: SpamRunContext,
+}
 
 impl BlockwiseSpammer {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            context: SpamRunContext::new(),
+        }
     }
 }
 
 impl<F, D, S, P> Spammer<F, D, S, P> for BlockwiseSpammer
 where
-    F: OnTxSent + Send + Sync + 'static,
+    F: OnTxSent + OnBatchSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
     S: Seeder + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
@@ -41,10 +48,18 @@ where
             .into_stream()
             .flat_map(futures::stream::iter)
             .map(|b| {
-                println!("new block detected: {:?}", b);
+                info!("new block detected: {b:?}");
                 SpamTrigger::BlockHash(b)
             })
             .boxed())
+    }
+
+    fn duration_units(periods: u64) -> crate::db::SpamDuration {
+        crate::db::SpamDuration::Blocks(periods)
+    }
+
+    fn context(&self) -> &SpamRunContext {
+        &self.context
     }
 }
 
@@ -56,12 +71,14 @@ mod tests {
         primitives::U256,
         providers::{DynProvider, ProviderBuilder},
     };
+    use contender_bundle_provider::bundle::BundleType;
+    use tokio::sync::OnceCell;
 
     use crate::{
         agent_controller::{AgentStore, SignerStore},
         db::MockDb,
         generator::util::test::spawn_anvil,
-        spammer::util::test::{fund_account, get_test_signers, MockCallback},
+        spammer::util::test::{get_test_signers, MockCallback},
         test_scenario::{tests::MockConfig, TestScenarioParams},
     };
     use std::collections::HashSet;
@@ -69,51 +86,35 @@ mod tests {
 
     use super::*;
 
+    // separate prometheus registry for simulations; anvil doesn't count!
+    static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
+    static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
+
     #[tokio::test]
     async fn watches_blocks_and_spams_them() {
         let anvil = spawn_anvil();
-        let provider = DynProvider::new(
+        let provider = Arc::new(DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
-                .on_http(anvil.endpoint_url().to_owned()),
-        );
+                .connect_http(anvil.endpoint_url().to_owned()),
+        ));
         println!("anvil url: {}", anvil.endpoint_url());
         let seed = crate::generator::RandSeed::seed_from_str("444444444444");
         let mut agents = AgentStore::new();
-        let txs_per_period = 10;
-        let periods = 3;
+        let txs_per_period = 10u64;
+        let periods = 3u64;
         let tx_type = alloy::consensus::TxType::Legacy;
-        agents.add_agent(
-            "pool1",
-            SignerStore::new_random(txs_per_period / periods, &seed, "eeeeeeee"),
-        );
-        agents.add_agent(
-            "pool2",
-            SignerStore::new_random(txs_per_period / periods, &seed, "11111111"),
-        );
+        let num_signers = (txs_per_period / periods) as usize;
+        agents.add_agent("pool1", SignerStore::new(num_signers, &seed, "eeeeeeee"));
+        agents.add_agent("pool2", SignerStore::new(num_signers, &seed, "11111111"));
 
         let user_signers = get_test_signers();
-        let mut nonce = provider
-            .get_transaction_count(user_signers[0].address())
-            .await
-            .unwrap();
 
         for (_pool_name, agent) in agents.all_agents() {
-            for signer in &agent.signers {
-                let res = fund_account(
-                    &user_signers[0],
-                    signer.address(),
-                    U256::from(ETH_TO_WEI),
-                    &provider,
-                    Some(nonce),
-                    tx_type,
-                )
+            agent
+                .fund_signers(&user_signers[0], U256::from(ETH_TO_WEI), provider.clone())
                 .await
                 .unwrap();
-                println!("funded signer: {:?}", res);
-                provider.watch_pending_transaction(res).await.unwrap();
-                nonce += 1;
-            }
         }
 
         let mut scenario = TestScenario::new(
@@ -126,16 +127,22 @@ mod tests {
                 signers: user_signers,
                 agent_store: agents,
                 tx_type,
-                gas_price_percent_add: None,
+                bundle_type: BundleType::default(),
+                pending_tx_timeout_secs: 12,
+                extra_msg_handles: None,
+                redeploy: false,
+                sync_nonces_after_batch: true,
             },
+            None,
+            (&PROM, &HIST).into(),
         )
         .await
         .unwrap();
-        let callback_handler = MockCallback;
-        let spammer = BlockwiseSpammer {};
 
         let start_block = provider.get_block_number().await.unwrap();
 
+        let callback_handler = MockCallback;
+        let spammer = BlockwiseSpammer::new();
         let result = spammer
             .spam_rpc(
                 &mut scenario,
@@ -162,10 +169,10 @@ mod tests {
         }
 
         for addr in unique_addresses.iter() {
-            println!("unique address: {}", addr);
+            println!("unique address: {addr}");
         }
 
-        assert!(unique_addresses.len() >= (txs_per_period / periods));
-        assert!(unique_addresses.len() <= txs_per_period);
+        assert!(unique_addresses.len() >= (txs_per_period / periods) as usize);
+        assert!(unique_addresses.len() <= txs_per_period as usize);
     }
 }

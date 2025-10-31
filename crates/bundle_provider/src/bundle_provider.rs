@@ -2,9 +2,15 @@ use alloy::{
     network::AnyNetwork,
     primitives::Bytes,
     providers::{Provider, ProviderBuilder, RootProvider},
-    rpc::types::mev::{EthBundleHash, EthSendBundle},
+    rpc::{
+        client::RpcClient,
+        json_rpc::{RpcRecv, RpcSend},
+        types::mev::EthSendBundle,
+    },
     transports::http::reqwest::IntoUrl,
 };
+
+use crate::{bundle::TypedBundle, error::BundleProviderError};
 
 /// A helper wrapper around a RPC client that can be used to call `eth_sendBundle`.
 #[derive(Debug)]
@@ -12,32 +18,51 @@ pub struct BundleClient {
     client: RootProvider<AnyNetwork>,
 }
 
+impl Provider<AnyNetwork> for BundleClient {
+    fn root(&self) -> &RootProvider<AnyNetwork> {
+        self.client.root()
+    }
+}
+
 impl BundleClient {
     /// Creates a new [`BundleClient`] with the given URL.
-    pub fn new(url: impl IntoUrl) -> Self {
-        let provider = ProviderBuilder::default().on_http(url.into_url().unwrap());
-        Self { client: provider }
+    pub fn new(url: impl IntoUrl) -> Result<Self, BundleProviderError> {
+        let provider = ProviderBuilder::default().connect_http(
+            url.into_url()
+                .map_err(|_| BundleProviderError::InvalidUrl)?,
+        );
+        Ok(Self { client: provider })
+    }
+
+    pub fn from_client(client: RpcClient) -> Self {
+        let provider = ProviderBuilder::new()
+            .network::<AnyNetwork>()
+            .connect_client(client);
+        Self {
+            client: provider.root().to_owned(),
+        }
     }
 
     /// Sends a bundle using `eth_sendBundle`, discarding the response.
-    pub async fn send_bundle(&self, bundle: EthSendBundle) -> Result<(), String> {
+    pub async fn send_bundle<Bundle: RpcSend, Response: RpcRecv>(
+        &self,
+        bundle: Bundle,
+    ) -> Result<Option<Response>, BundleProviderError> {
         // Result contents optional because some endpoints don't return this response
         self.client
-            .raw_request::<_, Option<EthBundleHash>>("eth_sendBundle".into(), [bundle])
+            .raw_request::<_, Option<Response>>("eth_sendBundle".into(), [bundle])
             .await
-            .map_err(|e| format!("Failed to send bundle: {:?}", e))?;
-
-        Ok(())
+            .map_err(|e| BundleProviderError::SendBundleError(e.into()))
     }
 }
 
 /// Creates a new bundle with the given transactions and block number, setting the rest of the
 /// fields to default values.
 #[inline]
-pub fn new_basic_bundle(txs: Vec<Bytes>, block_number: u64) -> EthSendBundle {
-    EthSendBundle {
+pub fn new_basic_bundle(txs: Vec<Bytes>, block_number: u64) -> TypedBundle {
+    TypedBundle::L1(EthSendBundle {
         txs,
         block_number,
         ..Default::default()
-    }
+    })
 }

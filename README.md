@@ -2,328 +2,84 @@
 
 ![Test Status](https://github.com/flashbots/contender/actions/workflows/test.yml/badge.svg)
 ![Lint Status](https://github.com/flashbots/contender/actions/workflows/lint.yml/badge.svg)
+[![License](https://img.shields.io/github/license/flashbots/contender)](./LICENSE)
 
-Contender is a high-performance Ethereum network spammer and testing tool designed for benchmarking and stress-testing Ethereum clients and networks.
+High-performance Ethereum transaction spammer and benchmarking tool.
 
-## Features
+## 🚀 Quick Start
 
-- **Flexible Transaction Generation**: Create custom transaction patterns using TOML configuration files.
-- **Multiple Spamming Modes**: Support for both timed and block-wise spamming.
-- **Seed-based Randomization**: Reproducible fuzzing with customizable seed values.
-- **Database Integration**: SQLite backend to store contract/transaction data and analyze test results.
-- **Extensible Architecture**: Easy-to-implement custom generators and callbacks.
+Install:
+```bash
+cargo install --git https://github.com/flashbots/contender --locked
+```
 
-## Installation
+Run a simple spam scenario:
+```bash
+contender spam --tps 50 -r $RPC_URL fill-block
+```
 
-To install the Contender CLI, you need to have the [Rust toolchain](https://rustup.rs/) and [libsqlite3-dev](https://packages.debian.org/sid/libsqlite3-dev) installed on your system. Then install from github:
+Run a bundled scenario from the repo:
+```bash
+contender setup scenario:stress.toml -r $RPC_URL -p $PRIVATE_KEY
+contender spam  scenario:stress.toml -r $RPC_URL --tps 10 -d 3
+```
+
+See [examples](docs/examples.md) for more usage patterns.
+
+### Docker Instructions
+
+Fetch the latest image:
 
 ```bash
-cargo install --git https://github.com/flashbots/contender --bin contender
+docker pull flashbots/contender
 ```
 
-You may also want to clone the repo to use the built-in scenarios:
-
-```sh
-git clone https://github.com/flashbots/contender
-cd contender
-```
-
-## Usage
-
-*See [the docs](./docs/) for detailed explanations and examples.*
-
-Contender can be used as both a library and a command-line tool.
-
-### Command-line Interface
+Double-check your RPC URL:
 
 ```bash
-contender setup <testfile> <rpc_url> [OPTIONS]
-contender spam <testfile> <rpc_url> [OPTIONS]
-contender report [OPTIONS]
-contender run [OPTIONS]
+export RPC="http://host.docker.internal:8545"
+# uncomment if host.docker.internal doesn't work:
+# export RPC="http://172.17.0.1:8545"
 ```
 
-For detailed usage instructions, run:
+Run contender in a container with persistent state:
 
 ```bash
-contender --help
+docker run -it -v /tmp/.contender:/root/.contender \
+contender spam --tps 20 -r $RPC transfers
 ```
 
-#### Example Calls
+> `-v` maps `/tmp/.contender` on the host machine to `/root/.contender` in the container, which contains the DB; used for generating reports and saving contract deployments.
 
-Run a zero-config scenario that attempts to fill a block to its gas limit:
+## ⚙️ Prerequisites
 
-```bash
-contender run fill-block $RPC_URL
-```
+- **Rust toolchain** (latest stable)
+- **SQLite development headers** (`libsqlite3-dev` on Linux)
+- A JSON-RPC endpoint for the target Ethereum node
 
-Send txs every 1 second instead of the default 12s:
+## 📚 Docs
 
-```bash
-contender run fill-block $RPC_URL -i 1
-```
+Contender is a high-performance Ethereum transaction spammer and benchmarking tool, built for repeatable load tests against EL clients and live networks.
+It supports both **per-second** (TPS) and **per-block** (TPB) timing, seeded fuzzing for reproducibility, and SQLite-backed state for contracts, runs, and reports.
 
-Pass a private key to send txs from your own account:
+### 1. Introduction
+- [Overview](docs/overview.md)
 
-```bash
-contender run fill-block $RPC_URL -i 1 -p $PRIVATE_KEY
-```
+### 2. Getting Started
+- [Installation](docs/installation.md)
+- [CLI Reference](docs/cli.md)
+- [Example Commands](docs/examples.md)
 
----
+### 3. Writing Scenarios
+- [Scenario File Structure](docs/scenarios.md)
+- [Placeholders](docs/placeholders.md)
+- [Creating a New Scenario](docs/creating_scenarios.md)
+- [Constructor Args](docs/constructor_args.md)
 
-Deploy custom scenario:
+### 4. Advanced Usage
+- [Engine API Spamming](docs/engine-api.md)
+- [Reports, Database, and Admin Tools](docs/reports-db-admin.md)
+- [Using Contender as a Library](docs/library-usage.md)
 
-```bash
-contender setup ./scenarios/stress.toml $RPC_URL
-```
-
-Pass a private key to fund the setup txs from your own account (default anvil account[0] is used otherwise):
-
-```bash
-contender setup ./scenarios/stress.toml $RPC_URL -p $PRIVATE_KEY
-```
-
----
-
-Run the spammer with a custom scenario (10 tx/sec for 3 seconds):
-
-```bash
-contender spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3
-```
-
-Setting `--tps` defines the number of "agent accounts" (generated EOAs used to send txs). The number of accounts each agent has is determined by `txs_per_period / num_agents`, where `num_agents` is defined by the scenario. For example, if the `stress.toml` scenario has 4 agents (defined by `from_pool` declarations), passing `--tps` 10 will generate `10 / 4 = 2.5` accounts, rounded down.
-
-Pass a private key with `-p` to fund agent accounts from your account:
-
-```bash
-contender spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRV_KEY
-```
-
----
-
-Generate a chain performance report for the most recent run.
-
-```bash
-contender report $RPC_URL
-```
-
-> The compiled report will open in your web browser.
-
-Generate a report that spans the last 3 runs (the most recent run + 2 preceding it):
-
-```bash
-contender report $RPC_URL -p 2
-```
-
-Generate a report spanning run 200 - 203 (inclusively):
-
-```bash
-contender report $RPC_URL -i 203 -p 3
-```
-
----
-
-Backup the SQLite DB used by contender:
-
-```bash
-contender db export ./backup.db
-```
-
-Import a backup DB file for contender to use:
-
-```bash
-contender db import ./backup.db
-```
-
-Reset your DB in-place:
-
-```bash
-contender db reset
-```
-
-Delete your DB:
-
-```bash
-contender db drop
-```
-
-### Scenarios
-
-A "scenario" in contender defines contracts to be deployed and transaction calls that should run before and during a spam session.
-
-We provide some scenarios in the repo under the [`scenarios/`](./scenarios/) directory. To run these, you'll need to clone the repo:
-
-```sh
-git clone https://github.com/flashbots/contender
-cd contender
-cargo run -- setup ./scenarios/stress.toml $RPC_URL -p $PRIVATE_KEY
-cargo run -- spam ./scenarios/stress.toml $RPC_URL --tps 10 -d 3 -p $PRIVATE_KEY
-```
-
-### Library Usage
-
-To use Contender as a library in your Rust project, add the crates you need to your `Cargo.toml`:
-
-```toml
-[dependencies]
-...
-contender_core = { git = "https://github.com/flashbots/contender" }
-contender_sqlite = { git = "https://github.com/flashbots/contender" }
-contender_testfile = { git = "https://github.com/flashbots/contender" }
-# not necessarily required, but recommended:
-tokio = { version = "1.40.0", features = ["rt-multi-thread"] }
-```
-
-See [here](https://github.com/flashbots/contender/blob/main/crates/cli/src/commands/spam.rs) and [here](https://github.com/flashbots/rbuilder/compare/develop...feat/contender-in-tester) for examples of Contender being used as a library.
-
-## Scenario Configuration
-
-Contender uses TOML files to define scenarios. Single brackets `[]` indicate the item may only be specified once. Double brackets `[[]]` indicate an array, which allows the directive to be specified multiple times.
-
-The key directives are:
-
-- `[env]`: Defines environment variables that can be used throughout the configuration.
-
-- `[[create]]`: Specifies contracts to be deployed. Each entry represents a contract creation.
-
-- `[[setup]]`: Defines setup transactions to be executed before the main spam test. These are typically used for initializing contracts or setting up test conditions.
-
-- `[[spam]]`: Describes the transactions to be repeatedly sent during the spam test. These form the core of the network stress test.
-
-  - Spam directives can send bundles or single txs. 
-
-  - `[[spam.bundle.tx]]` defines transactions in a bundle
-
-  - `[spam.tx]` defines a single transaction
-
-  - Each tx directive can include various fields such as `to`, `from`, `signature`, `args`, `value`, and `gas_limit` to specify the details of the transactions or contract interactions.
-
-  - `[[spam.bundle.tx.fuzz]]` or `[[spam.tx.fuzz]]`: Configures fuzzing parameters for specific fields in spam transactions, allowing for randomized inputs or ETH values within defined ranges.
-
-### Placeholders
-
-Placeholders may be used to specify contract addresses, the sender's address, or any variables you specify in `[env]`.
-
-In `[[create]]` transactions, placeholders are supported in the `bytecode` field only.
-
-In `[[setup]]` and `[[spam]]` transactions, placeholders are supported in the following fields: `to`, `args`, & `value`.
-
-`{_sender}` is a special placeholder that gets replaced with the `from` address at runtime.
-
-**Examples**
-
-Contract address placeholder:
-
-```toml
-[[create]]
-name = "weth"
-...
-
-[[create]]
-name = "testToken"
-...
-
-[[setup]]
-kind = "univ2_create_pair"
-to = "{uniV2Factory}"
-from_pool = "admin"
-signature = "function createPair(address tokenA, address tokenB) external returns (address pair)"
-args = [
-     "{weth}",
-     "{testToken}"
-]
-```
-
-Custom variable placeholder:
-
-```toml
-[env]
-initialSupply = "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-
-[[create]]
-name = "testToken"
-from_pool = "admin"
-# pass {initialSupply} as a constructor argument (must be exactly 32 bytes long)
-bytecode = "0x60806040...{initialSupply}"
-```
-
-Sender address placeholder:
-
-```toml
-[[setup]]
-kind = "admin_univ2_add_liquidity_weth-testToken"
-to = "{uniRouterV2}"
-from_pool = "admin"
-signature = "addLiquidity(address tokenA, address tokenB, uint amountADesired, uint amountBDesired, uint amountAMin, uint amountBMin, address to, uint deadline) returns (uint amountA, uint amountB, uint liquidity)"
-args = [
-     "{weth}",
-     "{testToken}",
-     "2500000000000000000",
-     "50000000000000000000000",
-     "100000000000000",
-     "5000000000000000",
-     "{_sender}",
-     "10000000000000"
-]
-```
-
-See [scenarios/](./scenarios/) for examples.
-
-## Architecture
-
-Contender is built with a modular architecture:
-
-- **Generators**: Produce transaction requests based on configuration.
-- **Spammers**: Send transactions to the network at specified rates.
-- **Callbacks**: Handle post-transaction actions and logging.
-- **Database**: Store and retrieve test results and contract addresses.
-
-```mermaid
-graph TD
-    A[TOML Config File] -->|Parsed by| B[TestConfig]
-    B -->|Configures| C[Generator]
-    C -->|Produces| D[Transaction Requests]
-    D -->|Fed to| E[Spammer]
-    E -->|Sends txs| F[Ethereum Network]
-    F -->|Responses| G[Callback Handler]
-    G -->|Logs results| H[Database]
-    
-    I[CLI] -->|Reads| A
-    I -->|Controls| E
-    I -->|Queries| H
-    
-    H -->|Data for| J[Report Generator]
-
-    %% Component descriptions
-    A:::config
-    B:::config
-    C:::core
-    D:::core
-    E:::core
-    F:::external
-    G:::core
-    H:::storage
-    I:::interface
-    J:::analysis
-
-    classDef config fill:#f9f,stroke:#333,stroke-width:2px;
-    classDef core fill:#bbf,stroke:#333,stroke-width:2px;
-    classDef external fill:#bfb,stroke:#333,stroke-width:2px;
-    classDef storage fill:#fbb,stroke:#333,stroke-width:2px;
-    classDef interface fill:#bff,stroke:#333,stroke-width:2px;
-    classDef analysis fill:#ffb,stroke:#333,stroke-width:2px;
-```
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgements
-
-- The Ethereum community for their continuous innovation.
-- The Reth project for inspiration on project structure and documentation.
-- [alloy-rs](https://github.com/alloy-rs) -- the backbone of this project.
+### 5. Internals
+- [Architecture](docs/architecture.md)
