@@ -1,5 +1,8 @@
 use crate::util::data_dir;
 use alloy::hex::{self, ToHexExt};
+use alloy::network::{EthereumWallet, TransactionBuilder};
+use alloy::primitives::{Address, U256};
+use alloy::providers::{Provider, ProviderBuilder};
 use clap::Subcommand;
 use contender_core::{
     agent_controller::SignerStore,
@@ -7,7 +10,9 @@ use contender_core::{
     error::ContenderError,
     generator::{util::generate_setcode_signer, RandSeed},
 };
-use tracing::info;
+use contender_testfile::TestConfig;
+use std::path::Path;
+use tracing::{info, warn};
 
 #[derive(Debug, Subcommand)]
 pub enum AdminCommand {
@@ -36,6 +41,31 @@ pub enum AdminCommand {
         about = "Print the private key & address of the signer used for setCode Authorization signatures."
     )]
     SetCodeSigner,
+
+    #[command(
+        name = "reclaim-eth",
+        about = "Reclaim ETH from spammer accounts back to a recipient address"
+    )]
+    ReclaimEth {
+        /// Recipient address (defaults to 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266)
+        #[arg(long, short = 't')]
+        to: Option<String>,
+
+        /// RPC URL (defaults to http://localhost:8545 or derived from scenario)
+        #[arg(long, short = 'r')]
+        rpc: Option<String>,
+
+        /// Agent names to derive accounts from (can be specified multiple times)
+        #[arg(long, short = 'f', action = clap::ArgAction::Append)]
+        from_pool: Vec<String>,
+
+        /// Number of accounts to derive per agent (defaults to 10 or max from DB)
+        #[arg(long, short = 'n')]
+        accounts: Option<usize>,
+
+        /// Scenario file to derive agents and RPC URL from
+        scenario_file: Option<String>,
+    },
 }
 
 /// Reads and validates the seed file
@@ -122,7 +152,209 @@ fn print_setcode_account() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn handle_admin_command(
+/// Handles the reclaim-eth subcommand
+async fn handle_reclaim_eth(
+    to: Option<String>,
+    rpc: Option<String>,
+    from_pool: Vec<String>,
+    accounts: Option<usize>,
+    scenario_file: Option<String>,
+    db: &impl DbOps,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Default recipient address
+    let recipient = to
+        .unwrap_or_else(|| "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_string())
+        .parse::<Address>()?;
+
+    // Determine RPC URL and from_pools
+    let (rpc_url, agent_pools, num_accounts) = if let Some(scenario_path) = scenario_file {
+        let config = TestConfig::from_file(&scenario_path)?;
+
+        // Extract from_pools from scenario
+        let mut pools = std::collections::HashSet::new();
+
+        // Get from_pools from create definitions
+        if let Some(create_defs) = &config.create {
+            for def in create_defs {
+                if let Some(pool) = &def.from_pool {
+                    pools.insert(pool.clone());
+                }
+            }
+        }
+
+        // Get from_pools from setup definitions
+        if let Some(setup_defs) = &config.setup {
+            for def in setup_defs {
+                if let Some(pool) = &def.from_pool {
+                    pools.insert(pool.clone());
+                }
+            }
+        }
+
+        // Get from_pools from spam definitions
+        if let Some(spam_defs) = &config.spam {
+            for spam_req in spam_defs {
+                match spam_req {
+                    contender_core::generator::types::SpamRequest::Tx(tx_def) => {
+                        if let Some(pool) = &tx_def.from_pool {
+                            pools.insert(pool.clone());
+                        }
+                    }
+                    contender_core::generator::types::SpamRequest::Bundle(bundle_def) => {
+                        for tx_def in &bundle_def.txs {
+                            if let Some(pool) = &tx_def.from_pool {
+                                pools.insert(pool.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Use provided from_pool args or all from scenario
+        let final_pools = if from_pool.is_empty() {
+            pools.into_iter().collect()
+        } else {
+            from_pool
+        };
+
+        // Get RPC URL from scenario name or use provided
+        let scenario_name = Path::new(&scenario_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown");
+
+        let rpc_url = if let Some(rpc) = rpc {
+            rpc
+        } else {
+            db.get_rpc_url_for_scenario(scenario_name)?
+                .unwrap_or_else(|| "http://localhost:8545".to_string())
+        };
+
+        // Get num_accounts from DB or use provided
+        let num_accounts = if let Some(n) = accounts {
+            n
+        } else {
+            db.get_max_txs_per_duration_for_scenario(scenario_name)?
+                .unwrap_or(10) as usize
+        };
+
+        (rpc_url, final_pools, num_accounts)
+    } else {
+        // No scenario file provided
+        let rpc_url = rpc.unwrap_or_else(|| "http://localhost:8545".to_string());
+        let agent_pools = if from_pool.is_empty() {
+            vec!["spammers".to_string()] // Default pool
+        } else {
+            from_pool
+        };
+        let num_accounts = accounts.unwrap_or(10);
+
+        (rpc_url, agent_pools, num_accounts)
+    };
+
+    info!(
+        "Reclaiming ETH from {} pools with {} accounts each",
+        agent_pools.len(),
+        num_accounts
+    );
+    info!("RPC URL: {}", rpc_url);
+    info!("Recipient: {}", recipient);
+
+    // Create provider
+    let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
+
+    // Generate accounts from seed
+    let seed_bytes = read_seed_file()?;
+    let seed = RandSeed::seed_from_bytes(&seed_bytes);
+
+    let mut total_reclaimed = U256::ZERO;
+    let mut total_accounts = 0;
+
+    for pool_name in agent_pools {
+        info!("Processing pool: {}", pool_name);
+
+        // Generate signers for this pool
+        let signer_store = SignerStore::new(num_accounts, &seed, &pool_name);
+
+        for (i, signer) in signer_store.signers.iter().enumerate() {
+            let address = signer.address();
+
+            // Get balance
+            let balance = provider.get_balance(address).await?;
+
+            if balance == U256::ZERO {
+                continue; // Skip empty accounts
+            }
+
+            info!(
+                "Account {}/{}: {} has balance {} ETH",
+                i + 1,
+                num_accounts,
+                address,
+                alloy::primitives::utils::format_ether(balance)
+            );
+
+            // Calculate gas cost for transfer (21000 gas)
+            let gas_price = provider.get_gas_price().await?;
+            let gas_cost = U256::from(gas_price) * U256::from(21000);
+
+            if balance <= gas_cost {
+                warn!(
+                    "Skipping {}: balance {} <= gas cost {}",
+                    address, balance, gas_cost
+                );
+                continue;
+            }
+
+            // Amount to transfer (balance - gas cost)
+            let transfer_amount = balance - gas_cost;
+
+            // Create and send transaction
+            let nonce = provider.get_transaction_count(address).await?;
+            let chain_id = provider.get_chain_id().await?;
+
+            let tx_req = alloy::rpc::types::TransactionRequest::default()
+                .from(address)
+                .to(recipient)
+                .value(transfer_amount)
+                .nonce(nonce)
+                .gas_limit(21000)
+                .gas_price(gas_price)
+                .with_chain_id(chain_id);
+
+            let wallet = EthereumWallet::from(signer.clone());
+            let signed_tx = tx_req.build(&wallet).await?;
+
+            let pending = provider.send_tx_envelope(signed_tx.into()).await?;
+            let tx_hash = pending.tx_hash();
+
+            info!(
+                "Sent {} ETH from {} to {} (tx: {})",
+                alloy::primitives::utils::format_ether(transfer_amount),
+                address,
+                recipient,
+                tx_hash
+            );
+
+            total_reclaimed += transfer_amount;
+            total_accounts += 1;
+
+            // Small delay to avoid overwhelming the RPC
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    }
+
+    info!(
+        "Reclaimed {} ETH from {} accounts",
+        alloy::primitives::utils::format_ether(total_reclaimed),
+        total_accounts
+    );
+
+    Ok(())
+}
+
+pub async fn handle_admin_command(
     command: AdminCommand,
     db: impl DbOps,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -139,5 +371,12 @@ pub fn handle_admin_command(
         }
         AdminCommand::Seed => handle_seed(),
         AdminCommand::SetCodeSigner => print_setcode_account(),
+        AdminCommand::ReclaimEth {
+            to,
+            rpc,
+            from_pool,
+            accounts,
+            scenario_file,
+        } => handle_reclaim_eth(to, rpc, from_pool, accounts, scenario_file, &db).await,
     }
 }
