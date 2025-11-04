@@ -175,6 +175,10 @@ async fn handle_reclaim_eth(
         // Extract from_pools from scenario
         let mut pools = std::collections::HashSet::new();
 
+        // insert default pools (scenarios may not have any from_pools, which means they'll use the defaults)
+        pools.insert("admin".to_owned());
+        pools.insert("spammers".to_owned());
+
         // Get from_pools from create definitions
         if let Some(create_defs) = &config.create {
             for def in create_defs {
