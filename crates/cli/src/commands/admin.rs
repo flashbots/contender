@@ -323,7 +323,7 @@ async fn handle_reclaim_eth(
             let wallet = EthereumWallet::from(signer.clone());
             let signed_tx = tx_req.build(&wallet).await?;
 
-            let pending = provider.send_tx_envelope(signed_tx.into()).await?;
+            let pending = provider.send_tx_envelope(signed_tx).await?;
             let tx_hash = pending.tx_hash();
 
             info!(
