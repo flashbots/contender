@@ -63,9 +63,9 @@ pub enum AdminCommand {
         #[arg(long, short = 'f', action = clap::ArgAction::Append)]
         from_pool: Vec<String>,
 
-        /// Number of accounts to derive per agent (defaults to 10 or max from DB)
-        #[arg(long, short = 'n')]
-        num_signers: Option<usize>,
+        /// Number of accounts to derive per agent
+        #[arg(long, short = 'n', default_value_t = 10)]
+        num_signers: usize,
 
         /// Scenario file to derive agents and RPC URL from
         scenario_file: Option<String>,
@@ -161,13 +161,12 @@ async fn handle_reclaim_eth(
     to: String,
     rpc: Option<String>,
     from_pool: Vec<String>,
-    num_accounts: Option<usize>,
+    num_accounts: usize,
     scenario_file: Option<String>,
     db: &impl DbOps,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Default recipient address
     let recipient = to.parse::<Address>()?;
-    let num_accounts = num_accounts.unwrap_or(10);
 
     // Determine RPC URL and from_pools
     let (rpc_url, agent_pools) = if let Some(scenario_path) = scenario_file {
