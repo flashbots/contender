@@ -188,6 +188,9 @@ pub trait DbOps {
 
     fn num_runs(&self) -> Result<u64>;
 
+    /// Get the RPC URL for a given scenario name (from the most recent run)
+    fn get_rpc_url_for_scenario(&self, scenario_name: &str) -> Result<Option<String>>;
+
     fn version(&self) -> u64;
 
     /// Returns the COUNT of the replay_reports table. Used to get the `id` for inserting a new report.

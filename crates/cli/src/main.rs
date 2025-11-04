@@ -179,7 +179,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         ContenderSubcommand::Admin { command } => {
-            handle_admin_command(command, db)?;
+            handle_admin_command(command, db).await?;
         }
     }
     Ok(())

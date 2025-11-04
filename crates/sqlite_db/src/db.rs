@@ -209,6 +209,17 @@ impl DbOps for SqliteDb {
         Ok(rpc_url_id as u64)
     }
 
+    fn get_rpc_url_for_scenario(&self, scenario_name: &str) -> Result<Option<String>> {
+        let result: Option<String> = self
+            .query_row(
+                "SELECT rpc_url FROM runs WHERE scenario_name = ?1 ORDER BY id DESC LIMIT 1",
+                params![scenario_name],
+                |row| row.get(0),
+            )
+            .ok();
+        Ok(result)
+    }
+
     fn version(&self) -> u64 {
         self.query_row("PRAGMA user_version", params![], |row| row.get(0))
             .unwrap_or(0)
