@@ -47,9 +47,13 @@ pub enum AdminCommand {
         about = "Reclaim ETH from spammer accounts back to a recipient address"
     )]
     ReclaimEth {
-        /// Recipient address (defaults to 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266)
-        #[arg(long, short = 't')]
-        to: Option<String>,
+        /// Recipient address
+        #[arg(
+            long,
+            short = 't',
+            default_value = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+        )]
+        to: String,
 
         /// RPC URL (defaults to http://localhost:8545 or derived from scenario)
         #[arg(long, short = 'r')]
@@ -61,7 +65,7 @@ pub enum AdminCommand {
 
         /// Number of accounts to derive per agent (defaults to 10 or max from DB)
         #[arg(long, short = 'n')]
-        accounts: Option<usize>,
+        num_signers: Option<usize>,
 
         /// Scenario file to derive agents and RPC URL from
         scenario_file: Option<String>,
@@ -154,20 +158,19 @@ fn print_setcode_account() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Handles the reclaim-eth subcommand
 async fn handle_reclaim_eth(
-    to: Option<String>,
+    to: String,
     rpc: Option<String>,
     from_pool: Vec<String>,
-    accounts: Option<usize>,
+    num_accounts: Option<usize>,
     scenario_file: Option<String>,
     db: &impl DbOps,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Default recipient address
-    let recipient = to
-        .unwrap_or_else(|| "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_string())
-        .parse::<Address>()?;
+    let recipient = to.parse::<Address>()?;
+    let num_accounts = num_accounts.unwrap_or(10);
 
     // Determine RPC URL and from_pools
-    let (rpc_url, agent_pools, num_accounts) = if let Some(scenario_path) = scenario_file {
+    let (rpc_url, agent_pools) = if let Some(scenario_path) = scenario_file {
         let config = TestConfig::from_file(&scenario_path)?;
 
         // Extract from_pools from scenario
@@ -231,15 +234,7 @@ async fn handle_reclaim_eth(
                 .unwrap_or_else(|| "http://localhost:8545".to_string())
         };
 
-        // Get num_accounts from DB or use provided
-        let num_accounts = if let Some(n) = accounts {
-            n
-        } else {
-            db.get_max_txs_per_duration_for_scenario(scenario_name)?
-                .unwrap_or(10) as usize
-        };
-
-        (rpc_url, final_pools, num_accounts)
+        (rpc_url, final_pools)
     } else {
         // No scenario file provided
         let rpc_url = rpc.unwrap_or_else(|| "http://localhost:8545".to_string());
@@ -248,9 +243,8 @@ async fn handle_reclaim_eth(
         } else {
             from_pool
         };
-        let num_accounts = accounts.unwrap_or(10);
 
-        (rpc_url, agent_pools, num_accounts)
+        (rpc_url, agent_pools)
     };
 
     info!(
@@ -375,8 +369,8 @@ pub async fn handle_admin_command(
             to,
             rpc,
             from_pool,
-            accounts,
+            num_signers,
             scenario_file,
-        } => handle_reclaim_eth(to, rpc, from_pool, accounts, scenario_file, &db).await,
+        } => handle_reclaim_eth(to, rpc, from_pool, num_signers, scenario_file, &db).await,
     }
 }

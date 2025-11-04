@@ -209,17 +209,6 @@ impl DbOps for SqliteDb {
         Ok(rpc_url_id as u64)
     }
 
-    fn get_max_txs_per_duration_for_scenario(&self, scenario_name: &str) -> Result<Option<u64>> {
-        let result: Option<u64> = self
-            .query_row(
-                "SELECT MAX(txs_per_duration) FROM runs WHERE scenario_name = ?1",
-                params![scenario_name],
-                |row| row.get(0),
-            )
-            .ok();
-        Ok(result)
-    }
-
     fn get_rpc_url_for_scenario(&self, scenario_name: &str) -> Result<Option<String>> {
         let result: Option<String> = self
             .query_row(

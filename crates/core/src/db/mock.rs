@@ -38,10 +38,6 @@ impl DbOps for MockDb {
         Ok(0)
     }
 
-    fn get_max_txs_per_duration_for_scenario(&self, _scenario_name: &str) -> Result<Option<u64>> {
-        Ok(Some(10))
-    }
-
     fn get_rpc_url_for_scenario(&self, _scenario_name: &str) -> Result<Option<String>> {
         Ok(Some("http://localhost:8545".to_string()))
     }
