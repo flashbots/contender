@@ -372,7 +372,7 @@ where
             anvil = anvil
                 .fork(self.rpc_url.to_string())
                 .timeout(60000) // 60s timeout for fork operation
-                .block_time(1); // force anvil to produce a block every second
+                .block_time_f64(0.1); // force anvil to produce a block every 100 ms
         }
 
         let anvil = anvil.try_spawn()

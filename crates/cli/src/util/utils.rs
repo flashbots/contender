@@ -574,7 +574,7 @@ mod test {
     use std::time::Duration;
 
     pub fn spawn_anvil() -> AnvilInstance {
-        Anvil::new().block_time(1).spawn()
+        Anvil::new().block_time_f64(0.1).spawn()
     }
 
     #[test]
