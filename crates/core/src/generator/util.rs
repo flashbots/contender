@@ -143,6 +143,6 @@ pub mod test {
     use alloy::node_bindings::{Anvil, AnvilInstance};
 
     pub fn spawn_anvil() -> AnvilInstance {
-        Anvil::new().block_time_f64(0.1).try_spawn().unwrap()
+        Anvil::new().block_time_f64(0.25).try_spawn().unwrap()
     }
 }
