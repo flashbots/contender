@@ -59,33 +59,7 @@ bytecode = "0x608060405234801561000f575f5ffd5b50604051610fcb380380610fcb83398181
 
 ### Setup Steps
 
-## WETH deposit
-[[setup]]
-kind = "admin_weth_deposit"
-to = "{weth}"
-signature = "function deposit() public payable"
-value = "20000000000000000000"                  # 20 ETH
-
 ## Create UniV3 pools
-[[setup]]
-kind = "univ3_create_pool_weth_token1"
-to = "{uniV3Factory}"
-signature = "function createPool(address tokenA, address tokenB, uint24 fee) external returns (address pool)"
-args = [
-    "{weth}",
-    "{testToken}",
-    "3000",        # 0.3% fee tier
-]
-
-[[setup]]
-kind = "univ3_create_pool_weth_token2"
-to = "{uniV3Factory}"
-signature = "function createPool(address tokenA, address tokenB, uint24 fee) external returns (address pool)"
-args = [
-    "{weth}",
-    "{testToken2}",
-    "3000",         # 0.3% fee tier
-]
 
 [[setup]]
 kind = "univ3_create_pool_token1_token2"
@@ -97,18 +71,7 @@ args = [
     "3000",         # 0.3% fee tier
 ]
 
-## initialize pools
-[[setup]]
-kind = "unicheat_init_pool_weth_token1"
-to = "{unicheatV3}"
-signature = "function initPool(address tokenA, address tokenB, uint24 fee)"
-args = ["{weth}", "{testToken}", "3000"]
-
-[[setup]]
-kind = "unicheat_init_pool_weth_token2"
-to = "{unicheatV3}"
-signature = "function initPool(address tokenA, address tokenB, uint24 fee)"
-args = ["{weth}", "{testToken2}", "3000"]
+## Initialize pools
 
 [[setup]]
 kind = "unicheat_init_pool_token1_token2"
@@ -119,7 +82,8 @@ args = ["{testToken}", "{testToken2}", "3000"]
 # Token approvals for position manager are not needed, because we're using
 # tokens that auto-approve on `transferFrom`
 
-## send all tokens to Unicheat
+## Send all tokens to Unicheat
+
 [[setup]]
 kind = "unicheat_send_token1"
 to = "{testToken}"
@@ -132,37 +96,7 @@ to = "{testToken2}"
 signature = "function transfer(address recipient, uint256 amount) public"
 args = ["{unicheatV3}", "10000000000000000000000"]
 
-[[setup]]
-kind = "unicheat_send_weth"
-to = "{weth}"
-signature = "function transfer(address recipient, uint256 amount) public"
-args = ["{unicheatV3}", "10000000000000000000"]
-
 ## Mint LP tokens
-
-[[setup]]
-kind = "unicheat_mint_weth_token1_pool"
-to = "{unicheatV3}"
-signature = "function mint(address tokenA, address tokenB, uint24 fee, uint256 amountA, uint256 amountB)"
-args = [
-    "{weth}",
-    "{testToken}",
-    "3000",
-    "1000000000000000000",
-    "1000000000000000000",
-]
-
-[[setup]]
-kind = "unicheat_mint_weth_token2_pool"
-to = "{unicheatV3}"
-signature = "function mint(address tokenA, address tokenB, uint24 fee, uint256 amountA, uint256 amountB)"
-args = [
-    "{weth}",
-    "{testToken2}",
-    "3000",
-    "1000000000000000000",
-    "1000000000000000000",
-]
 
 [[setup]]
 kind = "unicheat_mint_token1_token2_pool"
@@ -179,40 +113,22 @@ args = [
 ### Spam Steps
 ### (sends trades via UnicheatV3 contract so senders don't have to manage their own token balances)
 
-# Swap WETH for Token1
+# Swap Token1 for Token2
 [[spam]]
-
-[spam.tx]
-kind = "swap_exact_input_single_weth_token1"
-to = "{unicheatV3}"
-# note: tuples cannot have named arguments
-# struct params: (address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)
-signature = "function swap((address, address, uint24, address, uint256, uint256, uint256, uint160))"
-args = ["({weth},{testToken},3000,{_sender},100000000000000,100000000000,0,0)"]
-
-# Swap Token1 for WETH
-[[spam]]
-
-[spam.tx]
-kind = "swap_exact_input_single_token1_weth"
-to = "{unicheatV3}"
-signature = "function swap((address, address, uint24, address, uint256, uint256, uint256, uint160))"
-args = ["({testToken},{weth},3000,{_sender},100000000000000,100000000000,0,0)"]
-
-# Swap WETH for Token2
-[[spam]]
-
-[spam.tx]
-kind = "swap_exact_input_single_weth_token2"
-to = "{unicheatV3}"
-signature = "function swap((address, address, uint24, address, uint256, uint256, uint256, uint160))"
-args = ["({weth},{testToken2},3000,{_sender},100000000000000,100000000000,0,0)"]
-
-# Swap Token2 for WETH
-[[spam]]
-
 [spam.tx]
 kind = "swap_exact_input_single_token2_weth"
 to = "{unicheatV3}"
 signature = "function swap((address, address, uint24, address, uint256, uint256, uint256, uint160))"
-args = ["({testToken2},{weth},3000,{_sender},100000000000000,100000000000,0,0)"]
+args = [
+    "({testToken},{testToken2},3000,{_sender},100000000000000,100000000000,0,0)",
+]
+
+# Swap Token2 for Token1
+[[spam]]
+[spam.tx]
+kind = "swap_exact_input_single_token2_weth"
+to = "{unicheatV3}"
+signature = "function swap((address, address, uint24, address, uint256, uint256, uint256, uint160))"
+args = [
+    "({testToken2},{testToken},3000,{_sender},100000000000000,100000000000,0,0)",
+]
