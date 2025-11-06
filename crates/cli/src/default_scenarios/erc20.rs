@@ -83,28 +83,37 @@ impl ToTestConfig for Erc20Args {
                 from_pool: Some("admin".to_owned()),
             }]),
             setup: Some(setup_steps),
-            spam: Some(vec![SpamRequest::new_tx(
-                &FunctionCallDefinition::new(token.template_name())
+            spam: Some(vec![SpamRequest::new_tx(&{
+                let mut func_def = FunctionCallDefinition::new(token.template_name())
                     .with_from_pool("spammers") // Senders from limited pool
                     .with_signature("transfer(address guy, uint256 wad)")
                     .with_args(&[
-                        // This will be overwritten by the fuzzer below
-                        "0x0000000000000000000000000000000000000000",
-                        &self.send_amount.to_string(),
+                        // Use token_recipient if provided (via --recipient flag),
+                        // otherwise this is a placeholder for fuzzing
+                        self.token_recipient
+                            .as_ref()
+                            .map(|addr| addr.to_string())
+                            .unwrap_or_else(|| {
+                                "0x0000000000000000000000000000000000000000".to_string()
+                            }),
+                        self.send_amount.to_string(),
                     ])
-                    .with_gas_limit(55000)
-                    .with_fuzz(&[FuzzParam {
-                        param: Some("guy".to_string()), // Must match the param name in signature
+                    .with_gas_limit(55000);
+
+                // Only add fuzzing if token_recipient is NOT provided
+                if self.token_recipient.is_none() {
+                    func_def = func_def.with_fuzz(&[FuzzParam {
+                        param: Some("guy".to_string()),
                         value: None,
-                        min: Some(U256::from(1)), // Avoid zero address
+                        min: Some(U256::from(1)),
                         max: Some(
-                            U256::from_str(
-                                "0x00ffffffffffffffffffffffffffffffffffffffff", // Max valid address
-                            )
-                            .unwrap(),
+                            U256::from_str("0x00ffffffffffffffffffffffffffffffffffffffff").unwrap(),
                         ),
-                    }]),
-            )]),
+                    }]);
+                }
+
+                func_def
+            })]),
         }
     }
 }
