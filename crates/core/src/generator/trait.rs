@@ -547,8 +547,9 @@ fn get_fuzzed_args(
                     }
                     let arg_name = arg_namedefs[1];
                     if fuzz_map.contains_key(arg_name) {
-                        let fuzzed_value = fuzz_map.get(arg_name).expect("this should never happen")[fuzz_idx];
-                        
+                        let fuzzed_value =
+                            fuzz_map.get(arg_name).expect("this should never happen")[fuzz_idx];
+
                         // Check if this parameter is an address type and format accordingly
                         let param_type = arg_namedefs[0];
                         if param_type == "address" {

@@ -1,5 +1,7 @@
 use alloy::primitives::{Address, U256};
-use contender_core::generator::{types::SpamRequest, CreateDefinition, FunctionCallDefinition, FuzzParam};
+use contender_core::generator::{
+    types::SpamRequest, CreateDefinition, FunctionCallDefinition, FuzzParam,
+};
 use contender_testfile::TestConfig;
 use std::str::FromStr;
 
@@ -83,7 +85,7 @@ impl ToTestConfig for Erc20Args {
             setup: Some(setup_steps),
             spam: Some(vec![SpamRequest::new_tx(
                 &FunctionCallDefinition::new(token.template_name())
-                    .with_from_pool("spammers")  // Senders from limited pool
+                    .with_from_pool("spammers") // Senders from limited pool
                     .with_signature("transfer(address guy, uint256 wad)")
                     .with_args(&[
                         // This will be overwritten by the fuzzer below
@@ -92,12 +94,15 @@ impl ToTestConfig for Erc20Args {
                     ])
                     .with_gas_limit(55000)
                     .with_fuzz(&[FuzzParam {
-                        param: Some("guy".to_string()),  // Must match the param name in signature
+                        param: Some("guy".to_string()), // Must match the param name in signature
                         value: None,
-                        min: Some(U256::from(1)),  // Avoid zero address
-                        max: Some(U256::from_str(
-                            "0x00ffffffffffffffffffffffffffffffffffffffff"  // Max valid address
-                        ).unwrap()),
+                        min: Some(U256::from(1)), // Avoid zero address
+                        max: Some(
+                            U256::from_str(
+                                "0x00ffffffffffffffffffffffffffffffffffffffff", // Max valid address
+                            )
+                            .unwrap(),
+                        ),
                     }]),
             )]),
         }
