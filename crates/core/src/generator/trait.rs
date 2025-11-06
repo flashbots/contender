@@ -547,10 +547,18 @@ fn get_fuzzed_args(
                     }
                     let arg_name = arg_namedefs[1];
                     if fuzz_map.contains_key(arg_name) {
-                        return Some(
-                            fuzz_map.get(arg_name).expect("this should never happen")[fuzz_idx]
-                                .to_string(),
-                        );
+                        let fuzzed_value = fuzz_map.get(arg_name).expect("this should never happen")[fuzz_idx];
+                        
+                        // Check if this parameter is an address type and format accordingly
+                        let param_type = arg_namedefs[0];
+                        if param_type == "address" {
+                            // Format as hex address: 0x followed by 40 hex characters (20 bytes)
+                            // Addresses are 160 bits, so we take the lower 160 bits of the U256
+                            return Some(format!("0x{:040x}", fuzzed_value));
+                        } else {
+                            // For non-address types, use decimal format
+                            return Some(fuzzed_value.to_string());
+                        }
                     }
                     None
                 };
