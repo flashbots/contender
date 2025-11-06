@@ -22,6 +22,7 @@ use alloy::network::{
     AnyNetwork, AnyTxEnvelope, EthereumWallet, NetworkWallet, TransactionBuilder,
 };
 use alloy::node_bindings::Anvil;
+use alloy::primitives::utils::{format_ether, format_units};
 use alloy::primitives::{keccak256, Address, Bytes, FixedBytes, TxKind, U256};
 use alloy::providers::{DynProvider, PendingTransactionConfig, Provider, ProviderBuilder};
 use alloy::rpc::client::ClientBuilder;
@@ -366,13 +367,29 @@ where
 ================================================================================
 "
         );
+
+        // get gas price from chain to approximate gas cost
+        let gas_price = self.rpc_client.get_gas_price().await.map_err(|e| {
+            ContenderError::with_err(e, "failed to get gas price from RPC provider")
+        })?;
+        debug!(
+            "reference gas price: {}gwei",
+            format_units(gas_price, "gwei").unwrap()
+        );
+
         // start anvil with dev accounts holding 1M eth
-        let mut anvil = Anvil::new().args(["--balance", "1000000"]);
+        let mut anvil = Anvil::new().args([
+            "--balance",
+            "1000000",
+            "--gas-price",
+            &(gas_price + GWEI_TO_WEI as u128 * 5).to_string(),
+        ]);
         if !cfg!(test) {
             anvil = anvil
                 .fork(self.rpc_url.to_string())
+                .block_time_f64(0.25) // force anvil to produce a block every 100 ms
                 .timeout(60000) // 60s timeout for fork operation
-                .block_time_f64(0.25); // force anvil to produce a block every 100 ms
+                ;
         }
 
         let anvil = anvil.try_spawn()
@@ -405,7 +422,7 @@ where
         // separate prometheus registry for simulations; anvil doesn't count!
         static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
         static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
-        let mut scenario = Self::new(
+        let mut scenario = TestScenario::new(
             self.config.to_owned(),
             self.db.clone(),
             self.rand_seed.to_owned(),
@@ -437,8 +454,12 @@ where
         } else {
             U256::from(1000 * ETH_TO_WEI)
         };
-        let start_balances: HashMap<Address, U256> =
-            HashMap::from_iter(addresses.iter().map(|addr| (*addr, fund_amount)));
+
+        let mut start_balances: HashMap<Address, U256> = HashMap::new();
+        for addr in &addresses {
+            let bal = scenario.rpc_client.get_balance(*addr).await.unwrap();
+            start_balances.insert(*addr, bal + fund_amount);
+        }
 
         for (_name, agent) in scenario.agent_store.all_agents() {
             agent
@@ -471,8 +492,9 @@ where
 ================================================================================
 ============================= simulation complete ==============================
 ================================================================================
-"
+",
         );
+        debug!("estimated setup cost: {}", format_ether(total_cost));
 
         Ok(total_cost)
     }
