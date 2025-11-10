@@ -1,6 +1,9 @@
 use alloy::primitives::{Address, U256};
-use contender_core::generator::{types::SpamRequest, CreateDefinition, FunctionCallDefinition};
+use contender_core::generator::{
+    types::SpamRequest, CreateDefinition, FunctionCallDefinition, FuzzParam,
+};
 use contender_testfile::TestConfig;
+use std::str::FromStr;
 
 use crate::{
     commands::common::parse_amount,
@@ -80,17 +83,37 @@ impl ToTestConfig for Erc20Args {
                 from_pool: Some("admin".to_owned()),
             }]),
             setup: Some(setup_steps),
-            // transfer tokens to self
-            spam: Some(vec![SpamRequest::new_tx(
-                &FunctionCallDefinition::new(token.template_name())
+            spam: Some(vec![SpamRequest::new_tx(&{
+                let mut func_def = FunctionCallDefinition::new(token.template_name())
+                    .with_from_pool("spammers") // Senders from limited pool
                     .with_signature("transfer(address guy, uint256 wad)")
                     .with_args(&[
+                        // Use token_recipient if provided (via --recipient flag),
+                        // otherwise this is a placeholder for fuzzing
                         self.token_recipient
-                            .to_owned()
-                            .unwrap_or("{_sender}".to_owned()),
+                            .as_ref()
+                            .map(|addr| addr.to_string())
+                            .unwrap_or_else(|| {
+                                "0x0000000000000000000000000000000000000000".to_string()
+                            }),
                         self.send_amount.to_string(),
-                    ]),
-            )]),
+                    ])
+                    .with_gas_limit(55000);
+
+                // Only add fuzzing if token_recipient is NOT provided
+                if self.token_recipient.is_none() {
+                    func_def = func_def.with_fuzz(&[FuzzParam {
+                        param: Some("guy".to_string()),
+                        value: None,
+                        min: Some(U256::from(1)),
+                        max: Some(
+                            U256::from_str("0x00ffffffffffffffffffffffffffffffffffffffff").unwrap(),
+                        ),
+                    }]);
+                }
+
+                func_def
+            })]),
         }
     }
 }
