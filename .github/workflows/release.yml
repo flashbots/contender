@@ -1,0 +1,215 @@
+# this workflow is modified from reth:
+# https://github.com/paradigmxyz/reth/blob/main/.github/workflows/release.yml
+
+name: release
+
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Enable dry run mode (builds artifacts but skips uploads & release creation)"
+        type: boolean
+        default: false
+
+env:
+  REPO_NAME: ${{ github.repository_owner }}/contender
+
+jobs:
+  dry-run:
+    name: check dry run
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Dry run value: ${{ github.event.inputs.dry_run }}"
+          echo "Dry run enabled: ${{ github.event.inputs.dry_run == 'true'}}"
+          echo "Dry run disabled: ${{ github.event.inputs.dry_run != 'true'}}"
+
+  extract-version:
+    name: extract version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version
+        run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+        id: extract_version
+    outputs:
+      VERSION: ${{ steps.extract_version.outputs.VERSION }}
+
+  check-version:
+    name: check version
+    runs-on: ubuntu-latest
+    needs: extract-version
+    if: ${{ github.event.inputs.dry_run != 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify crate version matches tag
+        # Check that the Cargo version starts with the tag,
+        # so that Cargo version 1.4.8 can be matched against both v1.4.8 and v1.4.8-rc.1
+        run: |
+          tag="${{ needs.extract-version.outputs.VERSION }}"
+          tag=${tag#v}
+          cargo_ver=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          [[ "$tag" == "$cargo_ver"* ]] || { echo "Tag $tag doesn’t match the Cargo version $cargo_ver"; exit 1; }
+
+  build:
+    name: build release
+    runs-on: ${{ matrix.configs.os }}
+    needs: extract-version
+    strategy:
+      fail-fast: true
+      matrix:
+        configs:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-24.04
+            profile: release
+            allow_fail: false
+        build:
+          - command: build
+            binary: contender
+    steps:
+      - uses: actions/checkout@v5
+      - uses: rui314/setup-mold@v1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: ${{ matrix.configs.target }}
+      - name: Build contender
+        run: cargo build --verbose --workspace --release
+      - name: Move binary
+        run: |
+          mkdir artifacts
+          mv "target/${{ matrix.configs.profile }}/${{ matrix.build.binary }}" ./artifacts
+
+      - name: Configure GPG and create artifacts
+        env:
+          GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          export GPG_TTY=$(tty)
+          echo -n "$GPG_SIGNING_KEY" | base64 --decode | gpg --batch --import
+          cd artifacts
+          tar -czf ${{ matrix.build.binary }}-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}.tar.gz ${{ matrix.build.binary }}*
+          echo "$GPG_PASSPHRASE" | gpg --passphrase-fd 0 --pinentry-mode loopback --batch -ab ${{ matrix.build.binary }}-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}.tar.gz
+          mv *tar.gz* ..
+        shell: bash
+
+      - name: Upload artifact
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ matrix.build.binary }}-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}.tar.gz
+          path: ${{ matrix.build.binary }}-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}.tar.gz
+
+      - name: Upload signature
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ matrix.build.binary }}-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}.tar.gz.asc
+          path: ${{ matrix.build.binary }}-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.configs.target }}.tar.gz.asc
+
+  draft-release:
+    name: draft release
+    runs-on: ubuntu-latest
+    needs: [build, extract-version]
+    if: ${{ github.event.inputs.dry_run != 'true' }}
+    env:
+      VERSION: ${{ needs.extract-version.outputs.VERSION }}
+    permissions:
+      # Required to post the release
+      contents: write
+    steps:
+      # This is necessary for generating the changelog.
+      # It has to come before "Download Artifacts" or else it deletes the artifacts.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Download artifacts
+        uses: actions/download-artifact@v6
+      - name: Generate full changelog
+        id: changelog
+        run: |
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          echo "$(git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 ${{ env.VERSION }}^)..${{ env.VERSION }})" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      - name: Create release draft
+        env:
+          GITHUB_USER: ${{ github.repository_owner }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # The formatting here is borrowed from Lighthouse (which is borrowed from OpenEthereum):
+        # https://github.com/openethereum/openethereum/blob/6c2d392d867b058ff867c4373e40850ca3f96969/.github/workflows/build.yml
+        run: |
+          prerelease_flag=""
+          if [[ "${GITHUB_REF}" == *-rc* ]]; then
+            prerelease_flag="--prerelease"
+          fi
+
+          body=$(cat <<- "ENDBODY"
+
+          ## Testing Checklist (DELETE ME)
+
+          - [ ] Ensure all CI checks pass
+          - [ ] Run a simple scenario against an anvil node, ensure nothing is broken
+
+          ## Release Checklist (DELETE ME)
+
+          - [ ] thank contributors
+          - [ ] Ensure all crates have had their versions bumped.
+          - [ ] Write the summary.
+          - [ ] Ensure all binaries have been added.
+          - [ ] Prepare release posts (Twitter, ...).
+
+          ## Summary
+
+          Add a summary, including:
+
+          - Critical bug fixes
+          - New features
+          - Any breaking changes (and what to expect)
+
+          ## All Changes
+
+          ${{ steps.changelog.outputs.CHANGELOG }}
+
+          ## Binaries
+
+          The binaries are signed with the PGP key: `F62E A741 E6B4 E0BA 58D3  8619 698A C82F 9A2F E605`
+
+          ### Contender CLI
+
+          | System | Architecture | Binary | PGP Signature |
+          |:---:|:---:|:---:|:---|
+          | <img src="https://www.svgrepo.com/download/473700/linux.svg" width="50"/> | x86_64 | [contender-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz.asc) |
+          | <img src="https://www.svgrepo.com/download/473700/linux.svg" width="50"/> | aarch64 | [contender-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz.asc) |
+          ENDBODY
+          )
+          assets=()
+          for asset in ./*contender-*.tar.gz*; do
+              assets+=("$asset/$asset")
+          done
+          tag_name="${{ env.VERSION }}"
+          echo "$body" | gh release create --draft $prerelease_flag -t "contender $tag_name" -F "-" "$tag_name" "${assets[@]}"
+
+
+  dry-run-summary:
+    name: dry run summary
+    runs-on: ubuntu-latest
+    needs: [build, extract-version]
+    if: ${{ github.event.inputs.dry_run == 'true' }}
+    env:
+      VERSION: ${{ needs.extract-version.outputs.VERSION }}
+    steps:
+      - name: Summarize dry run
+        run: |
+          echo "## 🧪 Release Dry Run Summary"
+          echo ""
+          echo "✅ Successfully completed dry run for commit ${{ github.sha }}"
+          echo ""
+          echo "### What would happen in a real release:"
+          echo "- Binary artifacts would be uploaded to GitHub"
+          echo "- Docker images would be pushed to registry"
+          echo "- A draft release would be created"
+          echo ""
+          echo "### Next Steps"
+          echo "To perform a real release, push a git tag."
