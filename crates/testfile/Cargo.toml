@@ -1,6 +1,6 @@
 [package]
 name = "contender_testfile"
-version = "0.5.5"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
