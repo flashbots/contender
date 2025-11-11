@@ -100,7 +100,8 @@ jobs:
       - name: Move binary
         run: |
           mkdir artifacts
-          mv "target/${{ matrix.configs.profile }}/${{ matrix.build.binary }}" ./artifacts
+          [[ "${{ matrix.configs.target }}" == *windows* ]] && ext=".exe"
+          mv "target/${{ matrix.configs.profile }}/${{ matrix.build.binary }}${ext}" ./artifacts
 
       - name: Configure GPG and create artifacts
         env:
