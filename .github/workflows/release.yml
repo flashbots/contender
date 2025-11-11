@@ -66,6 +66,26 @@ jobs:
             os: ubuntu-24.04
             profile: release
             allow_fail: false
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04
+            profile: release
+            allow_fail: false
+          - target: x86_64-apple-darwin
+            os: macos-13
+            profile: release
+            allow_fail: false
+          - target: aarch64-apple-darwin
+            os: macos-14
+            profile: release
+            allow_fail: false
+          - target: x86_64-pc-windows-gnu
+            os: ubuntu-24.04
+            profile: release
+            allow_fail: false
+          - target: riscv64gc-unknown-linux-gnu
+            os: ubuntu-24.04
+            profile: release
+            allow_fail: true
         build:
           - command: build
             binary: contender
@@ -182,6 +202,9 @@ jobs:
           |:---:|:---:|:---:|:---|
           | <img src="https://www.svgrepo.com/download/473700/linux.svg" width="50"/> | x86_64 | [contender-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz.asc) |
           | <img src="https://www.svgrepo.com/download/473700/linux.svg" width="50"/> | aarch64 | [contender-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz.asc) |
+          | <img src="https://www.svgrepo.com/download/513083/windows-174.svg" width="50"/> | x86_64 | [contender-${{ env.VERSION }}-x86_64-pc-windows-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-x86_64-pc-windows-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-x86_64-pc-windows-gnu.tar.gz.asc) |
+          | <img src="https://www.svgrepo.com/download/511330/apple-173.svg" width="50"/> | x86_64 | [contender-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz.asc) |
+          | <img src="https://www.svgrepo.com/download/511330/apple-173.svg" width="50"/> | aarch64 | [contender-${{ env.VERSION }}-aarch64-apple-darwin.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-aarch64-apple-darwin.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-aarch64-apple-darwin.tar.gz.asc) |
           ENDBODY
           )
           assets=()
