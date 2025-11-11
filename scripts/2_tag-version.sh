@@ -24,11 +24,9 @@ confirm() {
 }
 
 echo """Please confirm that the following tasks have been performed:
-    - ran 1_release-version.sh
+    - ran 1_change-version.sh
     - pushed changes to a new 'release/' branch
     - created & merged a PR
-    - waited for the release-plz CI process to generate another PR
-    - merged that PR
 """
 confirm "Have you completed all the above tasks?"
 
