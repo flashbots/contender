@@ -66,6 +66,10 @@ jobs:
             os: ubuntu-24.04
             profile: release
             allow_fail: false
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04
+            profile: release
+            allow_fail: false
         build:
           - command: build
             binary: contender
