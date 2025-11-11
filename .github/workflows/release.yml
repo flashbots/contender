@@ -70,22 +70,6 @@ jobs:
             os: ubuntu-24.04
             profile: release
             allow_fail: false
-          - target: x86_64-apple-darwin
-            os: macos-13
-            profile: release
-            allow_fail: false
-          - target: aarch64-apple-darwin
-            os: macos-14
-            profile: release
-            allow_fail: false
-          - target: x86_64-pc-windows-gnu
-            os: ubuntu-24.04
-            profile: release
-            allow_fail: false
-          - target: riscv64gc-unknown-linux-gnu
-            os: ubuntu-24.04
-            profile: release
-            allow_fail: true
         build:
           - command: build
             binary: contender
