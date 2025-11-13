@@ -18,6 +18,7 @@ use op_alloy_network::AnyNetwork;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
+use tracing::info;
 
 #[derive(Clone, Debug, clap::Args)]
 pub struct ScenarioSendTxsCliArgs {
@@ -120,6 +121,7 @@ impl ScenarioSendTxsCliArgs {
     }
 
     pub fn new_rpc_provider(&self) -> Result<DynProvider<AnyNetwork>, Box<dyn std::error::Error>> {
+        info!("connecting to {}", self.rpc_url);
         Ok(DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()

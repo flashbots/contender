@@ -105,9 +105,18 @@ pub struct SpamCliArgs {
     /// Re-deploy contracts in builtin scenarios.
     #[arg(
         long,
+        global = true,
         long_help = "If set, re-deploy contracts that have already been deployed. Only builtin scenarios are affected."
     )]
     pub redeploy: bool,
+
+    /// Skip setup steps when running builtin scenarios.
+    #[arg(
+        long,
+        global = true,
+        long_help = "If set, skip contract deployment & setup transactions when running builtin scenarios. Does nothing when running a scenario file."
+    )]
+    pub skip_setup: bool,
 }
 
 pub enum SpamScenario {
@@ -401,7 +410,7 @@ impl SpamCommandArgs {
         );
 
         // run deployments & setup for builtin scenarios
-        if self.scenario.is_builtin() {
+        if self.scenario.is_builtin() && !self.spam_args.skip_setup {
             let test_scenario = &mut test_scenario;
             let setup_cost = test_scenario.estimate_setup_cost().await?;
             if min_balance < setup_cost {

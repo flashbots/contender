@@ -152,6 +152,7 @@ pub async fn fund_accounts(
     tx_type: TxType,
     engine_params: &EngineParams,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    info!("Funding agent accounts from {}", fund_with.address());
     let EngineParams {
         engine_provider,
         call_fcu,
