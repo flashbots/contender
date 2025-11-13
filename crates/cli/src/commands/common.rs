@@ -28,15 +28,18 @@ pub struct ScenarioSendTxsCliArgs {
 
     /// RPC URL to send requests.
     #[arg(
+        env = "RPC_URL",
         short,
         long,
         long_help = "RPC URL to send requests from the `eth_` namespace. Set --builder-url or --auth-rpc-url to enable other namespaces.",
-        default_value = "http://localhost:8545"
+        default_value = "http://localhost:8545",
+        visible_aliases = ["el-rpc", "el-rpc-url"]
     )]
     pub rpc_url: String,
 
     /// The seed to use for generating spam transactions.
     #[arg(
+        env = "CONTENDER_SEED",
         short,
         long,
         long_help = "The seed to use for generating spam transactions"
@@ -49,7 +52,7 @@ pub struct ScenarioSendTxsCliArgs {
         short,
         long = "priv-key",
         long_help = "Add private keys to fund agent accounts. Scenarios with hard-coded `from` addresses may also use these to sign transactions.
-May be specified multiple times."
+Flag may be specified multiple times."
     )]
     pub private_keys: Option<Vec<String>>,
 
@@ -78,19 +81,19 @@ May be specified multiple times."
         long_help = "Bundle type for generated bundles.",
         value_enum,
         default_value_t = BundleTypeCli::default(),
-        visible_aliases = &["bt"]
+        visible_aliases = ["bt"]
     )]
     pub bundle_type: BundleTypeCli,
 
     #[command(flatten)]
     pub auth_args: AuthCliArgs,
 
-    /// Call `engine_forkchoiceUpdated` after each block.
+    /// Enable block-building.
     #[arg(
         long,
-        long_help = "Call engine_forkchoiceUpdated on Auth RPC after each block.
+        long_help = "Enable block-building by calling engine_forkchoiceUpdated on Auth RPC after each spam batch.
 Requires --auth-rpc-url and --jwt-secret to be set.",
-        visible_aliases = &["fcu"]
+        visible_aliases = ["fcu", "build-blocks"]
     )]
     pub call_forkchoice: bool,
 
@@ -158,18 +161,20 @@ impl ScenarioSendTxsCliArgs {
 pub struct AuthCliArgs {
     /// Auth RPC URL for `engine_` calls
     #[arg(
+        env = "AUTH_RPC_URL",
         long,
         long_help = "Provide this URL to enable use of engine_ calls.",
-        visible_aliases = &["auth"]
+        visible_aliases = ["auth", "auth-rpc", "auth-url"]
     )]
     pub auth_rpc_url: Option<String>,
 
-    /// JWT secret used for `engine_` calls
+    /// Path to file containing JWT secret
     #[arg(
+        env = "JWT_SECRET_PATH",
         long,
-        long_help = "JWT secret.
+        long_help = "Path to file containing JWT secret used for `engine_` calls.
 Required if --auth-rpc-url is set.",
-        visible_aliases = &["jwt"]
+        visible_aliases = ["jwt"]
     )]
     pub jwt_secret: Option<PathBuf>,
 
@@ -177,7 +182,7 @@ Required if --auth-rpc-url is set.",
     #[arg(
         long = "optimism",
         long_help = "Use OP types in the engine provider. Set this flag when targeting an OP node.",
-        visible_aliases = &["op"]
+        visible_aliases = ["op"]
     )]
     pub use_op: bool,
 
@@ -234,15 +239,17 @@ impl AuthCliArgs {
 pub struct SendSpamCliArgs {
     /// HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`).
     #[arg(
+        env = "BUILDER_RPC_URL",
         short,
         long,
-        long_help = "HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`)"
+        long_help = "HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`)",
+        visible_aliases = ["builder", "builder-rpc-url", "builder-rpc"]
     )]
     pub builder_url: Option<String>,
 
     /// The number of txs to send per second using the timed spammer.
     /// May not be set if `txs_per_block` is set.
-    #[arg(long, long_help = "Number of txs to send per second. Must not be set if --txs-per-block is set.", visible_aliases = &["tps"])]
+    #[arg(long, long_help = "Number of txs to send per second. Must not be set if --txs-per-block is set.", visible_aliases = ["tps"])]
     pub txs_per_second: Option<u64>,
 
     /// The number of txs to send per block using the blockwise spammer.
@@ -252,7 +259,7 @@ pub struct SendSpamCliArgs {
             long_help =
 "Number of txs to send per block. Must not be set if --txs-per-second is set.
 Requires --priv-key to be set for each 'from' address in the given testfile.",
-        visible_aliases = &["tpb"])]
+        visible_aliases = ["tpb"])]
     pub txs_per_block: Option<u64>,
 
     /// The duration of the spamming run in seconds or blocks, depending on whether `txs_per_second` or `txs_per_block` is set.
@@ -270,7 +277,7 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         long,
         default_value_t = 12,
         long_help = "The number of blocks to wait for pending transactions to land. If transactions land within the timeout, it resets.",
-        visible_aliases = &["wait"]
+        visible_aliases = ["wait"]
     )]
     pub pending_timeout: u64,
 
@@ -290,7 +297,7 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
     #[arg(
         short,
         long,
-        visible_aliases = &["na", "accounts"],
+        visible_aliases = ["na", "accounts"],
         default_value_t = 10
     )]
     pub accounts_per_agent: u64,

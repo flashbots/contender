@@ -90,7 +90,7 @@ pub struct SpamCliArgs {
     #[arg(
         long,
         long_help = "Set this to generate a report for the spam run(s) after spamming.",
-        visible_aliases = &["report"]
+        visible_aliases = ["report"]
     )]
     pub gen_report: bool,
 

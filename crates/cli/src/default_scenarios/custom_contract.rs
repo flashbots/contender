@@ -20,7 +20,7 @@ pub struct CustomContractCliArgs {
     #[arg(
         long,
         short,
-        visible_aliases = &["ca"],
+        visible_aliases = ["ca"],
         long_help = "Comma-separated constructor arguments. Format: \"arg1, arg2, ...\" ",
     )]
     constructor_args: Option<String>,
