@@ -18,6 +18,7 @@ use op_alloy_network::AnyNetwork;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
+use tracing::info;
 
 #[derive(Clone, Debug, clap::Args)]
 pub struct ScenarioSendTxsCliArgs {
@@ -120,6 +121,7 @@ impl ScenarioSendTxsCliArgs {
     }
 
     pub fn new_rpc_provider(&self) -> Result<DynProvider<AnyNetwork>, Box<dyn std::error::Error>> {
+        info!("connecting to {}", self.rpc_url);
         Ok(DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
@@ -249,12 +251,13 @@ pub struct SendSpamCliArgs {
 
     /// The number of txs to send per second using the timed spammer.
     /// May not be set if `txs_per_block` is set.
-    #[arg(long, long_help = "Number of txs to send per second. Must not be set if --txs-per-block is set.", visible_aliases = ["tps"])]
+    #[arg(global = true, long, long_help = "Number of txs to send per second. Must not be set if --txs-per-block is set.", visible_aliases = ["tps"])]
     pub txs_per_second: Option<u64>,
 
     /// The number of txs to send per block using the blockwise spammer.
     /// May not be set if `txs_per_second` is set. Requires `prv_keys` to be set.
     #[arg(
+        global = true,
             long,
             long_help =
 "Number of txs to send per block. Must not be set if --txs-per-second is set.

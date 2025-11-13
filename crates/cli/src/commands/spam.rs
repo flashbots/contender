@@ -105,9 +105,18 @@ pub struct SpamCliArgs {
     /// Re-deploy contracts in builtin scenarios.
     #[arg(
         long,
+        global = true,
         long_help = "If set, re-deploy contracts that have already been deployed. Only builtin scenarios are affected."
     )]
     pub redeploy: bool,
+
+    /// Skip setup steps when running builtin scenarios.
+    #[arg(
+        long,
+        global = true,
+        long_help = "If set, skip contract deployment & setup transactions when running builtin scenarios. Does nothing when running a scenario file."
+    )]
+    pub skip_setup: bool,
 }
 
 pub enum SpamScenario {
@@ -186,17 +195,20 @@ impl SpamCommandArgs {
             ..
         } = self.spam_args.eth_json_rpc_args.clone();
 
-        let rpc_client = self
-            .spam_args
-            .eth_json_rpc_args
-            .new_rpc_provider()
-            .map_err(|e| ContenderError::with_err(e.deref(), "invalid RPC URL"))?;
-
         let mut testconfig = self.testconfig().await?;
         let spam_len = testconfig.spam.as_ref().map(|s| s.len()).unwrap_or(0);
         let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam_len as u64));
-        let block_time = get_block_time(&rpc_client).await?;
         let engine_params = self.engine_params().await?;
+
+        if self.spam_args.redeploy && self.spam_args.skip_setup {
+            return Err(ContenderError::InvalidRuntimeParams(
+                RuntimeParamErrorKind::InvalidArgs(format!(
+                    "{} and {} cannot be passed together",
+                    bold("--redeploy"),
+                    bold("--skip-setup")
+                )),
+            ));
+        }
 
         // check if txs_per_duration is enough to cover the spam requests
         if txs_per_duration < spam_len as u64 {
@@ -309,6 +321,13 @@ impl SpamCommandArgs {
             _ => tx_type.into(),
         };
 
+        let rpc_client = self
+            .spam_args
+            .eth_json_rpc_args
+            .new_rpc_provider()
+            .map_err(|e| ContenderError::with_err(e.deref(), "invalid RPC URL"))?;
+        let block_time = get_block_time(&rpc_client).await?;
+
         check_private_keys(&testconfig, &user_signers);
         if txs_per_block.is_some() && txs_per_second.is_some() {
             panic!("Cannot set both --txs-per-block and --txs-per-second");
@@ -401,7 +420,7 @@ impl SpamCommandArgs {
         );
 
         // run deployments & setup for builtin scenarios
-        if self.scenario.is_builtin() {
+        if self.scenario.is_builtin() && !self.spam_args.skip_setup {
             let test_scenario = &mut test_scenario;
             let setup_cost = test_scenario.estimate_setup_cost().await?;
             if min_balance < setup_cost {
