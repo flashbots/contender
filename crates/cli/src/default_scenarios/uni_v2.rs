@@ -21,7 +21,7 @@ pub struct UniV2CliArgs {
         long_help = "The number of tokens to create in the scenario. Each token will be paired with WETH and each other token.",
         default_value = "2",
         value_name = "NUM_TOKENS",
-        visible_aliases = &["tokens"]
+        visible_aliases = ["tokens"]
     )]
     pub num_tokens: u32,
 
@@ -32,7 +32,7 @@ pub struct UniV2CliArgs {
         default_value = "1 eth",
         value_name = "ETH_AMOUNT",
         value_parser = parse_amount,
-        visible_aliases = &["weth"]
+        visible_aliases = ["weth"]
     )]
     pub weth_per_token: U256,
 
@@ -42,7 +42,7 @@ pub struct UniV2CliArgs {
         long_help = "The initial amount minted for each token. 50% of this will be deposited among trading pools. Units must be provided, e.g. '1 eth' to mint 1 token with 1e18 decimal precision.",
         default_value = "5000000 eth",
         value_parser = parse_amount,
-        visible_aliases = &["mint"],
+        visible_aliases = ["mint"],
         value_name = "TOKEN_AMOUNT"
     )]
     pub initial_token_supply: U256,
@@ -52,7 +52,7 @@ pub struct UniV2CliArgs {
         long_help = "The amount of WETH to trade in the scenario. If not provided, 0.01% of the pool's initial WETH will be traded for each token. Units must be provided, e.g. '0.1 eth'.",
         value_parser = parse_amount,
         value_name = "WETH_AMOUNT",
-        visible_aliases = &["trade-weth"]
+        visible_aliases = ["trade-weth"]
     )]
     pub weth_trade_amount: Option<U256>,
 
@@ -61,7 +61,7 @@ pub struct UniV2CliArgs {
         long_help = "The amount of tokens to trade in the scenario. If not provided, 0.01% of the initial supply will be traded for each token.",
         value_parser = parse_amount,
         value_name = "TOKEN_AMOUNT",
-        visible_aliases = &["trade-token"]
+        visible_aliases = ["trade-token"]
     )]
     pub token_trade_amount: Option<U256>,
 }

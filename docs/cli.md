@@ -29,7 +29,29 @@ contender --help
 - `-d, --duration <N>` batches to send before receipt collection
 - `-l, --loops [N]` run indefinitely or N times
 - `--report` auto-generate a report after spam
-- `-e KEY=VALUE` override `[env]` values from a scenario
+- `-e KEY=VALUE` override/insert `[env]` values in a scenario config
+
+### Environment Variables
+
+For some select flags, environment variables can be used in lieu of a flag:
+
+- `RPC_URL`
+- `BUILDER_RPC_URL`
+- `AUTH_RPC_URL`
+- `JWT_SECRET_PATH`
+- `CONTENDER_PRIVATE_KEY`
+- `CONTENDER_SEED`
+
+> The private key and seed are prefixed with `CONTENDER_` to avoid accidental loss of funds.
+
+**Example:**
+
+instead of `contender spam -r $RPC_URL`:
+
+```bash
+export RPC_URL=http://localhost:9545
+contender spam ...
+```
 
 ## Built‑in `spam` subcommands
 
@@ -51,6 +73,7 @@ contender spam <SUBCOMMAND> --help
 > `--tps` (per‑second), `--tpb` (per‑block), `-l/--loops`, `-d/--duration`, and env overrides via `-e KEY=VALUE`.
 
 ### Usage examples
+
 ```bash
 # Max‑throughput gas burn
 contender spam fill-block -r $RPC_URL --tps 200 -d 5
