@@ -251,12 +251,13 @@ pub struct SendSpamCliArgs {
 
     /// The number of txs to send per second using the timed spammer.
     /// May not be set if `txs_per_block` is set.
-    #[arg(long, long_help = "Number of txs to send per second. Must not be set if --txs-per-block is set.", visible_aliases = ["tps"])]
+    #[arg(global = true, long, long_help = "Number of txs to send per second. Must not be set if --txs-per-block is set.", visible_aliases = ["tps"])]
     pub txs_per_second: Option<u64>,
 
     /// The number of txs to send per block using the blockwise spammer.
     /// May not be set if `txs_per_second` is set. Requires `prv_keys` to be set.
     #[arg(
+        global = true,
             long,
             long_help =
 "Number of txs to send per block. Must not be set if --txs-per-second is set.
