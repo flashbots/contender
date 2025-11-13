@@ -195,17 +195,20 @@ impl SpamCommandArgs {
             ..
         } = self.spam_args.eth_json_rpc_args.clone();
 
-        let rpc_client = self
-            .spam_args
-            .eth_json_rpc_args
-            .new_rpc_provider()
-            .map_err(|e| ContenderError::with_err(e.deref(), "invalid RPC URL"))?;
-
         let mut testconfig = self.testconfig().await?;
         let spam_len = testconfig.spam.as_ref().map(|s| s.len()).unwrap_or(0);
         let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam_len as u64));
-        let block_time = get_block_time(&rpc_client).await?;
         let engine_params = self.engine_params().await?;
+
+        if self.spam_args.redeploy && self.spam_args.skip_setup {
+            return Err(ContenderError::InvalidRuntimeParams(
+                RuntimeParamErrorKind::InvalidArgs(format!(
+                    "{} and {} cannot be passed together",
+                    bold("--redeploy"),
+                    bold("--skip-setup")
+                )),
+            ));
+        }
 
         // check if txs_per_duration is enough to cover the spam requests
         if txs_per_duration < spam_len as u64 {
@@ -317,6 +320,13 @@ impl SpamCommandArgs {
             }
             _ => tx_type.into(),
         };
+
+        let rpc_client = self
+            .spam_args
+            .eth_json_rpc_args
+            .new_rpc_provider()
+            .map_err(|e| ContenderError::with_err(e.deref(), "invalid RPC URL"))?;
+        let block_time = get_block_time(&rpc_client).await?;
 
         check_private_keys(&testconfig, &user_signers);
         if txs_per_block.is_some() && txs_per_second.is_some() {
