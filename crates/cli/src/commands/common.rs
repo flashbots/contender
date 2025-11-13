@@ -15,6 +15,7 @@ use contender_engine_provider::reth_node_api::EngineApiMessageVersion;
 use contender_engine_provider::ControlChain;
 use contender_testfile::TestConfig;
 use op_alloy_network::AnyNetwork;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -170,7 +171,7 @@ pub struct AuthCliArgs {
 Required if --auth-rpc-url is set.",
         visible_aliases = &["jwt"]
     )]
-    pub jwt_secret: Option<String>,
+    pub jwt_secret: Option<PathBuf>,
 
     /// Use OP engine provider
     #[arg(
@@ -211,7 +212,7 @@ impl AuthCliArgs {
         let engine_params = if self.auth_rpc_url.is_some() && self.jwt_secret.is_some() {
             let args = EngineArgs {
                 auth_rpc_url: self.auth_rpc_url.to_owned().expect("auth_rpc_url"),
-                jwt_secret: self.jwt_secret.to_owned().expect("jwt_secret").into(),
+                jwt_secret: self.jwt_secret.to_owned().expect("jwt_secret"),
                 use_op: self.use_op,
                 message_version: match self.message_version {
                     EngineMessageVersion::V1 => EngineApiMessageVersion::V1,
