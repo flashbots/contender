@@ -11,13 +11,14 @@ use crate::{
         types::{AnyProvider, AsyncCallbackResult, PlanType, SpamRequest},
         util::UtilError,
         CreateDefinition, CreateDefinitionStrict,
+        RandSeed,
     },
     spammer::CallbackError,
 };
 use alloy::{
     eips::eip7702::SignedAuthorization,
     hex::ToHexExt,
-    primitives::{Address, FixedBytes, U256},
+    primitives::{keccak256, Address, FixedBytes, U256},
     rpc::types::Authorization,
     signers::{local::PrivateKeySigner, SignerSync},
 };
@@ -124,14 +125,28 @@ where
         num_values: usize,
         fuzz_args: &[FuzzParam],
     ) -> Result<HashMap<String, Vec<U256>>> {
-        let seed = self.get_fuzz_seeder();
+        let base_seed = self.get_fuzz_seeder();
         let mut map = HashMap::<String, Vec<U256>>::new();
+
+        // Get a U256 representation of the base seed
+        let base_seed_u256 = base_seed
+            .seed_values(1, None, None)
+            .next()
+            .expect("seed_values should always yield at least one value")
+            .as_u256();
 
         for fuzz in fuzz_args.iter() {
             let key = parse_map_key(fuzz.to_owned())?;
+            // Create a unique seed by hashing base seed + parameter name
+            // This ensures: (1) different runs = different values, (2) different params = different sequences
+            let mut seed_input = base_seed_u256.to_be_bytes::<32>().to_vec();
+            seed_input.extend_from_slice(key.as_bytes());
+            let param_seed_bytes = keccak256(&seed_input);
+            let param_seed = RandSeed::seed_from_bytes(param_seed_bytes.as_slice());
+            
             map.insert(
                 key,
-                seed.seed_values(num_values, fuzz.min, fuzz.max)
+                param_seed.seed_values(num_values, fuzz.min, fuzz.max)
                     .map(|v| v.as_u256())
                     .collect(),
             );
@@ -421,8 +436,23 @@ where
                         // converts a FunctionCallDefinition to a NamedTxRequest (filling in fuzzable args),
                         // returns a callback handle and the processed tx request
                         let prepare_tx = |req| {
-                            let args = get_fuzzed_args(req, &canonical_fuzz_map, i);
+                            let mut args = get_fuzzed_args(req, &canonical_fuzz_map, i);
                             let fuzz_tx_value = get_fuzzed_tx_value(req, &canonical_fuzz_map, i);
+                            // Special handling for WorldID proof generation
+                            if req.kind.as_ref().map_or(false, |k| k == "groth16-verifyProof") {
+                                let a_point = crate::generator::bn254_points::generate_g1_point(i);
+                                let b_point = crate::generator::bn254_points::generate_g2_point(i);
+                                let c_point = crate::generator::bn254_points::generate_g1_point(i + 1000);  // Offset for uniqueness
+                                let proof_values = [
+                                    a_point[0], a_point[1],  // a.x, a.y
+                                    b_point[1], b_point[0],  // b.x1, b.x0
+                                    b_point[3], b_point[2],  // b.y1, b.y0
+                                    c_point[0], c_point[1],  // c.x, c.y
+                                ];
+                                let proof_str = proof_values.iter().map(|v| format!("0x{:064x}", v)).collect::<Vec<_>>().join(", ");
+                                args[5] = format!("[{}]", proof_str);
+                            }
+
                             let mut req = req.to_owned();
                             req.args = Some(args);
 
