@@ -72,13 +72,13 @@ pub enum RuntimeErrorKind {
     ChainIdMismatch(u64, u64),
 
     #[error("no gas limit was set for tx {0:?}")]
-    GasLimitMissingFromMap(TransactionRequest),
+    GasLimitMissingFromMap(Box<TransactionRequest>),
 
     #[error("no genesis block found")]
     GenesisBlockMissing,
 
     #[error("NamedTxRequest requires a 'from' address: {0:?}")]
-    NamedTxMissingFromAddress(NamedTxRequest),
+    NamedTxMissingFromAddress(Box<NamedTxRequest>),
 
     #[error("couldn't find nonce for 'from' address {0}")]
     NonceMissing(Address),
@@ -93,7 +93,7 @@ pub enum RuntimeErrorKind {
     SpamTxsEmpty,
 
     #[error("tx request requires a 'from' address: {0:?}")]
-    TxMissingFromAddress(TransactionRequest),
+    TxMissingFromAddress(Box<TransactionRequest>),
 
     #[error("invalid runtime params")]
     InvalidParams(#[from] RuntimeParamErrorKind),

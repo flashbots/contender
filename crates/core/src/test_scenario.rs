@@ -463,9 +463,9 @@ where
                     .tx
                     .from
                     .to_owned()
-                    .ok_or(RuntimeErrorKind::NamedTxMissingFromAddress(
+                    .ok_or(RuntimeErrorKind::NamedTxMissingFromAddress(Box::new(
                         tx_req.to_owned(),
-                    ))?;
+                    )))?;
             info!(
                 "deploying contract: {:?}",
                 tx_req.name.as_ref().unwrap_or(&"".to_string())
@@ -603,9 +603,9 @@ where
                     .tx
                     .from
                     .as_ref()
-                    .ok_or(RuntimeErrorKind::NamedTxMissingFromAddress(
+                    .ok_or(RuntimeErrorKind::NamedTxMissingFromAddress(Box::new(
                         tx_req.to_owned(),
-                    ))?;
+                    )))?;
             let signer = self
                 .signer_map
                 .get(from)
@@ -691,7 +691,9 @@ where
     ) -> Result<(TransactionRequest, EthereumWallet)> {
         let from = tx_req
             .from
-            .ok_or(RuntimeErrorKind::TxMissingFromAddress(tx_req.to_owned()))?;
+            .ok_or(RuntimeErrorKind::TxMissingFromAddress(Box::new(
+                tx_req.to_owned(),
+            )))?;
         let nonce = self
             .nonces
             .get(&from)
@@ -714,7 +716,9 @@ where
         let gas_limit = self
             .gas_limits
             .get(&tx_req.key())
-            .ok_or(RuntimeErrorKind::GasLimitMissingFromMap(tx_req.to_owned()))?
+            .ok_or(RuntimeErrorKind::GasLimitMissingFromMap(Box::new(
+                tx_req.to_owned(),
+            )))?
             .to_owned();
         let signer = self
             .signer_map

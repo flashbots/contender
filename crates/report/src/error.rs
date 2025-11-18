@@ -37,7 +37,7 @@ pub enum Error {
     LatencyMetricsEmpty(String),
 
     #[error("mpsc failed to send trace receipt")]
-    MpscSendTraceReceipt(#[from] mpsc::error::SendError<TxTraceReceipt>),
+    MpscSendTraceReceipt(#[from] Box<mpsc::error::SendError<TxTraceReceipt>>),
 
     #[error("receipt for tx {0} is missing a block number")]
     ReceiptMissingBlockNum(TxHash),

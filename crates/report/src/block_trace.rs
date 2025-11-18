@@ -179,6 +179,7 @@ pub async fn get_block_traces(
                         sender
                             .send(TxTraceReceipt::new(trace, receipt))
                             .await
+                            .map_err(Box::new)
                             .map_err(Error::MpscSendTraceReceipt)?;
                     } else {
                         warn!("no receipt for tx {tx_hash:?}");

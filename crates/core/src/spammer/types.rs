@@ -33,7 +33,7 @@ pub enum CallbackError {
     FlushCache(Vec<PendingRunTx>),
 
     #[error("failed to send mpsc message: {0}")]
-    TxActorSendMessage(#[from] mpsc::error::SendError<TxActorMessage>),
+    TxActorSendMessage(#[from] Box<mpsc::error::SendError<TxActorMessage>>),
 
     #[error("failed to send mpsc message: {0}")]
     MpscSendAddrNonce(#[from] mpsc::error::SendError<(Address, u64)>),

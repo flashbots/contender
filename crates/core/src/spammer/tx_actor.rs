@@ -370,6 +370,7 @@ impl TxActorHandle {
                 error,
             })
             .await
+            .map_err(Box::new)
             .map_err(CallbackError::from)?;
         Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
     }
@@ -383,6 +384,7 @@ impl TxActorHandle {
                 run_id,
             })
             .await
+            .map_err(Box::new)
             .map_err(CallbackError::from)?;
         Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
     }
@@ -401,6 +403,7 @@ impl TxActorHandle {
                 target_block_num,
             })
             .await
+            .map_err(Box::new)
             .map_err(CallbackError::from)?;
         Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
     }
@@ -414,6 +417,7 @@ impl TxActorHandle {
                 on_remove: sender,
             })
             .await
+            .map_err(Box::new)
             .map_err(CallbackError::from)?;
 
         Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
@@ -425,6 +429,7 @@ impl TxActorHandle {
         self.sender
             .send(TxActorMessage::Stop { on_stop: sender })
             .await
+            .map_err(Box::new)
             .map_err(CallbackError::from)?;
         Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
     }
