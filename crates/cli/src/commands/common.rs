@@ -1,9 +1,10 @@
 //! This file contains type definition for CLI arguments.
 
-use crate::commands::SpamScenario;
-use crate::util::get_signers_with_defaults;
-
 use super::EngineArgs;
+use crate::commands::error::ArgsError;
+use crate::commands::SpamScenario;
+use crate::error::ContenderError;
+use crate::util::get_signers_with_defaults;
 use alloy::consensus::TxType;
 use alloy::primitives::utils::parse_units;
 use alloy::primitives::U256;
@@ -116,11 +117,11 @@ Requires --auth-rpc-url and --jwt-secret to be set.",
 }
 
 impl ScenarioSendTxsCliArgs {
-    pub fn rpc_url(&self) -> Result<Url, Box<dyn std::error::Error>> {
+    pub fn rpc_url(&self) -> Result<Url, ArgsError> {
         Ok(Url::parse(self.rpc_url.as_ref())?)
     }
 
-    pub fn new_rpc_provider(&self) -> Result<DynProvider<AnyNetwork>, Box<dyn std::error::Error>> {
+    pub fn new_rpc_provider(&self) -> Result<DynProvider<AnyNetwork>, ArgsError> {
         info!("connecting to {}", self.rpc_url);
         Ok(DynProvider::new(
             ProviderBuilder::new()
@@ -147,10 +148,7 @@ impl ScenarioSendTxsCliArgs {
         self.user_signers_with_defaults()[0].to_owned()
     }
 
-    pub async fn testconfig(
-        &self,
-        scenario: &SpamScenario,
-    ) -> Result<TestConfig, Box<dyn std::error::Error>> {
+    pub async fn testconfig(&self, scenario: &SpamScenario) -> Result<TestConfig, ContenderError> {
         let mut testconfig = scenario.testconfig().await?;
         if self.override_senders {
             testconfig.override_senders(self.primary_signer().address());
@@ -211,9 +209,13 @@ impl AuthCliArgs {
     pub async fn engine_params(
         &self,
         call_forkchoice: bool,
-    ) -> Result<EngineParams, Box<dyn std::error::Error>> {
+    ) -> Result<EngineParams, ContenderError> {
         if call_forkchoice && (self.auth_rpc_url.is_none() || self.jwt_secret.is_none()) {
-            return Err("engine args required for forkchoice".into());
+            return Err(ArgsError::engine_args_required(
+                self.auth_rpc_url.clone(),
+                self.jwt_secret.clone(),
+            )
+            .into());
         }
 
         let engine_params = if self.auth_rpc_url.is_some() && self.jwt_secret.is_some() {
@@ -318,6 +320,22 @@ pub enum TxTypeCli {
     Eip4844,
     /// EOA Set Code Transactions ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)), type `0x4`
     Eip7702,
+}
+
+impl std::fmt::Display for TxTypeCli {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use TxTypeCli::*;
+        write!(
+            f,
+            "{}",
+            match self {
+                Legacy => "legacy",
+                Eip1559 => "eip1559",
+                Eip4844 => "eip4844",
+                Eip7702 => "eip7702",
+            }
+        )
+    }
 }
 
 #[derive(Copy, Debug, Clone, clap::ValueEnum)]

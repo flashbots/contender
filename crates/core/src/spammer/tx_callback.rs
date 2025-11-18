@@ -1,7 +1,7 @@
 use super::tx_actor::{CacheTx, TxActorHandle};
 use crate::{
-    error::ContenderError,
     generator::{types::AnyProvider, NamedTxRequest},
+    spammer::{CallbackError, CallbackResult},
 };
 use alloy::providers::PendingTransactionConfig;
 use contender_engine_provider::{ControlChain, DEFAULT_BLOCK_TIME};
@@ -21,11 +21,11 @@ where
         req: &NamedTxRequest,
         extra: RuntimeTxInfo,
         tx_handlers: Option<HashMap<String, Arc<TxActorHandle>>>,
-    ) -> Option<JoinHandle<crate::Result<()>>>;
+    ) -> Option<JoinHandle<CallbackResult<()>>>;
 }
 
 pub trait OnBatchSent {
-    fn on_batch_sent(&self) -> Option<JoinHandle<crate::Result<()>>>;
+    fn on_batch_sent(&self) -> Option<JoinHandle<CallbackResult<()>>>;
 }
 
 pub trait SpamCallback: OnTxSent + OnBatchSent + Send + Sync {}
@@ -133,7 +133,7 @@ impl OnTxSent for NilCallback {
         _req: &NamedTxRequest,
         _extra: RuntimeTxInfo,
         _tx_handlers: Option<HashMap<String, Arc<TxActorHandle>>>,
-    ) -> Option<JoinHandle<crate::Result<()>>> {
+    ) -> Option<JoinHandle<CallbackResult<()>>> {
         // do nothing
         None
     }
@@ -146,7 +146,7 @@ impl OnTxSent for LogCallback {
         _req: &NamedTxRequest,
         extra: RuntimeTxInfo,
         tx_actors: Option<HashMap<String, Arc<TxActorHandle>>>,
-    ) -> Option<JoinHandle<crate::Result<()>>> {
+    ) -> Option<JoinHandle<CallbackResult<()>>> {
         let cancel_token = self.cancel_token.clone();
         let handle = tokio::task::spawn(async move {
             if let Some(tx_actors) = tx_actors {
@@ -169,7 +169,7 @@ impl OnTxSent for LogCallback {
 }
 
 impl OnBatchSent for LogCallback {
-    fn on_batch_sent(&self) -> Option<JoinHandle<crate::Result<()>>> {
+    fn on_batch_sent(&self) -> Option<JoinHandle<CallbackResult<()>>> {
         debug!("on_batch_sent called");
         if !self.send_fcu {
             // maybe do something metrics-related here
@@ -181,7 +181,7 @@ impl OnBatchSent for LogCallback {
                 provider
                     .advance_chain(DEFAULT_BLOCK_TIME)
                     .await
-                    .map_err(ContenderError::from)
+                    .map_err(CallbackError::AuthProvider)
             }));
         }
         None
@@ -189,7 +189,7 @@ impl OnBatchSent for LogCallback {
 }
 
 impl OnBatchSent for NilCallback {
-    fn on_batch_sent(&self) -> Option<JoinHandle<crate::Result<()>>> {
+    fn on_batch_sent(&self) -> Option<JoinHandle<CallbackResult<()>>> {
         // do nothing
         None
     }

@@ -1,17 +1,15 @@
-use std::{collections::HashMap, sync::Arc};
-
+use crate::{
+    generator::seeder::{rand_seed::SeedGenerator, SeedValue},
+    Result,
+};
 use alloy::{
     network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, TransactionBuilder},
     primitives::{utils::format_ether, Address, FixedBytes, TxKind, U256},
     rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
 };
+use std::{collections::HashMap, sync::Arc};
 use tracing::info;
-
-use crate::{
-    error::ContenderError,
-    generator::seeder::{rand_seed::SeedGenerator, SeedValue},
-};
 
 pub trait SignerRegistry<Index: Ord> {
     fn get_signer(&self, idx: Index) -> Option<&PrivateKeySigner>;
@@ -150,7 +148,7 @@ impl SignerStore {
         funder: &PrivateKeySigner,
         amount: U256,
         provider: impl alloy::providers::Provider<AnyNetwork> + 'static,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<()> {
         let gas_price = provider.get_gas_price().await?;
         // boost gas price by 10% to ensure the transaction is processed quickly
         let gas_price = gas_price * 11 / 10;
@@ -187,17 +185,10 @@ impl SignerStore {
                 TxKind::Call(addr) => addr,
                 TxKind::Create => Address::ZERO,
             };
-            signed_txs.push((
-                tx_request
-                    .build(&funder_wallet)
-                    .await
-                    .map_err(|e| ContenderError::with_err(e, "failed to sign funding tx"))?,
-                to_addr,
-            ))
+            signed_txs.push((tx_request.build(&funder_wallet).await?, to_addr))
         }
 
         // send txs
-        // let mut handles = vec![];
         for (signed_tx, to_addr) in signed_txs {
             let provider = provider.clone();
 
@@ -206,12 +197,10 @@ impl SignerStore {
 
             let tx_hash = provider
                 .send_tx_envelope(AnyTxEnvelope::Ethereum(signed_tx))
-                .await
-                .map_err(|e| ContenderError::with_err(e, "failed to send funding tx"))?
+                .await?
                 // .with_required_confirmations(1)
                 .watch()
-                .await
-                .map_err(|e| ContenderError::with_err(e, "funding tx failed to land onchain"))?;
+                .await?;
             info!(
                 "Funded {to_addr} with {} ether, ({tx_hash})",
                 format_ether(amount)

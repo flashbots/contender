@@ -1,16 +1,14 @@
+use alloy::{
+    rpc::json_rpc::{RequestPacket, ResponsePacket},
+    transports::TransportError,
+};
+use prometheus::{HistogramOpts, HistogramVec, Registry};
 use std::{
     fmt::Debug,
     future::Future,
     pin::Pin,
     task::{Context, Poll},
 };
-
-use alloy::{
-    rpc::json_rpc::{RequestPacket, ResponsePacket},
-    transports::TransportError,
-};
-use eyre::Result;
-use prometheus::{HistogramOpts, HistogramVec, Registry};
 use tokio::sync::OnceCell;
 use tower::{Layer, Service};
 use tracing::debug;
@@ -160,7 +158,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn bad_request_logs_error() -> Result<()> {
+    async fn bad_request_logs_error() -> crate::Result<()> {
         TRACING_INIT.call_once(|| {
             let subscriber = FmtSubscriber::builder()
                 .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())

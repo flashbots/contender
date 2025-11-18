@@ -89,9 +89,7 @@ where
         let genesis_block = auth_provider
             .get_block_by_number(alloy::eips::BlockNumberOrTag::Earliest)
             .await
-            .map_err(|e| {
-                AuthProviderError::InternalError("failed to get genesis block".into(), Box::new(e))
-            })?
+            .map_err(|e| AuthProviderError::Internal(format!("failed to get genesis block: {e}")))?
             .expect("no genesis block found")
             .header()
             .to_owned();
@@ -112,7 +110,7 @@ where
     ) -> AuthResult<Self> {
         // fetch jwt from file
         let jwt = read_jwt_file(jwt_secret_file)
-            .map_err(|e| AuthProviderError::InternalError("failed to read jwt file".into(), e))?;
+            .map_err(|e| AuthProviderError::Internal(format!("failed to read jwt file: {e}")))?;
         Self::new(auth_rpc_url, jwt, message_version).await
     }
 

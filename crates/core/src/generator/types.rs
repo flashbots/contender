@@ -41,10 +41,10 @@ pub struct Plan {
     pub spam_steps: Vec<ExecutionRequest>,
 }
 
-pub type CallbackResult = crate::Result<Option<JoinHandle<crate::Result<()>>>>;
+pub type AsyncCallbackResult = crate::Result<Option<JoinHandle<crate::Result<()>>>>;
 
 /// Defines the type of plan to be executed.
-pub enum PlanType<F: Fn(NamedTxRequest) -> CallbackResult> {
+pub enum PlanType<F: Fn(NamedTxRequest) -> AsyncCallbackResult> {
     /// Run contract deployments, triggering a callback after each tx is processed.
     Create(F),
     /// Run setup steps, triggering a callback after each tx is processed.

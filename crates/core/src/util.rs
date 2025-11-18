@@ -1,4 +1,4 @@
-use crate::{error::ContenderError, generator::types::AnyProvider, Result};
+use crate::{generator::types::AnyProvider, Result};
 use alloy::{providers::Provider, signers::local::PrivateKeySigner};
 use std::str::FromStr;
 use tracing::{debug, warn};
@@ -8,18 +8,12 @@ use tracing_subscriber::EnvFilter;
 pub async fn get_block_time(rpc_client: &AnyProvider) -> Result<u64> {
     // derive block time from first two blocks after genesis.
     // if >2 blocks don't exist, assume block time is 1s
-    let block_num = rpc_client
-        .get_block_number()
-        .await
-        .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
+    let block_num = rpc_client.get_block_number().await?;
     let block_time_secs = if block_num >= 2 {
         let mut timestamps = vec![];
         for i in [1_u64, 2] {
             debug!("getting timestamp for block {i}");
-            let block = rpc_client
-                .get_block_by_number(i.into())
-                .await
-                .map_err(|e| ContenderError::with_err(e, "failed to get block"))?;
+            let block = rpc_client.get_block_by_number(i.into()).await?;
             if let Some(block) = block {
                 timestamps.push(block.header.timestamp);
             }

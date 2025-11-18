@@ -16,3 +16,4 @@ serde = { workspace = true }
 tokio = { workspace = true }
 contender_core = { workspace = true }
 prometheus = { workspace = true }
+thiserror = { workspace = true }

@@ -29,6 +29,7 @@ contender_engine_provider = { path = "crates/engine_provider/" }
 contender_report = { path = "crates/report/" }
 
 eyre = "0.6.12"
+color-eyre = "0.6.5"
 tokio = { version = "1.40.0" }
 tokio-util = "0.7"
 alloy = { version = "1.0.22" }
@@ -39,6 +40,7 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3" }
 prometheus = "0.14"
 strum = "0.27.1"
+thiserror = "2.0.12"
 
 ## cli
 console-subscriber = "0.4.1"
@@ -52,7 +54,6 @@ async-trait = "0.1.82"
 jsonrpsee = { version = "0.24" }
 alloy-serde = "0.5.4"
 serde_json = "1.0.132"
-thiserror = "2.0.12"
 tower = "0.5.2"
 alloy-rpc-types-engine = { version = "1.0.22", default-features = false }
 alloy-json-rpc = { version = "1.0.22", default-features = false }

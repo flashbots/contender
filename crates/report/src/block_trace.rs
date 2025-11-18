@@ -1,3 +1,4 @@
+use crate::{Error, Result};
 use alloy::eips::BlockId;
 use alloy::network::{AnyRpcBlock, AnyTransactionReceipt};
 use alloy::providers::ext::DebugApi;
@@ -9,7 +10,6 @@ use alloy::{
     },
 };
 use contender_core::db::{DbOps, RunTx, SpamDuration};
-use contender_core::error::ContenderError;
 use contender_core::generator::types::AnyProvider;
 use contender_core::util::get_block_time;
 use serde::{Deserialize, Serialize};
@@ -33,9 +33,15 @@ pub async fn estimate_block_data(
     end_run_id: u64,
     rpc_client: &AnyProvider,
     db: &(impl DbOps + Clone + Send + Sync + 'static),
-) -> Result<Vec<AnyRpcBlock>, Box<dyn std::error::Error>> {
-    let start_run = db.get_run(start_run_id)?.expect("run does not exist");
-    let end_run = db.get_run(end_run_id)?.expect("run does not exist");
+) -> Result<Vec<AnyRpcBlock>> {
+    let start_run = db
+        .get_run(start_run_id)
+        .map_err(|e| e.into())?
+        .ok_or(Error::RunDoesNotExist(start_run_id))?;
+    let end_run = db
+        .get_run(end_run_id)
+        .map_err(|e| e.into())?
+        .ok_or(Error::RunDoesNotExist(end_run_id))?;
     let start_timestamp = (start_run.timestamp / 1000) as u64; // convert to seconds
     let end_timestamp = (end_run.timestamp / 1000) as u64; // convert to seconds
     let block_time = get_block_time(rpc_client).await?;
@@ -64,7 +70,7 @@ async fn get_blocks(
     min_block: u64,
     max_block: u64,
     rpc_client: &AnyProvider,
-) -> Result<Vec<AnyRpcBlock>, Box<dyn std::error::Error>> {
+) -> Result<Vec<AnyRpcBlock>> {
     // get block data
     let mut all_blocks: Vec<AnyRpcBlock> = vec![];
     let (sender, mut receiver) =
@@ -98,10 +104,7 @@ async fn get_blocks(
     Ok(all_blocks)
 }
 
-pub async fn get_block_data(
-    txs: &[RunTx],
-    rpc_client: &AnyProvider,
-) -> Result<Vec<AnyRpcBlock>, Box<dyn std::error::Error>> {
+pub async fn get_block_data(txs: &[RunTx], rpc_client: &AnyProvider) -> Result<Vec<AnyRpcBlock>> {
     // filter out txs with no block number
     let txs: Vec<RunTx> = txs
         .iter()
@@ -133,7 +136,7 @@ pub async fn get_block_data(
 pub async fn get_block_traces(
     full_blocks: &[AnyRpcBlock],
     rpc_client: &AnyProvider,
-) -> Result<Vec<TxTraceReceipt>, Box<dyn std::error::Error>> {
+) -> Result<Vec<TxTraceReceipt>> {
     // get tx traces for all txs in all_blocks
     let mut all_traces = vec![];
     if full_blocks.is_empty() {
@@ -163,11 +166,8 @@ pub async fn get_block_traces(
                         },
                     )
                     .await
-                    .map_err(|e| {
-                        ContenderError::with_err(
-                            e,
-                            "debug_traceTransaction failed. Make sure geth-style tracing is enabled on your node.",
-                        )
+                    .inspect_err(|_| {
+                        warn!("debug_traceTransaction failed. Make sure geth-style tracing is enabled on your node.");
                     })?;
 
                 // receipt might fail if we target a non-ETH chain
@@ -179,9 +179,7 @@ pub async fn get_block_traces(
                         sender
                             .send(TxTraceReceipt::new(trace, receipt))
                             .await
-                            .map_err(|join_err| {
-                                ContenderError::with_err(join_err, "failed to join trace receipt")
-                            })?;
+                            .map_err(Error::MpscSendTraceReceipt)?;
                     } else {
                         warn!("no receipt for tx {tx_hash:?}");
                     }
@@ -189,7 +187,7 @@ pub async fn get_block_traces(
                     warn!("ignored receipt for tx {tx_hash:?} (failed to decode)");
                 }
 
-                Ok::<_, ContenderError>(())
+                Ok::<_, Error>(())
             });
             tx_tasks.push(task);
         }

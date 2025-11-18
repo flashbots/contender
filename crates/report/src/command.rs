@@ -9,12 +9,12 @@ use crate::chart::{
 };
 use crate::gen_html::ChartData;
 use crate::util::write_run_txs;
+use crate::{Error, Result};
 use alloy::network::AnyNetwork;
 use alloy::providers::DynProvider;
 use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
 use contender_core::buckets::{Bucket, BucketsExt};
 use contender_core::db::{DbOps, RunTx};
-use contender_core::error::ContenderError;
 use csv::WriterBuilder;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -29,8 +29,8 @@ pub async fn report(
     preceding_runs: u64,
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     data_dir: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let num_runs = db.num_runs()?;
+) -> Result<()> {
+    let num_runs = db.num_runs().map_err(|e| e.into())?;
 
     let data_path = Path::new(data_dir).join("reports");
     if !data_path.exists() {
@@ -45,8 +45,7 @@ pub async fn report(
     // if id is provided, check if it's valid
     let end_run_id = if let Some(id) = last_run_id {
         if id == 0 || id > num_runs {
-            // panic!("Invalid run ID: {}", id);
-            return Err(format!("Invalid run ID: {id}").into());
+            return Err(Error::InvalidRunId(id));
         }
         id
     } else {
@@ -56,15 +55,16 @@ pub async fn report(
     };
 
     let rpc_url = db
-        .get_run(end_run_id)?
-        .ok_or_else(|| format!("No run found with ID: {end_run_id}"))?
+        .get_run(end_run_id)
+        .map_err(|e| e.into())?
+        .ok_or(Error::RunDoesNotExist(end_run_id))?
         .rpc_url;
 
     // collect CSV report for each run_id
     let start_run_id = end_run_id - preceding_runs;
     let mut all_txs = vec![];
     for id in start_run_id..=end_run_id {
-        let txs = db.get_run_txs(id)?;
+        let txs = db.get_run_txs(id).map_err(|e| e.into())?;
         all_txs.extend_from_slice(&txs);
         save_csv_report(id, &txs, &format!("{data_dir}/reports"))?;
     }
@@ -73,7 +73,7 @@ pub async fn report(
     let mut run_data = vec![];
     let mut runtime_params_list = Vec::new();
     for id in start_run_id..=end_run_id {
-        let run = db.get_run(id)?;
+        let run = db.get_run(id).map_err(|e| e.into())?;
         if let Some(run) = run {
             if run.rpc_url != rpc_url {
                 continue;
@@ -181,7 +181,9 @@ pub async fn report(
         // collect latency data from DB for each relevant run
         let mut canonical_latency: Vec<Bucket> = vec![];
         for run_id in start_run_id..=end_run_id {
-            let latencies = db.get_latency_metrics(run_id, method)?;
+            let latencies = db
+                .get_latency_metrics(run_id, method)
+                .map_err(|e| e.into())?;
             for bucket in latencies {
                 if let Some(entry) = canonical_latency
                     .iter_mut()
@@ -233,9 +235,8 @@ pub async fn report(
     let latency_chart_sendrawtx = LatencyChart::new(
         canonical_latency_map
             .get("eth_sendRawTransaction")
-            .ok_or(ContenderError::GenericError(
-                "no latency metrics for eth_sendRawTransaction",
-                "".to_owned(),
+            .ok_or(Error::LatencyMetricsEmpty(
+                "eth_sendRawTransaction".to_owned(),
             ))?
             .to_owned(),
     );
@@ -276,11 +277,7 @@ pub async fn report(
 }
 
 /// Saves RunTxs to `{reports_dir}/{id}.csv`.
-fn save_csv_report(
-    id: u64,
-    txs: &[RunTx],
-    reports_dir: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn save_csv_report(id: u64, txs: &[RunTx], reports_dir: &str) -> Result<()> {
     let out_path = format!("{reports_dir}/{id}.csv");
 
     info!("Exporting report for run #{id:?} to {out_path:?}");

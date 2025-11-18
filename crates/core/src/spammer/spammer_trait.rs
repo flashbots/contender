@@ -9,9 +9,9 @@ use futures::StreamExt;
 use tracing::{info, warn};
 
 use crate::db::SpamDuration;
+use crate::spammer::CallbackError;
 use crate::{
     db::DbOps,
-    error::ContenderError,
     generator::{seeder::Seeder, templater::Templater, types::AnyProvider, PlanConfig},
     test_scenario::TestScenario,
     Result,
@@ -71,9 +71,9 @@ where
         num_periods: u64,
         run_id: Option<u64>,
         sent_tx_callback: Arc<F>,
-    ) -> impl std::future::Future<Output = Result<()>> {
+    ) -> impl std::future::Future<Output = crate::Result<()>> {
         async move {
-            let run_id = run_id.unwrap_or(scenario.db.num_runs()?);
+            let run_id = run_id.unwrap_or(scenario.db.num_runs().map_err(|e| e.into())?);
             let is_fcu_done = self.context().done_fcu.clone();
             let is_sending_done = self.context().done_sending.clone();
             let auth_provider = scenario.auth_provider.clone();
@@ -95,7 +95,7 @@ where
                                 .await
                                 .map_err(|e| {
                                     is_fcu_done.store(true, std::sync::atomic::Ordering::SeqCst);
-                                    ContenderError::with_err(e, "spammer failed to advance chain")
+                                    CallbackError::AuthProvider(e)
                                 })?;
                         } else {
                             tokio::time::sleep(Duration::from_secs(1)).await;
@@ -108,11 +108,9 @@ where
             let tx_req_chunks = scenario
                 .get_spam_tx_chunks(txs_per_period, num_periods)
                 .await?;
-            let start_block = scenario
-                .rpc_client
-                .get_block_number()
-                .await
-                .map_err(|e| ContenderError::with_err(e, "failed to get block number"))?;
+            let start_block = scenario.rpc_client.get_block_number().await.map_err(|e| {
+                CallbackError::ProviderCall(format!("failed to get block number: {e}"))
+            })?;
             let mut cursor = self.on_spam(scenario).await?.take(num_periods as usize);
 
             if scenario.should_sync_nonces {
@@ -168,9 +166,7 @@ where
                     .store(true, std::sync::atomic::Ordering::SeqCst);
             }
 
-            fcu_handle.await.map_err(|join_err| {
-                ContenderError::with_err(join_err, "spammer failed to run fcu task")
-            })??;
+            fcu_handle.await.map_err(CallbackError::Join)??;
 
             // clear out unconfirmed txs from the cache
             let dump_finished: bool = tokio::select! {
@@ -194,7 +190,8 @@ where
             let latency_metrics = scenario.collect_latency_metrics();
             scenario
                 .db
-                .insert_latency_metrics(run_id, &latency_metrics)?;
+                .insert_latency_metrics(run_id, &latency_metrics)
+                .map_err(|e| e.into())?;
 
             info!("done. run_id: {run_id}");
             Ok(())

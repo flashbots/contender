@@ -1,3 +1,4 @@
+use crate::Result;
 use contender_core::db::RunTx;
 
 /// Abbreviates a number to a human-readable format.
@@ -40,10 +41,7 @@ pub fn std_deviation(data: &[u64]) -> Option<f64> {
     }
 }
 
-pub fn write_run_txs<T: std::io::Write>(
-    writer: &mut csv::Writer<T>,
-    txs: &[RunTx],
-) -> Result<(), Box<dyn std::error::Error>> {
+pub fn write_run_txs<T: std::io::Write>(writer: &mut csv::Writer<T>, txs: &[RunTx]) -> Result<()> {
     for tx in txs {
         writer.serialize(tx)?;
     }

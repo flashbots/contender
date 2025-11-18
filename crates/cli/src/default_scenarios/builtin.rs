@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use super::fill_block::{fill_block, FillBlockArgs, FillBlockCliArgs};
 use crate::{
     commands::SpamCliArgs,
@@ -15,13 +13,14 @@ use crate::{
         transfers::{TransferStressArgs, TransferStressCliArgs},
         uni_v2::{UniV2Args, UniV2CliArgs},
     },
+    error::ContenderError,
     util::{bold, load_seedfile},
 };
 use alloy::primitives::U256;
 use clap::Subcommand;
 use contender_core::{
     agent_controller::AgentStore,
-    error::{ContenderError, RuntimeParamErrorKind},
+    error::RuntimeParamErrorKind,
     generator::{constants::setcode_placeholder, types::AnyProvider, RandSeed},
 };
 use contender_testfile::TestConfig;
@@ -89,11 +88,11 @@ impl BuiltinScenarioCli {
             )),
 
             BuiltinScenarioCli::Erc20(args) => {
-                let seed = spam_args.eth_json_rpc_args.seed.to_owned().unwrap_or(
-                    load_seedfile().map_err(|e| {
-                        ContenderError::with_err(e.deref(), "failed to load seedfile")
-                    })?,
-                );
+                let seed = spam_args
+                    .eth_json_rpc_args
+                    .seed
+                    .to_owned()
+                    .unwrap_or(load_seedfile()?);
                 let seed = RandSeed::seed_from_str(&seed);
                 let mut agents = AgentStore::new();
                 agents.init(
@@ -101,14 +100,9 @@ impl BuiltinScenarioCli {
                     spam_args.spam_args.accounts_per_agent as usize,
                     &seed,
                 );
-                let spammers = agents.get_agent("spammers");
-                if spammers.is_none() {
-                    return Err(ContenderError::GenericError(
-                        "spammers is not present in the agent store",
-                        String::new(),
-                    ));
-                }
-                let spammers = spammers.expect("spammers");
+                let spammers = agents
+                    .get_agent("spammers")
+                    .expect("spammers have been initialized");
 
                 Ok(BuiltinScenario::Erc20(Erc20Args::from_cli_args(
                     args,
@@ -123,13 +117,12 @@ impl BuiltinScenarioCli {
             BuiltinScenarioCli::EthFunctions(args) => {
                 let args: EthFunctionsArgs = args.into();
                 if args.opcodes.is_empty() && args.precompiles.is_empty() {
-                    return Err(ContenderError::InvalidRuntimeParams(
-                        RuntimeParamErrorKind::MissingArgs(format!(
-                            "{} or {}",
-                            bold("--opcode (-o)"),
-                            bold("--precompile (-p)"),
-                        )),
-                    ));
+                    return Err(RuntimeParamErrorKind::MissingArgs(format!(
+                        "{} or {}",
+                        bold("--opcode (-o)"),
+                        bold("--precompile (-p)"),
+                    ))
+                    .into());
                 }
                 Ok(BuiltinScenario::EthFunctions(args))
             }
@@ -147,9 +140,8 @@ impl BuiltinScenarioCli {
                         SetCodeSubCommand::Execute(execute_args) => {
                             // assert `--sig` and `--args` are not specified in original setCode args
                             if args.args.is_some() || args.signature.is_some() {
-                                return Err(ContenderError::SpamError(
-                                    "invalid CLI params",
-                                    Some(format!(
+                                return Err(ContenderError::CliParamsInvalid(
+                                    RuntimeParamErrorKind::InvalidArgs(format!(
                                         "{}{} may not be provided to {} when calling {}",
                                         if args.args.is_some() {
                                             bold("--args")
@@ -186,9 +178,10 @@ impl BuiltinScenarioCli {
 
             BuiltinScenarioCli::Storage(args) => {
                 let bad_args_err = |name: &str| {
-                    ContenderError::InvalidRuntimeParams(RuntimeParamErrorKind::InvalidArgs(
-                        format!("{} must be greater than 0", bold(name)),
-                    ))
+                    ContenderError::CliParamsInvalid(RuntimeParamErrorKind::InvalidArgs(format!(
+                        "{} must be greater than 0",
+                        bold(name)
+                    )))
                 };
                 if args.num_slots == 0 {
                     return Err(bad_args_err("--num-slots (-s)"));

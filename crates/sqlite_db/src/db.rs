@@ -1,3 +1,4 @@
+use crate::{Error, Result};
 use alloy::{
     hex::{FromHex, ToHexExt},
     primitives::{Address, FixedBytes, TxHash},
@@ -6,7 +7,6 @@ use contender_core::{
     buckets::Bucket,
     db::{DbOps, NamedTx, ReplayReport, ReplayReportRequest, RunTx, SpamRun, SpamRunRequest},
 };
-use contender_core::{error::ContenderError, Result};
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, types::FromSql, Row};
@@ -25,9 +25,7 @@ pub struct SqliteDb {
 impl SqliteDb {
     pub fn from_file(file: &str) -> Result<Self> {
         let manager = SqliteConnectionManager::file(file);
-        let pool = Pool::new(manager).map_err(|e| {
-            ContenderError::DbError("failed to create connection pool", Some(e.to_string()))
-        })?;
+        let pool = Pool::new(manager)?;
         Ok(Self { pool })
     }
 
@@ -38,18 +36,11 @@ impl SqliteDb {
     }
 
     fn get_pool(&self) -> Result<PooledConnection<SqliteConnectionManager>> {
-        self.pool.get().map_err(|e| {
-            ContenderError::DbError("failed to get connection from pool", Some(e.to_string()))
-        })
+        Ok(self.pool.get()?)
     }
 
     fn execute<P: rusqlite::Params>(&self, query: &str, params: P) -> Result<()> {
-        self.get_pool()?.execute(query, params).map_err(|e| {
-            ContenderError::DbError(
-                "failed to execute query.",
-                Some(format!("query: \"{query}\",  error: \"{e}\"")),
-            )
-        })?;
+        self.get_pool()?.execute(query, params)?;
         Ok(())
     }
 
@@ -75,9 +66,7 @@ impl SqliteDb {
         with_row: F,
     ) -> Result<T> {
         tracing::debug!("executing query: {query}");
-        self.get_pool()?
-            .query_row(query, params, with_row)
-            .map_err(|e| ContenderError::DbError("failed to query row", Some(e.to_string())))
+        Ok(self.get_pool()?.query_row(query, params, with_row)?)
     }
 }
 
@@ -181,19 +170,20 @@ impl From<SpamRunRow> for SpamRun {
 }
 
 impl DbOps for SqliteDb {
+    type Error = Error;
+
     fn get_rpc_url_id(
         &self,
         rpc_url: impl AsRef<str>,
         genesis_hash: FixedBytes<32>,
-    ) -> Result<u64> {
+    ) -> std::result::Result<u64, Self::Error> {
         let pool = self.get_pool()?;
 
         // first check the rpc_urls table; insert if not present
         pool.execute(
             "INSERT OR IGNORE INTO rpc_urls (url, genesis_hash) VALUES (?, ?)",
             params![rpc_url.as_ref(), genesis_hash.to_string()],
-        )
-        .map_err(|e| ContenderError::with_err(e, "failed to insert rpc_url into DB"))?;
+        )?;
 
         // then get the rpc_url ID
         let rpc_url_id: i64 = self.query_row(
@@ -311,24 +301,19 @@ impl DbOps for SqliteDb {
     }
 
     fn num_runs(&self) -> Result<u64> {
-        self.query_row("SELECT COUNT(*) FROM runs", params![], |row| row.get(0))
-            .map_err(|e| ContenderError::with_err(e, "failed to count runs"))
+        Ok(self.query_row("SELECT COUNT(*) FROM runs", params![], |row| row.get(0))?)
     }
 
     fn get_run_txs(&self, run_id: u64) -> Result<Vec<RunTx>> {
         let pool = self.get_pool()?;
         let mut stmt = pool
-            .prepare("SELECT run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind, error FROM run_txs WHERE run_id = ?1")
-            .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
+            .prepare("SELECT run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind, error FROM run_txs WHERE run_id = ?1")?;
 
-        let rows = stmt
-            .query_map(params![run_id], RunTxRow::from_row)
-            .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
+        let rows = stmt.query_map(params![run_id], RunTxRow::from_row)?;
         let res = rows
             .map(|r| r.map(|r| r.into()))
-            .map(|r| r.map_err(|e| ContenderError::with_err(e, "failed to convert row")))
-            .collect::<Result<Vec<RunTx>>>()
-            .map_err(|e| ContenderError::with_err(e, "failed to collect rows"))?;
+            .map(|r| r.map_err(|e| e.into()))
+            .collect::<Result<Vec<RunTx>>>()?;
         Ok(res)
     }
 
@@ -337,27 +322,21 @@ impl DbOps for SqliteDb {
         let mut stmt = pool
             .prepare(
                 "SELECT id, timestamp, tx_count, scenario_name, rpc_url, txs_per_duration, duration, timeout FROM runs WHERE id = ?1",
-            )
-            .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
+            )?;
 
-        let row = stmt
-            .query_map(params![run_id], |row| {
-                Ok(SpamRunRow {
-                    id: row.get(0)?,
-                    timestamp: row.get(1)?,
-                    tx_count: row.get(2)?,
-                    scenario_name: row.get(3)?,
-                    rpc_url: row.get(4)?,
-                    txs_per_duration: row.get(5)?,
-                    duration: row.get(6)?,
-                    timeout: row.get(7)?,
-                })
+        let row = stmt.query_map(params![run_id], |row| {
+            Ok(SpamRunRow {
+                id: row.get(0)?,
+                timestamp: row.get(1)?,
+                tx_count: row.get(2)?,
+                scenario_name: row.get(3)?,
+                rpc_url: row.get(4)?,
+                txs_per_duration: row.get(5)?,
+                duration: row.get(6)?,
+                timeout: row.get(7)?,
             })
-            .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
-        let res = row
-            .last()
-            .transpose()
-            .map_err(|e| ContenderError::with_err(e, "failed to query row"))?;
+        })?;
+        let res = row.last().transpose()?;
         Ok(res.map(|r| r.into()))
     }
 
@@ -386,8 +365,7 @@ impl DbOps for SqliteDb {
             stmts
                 .reduce(|ac, c| format!("{ac}\n{c}"))
                 .unwrap_or_default(),
-        ))
-        .map_err(|e| ContenderError::with_err(e, "[insert_named_txs] failed to execute batch"))?;
+        ))?;
         Ok(())
     }
 
@@ -403,20 +381,13 @@ impl DbOps for SqliteDb {
                 "SELECT name, tx_hash, contract_address, rpc_url_id FROM named_txs WHERE name = ?1 AND rpc_url_id = (
                     SELECT id FROM rpc_urls WHERE url = ?2 AND genesis_hash = ?3
                 ) ORDER BY id DESC LIMIT 1",
-            )
-            .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
+            )?;
 
-        let row = stmt
-            .query_map(
-                params![name, rpc_url, genesis_hash.to_string().to_lowercase()],
-                NamedTxRow::from_row,
-            )
-            .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
-        let res = row
-            .last()
-            .transpose()
-            .map_err(|e| ContenderError::with_err(e, "failed to query row"))?
-            .map(|r| r.into());
+        let row = stmt.query_map(
+            params![name, rpc_url, genesis_hash.to_string().to_lowercase()],
+            NamedTxRow::from_row,
+        )?;
+        let res = row.last().transpose()?.map(|r| r.into());
         Ok(res)
     }
 
@@ -425,37 +396,26 @@ impl DbOps for SqliteDb {
         let mut stmt = pool
             .prepare(
                 "SELECT name, tx_hash, contract_address FROM named_txs WHERE contract_address = ?1 ORDER BY id DESC LIMIT 1",
-            )
-            .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
+            )?;
 
-        let row = stmt
-            .query_map(params![address.encode_hex()], |row| {
-                NamedTxRow::from_row(row)
-            })
-            .map_err(|e| ContenderError::with_err(e, "failed to map row query"))?;
-        let res = row
-            .last()
-            .transpose()
-            .map_err(|e| ContenderError::with_err(e, "failed to query row"))?
-            .map(|r| r.into());
+        let row = stmt.query_map(params![address.encode_hex()], |row| {
+            NamedTxRow::from_row(row)
+        })?;
+        let res = row.last().transpose()?.map(|r| r.into());
         Ok(res)
     }
 
     fn get_latency_metrics(&self, run_id: u64, method: &str) -> Result<Vec<Bucket>> {
         let pool = self.get_pool()?;
-        let mut stmt = pool
-            .prepare(
-                "SELECT upper_bound_secs, count FROM latency WHERE run_id = ?1 AND method = ?2",
-            )
-            .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
+        let mut stmt = pool.prepare(
+            "SELECT upper_bound_secs, count FROM latency WHERE run_id = ?1 AND method = ?2",
+        )?;
 
-        let rows = stmt
-            .query_map(params![run_id, method], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })
-            .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
+        let rows = stmt.query_map(params![run_id, method], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?;
         let res = rows
-            .map(|r| r.map_err(|e| ContenderError::with_err(e, "failed to convert row")))
+            .map(|r| r.map_err(|e| e.into()))
             .collect::<Result<Vec<(f64, u64)>>>()?
             .into_iter()
             .map(|buckett| buckett.into())
@@ -496,8 +456,7 @@ impl DbOps for SqliteDb {
             stmts
                 .reduce(|ac, c| format!("{ac}\n{c}"))
                 .unwrap_or_default(),
-        ))
-        .map_err(|e| ContenderError::with_err(e, "[insert_run_txs] failed to execute batch"))?;
+        ))?;
         Ok(())
     }
 
@@ -523,10 +482,7 @@ impl DbOps for SqliteDb {
                 method_stmt
                     .reduce(|acc, curr| format!("{acc}\n{curr}"))
                     .unwrap_or_default(),
-            ))
-            .map_err(|e| {
-                ContenderError::with_err(e, "[insert_latency_metrics] failed to execute batch")
-            })?;
+            ))?;
         }
         Ok(())
     }
@@ -543,37 +499,28 @@ impl DbOps for SqliteDb {
         pool.execute(
             "INSERT INTO replay_reports (rpc_url_id, gas_per_second, gas_used) VALUES (?, ?, ?)",
             params![rpc_url_id, gas_per_second, gas_used],
-        )
-        .map_err(|e| ContenderError::with_err(e, "failed to insert replay report into DB"))?;
+        )?;
 
         Ok(ReplayReport::new(report_id, report))
     }
 
     fn get_replay_report(&self, id: u64) -> Result<ReplayReport> {
         let pool = self.get_pool()?;
-        let mut stmt = pool
-            .prepare(
-                "SELECT id, rpc_url_id, gas_per_second, gas_used FROM replay_reports WHERE id = ?1",
-            )
-            .map_err(|e| ContenderError::with_err(e, "failed to prepare statement"))?;
-        let row = stmt
-            .query_map(params![id], |row| {
-                let req = ReplayReportRequest {
-                    rpc_url_id: row.get(1)?,
-                    gas_per_second: row.get(2)?,
-                    gas_used: row.get(3)?,
-                };
-                Ok(ReplayReport::new(id, req))
-            })
-            .map_err(|e| ContenderError::with_err(e, "failed to map row"))?;
+        let mut stmt = pool.prepare(
+            "SELECT id, rpc_url_id, gas_per_second, gas_used FROM replay_reports WHERE id = ?1",
+        )?;
+        let row = stmt.query_map(params![id], |row| {
+            let req = ReplayReportRequest {
+                rpc_url_id: row.get(1)?,
+                gas_per_second: row.get(2)?,
+                gas_used: row.get(3)?,
+            };
+            Ok(ReplayReport::new(id, req))
+        })?;
         let res = row
             .last()
-            .transpose()
-            .map_err(|e| ContenderError::with_err(e, "failed to query row"))?
-            .ok_or(ContenderError::DbError(
-                "no row found in replay_report with id:",
-                Some(id.to_string()),
-            ))?;
+            .transpose()?
+            .ok_or(Error::NotFound(format!("replay_reports({id})")))?;
         Ok(res)
     }
 
@@ -581,7 +528,6 @@ impl DbOps for SqliteDb {
         self.query_row("SELECT COUNT(*) FROM replay_reports", params![], |row| {
             row.get(0)
         })
-        .map_err(|e| ContenderError::with_err(e, "failed to count replay_reports"))
     }
 }
 

@@ -1,14 +1,17 @@
+use crate::commands::error::{ArgsError, SetupError};
+use crate::error::ContenderError;
+use crate::util::error::ParseDurationError;
+use crate::{commands::common::EngineParams, util::error::UtilError};
 use alloy::{
     consensus::TxType,
     hex::{self, ToHexExt},
     network::{AnyTxEnvelope, EthereumWallet, TransactionBuilder},
-    primitives::{utils::format_ether, Address, U256},
+    primitives::{Address, U256},
     providers::{PendingTransactionConfig, Provider},
     rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
 };
 use contender_core::{
-    error::ContenderError,
     generator::{
         types::{AnyProvider, FunctionCallDefinition, SpamRequest},
         util::complete_tx_request,
@@ -20,10 +23,8 @@ use contender_engine_provider::{ControlChain, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
 use nu_ansi_term::{AnsiGenericString, Color, Style as ANSIStyle};
 use rand::Rng;
-use std::{ops::Deref, str::FromStr, sync::Arc, time::Duration};
+use std::{str::FromStr, sync::Arc, time::Duration};
 use tracing::{debug, info, warn};
-
-use crate::commands::common::EngineParams;
 
 pub enum TypedSpamCallback {
     Log(LogCallback),
@@ -56,8 +57,8 @@ const DEFAULT_SCENARIOS_URL: &str =
 /// If the testfile starts with `scenario:`, it is treated as a builtin scenario.
 /// Otherwise, it is treated as a file path.
 /// Built-in scenarios are fetched relative to the default URL: [`DEFAULT_SCENARIOS_URL`](crate::util::DEFAULT_SCENARIOS_URL).
-pub async fn load_testconfig(testfile: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
-    if testfile.starts_with("scenario:") {
+pub async fn load_testconfig(testfile: &str) -> Result<TestConfig, crate::ContenderError> {
+    Ok(if testfile.starts_with("scenario:") {
         let remote_url = format!(
             "{DEFAULT_SCENARIOS_URL}/{}",
             testfile.replace("scenario:", "")
@@ -65,7 +66,7 @@ pub async fn load_testconfig(testfile: &str) -> Result<TestConfig, Box<dyn std::
         TestConfig::from_remote_url(&remote_url).await
     } else {
         TestConfig::from_file(testfile)
-    }
+    }?)
 }
 
 pub fn get_signers_with_defaults(private_keys: Option<Vec<String>>) -> Vec<PrivateKeySigner> {
@@ -136,7 +137,7 @@ async fn is_balance_sufficient(
     address: &Address,
     min_balance: U256,
     rpc_client: &AnyProvider,
-) -> Result<(bool, U256), Box<dyn std::error::Error>> {
+) -> Result<(bool, U256), UtilError> {
     let balance = rpc_client.get_balance(*address).await?;
     Ok((balance >= min_balance, balance))
 }
@@ -151,7 +152,7 @@ pub async fn fund_accounts(
     min_balance: U256,
     tx_type: TxType,
     engine_params: &EngineParams,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), ContenderError> {
     info!("Funding agent accounts from {}", fund_with.address());
     let EngineParams {
         engine_provider,
@@ -173,11 +174,10 @@ pub async fn fund_accounts(
     let (balance_sufficient, balance) =
         is_balance_sufficient(&fund_with.address(), total_cost, rpc_client).await?;
     if !balance_sufficient {
-        return Err(format!(
-            "User account {} has insufficient balance to fund all accounts. Have {}, needed {}. Chain ID: {}",
+        return Err(UtilError::insufficient_user_funds(
             fund_with.address(),
-            format_ether(balance),
-            format_ether(total_cost),
+            balance,
+            total_cost,
             chain_id,
         )
         .into());
@@ -197,14 +197,13 @@ pub async fn fund_accounts(
     .await?;
     if !balance_sufficient {
         // error early if admin account runs out of funds
-        return Err(format!(
-                "User account {} has insufficient balance to fund spammer agents. Have {}, needed {}. Chain ID: {}",
-                fund_with.address(),
-                format_ether(balance),
-                format_ether(min_balance),
-                chain_id,
-            )
-            .into());
+        return Err(UtilError::insufficient_user_funds(
+            fund_with.address(),
+            balance,
+            min_balance,
+            chain_id,
+        )
+        .into());
     }
 
     if !insufficient_balances.is_empty() {
@@ -233,19 +232,10 @@ pub async fn fund_accounts(
                 Some(admin_nonce + idx as u64),
                 tx_type,
             )
-            .await;
-            if let Err(e) = res {
-                return Err(ContenderError::with_err(
-                    e.deref(),
-                    "failed to fund account",
-                ));
-            } else {
-                sender
-                    .send(res.expect("fund result not sent"))
-                    .await
-                    .expect("failed to handle pending tx");
-            }
-            Ok(())
+            .await?;
+            sender.send(res).await.expect("failed to handle pending tx");
+
+            Ok::<_, ContenderError>(())
         }));
     }
 
@@ -268,7 +258,10 @@ pub async fn fund_accounts(
             if let Some(engine_provider) = &engine_provider {
                 engine_provider.advance_chain(DEFAULT_BLOCK_TIME).await?;
             } else {
-                return Err("No engine provider found".into());
+                return Err(ArgsError::EngineProviderUninitialized(
+                    "required to advance chain".to_owned(),
+                )
+                .into());
             }
         }
         for tx in txs_chunk {
@@ -288,23 +281,12 @@ pub async fn fund_accounts(
                     info!("funding tx confirmed ({})", receipt);
                 }
                 Ok(Err(e)) => {
-                    return Err(format!("funding tx {} failed: {}", tx_hash, e).into());
+                    return Err(SetupError::FundingTxFailed(tx_hash, e).into());
                 }
                 Err(_) => {
-                    warn!(
-                        "funding tx {} timed out after {} seconds",
-                        tx_hash,
-                        timeout_duration.as_secs()
+                    return Err(
+                        SetupError::FundingTxTimedOut(tx_hash, timeout_duration.as_secs()).into(),
                     );
-                    return Err(format!(
-                        "funding transaction {} timed out after {} seconds. This may indicate:\n\
-                         - Transaction stuck in mempool (try increasing gas price)\n\
-                         - Network congestion or RPC connectivity issues\n\
-                         - Transaction was dropped or replaced",
-                        tx_hash,
-                        timeout_duration.as_secs()
-                    )
-                    .into());
                 }
             }
         }
@@ -320,7 +302,7 @@ pub async fn fund_account(
     rpc_client: &AnyProvider,
     nonce: Option<u64>,
     tx_type: TxType,
-) -> Result<PendingTransactionConfig, Box<dyn std::error::Error>> {
+) -> Result<PendingTransactionConfig, UtilError> {
     let gas_price = rpc_client.get_gas_price().await?;
     let blob_gas_price = get_blob_fee_maybe(rpc_client).await;
     let nonce = nonce.unwrap_or(rpc_client.get_transaction_count(sender.address()).await?);
@@ -363,12 +345,11 @@ pub async fn find_insufficient_balances(
     addresses: &[Address],
     min_balance: U256,
     rpc_client: &AnyProvider,
-) -> Result<Vec<(Address, U256)>, Box<dyn std::error::Error>> {
+) -> Result<Vec<(Address, U256)>, UtilError> {
     let mut insufficient_balances = vec![];
     for address in addresses {
-        let (balance_sufficient, balance) = is_balance_sufficient(address, min_balance, rpc_client)
-            .await
-            .map_err(|e| format!("Error checking balance for address {address}: {e}"))?;
+        let (balance_sufficient, balance) =
+            is_balance_sufficient(address, min_balance, rpc_client).await?;
         if !balance_sufficient {
             insufficient_balances.push((*address, balance));
         }
@@ -417,11 +398,11 @@ pub fn prompt_continue(msg: Option<&str>) -> bool {
 
 /// Returns the path to the data directory.
 /// The directory is created if it does not exist.
-pub fn data_dir() -> Result<String, Box<dyn std::error::Error>> {
+pub fn data_dir() -> Result<String, UtilError> {
     let home_dir = if cfg!(windows) {
-        std::env::var("USERPROFILE").map_err(|_| "Failed to get USERPROFILE from environment")?
+        std::env::var("USERPROFILE")?
     } else {
-        std::env::var("HOME").map_err(|_| "Failed to get HOME from environment")?
+        std::env::var("HOME")?
     };
 
     let dir = format!("{home_dir}/.contender");
@@ -439,7 +420,7 @@ pub fn init_reports_dir() -> String {
 }
 
 /// Returns path to default contender DB file.
-pub fn db_file() -> Result<String, Box<dyn std::error::Error>> {
+pub fn db_file() -> Result<String, UtilError> {
     let data_path = data_dir()?;
     Ok(format!("{data_path}/contender.db"))
 }
@@ -450,7 +431,7 @@ pub fn bold<'a>(msg: impl AsRef<str> + 'a) -> AnsiGenericString<'a, str> {
 
 /// Parses a string with time units into a Duration.
 /// Supported units: ms, msec, millisecond(s), s, sec(s), second(s), m, min(ute)(s), h, hr(s), hour(s), d, day(s).
-pub fn parse_duration(input: &str) -> Result<Duration, String> {
+pub fn parse_duration(input: &str) -> std::result::Result<Duration, ParseDurationError> {
     let s = input.trim().to_lowercase();
 
     // Split numeric part and unit part.
@@ -464,20 +445,18 @@ pub fn parse_duration(input: &str) -> Result<Duration, String> {
             if unit_str.is_empty() {
                 num_str.push(c);
             } else {
-                return Err(format!(
-                    "Invalid input format: unexpected digit after unit in '{input}'"
-                ));
+                return Err(ParseDurationError::UnexpectedDigit(input.to_owned()));
             }
         } else if c == '.' {
             // For simplicity, we expect whole numbers.
-            return Err("Floating point values are not supported".to_owned());
+            return Err(ParseDurationError::NoFloats(input.to_owned()));
         } else {
             unit_str.push(c);
         }
     }
     let value: u64 = num_str
         .parse()
-        .map_err(|e| format!("Invalid number: {e}"))?;
+        .map_err(|_| ParseDurationError::InvalidNumber(num_str))?;
     let unit = unit_str.trim();
     if unit.is_empty() {
         // No unit provided - default to seconds.
@@ -491,11 +470,11 @@ pub fn parse_duration(input: &str) -> Result<Duration, String> {
         "m" | "min" | "mins" | "minute" | "minutes" => Ok(Duration::from_secs(value * 60)),
         "h" | "hr" | "hrs" | "hour" | "hours" => Ok(Duration::from_secs(value * 3600)),
         "d" | "day" | "days" => Ok(Duration::from_secs(value * 86400)),
-        _ => Err(format!("Unrecognized time unit '{unit}'")),
+        _ => Err(ParseDurationError::InvalidUnits(unit.to_owned())),
     }
 }
 
-pub fn load_seedfile() -> Result<String, Box<dyn std::error::Error>> {
+pub fn load_seedfile() -> Result<String, ContenderError> {
     let data_path = data_dir()?;
 
     let seed_path = format!("{}/seed", &data_path);
@@ -504,13 +483,10 @@ pub fn load_seedfile() -> Result<String, Box<dyn std::error::Error>> {
         let mut rng = rand::thread_rng();
         let seed: [u8; 32] = rng.gen();
         let seed_hex = hex::encode(seed);
-        std::fs::write(&seed_path, seed_hex).expect("failed to write seed file");
+        std::fs::write(&seed_path, seed_hex)?;
     }
 
-    let stored_seed = format!(
-        "0x{}",
-        std::fs::read_to_string(&seed_path).expect("failed to read seed file")
-    );
+    let stored_seed = format!("0x{}", std::fs::read_to_string(&seed_path)?);
     Ok(stored_seed)
 }
 

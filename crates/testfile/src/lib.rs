@@ -1,6 +1,10 @@
+pub mod error;
 mod test_config;
 
+pub use error::Error;
 pub use test_config::TestConfig;
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]
 pub mod tests {
@@ -518,7 +522,7 @@ mod more_tests {
     use std::time::Duration;
 
     #[tokio::test]
-    async fn contender_ctx_builder_runs() -> Result<(), Box<dyn std::error::Error>> {
+    async fn contender_ctx_builder_runs() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let anvil = Anvil::new().spawn();
 
         let config = TestConfig::new().with_spam(vec![SpamRequest::new_tx(

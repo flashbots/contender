@@ -44,7 +44,7 @@ fn inspect_auth_err(err: &AuthProviderError) {
         InvalidBlockStart(blk) => {
             error!("invalid start block: {blk}")
         }
-        InternalError(_, err) => {
+        Internal(err) => {
             error!("AuthClient encountered an internal error. Please check contender_engine_provider debug logs for more details.");
             let errs = err.to_string();
             if errs.contains("Invalid newPayload") {

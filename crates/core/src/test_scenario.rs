@@ -1,7 +1,8 @@
 use crate::agent_controller::AgentStore;
 use crate::buckets::Bucket;
+use crate::constants::{SETUP_SIM_END, SETUP_SIM_START};
 use crate::db::{DbOps, NamedTx};
-use crate::error::{ContenderError, RpcErrorKind, RuntimeParamErrorKind};
+use crate::error::{Error, RuntimeErrorKind, RuntimeParamErrorKind};
 use crate::generator::named_txs::ExecutionRequest;
 use crate::generator::templater::Templater;
 use crate::generator::types::AnyProvider;
@@ -10,7 +11,7 @@ use crate::generator::NamedTxRequest;
 use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
 use crate::provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID};
 use crate::spammer::tx_actor::TxActorHandle;
-use crate::spammer::{ExecutionPayload, RuntimeTxInfo, SpamCallback, SpamTrigger};
+use crate::spammer::{CallbackError, ExecutionPayload, RuntimeTxInfo, SpamCallback, SpamTrigger};
 use crate::util::{get_blob_fee_maybe, get_block_time, ExtraTxParams};
 use crate::Result;
 use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
@@ -18,9 +19,7 @@ use alloy::consensus::{Transaction, TxType};
 use alloy::eips::eip2718::Encodable2718;
 use alloy::eips::BlockId;
 use alloy::hex::ToHexExt;
-use alloy::network::{
-    AnyNetwork, AnyTxEnvelope, EthereumWallet, NetworkWallet, TransactionBuilder,
-};
+use alloy::network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, TransactionBuilder};
 use alloy::node_bindings::Anvil;
 use alloy::primitives::utils::{format_ether, format_units};
 use alloy::primitives::{keccak256, Address, Bytes, FixedBytes, TxKind, U256};
@@ -37,14 +36,13 @@ use contender_bundle_provider::BundleClient;
 use contender_engine_provider::ControlChain;
 use futures::{Stream, StreamExt};
 use std::collections::{BTreeMap, HashMap};
-use std::ops::Deref;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 #[derive(Clone)]
 pub struct PrometheusCollector {
@@ -198,15 +196,9 @@ where
                 .network::<AnyNetwork>()
                 .connect_client(client),
         ));
-        let genesis_block = rpc_client
-            .get_block(BlockId::earliest())
-            .await
-            .map_err(|e| ContenderError::with_err(e, "failed to retrieve genesis block"))?;
+        let genesis_block = rpc_client.get_block(BlockId::earliest()).await?;
         if genesis_block.is_none() {
-            return Err(ContenderError::GenericError(
-                "no genesis block found",
-                String::new(),
-            ));
+            return Err(RuntimeErrorKind::GenesisBlockMissing.into());
         }
         let genesis_block = genesis_block.expect("genesis block");
 
@@ -250,26 +242,14 @@ where
             None
         };
 
-        let chain_id = rpc_client
-            .get_chain_id()
-            .await
-            .map_err(|e| ContenderError::with_err(e, "rpc client failed to get chain id"))?;
+        let chain_id = rpc_client.get_chain_id().await?;
         let chain_id_builder = if let Some(builder_client) = &bundle_client {
-            builder_client
-                .get_chain_id()
-                .await
-                .map_err(|e| ContenderError::with_err(e, "bundle client failed to get chain id"))?
+            builder_client.get_chain_id().await?
         } else {
             chain_id
         };
         if chain_id != chain_id_builder {
-            error!(
-                "chain id mismatch: primary chain id: {chain_id}, builder chain id: {chain_id_builder}"
-            );
-            return Err(ContenderError::SetupError(
-                "chain id must be consistent across rpc and builder",
-                None,
-            ));
+            return Err(RuntimeErrorKind::ChainIdMismatch(chain_id, chain_id_builder).into());
         }
 
         let cancel_token = CancellationToken::new();
@@ -324,23 +304,18 @@ where
     }
 
     // Polls anvil to ensure its initialized and ready to accept RPC requests
-    async fn wait_for_anvil_ready(endpoint_url: &str, timeout: Duration) -> Result<()> {
+    async fn wait_for_anvil_ready(endpoint_url: &Url, timeout: Duration) -> Result<()> {
         let start = std::time::Instant::now();
-        let url = Url::parse(endpoint_url)
-            .map_err(|e| ContenderError::with_err(e, "failed to parse Anvil endpoint URL"))?;
 
         loop {
             if start.elapsed() > timeout {
-                return Err(ContenderError::SetupError(
-                    "anvil failed to become ready within timeout",
-                    Some(format!("Waited {} seconds", timeout.as_secs())),
-                ));
+                return Err(RuntimeErrorKind::AnvilTimeout(timeout.as_secs()).into());
             }
 
             // Try a simple RPC call to check if Anvil is responsive
             let provider = ProviderBuilder::new()
                 .network::<AnyNetwork>()
-                .connect_http(url.clone());
+                .connect_http(endpoint_url.to_owned());
 
             match tokio::time::timeout(Duration::from_secs(2), provider.get_block_number()).await {
                 Ok(Ok(_block_num)) => {
@@ -360,18 +335,10 @@ where
     }
 
     pub async fn estimate_setup_cost(&self) -> Result<U256> {
-        info!(
-            "
-================================================================================
-================= running simulation to estimate setup cost ====================
-================================================================================
-"
-        );
+        info!(SETUP_SIM_START);
 
         // get gas price from chain to approximate gas cost
-        let gas_price = self.rpc_client.get_gas_price().await.map_err(|e| {
-            ContenderError::with_err(e, "failed to get gas price from RPC provider")
-        })?;
+        let gas_price = self.rpc_client.get_gas_price().await?;
         debug!(
             "reference gas price: {}gwei",
             format_units(gas_price, "gwei").unwrap()
@@ -392,16 +359,8 @@ where
                 ;
         }
 
-        let anvil = anvil.try_spawn()
-            .map_err(|e| {
-                if e.to_string().to_lowercase().contains("no such file") {
-                ContenderError::SetupError("failed to spawn anvil. You may need to install foundry (https://book.getfoundry.sh/getting-started/installation).", None)
-                } else {
-                ContenderError::with_err(e, "failed to spawn anvil.")
-                }
-            })?;
-
-        Self::wait_for_anvil_ready(anvil.endpoint_url().as_str(), Duration::from_secs(30)).await?;
+        let anvil = anvil.try_spawn()?;
+        Self::wait_for_anvil_ready(&anvil.endpoint_url(), Duration::from_secs(30)).await?;
 
         let admin_signer = LocalSigner::from_str(
             "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
@@ -464,8 +423,7 @@ where
         for (_name, agent) in scenario.agent_store.all_agents() {
             agent
                 .fund_signers(&admin_signer, fund_amount, scenario.rpc_client.clone())
-                .await
-                .map_err(|e| ContenderError::with_err(e.deref(), "failed to fund signers"))?;
+                .await?;
         }
 
         debug!("deploying sim contracts...");
@@ -475,11 +433,7 @@ where
 
         let mut total_cost = U256::ZERO;
         for (addr, start_balance) in &start_balances {
-            let new_balance = scenario
-                .rpc_client
-                .get_balance(*addr)
-                .await
-                .map_err(|e| ContenderError::with_err(e, "failed to get balance"))?;
+            let new_balance = scenario.rpc_client.get_balance(*addr).await?;
             if new_balance >= *start_balance {
                 continue;
             }
@@ -487,92 +441,31 @@ where
             total_cost += cost;
         }
 
-        info!(
-            "
-================================================================================
-============================= simulation complete ==============================
-================================================================================
-",
-        );
+        info!(SETUP_SIM_END);
         debug!("estimated setup cost: {}", format_ether(total_cost));
 
         Ok(total_cost)
     }
 
-    /// Funds all signers in the agent with the given amount.
-    /// Does not check if the agents are already funded.
-    #[deprecated(since = "0.2.2", note = "please use `agent.fund_signers` instead")]
-    pub async fn fund_agent_signers(
-        &mut self,
-        agent_name: impl AsRef<str>,
-        funder: &EthereumWallet,
-        amount: U256,
-    ) -> Result<Vec<PendingTransactionConfig>> {
-        let addresses = self
-            .agent_store
-            .get_agent(&agent_name)
-            .ok_or(ContenderError::SetupError(
-                "agent not found",
-                Some(agent_name.as_ref().to_owned()),
-            ))?
-            .all_addresses();
-        let gas_price = self
-            .rpc_client
-            .get_gas_price()
-            .await
-            .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
-        let blob_gas_price = get_blob_fee_maybe(&self.rpc_client).await;
-
-        let mut pending_txs = vec![];
-        for addr in addresses {
-            let tx_req = TransactionRequest::default()
-                .with_from(funder.default_signer().address())
-                .with_to(addr)
-                .with_value(amount);
-            let (tx_req, _) = self
-                .prepare_tx_request(&tx_req, gas_price + GWEI_TO_WEI as u128, blob_gas_price)
-                .await?;
-            let signed_tx = tx_req
-                .build(funder)
-                .await
-                .map_err(|e| ContenderError::with_err(e, "failed to build funding tx"))?;
-            let pending = self
-                .rpc_client
-                .send_tx_envelope(AnyTxEnvelope::Ethereum(signed_tx))
-                .await
-                .map_err(|e| ContenderError::with_err(e, "failed to send funding tx"))?;
-            debug!(
-                "funded account {}, tx: {}",
-                addr.encode_hex(),
-                pending.tx_hash()
-            );
-            pending_txs.push(pending.inner().to_owned());
-        }
-
-        Ok(pending_txs)
-    }
-
     pub async fn deploy_contracts(&mut self) -> Result<()> {
         let pub_provider = &self.rpc_client;
-        let gas_price = pub_provider
-            .get_gas_price()
-            .await
-            .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
+        let gas_price = pub_provider.get_gas_price().await?;
         let blob_gas_price = get_blob_fee_maybe(&self.rpc_client).await;
-        let chain_id = pub_provider
-            .get_chain_id()
-            .await
-            .map_err(|e| ContenderError::with_err(e, "failed to get chain id"))?;
+        let chain_id = pub_provider.get_chain_id().await?;
 
         // we do everything in the callback so no need to actually capture the returned txs
         // we have to do this to populate the database with new named transaction after each deployment
         let redeploy = self.redeploy;
         let genesis_hash = self.ctx.genesis_hash;
         self.load_txs(PlanType::Create(|tx_req| {
-            let from = tx_req.tx.from.to_owned().ok_or(ContenderError::SetupError(
-                "failed to get 'from' address",
-                None,
-            ))?;
+            let from =
+                tx_req
+                    .tx
+                    .from
+                    .to_owned()
+                    .ok_or(RuntimeErrorKind::NamedTxMissingFromAddress(
+                        tx_req.to_owned(),
+                    ))?;
             info!(
                 "deploying contract: {:?}",
                 tx_req.name.as_ref().unwrap_or(&"".to_string())
@@ -627,13 +520,15 @@ where
             .connect_http(rpc_url.to_owned());
 
         if let Some(name) = tx_req.name.as_ref() {
-            if let Some(existing) = db.get_named_tx(name, rpc_url.as_str(), genesis_hash)? {
+            if let Some(existing) = db
+                .get_named_tx(name, rpc_url.as_str(), genesis_hash)
+                .map_err(|e| e.into())?
+            {
                 if let Some(addr) = existing.address {
                     let code: Bytes = wallet_client
                         .client()
                         .request("eth_getCode", (addr, "latest"))
-                        .await
-                        .map_err(|e| ContenderError::with_err(e, "failed to get on-chain code"))?;
+                        .await?;
                     if !code.as_ref().is_empty() && !redeploy {
                         info!(
                             contract = %name,
@@ -655,10 +550,7 @@ where
         // estimate gas limit
         let gas_limit = wallet_client
             .estimate_gas(WithOtherFields::new(tx_req.tx.to_owned()))
-            .await
-            .map_err(|e| {
-                ContenderError::with_err(e, "failed to estimate gas for contract deployment")
-            })?;
+            .await?;
 
         // inject missing fields into tx_req.tx
         let mut tx = tx_req.tx.to_owned();
@@ -671,23 +563,10 @@ where
             chain_id,
             blob_gas_price,
         );
-        let from = <EthereumWallet as NetworkWallet<AnyNetwork>>::default_signer_address(&wallet);
 
         let res = wallet_client
             .send_transaction(WithOtherFields::new(tx))
-            .await
-            .map_err(|err| {
-                let e = err.to_string().to_lowercase();
-                if e.contains("already known") {
-                    ContenderError::RpcError(crate::error::RpcErrorKind::TxAlreadyKnown, err)
-                } else if e.contains("insufficient funds") {
-                    ContenderError::RpcError(RpcErrorKind::InsufficientFunds(from), err)
-                } else if e.contains("replacement transaction underpriced") {
-                    ContenderError::RpcError(RpcErrorKind::ReplacementTransactionUnderpriced, err)
-                } else {
-                    RpcErrorKind::GenericSendTxError.to_error(err)
-                }
-            })?;
+            .await?;
         // watch pending transaction
         let receipt = res.get_receipt().await.expect("failed to get receipt");
         debug!(
@@ -703,7 +582,8 @@ where
                 )],
                 rpc_url.as_str(),
                 genesis_hash,
-            )?;
+            )
+            .map_err(|e| e.into())?;
         } else {
             warn!("No name provided for named transaction. This may cause issues with tracking the entry in the database.");
         }
@@ -718,17 +598,18 @@ where
             info!("{}", self.format_setup_log(&tx_req));
 
             // copy data/refs from self before spawning the task
-            let from = tx_req.tx.from.as_ref().ok_or(ContenderError::SetupError(
-                "failed to get 'from' address",
-                None,
-            ))?;
+            let from =
+                tx_req
+                    .tx
+                    .from
+                    .as_ref()
+                    .ok_or(RuntimeErrorKind::NamedTxMissingFromAddress(
+                        tx_req.to_owned(),
+                    ))?;
             let signer = self
                 .signer_map
                 .get(from)
-                .ok_or(ContenderError::SetupError(
-                    "couldn't find private key for address",
-                    from.encode_hex().into(),
-                ))?
+                .ok_or(RuntimeErrorKind::PrivateKeyMissing(*from))?
                 .to_owned();
             let db = self.db.clone();
             let rpc_url = self.rpc_url.clone();
@@ -746,10 +627,7 @@ where
                     .or(tx_req.kind.as_deref())
                     .unwrap_or("")
                     .to_string();
-                let gas_price = wallet.get_gas_price().await.map_err(|e| {
-                    warn!("failed to get gas price for setup step '{tx_label}'");
-                    ContenderError::with_err(e, "failed to get gas price")
-                })?;
+                let gas_price = wallet.get_gas_price().await?;
                 let blob_gas_price = get_blob_fee_maybe(&DynProvider::new(wallet.to_owned())).await;
                 let gas_limit = if let Some(gas) = tx_req.tx.gas {
                     gas
@@ -776,16 +654,10 @@ where
                 );
 
                 // wallet will assign nonce before sending
-                let res = wallet.send_transaction(tx.into()).await.map_err(|e| {
-                    warn!("failed to send setup tx '{tx_label}'");
-                    ContenderError::with_err(e, "setup tx failed")
-                })?;
+                let res = wallet.send_transaction(tx.into()).await?;
 
                 // get receipt using provider (not wallet) to allow any receipt type (support non-eth chains)
-                let receipt = res
-                    .get_receipt()
-                    .await
-                    .map_err(|e| ContenderError::with_err(e, "failed to get receipt"))?;
+                let receipt = res.get_receipt().await?;
 
                 if let Some(name) = tx_req.name {
                     db.insert_named_txs(
@@ -796,7 +668,8 @@ where
                         )],
                         rpc_url.as_str(),
                         genesis_hash,
-                    )?;
+                    )
+                    .map_err(|e| e.into())?;
                 }
 
                 Ok(())
@@ -816,26 +689,19 @@ where
         gas_price: u128,
         blob_gas_price: u128,
     ) -> Result<(TransactionRequest, EthereumWallet)> {
-        let from = tx_req.from.ok_or(ContenderError::SetupError(
-            "missing 'from' address in tx request",
-            None,
-        ))?;
+        let from = tx_req
+            .from
+            .ok_or(RuntimeErrorKind::TxMissingFromAddress(tx_req.to_owned()))?;
         let nonce = self
             .nonces
             .get(&from)
-            .ok_or(ContenderError::SetupError(
-                "missing nonce for 'from' address",
-                Some(from.to_string()),
-            ))?
+            .ok_or(RuntimeErrorKind::NonceMissing(from))?
             .to_owned();
         let setcode_signer_addr = self.setcode_signer.address();
         let setcode_signer_nonce = self
             .nonces
             .get(&setcode_signer_addr)
-            .ok_or(ContenderError::SetupError(
-                "missing nonce for 'from' address",
-                Some(from.to_string()),
-            ))?
+            .ok_or(RuntimeErrorKind::NonceMissing(from))?
             .to_owned();
 
         self.nonces.insert(from.to_owned(), nonce + 1);
@@ -848,18 +714,12 @@ where
         let gas_limit = self
             .gas_limits
             .get(&tx_req.key())
-            .ok_or(ContenderError::SetupError(
-                "failed to lookup gas limit",
-                None,
-            ))?
+            .ok_or(RuntimeErrorKind::GasLimitMissingFromMap(tx_req.to_owned()))?
             .to_owned();
         let signer = self
             .signer_map
             .get(&from)
-            .ok_or(ContenderError::SetupError(
-                "failed to get signer from scenario signer_map",
-                None,
-            ))?
+            .ok_or(RuntimeErrorKind::SignerMissingFromMap(from))?
             .to_owned();
 
         let mut full_tx = tx_req.to_owned().with_nonce(nonce);
@@ -880,11 +740,7 @@ where
         &mut self,
         tx_requests: &[ExecutionRequest],
     ) -> Result<Vec<ExecutionPayload>> {
-        let gas_price = self
-            .rpc_client
-            .get_gas_price()
-            .await
-            .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
+        let gas_price = self.rpc_client.get_gas_price().await?;
         let blob_gas_price = get_blob_fee_maybe(&self.rpc_client).await;
         let adjusted_gas_price = |price: u128| {
             if self.ctx.gas_price_adder < 0 {
@@ -905,7 +761,10 @@ where
                     // prepare each tx in the bundle (increment nonce, set gas price, etc)
                     let mut bundle_txs = vec![];
                     if self.bundle_client.is_none() {
-                        return Err(RuntimeParamErrorKind::BuilderUrlRequired.into());
+                        return Err(RuntimeErrorKind::InvalidParams(
+                            RuntimeParamErrorKind::BuilderUrlRequired,
+                        )
+                        .into());
                     }
 
                     for req in reqs {
@@ -915,9 +774,7 @@ where
 
                         trace!("bundle tx: {tx_req:?}");
                         // sign tx
-                        let tx_envelope = tx_req.build(&signer).await.map_err(|e| {
-                            ContenderError::with_err(e, "bad request: failed to build tx")
-                        })?;
+                        let tx_envelope = tx_req.build(&signer).await?;
 
                         bundle_txs.push(tx_envelope);
                     }
@@ -926,15 +783,12 @@ where
                 ExecutionRequest::Tx(req) => {
                     let (tx_req, signer) = self
                         .prepare_tx_request(&req.tx, gas_price, blob_gas_price)
-                        .await
-                        .map_err(|e| ContenderError::with_err(e, "failed to prepare tx"))?;
+                        .await?;
                     let mut new_req = req.to_owned();
                     new_req.tx = tx_req.to_owned();
 
                     // sign tx
-                    let tx_envelope = tx_req.build(&signer).await.map_err(|e| {
-                        ContenderError::with_err(e, "bad request: failed to build tx")
-                    })?;
+                    let tx_envelope = tx_req.build(&signer).await?;
 
                     // log tx details
                     let priority_fee = new_req
@@ -983,7 +837,7 @@ where
         context_handler: SpamContextHandler,
     ) -> Result<(
         Vec<tokio::task::JoinHandle<()>>,
-        tokio::sync::mpsc::Receiver<ContenderError>,
+        tokio::sync::mpsc::Receiver<Error>,
     )> {
         // sort payloads by nonce
         let mut payloads = payloads;
@@ -1011,7 +865,7 @@ where
         // counts number of txs that were sent successfully
         let success_sender = Arc::new(context_handler.success_send_tx);
         let bundle_type = self.bundle_type;
-        let (error_sender, error_receiver) = tokio::sync::mpsc::channel::<ContenderError>(1);
+        let (error_sender, error_receiver) = tokio::sync::mpsc::channel::<Error>(1);
         let error_sender = Arc::new(error_sender);
 
         for payload in payloads {
@@ -1221,8 +1075,7 @@ where
 
             // wait for the on_batch_sent callback to finish
             if let Some(task) = sent_tx_callback.on_batch_sent() {
-                task.await
-                    .map_err(|e| ContenderError::with_err(e, "on_batch_sent callback failed"))??;
+                task.await.map_err(CallbackError::Join)??;
             }
 
             info!("[{tick}] executed {num_tasks} spam tasks");
@@ -1353,11 +1206,7 @@ where
             .collect::<Vec<_>>()
             .concat();
 
-        let gas_price = scenario
-            .rpc_client
-            .get_gas_price()
-            .await
-            .map_err(|e| ContenderError::with_err(e, "failed to get gas price"))?;
+        let gas_price = scenario.rpc_client.get_gas_price().await?;
         let blob_gas_price = get_blob_fee_maybe(&scenario.rpc_client).await;
 
         // get gas limit for each tx
@@ -1381,10 +1230,7 @@ where
                 U256::from(gas_price * tx.gas.unwrap_or(0) as u128) + tx.value.unwrap_or(U256::ZERO)
             })
             .max()
-            .ok_or(ContenderError::SpamError(
-                "failed to get max gas cost for spam txs",
-                None,
-            ))?;
+            .ok_or(RuntimeErrorKind::SpamTxsEmpty)?;
 
         // we assume the highest possible cost to minimize the chances of running out of ETH mid-test
         Ok(highest_gas_cost)
@@ -1419,8 +1265,7 @@ where
             loop {
                 let pending_txs = msg_handle
                     .flush_cache(run_id, block_start + block_counter as u64)
-                    .await
-                    .map_err(|e| ContenderError::with_err(e.deref(), "failed to flush cache"))?;
+                    .await?;
                 cache_size_queue.rotate_right(1);
                 cache_size_queue[0] = pending_txs.len();
 
@@ -1447,12 +1292,7 @@ where
                         if current_timestamp
                             > tx.start_timestamp_ms + (self.pending_tx_timeout_secs as u128 * 1000)
                         {
-                            msg_handle.remove_cached_tx(tx.tx_hash).await.map_err(|e| {
-                                ContenderError::with_err(
-                                    e.deref(),
-                                    "failed to remove tx from cache",
-                                )
-                            })?;
+                            msg_handle.remove_cached_tx(tx.tx_hash).await?;
                         }
                     }
                 }
@@ -1468,10 +1308,7 @@ where
         debug!("dumping tx cache...");
 
         for msg_handle in self.msg_handles.values() {
-            let failed_txs = msg_handle
-                .dump_cache(run_id)
-                .await
-                .map_err(|e| ContenderError::with_err(e.deref(), "failed to dump cache"))?;
+            let failed_txs = msg_handle.dump_cache(run_id).await?;
             if !failed_txs.is_empty() {
                 warn!(
                     "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
@@ -1541,12 +1378,7 @@ where
                     let data = tx_req.input.input.to_owned().unwrap_or_default();
                     if !data.is_empty() {
                         // assume that with calldata, we're trying to call a contract, so it should have code
-                        let code = self.rpc_client.get_code_at(*address).await.map_err(|e| {
-                            ContenderError::with_err(
-                                e,
-                                "failed to read bytecode at contract address",
-                            )
-                        })?;
+                        let code = self.rpc_client.get_code_at(*address).await?;
                         if code.is_empty() {
                             warn!("Trying to call an address with no code... If you're targeting a smart contract, you may need to run contender setup to re-deploy it.");
                         }
@@ -1554,13 +1386,7 @@ where
                 }
                 self.rpc_client
                     .estimate_gas(WithOtherFields::new(tx_req.to_owned()))
-                    .await
-                    .map_err(|e| {
-                        if e.as_error_resp().is_some() {
-                            tracing::error!("failed tx: {tx_req:?}");
-                        }
-                        ContenderError::with_err(e, "failed to estimate gas for tx")
-                    })?
+                    .await?
             };
             self.gas_limits.insert(key, gas_limit);
         }
@@ -1582,14 +1408,11 @@ async fn sync_nonces(
         let send = sender.clone();
         let rpc_client = Arc::new(rpc_client.clone());
         tasks.push(tokio::task::spawn(async move {
-            let nonce = rpc_client
-                .get_transaction_count(addr)
-                .await
-                .map_err(|e| ContenderError::with_err(e, "failed to retrieve nonce from RPC"))?;
+            let nonce = rpc_client.get_transaction_count(addr).await?;
             send.send((addr, nonce))
                 .await
-                .map_err(|e| ContenderError::with_err(e, "(mpsc) failed to send nonce"))?;
-            Ok::<_, ContenderError>(())
+                .map_err(CallbackError::MpscSendAddrNonce)?;
+            Ok::<_, Error>(())
         }));
     }
 
@@ -1679,7 +1502,7 @@ impl TxKey for TransactionRequest {
 pub mod tests {
     use crate::agent_controller::AgentStore;
     use crate::db::MockDb;
-    use crate::error::ContenderError;
+    use crate::error::RuntimeErrorKind;
     use crate::generator::named_txs::ExecutionRequest;
     use crate::generator::templater::Templater;
     use crate::generator::types::SpamRequest;
@@ -1690,6 +1513,7 @@ pub mod tests {
     };
     use crate::spammer::util::test::get_test_signers;
     use crate::test_scenario::TestScenario;
+    use crate::Error;
     use crate::Result;
     use alloy::consensus::constants::GWEI_TO_WEI;
     use alloy::hex::ToHexExt;
@@ -1868,8 +1692,7 @@ pub mod tests {
         anvil: &AnvilInstance,
         txs_per_duration: u64,
         builder_anvil: Option<&AnvilInstance>,
-    ) -> std::result::Result<TestScenario<MockDb, RandSeed, MockConfig>, Box<dyn std::error::Error>>
-    {
+    ) -> Result<TestScenario<MockDb, RandSeed, MockConfig>> {
         let seed = RandSeed::new();
         let tx_type = alloy::consensus::TxType::Eip1559;
         let bundle_type = BundleType::default();
@@ -2225,12 +2048,12 @@ pub mod tests {
         let scenario = get_test_scenario(&anvil, 10, Some(&anvil2)).await;
 
         if let Err(e) = scenario {
-            println!("error: {e}");
+            println!("error (this is part of the test): {e}");
             assert!(matches!(
-                e.downcast_ref(),
-                Some(ContenderError::SetupError(_, _))
+                e,
+                Error::Runtime(RuntimeErrorKind::ChainIdMismatch(_, _))
             ));
-            assert!(e.to_string().contains("chain id must be consistent"));
+            assert!(e.to_string().contains("chain_id mismatch"));
         } else {
             panic!("scenario should not return if chain IDs don't match");
         }

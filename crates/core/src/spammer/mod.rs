@@ -12,4 +12,4 @@ pub use timed::TimedSpammer;
 pub use tx_callback::{
     LogCallback, NilCallback, OnBatchSent, OnTxSent, RuntimeTxInfo, SpamCallback,
 };
-pub use types::{ExecutionPayload, SpamTrigger};
+pub use types::{CallbackError, CallbackResult, ExecutionPayload, SpamTrigger};

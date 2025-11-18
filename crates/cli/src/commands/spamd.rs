@@ -1,11 +1,11 @@
 use super::SpamCommandArgs;
+use crate::ContenderError;
 use crate::{
     commands::{self},
     util::data_dir,
 };
-use contender_core::{db::DbOps, error::ContenderError};
+use contender_core::db::DbOps;
 use std::{
-    ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -118,13 +118,9 @@ pub async fn spamd(
                 Some(last_run_id),
                 last_run_id - first_run_id,
                 db,
-                &data_dir()
-                    .map_err(|e| ContenderError::with_err(e.deref(), "failed to load data dir"))?,
+                &data_dir()?,
             )
-            .await
-            .map_err(|e| {
-                ContenderError::GenericError("failed to generate report", e.to_string())
-            })?;
+            .await?;
         }
         Ok(())
     };

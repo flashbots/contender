@@ -1,5 +1,5 @@
 use crate::{
-    error::ContenderError,
+    error::Error,
     generator::seeder::{SeedValue, Seeder},
     Result,
 };
@@ -30,16 +30,13 @@ pub fn encode_calldata(args: &[impl AsRef<str>], sig: &str) -> Result<Vec<u8>> {
         return Ok(vec![]);
     }
     let func = json_abi::Function::parse(sig)
-        .map_err(|e| ContenderError::with_err(e, "failed to parse function signature"))?;
+        .map_err(|e| Error::Config(format!("failed to parse function signature: {e}")))?;
     if func.inputs.len() != args.len() {
-        return Err(ContenderError::GenericError(
-            "invalid args for function signature:",
-            format!(
-                "{sig}: {} param(s) in sig, {} args provided",
-                func.inputs.len(),
-                args.len(),
-            ),
-        ));
+        return Err(Error::Config(format!(
+            "invalid args for function signature '{sig}': {} param(s) in sig, {} args provided",
+            func.inputs.len(),
+            args.len(),
+        )));
     }
     let values: Vec<DynSolValue> = args
         .iter()
@@ -47,19 +44,11 @@ pub fn encode_calldata(args: &[impl AsRef<str>], sig: &str) -> Result<Vec<u8>> {
         .map(|(idx, arg)| {
             let mut argtype = String::new();
             func.inputs[idx].full_selector_type_raw(&mut argtype);
-            let r#type = DynSolType::parse(&argtype)
-                .map_err(|e| ContenderError::with_err(e, "failed to parse function type"))?;
-            r#type.coerce_str(arg.as_ref()).map_err(|e| {
-                ContenderError::SpamError(
-                    "failed to coerce arg to DynSolValue",
-                    Some(e.to_string()),
-                )
-            })
+            let r#type = DynSolType::parse(&argtype).map_err(Error::DynAbi)?;
+            r#type.coerce_str(arg.as_ref()).map_err(Error::DynAbi)
         })
         .collect::<Result<_>>()?;
-    let input = func
-        .abi_encode_input(&values)
-        .map_err(|e| ContenderError::with_err(e, "failed to encode function arguments"))?;
+    let input = func.abi_encode_input(&values).map_err(Error::DynAbi)?;
     Ok(input)
 }
 

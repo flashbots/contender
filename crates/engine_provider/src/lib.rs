@@ -8,6 +8,7 @@ mod util;
 mod valid_payload;
 
 pub use auth_provider::{AuthProvider, AuthResult, ProviderExt};
+pub use error::AuthProviderError;
 pub use traits::*;
 pub use util::*;
 

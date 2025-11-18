@@ -17,3 +17,4 @@ r2d2_sqlite = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }
 tracing = { workspace = true }
+thiserror = { workspace = true }

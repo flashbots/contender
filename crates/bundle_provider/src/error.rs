@@ -1,9 +1,11 @@
 use std::fmt::Display;
 
+use alloy::transports::{RpcError, TransportErrorKind};
+
 #[derive(Debug)]
 pub enum BundleProviderError {
     InvalidUrl,
-    SendBundleError(Box<dyn std::error::Error>),
+    SendBundleError(RpcError<TransportErrorKind>),
 }
 
 impl Display for BundleProviderError {
@@ -19,7 +21,7 @@ impl std::error::Error for BundleProviderError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             BundleProviderError::InvalidUrl => None,
-            BundleProviderError::SendBundleError(e) => Some(e.as_ref()),
+            BundleProviderError::SendBundleError(e) => Some(e),
         }
     }
 }

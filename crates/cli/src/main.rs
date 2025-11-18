@@ -1,7 +1,9 @@
 mod commands;
 mod default_scenarios;
+mod error;
 mod util;
 
+use crate::commands::error::ArgsError;
 use alloy::{
     network::AnyNetwork,
     providers::{DynProvider, ProviderBuilder},
@@ -12,22 +14,19 @@ use commands::{
     admin::handle_admin_command,
     common::{ScenarioSendTxsCliArgs, SendSpamCliArgs},
     db::{drop_db, export_db, import_db, reset_db},
+    replay::ReplayArgs,
     ContenderCli, ContenderSubcommand, DbCommand, SetupCommandArgs, SpamCliArgs, SpamCommandArgs,
     SpamScenario,
 };
-use contender_core::{db::DbOps, error::ContenderError};
+use contender_core::db::DbOps;
 use contender_sqlite::{SqliteDb, DB_VERSION};
 use default_scenarios::{fill_block::FillBlockCliArgs, BuiltinScenarioCli};
+use error::ContenderError;
 use std::{str::FromStr, sync::LazyLock};
 use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
-use util::{data_dir, db_file, prompt_continue};
-
-use crate::{
-    commands::replay::ReplayArgs,
-    util::{bold, init_reports_dir},
-};
+use util::{bold, data_dir, db_file, init_reports_dir, prompt_continue};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     let path = db_file().expect("failed to get DB file path");
@@ -39,12 +38,20 @@ static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
 static LATENCY_HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
 
 #[tokio::main(flavor = "multi_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> color_eyre::Result<()> {
+    color_eyre::install()?;
+    run().await.map_err(|e| e.into())
+}
+
+async fn run() -> Result<(), ContenderError> {
     init_tracing();
     init_reports_dir();
 
     let args = ContenderCli::parse_args();
-    if DB.table_exists("run_txs")? {
+    if DB
+        .table_exists("run_txs")
+        .map_err(|e| ContenderError::Db(e.into()))?
+    {
         // check version and exit if DB version is incompatible
         let quit_early = DB.version() != DB_VERSION
             && !matches!(
@@ -69,16 +76,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 DB_VERSION
             );
             warn!("{recommendation}");
-            return Err("Incompatible DB detected".into());
+            return Err(ContenderError::DbVersion);
         }
     } else {
         info!("no DB found, creating new DB");
-        DB.create_tables()?;
+        DB.create_tables()
+            .map_err(|e| ContenderError::Db(e.into()))?;
     }
     let db = DB.clone();
     let db_path = db_file()?;
 
-    match args.command {
+    let res = match args.command {
         ContenderSubcommand::Db { command } => match command {
             DbCommand::Drop => drop_db(&db_path).await?,
             DbCommand::Reset => reset_db(&db_path).await?,
@@ -108,11 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
             if builtin_scenario_config.is_some() && args.eth_json_rpc_args.testfile.is_some() {
-                return Err(ContenderError::SpamError(
-                    "Cannot use both builtin scenario and testfile",
-                    None,
-                )
-                .into());
+                return Err(ArgsError::ScenarioFileBuiltinConflict.into());
             }
 
             let SpamCliArgs {
@@ -127,7 +131,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let SendSpamCliArgs { loops, .. } = spam_args.to_owned();
 
-            let client = ClientBuilder::default().http(Url::from_str(&rpc_url)?);
+            let client = ClientBuilder::default()
+                .http(Url::from_str(&rpc_url).map_err(ArgsError::UrlParse)?);
             let provider = DynProvider::new(
                 ProviderBuilder::new()
                     .network::<AnyNetwork>()
@@ -162,7 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         ContenderSubcommand::Replay { args } => {
             let args = ReplayArgs::from_cli_args(*args).await?;
-            commands::replay::replay(args, DB.clone()).await?;
+            commands::replay::replay(args, &DB.clone()).await?;
         }
 
         ContenderSubcommand::Report {
@@ -175,14 +180,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &db,
                 &data_dir().expect("invalid data dir"),
             )
-            .await?;
+            .await
+            .map_err(ContenderError::Report)?;
         }
 
         ContenderSubcommand::Admin { command } => {
             handle_admin_command(command, db).await?;
         }
-    }
-    Ok(())
+    };
+
+    Ok(res)
 }
 
 fn init_tracing() {
@@ -219,14 +226,7 @@ fn check_spam_args(args: &SpamCliArgs) -> Result<bool, ContenderError> {
     } else if args.spam_args.txs_per_second.is_some() {
         ("seconds", 100)
     } else {
-        return Err(ContenderError::SpamError(
-            "Missing params.",
-            Some(format!(
-                "Either {} or {} must be set.",
-                bold("--txs-per-block (--tpb)"),
-                bold("--txs-per-second (--tps)"),
-            )),
-        ));
+        return Err(ArgsError::SpamRateNotFound.into());
     };
     let duration = args.spam_args.duration;
     if duration > max_duration {

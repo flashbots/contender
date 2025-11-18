@@ -1,10 +1,8 @@
+use crate::{Error, Result};
 use alloy::{primitives::Address, transports::http::reqwest};
-use contender_core::{
-    error::ContenderError,
-    generator::{
-        templater::Templater, types::SpamRequest, BundleCallDefinition, CreateDefinition,
-        FunctionCallDefinition, PlanConfig,
-    },
+use contender_core::generator::{
+    templater::Templater, types::SpamRequest, BundleCallDefinition, CreateDefinition,
+    FunctionCallDefinition, PlanConfig,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr};
@@ -37,29 +35,24 @@ impl TestConfig {
         }
     }
 
-    pub async fn from_remote_url(url: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
-        let file_contents = reqwest::get(url)
-            .await
-            .map_err(|_err| format!("Error occurred while fetching URL {url}"))?
-            .text()
-            .await
-            .map_err(|_err| "Cannot convert the contents of the file into text.")?;
+    pub async fn from_remote_url(url: &str) -> Result<TestConfig> {
+        let file_contents = reqwest::get(url).await?.text().await?;
         let test_file: TestConfig = toml::from_str(&file_contents)?;
         Ok(test_file)
     }
 
-    pub fn from_file(file_path: &str) -> Result<TestConfig, Box<dyn std::error::Error>> {
+    pub fn from_file(file_path: &str) -> Result<TestConfig> {
         let file_contents_str = String::from_utf8_lossy(&read(file_path)?).to_string();
         let test_file: TestConfig = toml::from_str(&file_contents_str)?;
         Ok(test_file)
     }
 
-    pub fn encode_toml(&self) -> Result<String, Box<dyn std::error::Error>> {
+    pub fn encode_toml(&self) -> Result<String> {
         let encoded = toml::to_string(self)?;
         Ok(encoded)
     }
 
-    pub fn save_toml(&self, file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn save_toml(&self, file_path: &str) -> Result<()> {
         let encoded = self.encode_toml()?;
         std::fs::write(file_path, encoded)?;
         Ok(())
@@ -148,9 +141,9 @@ impl TestConfig {
 }
 
 impl FromStr for TestConfig {
-    type Err = Box<dyn std::error::Error>;
+    type Err = Error;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self> {
         let test_file: TestConfig = toml::from_str(s)?;
         Ok(test_file)
     }
@@ -168,7 +161,7 @@ macro_rules! set_default_from_pool {
 }
 
 impl PlanConfig<String> for TestConfig {
-    fn get_spam_steps(&self) -> Result<Vec<SpamRequest>, ContenderError> {
+    fn get_spam_steps(&self) -> std::result::Result<Vec<SpamRequest>, contender_core::Error> {
         use SpamRequest::*;
         let spam_steps: Vec<SpamRequest> = self
             .spam
@@ -198,7 +191,9 @@ impl PlanConfig<String> for TestConfig {
         Ok(spam_steps.to_owned())
     }
 
-    fn get_setup_steps(&self) -> Result<Vec<FunctionCallDefinition>, ContenderError> {
+    fn get_setup_steps(
+        &self,
+    ) -> std::result::Result<Vec<FunctionCallDefinition>, contender_core::Error> {
         let setup_steps = self
             .setup
             .to_owned()
@@ -209,7 +204,9 @@ impl PlanConfig<String> for TestConfig {
         Ok(setup_steps)
     }
 
-    fn get_create_steps(&self) -> Result<Vec<CreateDefinition>, ContenderError> {
+    fn get_create_steps(
+        &self,
+    ) -> std::result::Result<Vec<CreateDefinition>, contender_core::Error> {
         let create_steps = self
             .create
             .to_owned()
@@ -220,7 +217,7 @@ impl PlanConfig<String> for TestConfig {
         Ok(create_steps)
     }
 
-    fn get_env(&self) -> Result<HashMap<String, String>, ContenderError> {
+    fn get_env(&self) -> std::result::Result<HashMap<String, String>, contender_core::Error> {
         Ok(self.env.to_owned().unwrap_or_default())
     }
 }

@@ -1,22 +1,91 @@
-use std::ops::Deref;
-use std::{error::Error, fmt::Display};
-
-use alloy::primitives::Address;
-use alloy::transports::{RpcError, TransportErrorKind};
+use crate::{db::DbError, generator::NamedTxRequest, spammer::CallbackError};
+use alloy::{
+    dyn_abi, json_abi,
+    network::{Ethereum, TransactionBuilderError},
+    primitives::Address,
+    providers::PendingTransactionError,
+    rpc::types::TransactionRequest,
+    signers,
+    transports::{RpcError, TransportErrorKind},
+};
 use contender_bundle_provider::error::BundleProviderError;
-use contender_engine_provider::error::AuthProviderError;
+use contender_engine_provider::AuthProviderError;
+use thiserror::Error;
 
-pub enum ContenderError {
-    DbError(&'static str, Option<String>),
-    SpamError(&'static str, Option<String>),
-    SetupError(&'static str, Option<String>),
-    GenericError(&'static str, String),
-    AdminError(&'static str, String),
-    InvalidRuntimeParams(RuntimeParamErrorKind),
-    RpcError(RpcErrorKind, RpcError<TransportErrorKind>),
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("auth provider error: {0}")]
+    AuthProvider(#[from] AuthProviderError),
+    #[error("failed to encode function args: {0}")]
+    DynAbi(#[from] dyn_abi::Error),
+    #[error("abi parser error: {0}")]
+    AbiParser(#[from] json_abi::parser::Error),
+    #[error("critical error from callback: {0}")]
+    Callback(#[from] CallbackError),
+    #[error("invalid configuration: {0}")]
+    Config(String),
+    #[error("database error: {0}")]
+    Db(#[from] DbError),
+    #[error("generator error: {0}")]
+    Generator(String),
+    #[error("rpc error: {0}")]
+    Rpc(#[from] RpcError<TransportErrorKind>),
+    #[error("rpc error: {0}")]
+    RpcInternal(RpcErrorKind),
+    #[error("failed to find pending tx: {0}")]
+    PendingTx(#[from] PendingTransactionError),
+    #[error("runtime error: {0}")]
+    Runtime(#[from] RuntimeErrorKind),
+    #[error("failed to build eth transaction: {0}")]
+    TransactionBuilderEth(#[from] TransactionBuilderError<Ethereum>),
+    #[error("signer failed to sign hash: {0}")]
+    Signer(#[from] signers::Error),
+    #[error("templater error: {0}")]
+    Templater(String),
 }
 
-// #[derive(Debug)]
+#[derive(Debug, Error)]
+pub enum RuntimeErrorKind {
+    #[error("failed to spawn anvil. You may need to install foundry (https://book.getfoundry.sh/getting-started/installation).")]
+    AnvilMissing,
+    #[error("anvil failed to become ready within timeout, waited {0} seconds")]
+    AnvilTimeout(u64),
+    #[error("anvil error: {0}")]
+    AnvilUnchecked(String),
+    #[error("chain_id mismatch. primary chain id: {0}, builder chain id: {1}. chain_id must be consistent across rpc and builder")]
+    ChainIdMismatch(u64, u64),
+    #[error("no gas limit was set for tx {0:?}")]
+    GasLimitMissingFromMap(TransactionRequest),
+    #[error("no genesis block found")]
+    GenesisBlockMissing,
+    #[error("NamedTxRequest requires a 'from' address: {0:?}")]
+    NamedTxMissingFromAddress(NamedTxRequest),
+    #[error("couldn't find nonce for 'from' address {0}")]
+    NonceMissing(Address),
+    #[error("couldn't find private key for address {0}")]
+    PrivateKeyMissing(Address),
+    #[error("failed to get signer for {0}")]
+    SignerMissingFromMap(Address),
+    #[error("cannot proceed; there are no spam txs")]
+    SpamTxsEmpty,
+    #[error("tx request requires a 'from' address: {0:?}")]
+    TxMissingFromAddress(TransactionRequest),
+    #[error("{0}")]
+    InvalidParams(#[from] RuntimeParamErrorKind),
+}
+
+impl From<alloy::node_bindings::NodeError> for Error {
+    fn from(e: alloy::node_bindings::NodeError) -> Self {
+        if e.to_string().to_lowercase().contains("no such file") {
+            RuntimeErrorKind::AnvilMissing.into()
+        } else {
+            RuntimeErrorKind::AnvilUnchecked(e.to_string()).into()
+        }
+    }
+}
+
+/// Wrapper for common errors that we can work around at runtime.
+#[derive(Debug)]
 pub enum RpcErrorKind {
     TxAlreadyKnown,
     InsufficientFunds(Address),
@@ -24,160 +93,54 @@ pub enum RpcErrorKind {
     GenericSendTxError,
 }
 
-impl RpcErrorKind {
-    pub fn to_error(self, e: RpcError<TransportErrorKind>) -> ContenderError {
-        ContenderError::RpcError(self, e)
-    }
-}
-
-#[derive(Debug)]
+/// Wrapper for common errors that we can work around at runtime.
+#[derive(Debug, Error)]
 pub enum RuntimeParamErrorKind {
+    #[error("builder URL is required")]
     BuilderUrlRequired,
+
+    #[error("invalid builder URL")]
     BuilderUrlInvalid,
+
+    #[error("invalid bundle type.")]
     BundleTypeInvalid,
+
+    #[error("invalid arg(s): '{0}'")]
     InvalidArgs(String),
+
+    #[error("missing required arg(s): {0}")]
     MissingArgs(String),
 }
 
-impl std::fmt::Debug for RpcErrorKind {
+impl std::fmt::Display for RpcErrorKind {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use RpcErrorKind::*;
         match self {
-            RpcErrorKind::TxAlreadyKnown => write!(f, "Transaction already known. You may be using the same seed (or private key) as another spammer."),
-            RpcErrorKind::InsufficientFunds(address) => write!(f, "Insufficient funds for transaction (from {address})."),
-            RpcErrorKind::ReplacementTransactionUnderpriced => {
+            TxAlreadyKnown => write!(f, "Transaction already known. You may be using the same seed (or private key) as another spammer."),
+            InsufficientFunds(address) => write!(f, "Insufficient funds for transaction (from {address})."),
+            ReplacementTransactionUnderpriced => {
                 write!(f, "Replacement transaction underpriced. You may have to wait, or replace the currently-pending transactions manually.")
             }
-            RpcErrorKind::GenericSendTxError => write!(f, "Failed to send transaction. This may be due to a network issue or the transaction being invalid."),
+            GenericSendTxError => write!(f, "Failed to send transaction. This may be due to a network issue or the transaction being invalid."),
         }
     }
 }
 
-impl Display for RuntimeParamErrorKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            RuntimeParamErrorKind::BuilderUrlRequired => {
-                write!(f, "builder URL is required")
-            }
-            RuntimeParamErrorKind::BuilderUrlInvalid => {
-                write!(f, "invalid builder URL")
-            }
-            RuntimeParamErrorKind::BundleTypeInvalid => {
-                write!(f, "invalid bundle type")
-            }
-            RuntimeParamErrorKind::MissingArgs(arg) => {
-                write!(f, "missing required argument: {arg}")
-            }
-            RuntimeParamErrorKind::InvalidArgs(arg) => {
-                write!(f, "invalid argument: {arg}")
-            }
-        }
-    }
-}
-
-impl From<RuntimeParamErrorKind> for ContenderError {
-    fn from(err: RuntimeParamErrorKind) -> ContenderError {
-        ContenderError::InvalidRuntimeParams(err)
-    }
-}
-
-impl From<BundleProviderError> for ContenderError {
-    fn from(err: BundleProviderError) -> ContenderError {
+impl From<BundleProviderError> for Error {
+    fn from(err: BundleProviderError) -> Error {
+        use Error::Runtime;
         match err {
             BundleProviderError::InvalidUrl => {
-                ContenderError::InvalidRuntimeParams(RuntimeParamErrorKind::BuilderUrlInvalid)
+                Runtime(RuntimeParamErrorKind::BuilderUrlInvalid.into())
             }
             BundleProviderError::SendBundleError(e) => {
                 if e.to_string()
                     .contains("bundle must contain exactly one transaction")
                 {
-                    return RuntimeParamErrorKind::BundleTypeInvalid.into();
+                    return Runtime(RuntimeParamErrorKind::BundleTypeInvalid.into());
                 }
-                ContenderError::with_err(e.deref(), "failed to send bundle")
+                Error::Rpc(e)
             }
         }
     }
 }
-
-impl From<AuthProviderError> for ContenderError {
-    fn from(err: AuthProviderError) -> ContenderError {
-        use AuthProviderError::*;
-        match err {
-            InvalidPayload(_, _) => ContenderError::with_err(err, "invalid payload"),
-            MissingBlock(_) => ContenderError::with_err(err, "block not found onchain"),
-            InvalidTxs => ContenderError::with_err(err, "invalid txs in block"),
-            InvalidBlockRange(start, end) => ContenderError::InvalidRuntimeParams(
-                RuntimeParamErrorKind::InvalidArgs(format!("start={start}, end={end}")),
-            ),
-            InvalidBlockStart(blk) => ContenderError::InvalidRuntimeParams(
-                RuntimeParamErrorKind::InvalidArgs(format!("start={blk}")),
-            ),
-            InternalError(msg, e) => {
-                ContenderError::with_err(e.deref(), msg.unwrap_or("internal error"))
-            }
-            ConnectionFailed(e) => {
-                ContenderError::with_err(e.deref(), "Failed to connect to auth provider")
-            }
-            ExtraDataTooShort => ContenderError::AdminError(
-                "Extra data too short",
-                "Genesis block extra data is too short".to_string(),
-            ),
-            GasLimitRequired => ContenderError::AdminError(
-                "Gas limit required",
-                "Gas limit parameter is required".to_string(),
-            ),
-        }
-    }
-}
-
-impl ContenderError {
-    pub fn with_err(err: impl Error, msg: &'static str) -> Self {
-        ContenderError::GenericError(msg, format!("{err:?}"))
-    }
-}
-
-impl std::fmt::Display for ContenderError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            ContenderError::AdminError(msg, e) => write!(f, "AdminError: {msg} - {e}"),
-            ContenderError::DbError(msg, _) => write!(f, "DatabaseError: {msg}"),
-            ContenderError::GenericError(msg, e) => {
-                write!(f, "{} {}", msg, e.to_owned())
-            }
-            ContenderError::InvalidRuntimeParams(kind) => {
-                write!(f, "InvalidRuntimeParams: {kind}")
-            }
-            ContenderError::RpcError(kind, e) => {
-                write!(f, "RpcError: {kind:?}: {e}")
-            }
-            ContenderError::SetupError(msg, _) => write!(f, "SetupError: {msg}"),
-            ContenderError::SpamError(msg, _) => write!(f, "SpamError: {msg}"),
-        }
-    }
-}
-
-impl std::fmt::Debug for ContenderError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let err = |e: Option<String>| e.unwrap_or_default();
-        match self {
-            ContenderError::AdminError(msg, e) => write!(f, "AdminError: {msg} - {e}"),
-            ContenderError::DbError(msg, e) => {
-                write!(f, "DatabaseError: {} {}", msg, err(e.to_owned()))
-            }
-            ContenderError::GenericError(msg, e) => write!(f, "{msg} {e}"),
-            ContenderError::InvalidRuntimeParams(kind) => {
-                write!(f, "InvalidRuntimeParams: {kind}")
-            }
-            ContenderError::RpcError(kind, e) => {
-                write!(f, "RpcError: {kind:?}: {e:?}")
-            }
-            ContenderError::SetupError(msg, e) => {
-                write!(f, "SetupError: {} {}", msg, err(e.to_owned()))
-            }
-            ContenderError::SpamError(msg, e) => {
-                write!(f, "SpamError: {} {}", msg, err(e.to_owned()))
-            }
-        }
-    }
-}
-
-impl Error for ContenderError {}
