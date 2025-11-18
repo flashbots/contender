@@ -38,8 +38,7 @@ static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
 static LATENCY_HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
 
 #[tokio::main(flavor = "multi_thread")]
-async fn main() -> color_eyre::Result<()> {
-    color_eyre::install()?;
+async fn main() -> miette::Result<()> {
     run().await.map_err(|e| e.into())
 }
 
@@ -48,37 +47,7 @@ async fn run() -> Result<(), ContenderError> {
     init_reports_dir();
 
     let args = ContenderCli::parse_args();
-    if DB.table_exists("run_txs").map_err(ContenderError::Db)? {
-        // check version and exit if DB version is incompatible
-        let quit_early = DB.version() != DB_VERSION
-            && !matches!(
-                &args.command,
-                ContenderSubcommand::Db { command: _ } | ContenderSubcommand::Admin { command: _ }
-            );
-        if quit_early {
-            let recommendation = format!(
-                "To backup your data, run `contender db export`.\n{}",
-                if DB.version() < DB_VERSION {
-                    // contender version is newer than DB version, so user needs to upgrade DB
-                    "Please run `contender db drop` or `contender db reset` to update your DB."
-                } else {
-                    // DB version is newer than contender version, so user needs to downgrade DB or upgrade contender
-                    "Please upgrade contender or run `contender db drop` to delete your DB."
-                }
-            );
-            warn!("Your database is incompatible with this version of contender.");
-            warn!(
-                "Remote DB version = {}, contender expected version {}.",
-                DB.version(),
-                DB_VERSION
-            );
-            warn!("{recommendation}");
-            return Err(ContenderError::DbVersion);
-        }
-    } else {
-        info!("no DB found, creating new DB");
-        DB.create_tables().map_err(ContenderError::Db)?;
-    }
+    init_db(&args.command)?;
     let db = DB.clone();
     let db_path = db_file()?;
 
@@ -185,6 +154,42 @@ async fn run() -> Result<(), ContenderError> {
         }
     };
 
+    Ok(())
+}
+
+/// Check DB version, throw error if version is incompatible with currently-running version of contender.
+fn init_db(command: &ContenderSubcommand) -> Result<(), ContenderError> {
+    if DB.table_exists("run_txs").map_err(ContenderError::Db)? {
+        // check version and exit if DB version is incompatible
+        let quit_early = DB.version() != DB_VERSION
+            && !matches!(
+                command,
+                ContenderSubcommand::Db { command: _ } | ContenderSubcommand::Admin { command: _ }
+            );
+        if quit_early {
+            let recommendation = format!(
+                "To backup your data, run `contender db export`.\n{}",
+                if DB.version() < DB_VERSION {
+                    // contender version is newer than DB version, so user needs to upgrade DB
+                    "Please run `contender db drop` or `contender db reset` to update your DB."
+                } else {
+                    // DB version is newer than contender version, so user needs to downgrade DB or upgrade contender
+                    "Please upgrade contender or run `contender db drop` to delete your DB."
+                }
+            );
+            warn!("Your database is incompatible with this version of contender.");
+            warn!(
+                "Remote DB version = {}, contender expected version {}.",
+                DB.version(),
+                DB_VERSION
+            );
+            warn!("{recommendation}");
+            return Err(ContenderError::DbVersion);
+        }
+    } else {
+        info!("no DB found, creating new DB");
+        DB.create_tables().map_err(ContenderError::Db)?;
+    }
     Ok(())
 }
 

@@ -74,7 +74,7 @@ pub enum ArgsError {
         required_type: TxTypeCli,
     },
 
-    #[error("failed to parse url: {0}")]
+    #[error("failed to parse url")]
     UrlParse(#[from] url::ParseError),
 }
 
@@ -101,7 +101,7 @@ pub enum SetupError {
         broke_accounts: Vec<(Address, U256)>,
     },
 
-    #[error("{0}")]
+    #[error("util error")]
     Util(#[from] UtilError),
 }
 

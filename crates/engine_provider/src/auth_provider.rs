@@ -84,7 +84,7 @@ where
         let client = ClientBuilder::default()
             .connect_with(auth_transport)
             .await
-            .map_err(AuthProviderError::ConnectionFailed)?;
+            .map_err(AuthProviderError::TransportError)?;
         let auth_provider = RootProvider::<N>::new(client);
         let genesis_block = auth_provider
             .get_block_by_number(alloy::eips::BlockNumberOrTag::Earliest)
@@ -202,7 +202,7 @@ where
                         let parent_beacon_block_root =
                             parent_beacon_block_root.ok_or(AuthProviderError::InvalidPayload(
                                 self.message_version,
-                                Some("parent_beacon_block_root is required for V3 payloads"),
+                                "parent_beacon_block_root is required for V3 payloads",
                             ))?;
                         self.inner
                             .new_payload_v3_wait(
@@ -219,13 +219,13 @@ where
                         let parent_beacon_block_root =
                             parent_beacon_block_root.ok_or(AuthProviderError::InvalidPayload(
                                 self.message_version,
-                                Some("parent_beacon_block_root is required for V4 payloads"),
+                                "parent_beacon_block_root is required for V4 payloads",
                             ))?;
                         // ... and executionRequests
                         let execution_requests =
                             execution_requests.ok_or(AuthProviderError::InvalidPayload(
                                 self.message_version,
-                                Some("execution_requests is required for V4 payloads"),
+                                "execution_requests is required for V4 payloads",
                             ))?;
                         self.inner
                             .new_payload_v4_wait(

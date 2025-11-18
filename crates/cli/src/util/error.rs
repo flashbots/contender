@@ -7,19 +7,19 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum UtilError {
-    #[error("env error: {0}")]
+    #[error("env error")]
     EnvVar(#[from] std::env::VarError),
 
-    #[error("io error: {0}")]
+    #[error("io error")]
     Io(#[from] std::io::Error),
 
-    #[error("failed to parse duration: {0}")]
+    #[error("failed to parse duration")]
     ParseDuration(#[from] ParseDurationError),
 
-    #[error("rpc error: {0}")]
+    #[error("rpc error")]
     Rpc(#[from] RpcError<TransportErrorKind>),
 
-    #[error("failed to build tx: {0}")]
+    #[error("failed to build tx")]
     BuildTxFailed(#[from] TransactionBuilderError<Ethereum>),
 
     #[error("failed to make a backup of the DB: {0}")]
@@ -49,7 +49,7 @@ pub enum UtilError {
 
 #[derive(Debug, Error)]
 pub enum ParseDurationError {
-    #[error("invalid duration format: unexpected digit after unit in '{0}'")]
+    #[error("unexpected digit after unit in '{0}'")]
     UnexpectedDigit(String),
 
     #[error("invalid duration ('{0}'): floating point values are not supported")]

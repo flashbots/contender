@@ -30,8 +30,7 @@ fn inspect_auth_err(err: &AuthProviderError) {
         InvalidPayload(msg_version, msg) => {
             error!(
                 "invalid payload (tried message version {:?}): {}",
-                msg_version,
-                msg.unwrap_or_default()
+                msg_version, msg
             );
             println!("Try changing the message version with {}", bold("-m"));
         }
@@ -66,7 +65,7 @@ fn inspect_auth_err(err: &AuthProviderError) {
                 );
             }
         }
-        ConnectionFailed(_) => {
+        TransportError(_) => {
             error!("Failed to connect to the auth API. You may need to enable the auth API on your target node.");
         }
         ExtraDataTooShort => {

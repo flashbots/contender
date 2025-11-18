@@ -15,7 +15,6 @@ contender_engine_provider = { workspace = true }
 
 alloy = { workspace = true, features = ["full", "node-bindings"] }
 async-trait.workspace = true
-eyre = { workspace = true }
 futures = { workspace = true }
 prometheus = { workspace = true }
 rand = { workspace = true }

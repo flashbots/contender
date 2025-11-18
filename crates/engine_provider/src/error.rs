@@ -3,8 +3,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum AuthProviderError {
-    #[error("auth provider failed to connect: {0}")]
-    ConnectionFailed(#[from] alloy::transports::TransportError),
+    #[error("auth provider transport error")]
+    TransportError(#[from] alloy::transports::TransportError),
 
     #[error("failed to retrieve block {0} from RPC provider")]
     MissingBlock(u64),
@@ -21,8 +21,8 @@ pub enum AuthProviderError {
     #[error("invalid start block (must be >1): {0}")]
     InvalidBlockStart(u64),
 
-    #[error("invalid payload, tried sending message version {0:?}. {1:?}")]
-    InvalidPayload(EngineApiMessageVersion, Option<&'static str>),
+    #[error("invalid payload, tried sending message version {0:?}. {1}")]
+    InvalidPayload(EngineApiMessageVersion, &'static str),
 
     #[error("extra_data of genesis block is too short")]
     ExtraDataTooShort,

@@ -533,6 +533,8 @@ pub fn human_readable_duration(duration: Duration) -> String {
 
 #[cfg(test)]
 mod test {
+    use crate::error::ContenderError;
+    use crate::util::error::UtilError;
     use crate::util::human_readable_duration;
     use crate::util::utils::human_readable_gas;
 
@@ -726,6 +728,15 @@ mod test {
         .await;
         println!("res: {res:?}");
         assert!(res.is_err());
+        assert!(matches!(
+            res.unwrap_err(),
+            ContenderError::Util(UtilError::InsufficientUserFunds {
+                sender: _,
+                have: _,
+                need: _,
+                chain_id: _
+            })
+        ))
     }
 
     #[test]

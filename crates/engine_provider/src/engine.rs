@@ -19,6 +19,7 @@ use alloy_rpc_types_engine::{
 use op_alloy_consensus::OpTypedTransaction;
 use reth_optimism_primitives::OpTransactionSigned;
 use secp256k1::{Message, SecretKey, SECP256K1};
+use thiserror::Error;
 
 use crate::auth_provider::NetworkAttributes;
 
@@ -424,11 +425,19 @@ impl Signer {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum SignerError {
+    #[error("invalid secret key {0:?}")]
+    InvalidSecretKey(String),
+}
+
 impl FromStr for Signer {
-    type Err = eyre::Error;
+    type Err = SignerError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::try_from_secret(B256::from_str(s)?)
-            .map_err(|e| eyre::eyre!("invalid secret key {:?}", e.to_string()))
+        Self::try_from_secret(
+            B256::from_str(s).map_err(|e| SignerError::InvalidSecretKey(e.to_string()))?,
+        )
+        .map_err(|e| SignerError::InvalidSecretKey(e.to_string()))
     }
 }

@@ -14,32 +14,45 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("auth provider error: {0}")]
+    #[error("auth provider error")]
     AuthProvider(#[from] AuthProviderError),
-    #[error("failed to encode function args: {0}")]
+
+    #[error("failed to encode function args")]
     DynAbi(#[from] dyn_abi::Error),
-    #[error("abi parser error: {0}")]
+
+    #[error("abi parser error")]
     AbiParser(#[from] json_abi::parser::Error),
-    #[error("critical error from callback: {0}")]
+
+    #[error("critical error from callback")]
     Callback(#[from] CallbackError),
+
     #[error("invalid configuration: {0}")]
-    Config(String),
-    #[error("database error: {0}")]
+    Config(String), // TODO: replace String with ConfigError
+
+    #[error("database error")]
     Db(#[from] DbError),
+
     #[error("generator error: {0}")]
-    Generator(String),
-    #[error("rpc error: {0}")]
+    Generator(String), // TODO: replace String with GeneratorError
+
+    #[error("rpc error")]
     Rpc(#[from] RpcError<TransportErrorKind>),
-    #[error("rpc error: {0}")]
+
+    #[error("internal rpc error: {0}")]
     RpcInternal(RpcErrorKind),
-    #[error("failed to find pending tx: {0}")]
+
+    #[error("failed to find pending tx")]
     PendingTx(#[from] PendingTransactionError),
-    #[error("runtime error: {0}")]
+
+    #[error("runtime error")]
     Runtime(#[from] RuntimeErrorKind),
-    #[error("failed to build eth transaction: {0}")]
+
+    #[error("failed to build eth transaction")]
     TransactionBuilderEth(#[from] TransactionBuilderError<Ethereum>),
-    #[error("signer failed to sign hash: {0}")]
+
+    #[error("signer failed to sign hash")]
     Signer(#[from] signers::Error),
+
     #[error("templater error: {0}")]
     Templater(String),
 }
@@ -48,29 +61,41 @@ pub enum Error {
 pub enum RuntimeErrorKind {
     #[error("failed to spawn anvil. You may need to install foundry (https://book.getfoundry.sh/getting-started/installation).")]
     AnvilMissing,
+
     #[error("anvil failed to become ready within timeout, waited {0} seconds")]
     AnvilTimeout(u64),
+
     #[error("anvil error: {0}")]
     AnvilUnchecked(String),
+
     #[error("chain_id mismatch. primary chain id: {0}, builder chain id: {1}. chain_id must be consistent across rpc and builder")]
     ChainIdMismatch(u64, u64),
+
     #[error("no gas limit was set for tx {0:?}")]
     GasLimitMissingFromMap(TransactionRequest),
+
     #[error("no genesis block found")]
     GenesisBlockMissing,
+
     #[error("NamedTxRequest requires a 'from' address: {0:?}")]
     NamedTxMissingFromAddress(NamedTxRequest),
+
     #[error("couldn't find nonce for 'from' address {0}")]
     NonceMissing(Address),
+
     #[error("couldn't find private key for address {0}")]
     PrivateKeyMissing(Address),
+
     #[error("failed to get signer for {0}")]
     SignerMissingFromMap(Address),
+
     #[error("cannot proceed; there are no spam txs")]
     SpamTxsEmpty,
+
     #[error("tx request requires a 'from' address: {0:?}")]
     TxMissingFromAddress(TransactionRequest),
-    #[error("{0}")]
+
+    #[error("invalid runtime params")]
     InvalidParams(#[from] RuntimeParamErrorKind),
 }
 

@@ -45,9 +45,8 @@ async-trait = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 regex = { workspace = true }
 thiserror = { workspace = true }
-eyre = { workspace = true }
-color-eyre = { workspace = true }
-url = "2.5.7"
+miette = { workspace = true, features = ["fancy"] }
+url = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.15.0"
