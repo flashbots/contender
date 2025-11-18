@@ -1,17 +1,50 @@
-use crate::{
-    error::Error,
-    generator::seeder::{SeedValue, Seeder},
-    Result,
-};
+use crate::generator::seeder::{SeedValue, Seeder};
 use alloy::{
     consensus::TxType,
-    dyn_abi::{DynSolType, DynSolValue, JsonAbiExt},
+    dyn_abi::{self, DynSolType, DynSolValue, JsonAbiExt},
     json_abi,
     primitives::FixedBytes,
     rpc::types::TransactionRequest,
-    signers::local::PrivateKeySigner,
+    signers::{self, local::PrivateKeySigner},
 };
+use thiserror::Error;
 use tracing::info;
+
+#[derive(Debug, Error)]
+pub enum UtilError {
+    #[error("failed to parse address '{0}'")]
+    ParseAddressFailed(String),
+
+    #[error("failed to parse function signature: {0}")]
+    ParseFunctionSigFailed(json_abi::parser::Error),
+
+    #[error("invalid args for function signature '{sig}': {required} param(s) in sig, {given} args provided")]
+    FunctionSignatureNumArgsInvalid {
+        sig: String,
+        required: usize,
+        given: usize,
+    },
+
+    #[error("failed to encode function args: {0}")]
+    EncodeFunctionArgsFailed(dyn_abi::Error),
+
+    #[error("signer failed to sign hash")]
+    Signer(#[from] signers::Error),
+}
+
+impl UtilError {
+    pub fn function_signature_num_args_invalid(
+        sig: impl ToString,
+        required: usize,
+        given: usize,
+    ) -> Self {
+        Self::FunctionSignatureNumArgsInvalid {
+            sig: sig.to_string(),
+            required,
+            given,
+        }
+    }
+}
 
 /// Encode the calldata for a function signature given an array of string arguments.
 ///
@@ -25,18 +58,18 @@ use tracing::info;
 /// let calldata = encode_calldata(&args, sig).unwrap();
 /// assert_eq!(calldata.encode_hex(), "60fe47b10000000000000000000000000000000000000000000000000000000012345678");
 /// ```
-pub fn encode_calldata(args: &[impl AsRef<str>], sig: &str) -> Result<Vec<u8>> {
+pub fn encode_calldata(args: &[impl AsRef<str>], sig: &str) -> Result<Vec<u8>, UtilError> {
+    use UtilError::*;
     if sig.is_empty() {
         return Ok(vec![]);
     }
-    let func = json_abi::Function::parse(sig)
-        .map_err(|e| Error::Config(format!("failed to parse function signature: {e}")))?;
+    let func = json_abi::Function::parse(sig).map_err(ParseFunctionSigFailed)?;
     if func.inputs.len() != args.len() {
-        return Err(Error::Config(format!(
-            "invalid args for function signature '{sig}': {} param(s) in sig, {} args provided",
+        return Err(UtilError::function_signature_num_args_invalid(
+            sig,
             func.inputs.len(),
             args.len(),
-        )));
+        ));
     }
     let values: Vec<DynSolValue> = args
         .iter()
@@ -44,11 +77,15 @@ pub fn encode_calldata(args: &[impl AsRef<str>], sig: &str) -> Result<Vec<u8>> {
         .map(|(idx, arg)| {
             let mut argtype = String::new();
             func.inputs[idx].full_selector_type_raw(&mut argtype);
-            let r#type = DynSolType::parse(&argtype).map_err(Error::DynAbi)?;
-            r#type.coerce_str(arg.as_ref()).map_err(Error::DynAbi)
+            let r#type = DynSolType::parse(&argtype).map_err(EncodeFunctionArgsFailed)?;
+            r#type
+                .coerce_str(arg.as_ref())
+                .map_err(EncodeFunctionArgsFailed)
         })
-        .collect::<Result<_>>()?;
-    let input = func.abi_encode_input(&values).map_err(Error::DynAbi)?;
+        .collect::<Result<_, UtilError>>()?;
+    let input = func
+        .abi_encode_input(&values)
+        .map_err(EncodeFunctionArgsFailed)?;
     Ok(input)
 }
 

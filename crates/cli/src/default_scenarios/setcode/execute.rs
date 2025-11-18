@@ -1,7 +1,10 @@
-use crate::{commands::common::parse_amount, default_scenarios::setcode::SetCodeCliArgs};
+use crate::{
+    commands::common::parse_amount, default_scenarios::setcode::SetCodeCliArgs,
+    error::ContenderError,
+};
 use alloy::{hex::ToHexExt, primitives::U256};
 use clap::Parser;
-use contender_core::generator::util::encode_calldata;
+use contender_core::generator::{error::GeneratorError, util::encode_calldata};
 
 pub const DEFAULT_SIG: &str = "execute((address,uint256,bytes)[])";
 pub const DEFAULT_ARGS: &str = "[(0x{Counter},0,0xd09de08a)]";
@@ -61,7 +64,7 @@ impl SetCodeExecuteCliArgs {
     pub fn to_setcode_cli_args(
         &self,
         og_args: &SetCodeCliArgs,
-    ) -> contender_core::Result<SetCodeCliArgs> {
+    ) -> Result<SetCodeCliArgs, ContenderError> {
         Ok(SetCodeCliArgs {
             contract_address: og_args.contract_address.to_owned(),
             command: og_args.command.to_owned(),
@@ -70,7 +73,9 @@ impl SetCodeExecuteCliArgs {
                 "[(0x{},{},{})]",
                 self.to.trim_start_matches("0x"),
                 self.value.unwrap_or(U256::ZERO).to_string(),
-                encode_calldata(&self.args, &self.sig)?.encode_hex(),
+                encode_calldata(&self.args, &self.sig)
+                    .map_err(|e| contender_core::Error::Generator(GeneratorError::Util(e)))?
+                    .encode_hex(),
             )]),
         })
     }

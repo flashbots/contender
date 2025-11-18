@@ -1,5 +1,6 @@
 use crate::{Error, Result};
 use alloy::{primitives::Address, transports::http::reqwest};
+use contender_core::generator::error::GeneratorError;
 use contender_core::generator::{
     templater::Templater, types::SpamRequest, BundleCallDefinition, CreateDefinition,
     FunctionCallDefinition, PlanConfig,
@@ -161,7 +162,7 @@ macro_rules! set_default_from_pool {
 }
 
 impl PlanConfig<String> for TestConfig {
-    fn get_spam_steps(&self) -> std::result::Result<Vec<SpamRequest>, contender_core::Error> {
+    fn get_spam_steps(&self) -> std::result::Result<Vec<SpamRequest>, GeneratorError> {
         use SpamRequest::*;
         let spam_steps: Vec<SpamRequest> = self
             .spam
@@ -191,9 +192,7 @@ impl PlanConfig<String> for TestConfig {
         Ok(spam_steps.to_owned())
     }
 
-    fn get_setup_steps(
-        &self,
-    ) -> std::result::Result<Vec<FunctionCallDefinition>, contender_core::Error> {
+    fn get_setup_steps(&self) -> std::result::Result<Vec<FunctionCallDefinition>, GeneratorError> {
         let setup_steps = self
             .setup
             .to_owned()
@@ -204,9 +203,7 @@ impl PlanConfig<String> for TestConfig {
         Ok(setup_steps)
     }
 
-    fn get_create_steps(
-        &self,
-    ) -> std::result::Result<Vec<CreateDefinition>, contender_core::Error> {
+    fn get_create_steps(&self) -> std::result::Result<Vec<CreateDefinition>, GeneratorError> {
         let create_steps = self
             .create
             .to_owned()
@@ -217,7 +214,7 @@ impl PlanConfig<String> for TestConfig {
         Ok(create_steps)
     }
 
-    fn get_env(&self) -> std::result::Result<HashMap<String, String>, contender_core::Error> {
+    fn get_env(&self) -> std::result::Result<HashMap<String, String>, GeneratorError> {
         Ok(self.env.to_owned().unwrap_or_default())
     }
 }

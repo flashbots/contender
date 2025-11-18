@@ -1,4 +1,4 @@
-use crate::{Error, Result};
+use crate::generator::error::GeneratorError;
 use alloy::{
     consensus::{BlobTransactionSidecar, SidecarBuilder, SimpleCoder},
     eips::eip7702::SignedAuthorization,
@@ -104,19 +104,17 @@ impl FunctionCallDefinition {
         self
     }
 
-    pub fn sidecar_data(&self) -> Result<Option<BlobTransactionSidecar>> {
+    pub fn sidecar_data(&self) -> Result<Option<BlobTransactionSidecar>, GeneratorError> {
         let sidecar_data = if let Some(data) = self.blob_data.as_ref() {
             let parsed_data = Bytes::from_hex(if data.starts_with("0x") {
                 data.to_owned()
             } else {
                 data.encode_hex()
             })
-            .map_err(|_| {
-                Error::Generator("failed to parse blob data; invalid hex value".to_owned())
-            })?;
+            .map_err(|_| GeneratorError::BlobDataParseFailed(data.to_owned()))?;
             let sidecar = SidecarBuilder::<SimpleCoder>::from_slice(&parsed_data)
                 .build()
-                .map_err(|e| Error::Generator(format!("failed to build sidecar: {e}")))?;
+                .map_err(|_| GeneratorError::SidecarBuildFailed)?;
             Some(sidecar)
         } else {
             None

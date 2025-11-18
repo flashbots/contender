@@ -1,3 +1,4 @@
+use crate::commands::error::ArgsError;
 use crate::commands::Result;
 use crate::util::data_dir;
 use crate::util::error::UtilError;
@@ -261,12 +262,8 @@ async fn handle_reclaim_eth(
     info!("Recipient: {}", recipient);
 
     // Create provider
-    let provider = ProviderBuilder::new().connect_http(
-        rpc_url
-            // TODO: replace this with ArgsError::UrlParse
-            .parse()
-            .map_err(|_| contender_core::Error::Config(format!("invalid RPC URL: '{rpc_url}'")))?,
-    );
+    let provider =
+        ProviderBuilder::new().connect_http(rpc_url.parse().map_err(ArgsError::UrlParse)?);
 
     // Generate accounts from seed
     let seed_bytes = read_seed_file()?;

@@ -1,11 +1,13 @@
-use crate::{db::DbError, generator::NamedTxRequest, spammer::CallbackError};
+use crate::{
+    db::DbError,
+    generator::{error::GeneratorError, templater::TemplaterError, NamedTxRequest},
+    spammer::CallbackError,
+};
 use alloy::{
-    dyn_abi, json_abi,
     network::{Ethereum, TransactionBuilderError},
     primitives::Address,
     providers::PendingTransactionError,
     rpc::types::TransactionRequest,
-    signers,
     transports::{RpcError, TransportErrorKind},
 };
 use contender_bundle_provider::error::BundleProviderError;
@@ -17,23 +19,14 @@ pub enum Error {
     #[error("auth provider error")]
     AuthProvider(#[from] AuthProviderError),
 
-    #[error("failed to encode function args")]
-    DynAbi(#[from] dyn_abi::Error),
-
-    #[error("abi parser error")]
-    AbiParser(#[from] json_abi::parser::Error),
-
     #[error("critical error from callback")]
     Callback(#[from] CallbackError),
-
-    #[error("invalid configuration: {0}")]
-    Config(String), // TODO: replace String with ConfigError
 
     #[error("database error")]
     Db(#[from] DbError),
 
-    #[error("generator error: {0}")]
-    Generator(String), // TODO: replace String with GeneratorError
+    #[error("generator error")]
+    Generator(#[from] GeneratorError),
 
     #[error("rpc error")]
     Rpc(#[from] RpcError<TransportErrorKind>),
@@ -50,11 +43,8 @@ pub enum Error {
     #[error("failed to build eth transaction")]
     TransactionBuilderEth(#[from] TransactionBuilderError<Ethereum>),
 
-    #[error("signer failed to sign hash")]
-    Signer(#[from] signers::Error),
-
-    #[error("templater error: {0}")]
-    Templater(String),
+    #[error("templater error")]
+    Templater(#[from] TemplaterError),
 }
 
 #[derive(Debug, Error)]

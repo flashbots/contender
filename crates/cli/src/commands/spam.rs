@@ -158,8 +158,7 @@ impl SpamCommandArgs {
     }
 
     async fn engine_params(&self) -> Result<EngineParams> {
-        self
-            .spam_args
+        self.spam_args
             .eth_json_rpc_args
             .auth_args
             .engine_params(self.spam_args.eth_json_rpc_args.call_forkchoice)

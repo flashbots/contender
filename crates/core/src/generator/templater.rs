@@ -1,13 +1,11 @@
 use crate::{
     db::{DbError, DbOps},
-    error::Error,
     generator::{
         constants::{SENDER_KEY, SETCODE_KEY},
         function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict},
-        util::encode_calldata,
+        util::{encode_calldata, UtilError},
         CreateDefinition,
     },
-    Result,
 };
 use alloy::{
     hex::{FromHex, ToHexExt},
@@ -15,8 +13,29 @@ use alloy::{
     rpc::types::TransactionRequest,
 };
 use std::collections::HashMap;
+use thiserror::Error;
 
 use super::CreateDefinitionStrict;
+
+pub type Result<T> = std::result::Result<T, TemplaterError>;
+
+#[derive(Debug, Error)]
+pub enum TemplaterError {
+    #[error("failed to find placeholder key '{0}'")]
+    KeyNotFound(String),
+
+    #[error("contract address for '{0}' not found in DB. You may need to run setup steps first.")]
+    ContractNotFoundInDB(String),
+
+    #[error("DB error")]
+    Db(#[from] DbError),
+
+    #[error("failed to parse address '{0}'")]
+    ParseAddressFailed(String),
+
+    #[error("templater util error")]
+    Util(#[from] UtilError),
+}
 
 pub trait Templater<K>
 where
@@ -46,9 +65,9 @@ where
 
         for _ in 0..num_template_vals {
             template_input = self.copy_end(&template_input, last_end);
-            let (template_key, template_end) = self.find_key(&template_input).ok_or(
-                Error::Config(format!("failed to find placeholder key {}", arg)),
-            )?;
+            let (template_key, template_end) = self
+                .find_key(&template_input)
+                .ok_or(TemplaterError::KeyNotFound(arg.to_string()))?;
             last_end = template_end + 1;
 
             // ignore {_sender} placeholder; it's handled outside the templater
@@ -74,9 +93,9 @@ where
                         .unwrap_or_default(),
                 );
             } else {
-                return Err(DbError::NotFound(
-                    format!("Contract address for {} not found in DB. You may need to run setup steps first.", template_key.to_string()),
-                ).into());
+                return Err(TemplaterError::ContractNotFoundInDB(
+                    template_key.to_string(),
+                ));
             }
         }
         Ok(())
@@ -153,7 +172,7 @@ where
         let to = self.replace_placeholders(&funcdef.to, placeholder_map);
         let to = to
             .parse::<Address>()
-            .map_err(|_| Error::Templater(format!("failed to parse address {}", to)))?;
+            .map_err(|_| TemplaterError::ParseAddressFailed(to))?;
         let value = funcdef
             .value
             .as_ref()

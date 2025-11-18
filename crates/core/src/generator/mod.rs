@@ -1,5 +1,6 @@
 pub mod agent_pools;
 mod create_def;
+pub mod error;
 mod function_def;
 mod r#trait;
 

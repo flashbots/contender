@@ -1,18 +1,18 @@
 use crate::{
     agent_controller::{AgentStore, SignerRegistry},
     db::{DbError, DbOps},
-    error::Error,
     generator::{
         constants::*,
+        error::GeneratorError,
         function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict, FuzzParam},
         named_txs::{ExecutionRequest, NamedTxRequest, NamedTxRequestBuilder},
         seeder::{SeedValue, Seeder},
         templater::Templater,
         types::{AnyProvider, AsyncCallbackResult, PlanType, SpamRequest},
+        util::UtilError,
         CreateDefinition, CreateDefinitionStrict,
     },
     spammer::CallbackError,
-    Result,
 };
 use alloy::{
     eips::eip7702::SignedAuthorization,
@@ -23,6 +23,8 @@ use alloy::{
 };
 use async_trait::async_trait;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
+
+pub type Result<T> = std::result::Result<T, GeneratorError>;
 
 pub trait PlanConfig<K>
 where
@@ -145,29 +147,23 @@ where
     ) -> Result<CreateDefinitionStrict> {
         let agents = self.get_agent_store();
         let from_address: Address = if let Some(from_pool) = &create_def.from_pool {
-            let agent = agents.get_agent(from_pool).ok_or(Error::Generator(format!(
-                "from_pool {from_pool} not found in agent store"
-            )))?;
+            let agent = agents
+                .get_agent(from_pool)
+                .ok_or(GeneratorError::from_pool_not_found(from_pool))?;
             agent
                 .get_address(idx % agent.signers.len())
-                .ok_or(Error::Generator(format!(
-                    "signer not found in agent store: from_pool={from_pool}, idx={idx}"
-                )))?
+                .ok_or(GeneratorError::signer_not_found(from_pool, idx))?
         } else if let Some(from) = &create_def.from {
             // inject env vars into placeholders where/if present
             let placeholder_map = self.get_plan_conf().get_env()?;
             let from_address = self
                 .get_templater()
                 .replace_placeholders(from, &placeholder_map);
-            from_address.parse().map_err(|e| {
-                Error::Generator(format!(
-                    "failed to parse 'from' address: from={from}, error={e}"
-                ))
-            })?
+            from_address
+                .parse()
+                .map_err(|e| GeneratorError::from_address_parse_failed(from, e))?
         } else {
-            return Err(Error::Config(
-                "must specify 'from' or 'from_pool'".to_owned(),
-            ));
+            return Err(GeneratorError::InvalidSender);
         };
 
         // handle direct variable injection
@@ -200,14 +196,12 @@ where
         let agents = self.get_agent_store();
 
         let from_address: Address = if let Some(from_pool) = &funcdef.from_pool {
-            let agent = agents.get_agent(from_pool).ok_or(Error::Generator(format!(
-                "from_pool '{from_pool}' not found in agent store"
-            )))?;
+            let agent = agents
+                .get_agent(from_pool)
+                .ok_or(GeneratorError::from_pool_not_found(from_pool))?;
             let signer = agent
                 .get_signer(idx % agent.signers.len())
-                .ok_or(Error::Generator(format!(
-                    "signer not found in agent store: from_pool={from_pool}, idx={idx}"
-                )))?;
+                .ok_or(GeneratorError::signer_not_found(from_pool, idx))?;
             signer.address()
         } else if let Some(from) = &funcdef.from {
             // inject env vars into placeholders where/if present
@@ -215,15 +209,11 @@ where
             let from_address = self
                 .get_templater()
                 .replace_placeholders(from, &placeholder_map);
-            from_address.parse::<Address>().map_err(|e| {
-                Error::Generator(format!(
-                    "failed to parse 'from' address: from={from}, error={e}"
-                ))
-            })?
+            from_address
+                .parse::<Address>()
+                .map_err(|e| GeneratorError::from_address_parse_failed(from, e))?
         } else {
-            return Err(Error::Config(
-                "invalid runtime config: must specify 'from' or 'from_pool'".to_owned(),
-            ));
+            return Err(GeneratorError::InvalidSender);
         };
 
         // manually replace {_sender} with the 'from' address
@@ -261,21 +251,16 @@ where
                 .get_templater()
                 .replace_placeholders(auth_address, &placeholder_map)
                 .parse::<Address>()
-                .map_err(|_| {
-                    Error::Generator("failed to find address in placeholder map".to_owned())
-                })?;
+                .map_err(|_| GeneratorError::address_not_found(auth_address))?;
             let setcode_signer = self.get_setcode_signer();
 
             // the setcode nonce won't be updated in time for this function to recognize it
             // so we get the latest nonce (available from init) and add `idx`
-            let setcode_nonce =
-                self.get_nonce_map()
-                    .get(&setcode_signer.address())
-                    .ok_or(Error::Generator(format!(
-                        "failed to find nonce for address: {}",
-                        setcode_signer.address()
-                    )))?
-                    + idx as u64;
+            let setcode_nonce = self
+                .get_nonce_map()
+                .get(&setcode_signer.address())
+                .ok_or(GeneratorError::NonceNotFound(setcode_signer.address()))?
+                + idx as u64;
 
             // build & sign EIP-7702 authorization
             let auth_req = Authorization {
@@ -306,7 +291,7 @@ where
     async fn load_txs<F: Send + Sync + Fn(NamedTxRequest) -> AsyncCallbackResult>(
         &self,
         plan_type: PlanType<F>,
-    ) -> Result<Vec<ExecutionRequest>> {
+    ) -> std::result::Result<Vec<ExecutionRequest>, crate::Error> {
         let conf = self.get_plan_conf();
         let env = conf.get_env().unwrap_or_default();
         let db = self.get_db();
@@ -393,7 +378,7 @@ where
                     let fuzz_args = req.fuzz.to_owned().unwrap_or_default();
                     let fuzz_map = self.create_fuzz_map(num_txs as usize, &fuzz_args)?; // this may create more values than needed, but it's fine
                     canonical_fuzz_map.extend(fuzz_map);
-                    Ok::<_, Error>(())
+                    Ok::<_, crate::Error>(())
                 };
 
                 // finds placeholders in a function call definition and populates `placeholder_map` and `canonical_fuzz_map` with injectable values.
@@ -413,7 +398,7 @@ where
                             ))
                         })?;
                     find_fuzz(tx)?;
-                    Ok::<_, Error>(())
+                    Ok::<_, crate::Error>(())
                 };
 
                 for step in spam_steps.iter() {
@@ -454,7 +439,7 @@ where
                                 req.kind.to_owned(),
                             );
                             let setup_res = on_spam_setup(tx.to_owned())?;
-                            Ok::<_, Error>((setup_res, tx))
+                            Ok::<_, crate::Error>((setup_res, tx))
                         };
 
                         match step {
@@ -561,28 +546,17 @@ fn get_fuzzed_tx_value(
 
 fn parse_map_key(fuzz: FuzzParam) -> Result<String> {
     if fuzz.param.is_none() && fuzz.value.is_none() {
-        return Err(Error::Templater(
-            "fuzz must specify either `param` or `value`".to_owned(),
-        ));
+        return Err(GeneratorError::FuzzMissingParams);
     }
     if fuzz.param.is_some() && fuzz.value.is_some() {
-        return Err(Error::Templater(
-            "fuzz cannot specify both `param` and `value`; choose one per fuzz directive"
-                .to_owned(),
-        ));
+        return Err(GeneratorError::FuzzConflictingParams);
     }
 
-    let key = if let Some(param) = &fuzz.param {
-        param.to_owned()
-    } else if let Some(value) = fuzz.value {
-        if !value {
-            return Err(Error::Templater(
-                "fuzz.value is false, but no param is specified".to_owned(),
-            ));
-        }
-        VALUE_KEY.to_owned()
-    } else {
-        return Err(Error::Templater("this should never happen".to_owned()));
+    let key = match (fuzz.param.as_ref(), fuzz.value) {
+        (Some(param), _) => param.to_owned(),
+        (None, Some(true)) => VALUE_KEY.to_owned(),
+        (None, Some(false)) => return Err(GeneratorError::FuzzValueNeedsParam),
+        _ => return Err(GeneratorError::FuzzInvalid),
     };
 
     Ok(key)
@@ -591,6 +565,6 @@ fn parse_map_key(fuzz: FuzzParam) -> Result<String> {
 pub fn sign_auth(signer: &PrivateKeySigner, auth: Authorization) -> Result<SignedAuthorization> {
     let auth_sig = signer
         .sign_hash_sync(&auth.signature_hash())
-        .map_err(Error::Signer)?;
+        .map_err(UtilError::Signer)?;
     Ok(auth.into_signed(auth_sig))
 }

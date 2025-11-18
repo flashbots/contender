@@ -1,6 +1,7 @@
 use crate::default_scenarios::builtin::ToTestConfig;
 use crate::util::bold;
 use alloy::json_abi::JsonAbi;
+use contender_core::generator::error::GeneratorError;
 use contender_core::generator::types::SpamRequest;
 use contender_core::generator::util::encode_calldata;
 use contender_core::generator::{CompiledContract, CreateDefinition, FunctionCallDefinition};
@@ -107,7 +108,7 @@ impl CustomContractCliArgs {
 
 #[derive(Debug, Error)]
 pub enum CustomContractArgsError {
-    #[error("regex error: {0}")]
+    #[error("regex error")]
     Regex(#[from] regex::Error),
 
     #[error(
@@ -133,11 +134,14 @@ pub enum CustomContractArgsError {
     )]
     SpamArgsEmpty,
 
-    #[error("{0}")]
+    #[error("core error")]
     Core(#[from] contender_core::Error),
 
-    #[error("{0}")]
+    #[error("contract error")]
     Meta(#[from] ContractMetaError),
+
+    #[error("generator error")]
+    Generator(#[from] GeneratorError),
 }
 
 /// This contract is expected to have its constructor args already appended to the bytecode, so it's ready to deploy.
