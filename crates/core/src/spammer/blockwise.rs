@@ -43,7 +43,7 @@ where
             .rpc_client
             .watch_blocks()
             .await
-            .map_err(|e| Error::Rpc(e))?;
+            .map_err(Error::Rpc)?;
         Ok(poller
             .into_stream()
             .flat_map(futures::stream::iter)

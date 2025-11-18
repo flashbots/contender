@@ -153,7 +153,7 @@ where
         let to = self.replace_placeholders(&funcdef.to, placeholder_map);
         let to = to
             .parse::<Address>()
-            .map_err(|_| Error::Templater(format!("failed to parse address {}", to.to_string())))?;
+            .map_err(|_| Error::Templater(format!("failed to parse address {}", to)))?;
         let value = funcdef
             .value
             .as_ref()

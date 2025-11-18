@@ -38,7 +38,7 @@ pub async fn export_db(src_path: &str, target_path: PathBuf) -> Result<()> {
     }
 
     // Copy the database file to the target location
-    fs::copy(src_path, &target_path).map_err(|e| UtilError::DBExportFailed(e))?;
+    fs::copy(src_path, &target_path).map_err(UtilError::DBExportFailed)?;
     info!("Database exported to '{}'", target_path.display());
     Ok(())
 }
@@ -53,12 +53,12 @@ pub async fn import_db(src_path: PathBuf, target_path: &str) -> Result<()> {
     // If target exists, create a backup
     if fs::metadata(target_path).is_ok() {
         let backup_path = format!("{target_path}.backup");
-        fs::copy(target_path, &backup_path).map_err(|e| UtilError::DBBackupFailed(e))?;
+        fs::copy(target_path, &backup_path).map_err(UtilError::DBBackupFailed)?;
         info!("Created backup of existing database at '{target_path}.backup'");
     }
 
     // Copy the source database to the target location
-    fs::copy(&src_path, target_path).map_err(|e| UtilError::DBImportFailed(e))?;
+    fs::copy(&src_path, target_path).map_err(UtilError::DBImportFailed)?;
     info!("Database imported from '{}'", src_path.display());
     Ok(())
 }

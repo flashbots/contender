@@ -48,10 +48,7 @@ async fn run() -> Result<(), ContenderError> {
     init_reports_dir();
 
     let args = ContenderCli::parse_args();
-    if DB
-        .table_exists("run_txs")
-        .map_err(|e| ContenderError::Db(e.into()))?
-    {
+    if DB.table_exists("run_txs").map_err(ContenderError::Db)? {
         // check version and exit if DB version is incompatible
         let quit_early = DB.version() != DB_VERSION
             && !matches!(
@@ -80,13 +77,12 @@ async fn run() -> Result<(), ContenderError> {
         }
     } else {
         info!("no DB found, creating new DB");
-        DB.create_tables()
-            .map_err(|e| ContenderError::Db(e.into()))?;
+        DB.create_tables().map_err(ContenderError::Db)?;
     }
     let db = DB.clone();
     let db_path = db_file()?;
 
-    let res = match args.command {
+    match args.command {
         ContenderSubcommand::Db { command } => match command {
             DbCommand::Drop => drop_db(&db_path).await?,
             DbCommand::Reset => reset_db(&db_path).await?,
@@ -189,7 +185,7 @@ async fn run() -> Result<(), ContenderError> {
         }
     };
 
-    Ok(res)
+    Ok(())
 }
 
 fn init_tracing() {

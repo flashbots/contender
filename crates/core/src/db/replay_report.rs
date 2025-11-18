@@ -7,6 +7,12 @@ pub struct ReplayReportRequest {
     pub gas_used: u64,
 }
 
+impl Default for ReplayReportRequest {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReplayReportRequest {
     pub fn new() -> Self {
         Self {

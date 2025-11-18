@@ -84,7 +84,7 @@ where
         let client = ClientBuilder::default()
             .connect_with(auth_transport)
             .await
-            .map_err(|e| AuthProviderError::ConnectionFailed(e.into()))?;
+            .map_err(AuthProviderError::ConnectionFailed)?;
         let auth_provider = RootProvider::<N>::new(client);
         let genesis_block = auth_provider
             .get_block_by_number(alloy::eips::BlockNumberOrTag::Earliest)

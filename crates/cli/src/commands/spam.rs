@@ -158,12 +158,12 @@ impl SpamCommandArgs {
     }
 
     async fn engine_params(&self) -> Result<EngineParams> {
-        Ok(self
+        self
             .spam_args
             .eth_json_rpc_args
             .auth_args
             .engine_params(self.spam_args.eth_json_rpc_args.call_forkchoice)
-            .await?)
+            .await
     }
 
     pub async fn init_scenario<D: DbOps + Clone + Send + Sync + 'static>(
@@ -562,7 +562,7 @@ pub async fn spam<
                     RuntimeParamErrorKind::BundleTypeInvalid => ArgsError::BundleTypeInvalid.into(),
                     _ => p.into(),
                 },
-                _ => ContenderError::Core(contender_core::Error::Runtime(r.into())),
+                _ => ContenderError::Core(contender_core::Error::Runtime(r)),
             },
             _ => m.into(),
         },

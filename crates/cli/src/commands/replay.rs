@@ -57,9 +57,7 @@ pub async fn replay(args: ReplayArgs, db: &SqliteDb) -> Result<(), ContenderErro
     let engine_provider =
         args.engine_params
             .engine_provider
-            .ok_or(ArgsError::EngineProviderUninitialized(format!(
-                "required for replay"
-            )))?;
+            .ok_or(ArgsError::EngineProviderUninitialized("required for replay".to_string()))?;
 
     let res = engine_provider
         .replay_chain_segment(args.start_block, args.end_block)

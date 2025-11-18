@@ -301,7 +301,7 @@ impl DbOps for SqliteDb {
     }
 
     fn num_runs(&self) -> Result<u64> {
-        Ok(self.query_row("SELECT COUNT(*) FROM runs", params![], |row| row.get(0))?)
+        self.query_row("SELECT COUNT(*) FROM runs", params![], |row| row.get(0))
     }
 
     fn get_run_txs(&self, run_id: u64) -> Result<Vec<RunTx>> {
