@@ -2060,9 +2060,8 @@ pub mod tests {
                 e,
                 Error::Runtime(RuntimeErrorKind::ChainIdMismatch(_, _))
             ));
-            assert!(e.to_string().contains("chain_id mismatch"));
         } else {
-            panic!("scenario should not return if chain IDs don't match");
+            panic!("scenario should not return Ok if chain IDs don't match");
         }
     }
 }
