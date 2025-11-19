@@ -335,7 +335,7 @@ where
     }
 
     pub async fn estimate_setup_cost(&self) -> Result<U256> {
-        info!(SETUP_SIM_START);
+        println!("{}", SETUP_SIM_START);
 
         // get gas price from chain to approximate gas cost
         let gas_price = self.rpc_client.get_gas_price().await?;
@@ -441,7 +441,7 @@ where
             total_cost += cost;
         }
 
-        info!(SETUP_SIM_END);
+        println!("{}", SETUP_SIM_END);
         debug!("estimated setup cost: {}", format_ether(total_cost));
 
         Ok(total_cost)
