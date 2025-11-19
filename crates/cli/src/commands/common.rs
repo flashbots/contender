@@ -3,7 +3,7 @@
 use super::EngineArgs;
 use crate::commands::error::ArgsError;
 use crate::commands::SpamScenario;
-use crate::error::ContenderError;
+use crate::error::CliError;
 use crate::util::get_signers_with_defaults;
 use alloy::consensus::TxType;
 use alloy::primitives::utils::parse_units;
@@ -148,7 +148,7 @@ impl ScenarioSendTxsCliArgs {
         self.user_signers_with_defaults()[0].to_owned()
     }
 
-    pub async fn testconfig(&self, scenario: &SpamScenario) -> Result<TestConfig, ContenderError> {
+    pub async fn testconfig(&self, scenario: &SpamScenario) -> Result<TestConfig, CliError> {
         let mut testconfig = scenario.testconfig().await?;
         if self.override_senders {
             testconfig.override_senders(self.primary_signer().address());
@@ -206,10 +206,7 @@ enum EngineMessageVersion {
 }
 
 impl AuthCliArgs {
-    pub async fn engine_params(
-        &self,
-        call_forkchoice: bool,
-    ) -> Result<EngineParams, ContenderError> {
+    pub async fn engine_params(&self, call_forkchoice: bool) -> Result<EngineParams, CliError> {
         if call_forkchoice && (self.auth_rpc_url.is_none() || self.jwt_secret.is_none()) {
             return Err(ArgsError::engine_args_required(
                 self.auth_rpc_url.clone(),

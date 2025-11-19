@@ -1,7 +1,7 @@
 use crate::{
     commands::common::SendSpamCliArgs,
     default_scenarios::{builtin::ToTestConfig, contracts, BuiltinScenario},
-    error::ContenderError,
+    error::CliError,
 };
 use alloy::providers::Provider;
 use clap::Parser;
@@ -30,7 +30,7 @@ pub async fn fill_block(
     provider: &AnyProvider,
     spam_args: &SendSpamCliArgs,
     args: &FillBlockCliArgs,
-) -> Result<BuiltinScenario, ContenderError> {
+) -> Result<BuiltinScenario, CliError> {
     let SendSpamCliArgs {
         txs_per_block,
         txs_per_second,

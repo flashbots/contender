@@ -17,7 +17,7 @@ use thiserror::Error;
 use tokio::task;
 
 #[derive(Debug, Error, Diagnostic)]
-pub enum ContenderError {
+pub enum CliError {
     #[error("invalid CLI params")]
     CliParamsInvalid(#[from] RuntimeParamErrorKind),
 

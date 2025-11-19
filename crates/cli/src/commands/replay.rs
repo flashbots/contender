@@ -1,6 +1,6 @@
 use crate::commands::common::{AuthCliArgs, EngineParams};
 use crate::commands::error::ArgsError;
-use crate::error::ContenderError;
+use crate::error::CliError;
 use crate::util::{human_readable_duration, human_readable_gas};
 use contender_core::db::{DbOps, ReplayReportRequest};
 use contender_sqlite::SqliteDb;
@@ -44,7 +44,7 @@ impl ReplayArgs {
         }
     }
 
-    pub async fn from_cli_args(args: ReplayCliArgs) -> Result<Self, ContenderError> {
+    pub async fn from_cli_args(args: ReplayCliArgs) -> Result<Self, CliError> {
         Ok(Self::new(
             args.auth_params.engine_params(true).await?,
             args.start_block,
@@ -53,7 +53,7 @@ impl ReplayArgs {
     }
 }
 
-pub async fn replay(args: ReplayArgs, db: &SqliteDb) -> Result<(), ContenderError> {
+pub async fn replay(args: ReplayArgs, db: &SqliteDb) -> Result<(), CliError> {
     let engine_provider =
         args.engine_params
             .engine_provider

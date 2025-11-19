@@ -6,7 +6,7 @@ use crate::{
         Result,
     },
     default_scenarios::BuiltinScenario,
-    error::ContenderError,
+    error::CliError,
     util::{
         bold, check_private_keys, fund_accounts, load_seedfile, load_testconfig, parse_duration,
         provider::AuthClient, spam_callback_default, TypedSpamCallback,
@@ -361,7 +361,7 @@ impl SpamCommandArgs {
                     auth_provider.advance_chain(1).await?;
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
-                Ok::<_, ContenderError>(())
+                Ok::<_, CliError>(())
             }))
         } else {
             None
@@ -408,14 +408,14 @@ impl SpamCommandArgs {
                         // block until ctrl-c is pressed
                         tokio::signal::ctrl_c().await?;
                     }
-                    Ok::<(), ContenderError>(())
+                    Ok::<(), CliError>(())
                 } => {
                     inner_res
                 }
                 inner_res = async move {
                     test_scenario.deploy_contracts().await?;
                     test_scenario.run_setup().await?;
-                    Ok::<_, ContenderError>(())
+                    Ok::<_, CliError>(())
                 } => {
                     inner_res
                 }
@@ -554,14 +554,14 @@ pub async fn spam<
     let block_time = get_block_time(&rpc_client).await?;
 
     use contender_core::Error as CCE;
-    let err_parse = |err: ContenderError| match err {
-        ContenderError::Core(m) => match m {
+    let err_parse = |err: CliError| match err {
+        CliError::Core(m) => match m {
             CCE::Runtime(r) => match r {
                 RuntimeErrorKind::InvalidParams(p) => match p {
                     RuntimeParamErrorKind::BundleTypeInvalid => ArgsError::BundleTypeInvalid.into(),
                     _ => p.into(),
                 },
-                _ => ContenderError::Core(contender_core::Error::Runtime(r)),
+                _ => CliError::Core(contender_core::Error::Runtime(r)),
             },
             _ => m.into(),
         },

@@ -1,5 +1,5 @@
 use super::SpamCommandArgs;
-use crate::ContenderError;
+use crate::CliError;
 use crate::{
     commands::{self},
     util::data_dir,
@@ -26,7 +26,7 @@ pub async fn spamd(
     args: SpamCommandArgs,
     gen_report: bool,
     limit_loops: Option<u64>,
-) -> Result<(), ContenderError> {
+) -> Result<(), CliError> {
     let is_done = Arc::new(AtomicBool::new(false));
     let mut scenario = args.init_scenario(db).await?;
 
@@ -110,7 +110,7 @@ pub async fn spamd(
         if gen_report {
             if run_ids.is_empty() {
                 warn!("No runs found, exiting.");
-                return Ok::<_, ContenderError>(());
+                return Ok::<_, CliError>(());
             }
             let first_run_id = run_ids.iter().min().expect("no run IDs found");
             let last_run_id = *run_ids.iter().max().expect("no run IDs found");

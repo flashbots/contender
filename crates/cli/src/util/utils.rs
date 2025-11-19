@@ -1,5 +1,5 @@
 use crate::commands::error::{ArgsError, SetupError};
-use crate::error::ContenderError;
+use crate::error::CliError;
 use crate::util::error::ParseDurationError;
 use crate::{commands::common::EngineParams, util::error::UtilError};
 use alloy::{
@@ -57,7 +57,7 @@ const DEFAULT_SCENARIOS_URL: &str =
 /// If the testfile starts with `scenario:`, it is treated as a builtin scenario.
 /// Otherwise, it is treated as a file path.
 /// Built-in scenarios are fetched relative to the default URL: [`DEFAULT_SCENARIOS_URL`](crate::util::DEFAULT_SCENARIOS_URL).
-pub async fn load_testconfig(testfile: &str) -> Result<TestConfig, crate::ContenderError> {
+pub async fn load_testconfig(testfile: &str) -> Result<TestConfig, crate::CliError> {
     Ok(if testfile.starts_with("scenario:") {
         let remote_url = format!(
             "{DEFAULT_SCENARIOS_URL}/{}",
@@ -152,7 +152,7 @@ pub async fn fund_accounts(
     min_balance: U256,
     tx_type: TxType,
     engine_params: &EngineParams,
-) -> Result<(), ContenderError> {
+) -> Result<(), CliError> {
     info!("Funding agent accounts from {}", fund_with.address());
     let EngineParams {
         engine_provider,
@@ -235,7 +235,7 @@ pub async fn fund_accounts(
             .await?;
             sender.send(res).await.expect("failed to handle pending tx");
 
-            Ok::<_, ContenderError>(())
+            Ok::<_, CliError>(())
         }));
     }
 
@@ -474,7 +474,7 @@ pub fn parse_duration(input: &str) -> std::result::Result<Duration, ParseDuratio
     }
 }
 
-pub fn load_seedfile() -> Result<String, ContenderError> {
+pub fn load_seedfile() -> Result<String, CliError> {
     let data_path = data_dir()?;
 
     let seed_path = format!("{}/seed", &data_path);
@@ -533,7 +533,7 @@ pub fn human_readable_duration(duration: Duration) -> String {
 
 #[cfg(test)]
 mod test {
-    use crate::error::ContenderError;
+    use crate::error::CliError;
     use crate::util::error::UtilError;
     use crate::util::human_readable_duration;
     use crate::util::utils::human_readable_gas;
@@ -730,7 +730,7 @@ mod test {
         assert!(res.is_err());
         assert!(matches!(
             res.unwrap_err(),
-            ContenderError::Util(UtilError::InsufficientUserFunds {
+            CliError::Util(UtilError::InsufficientUserFunds {
                 sender: _,
                 have: _,
                 need: _,

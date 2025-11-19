@@ -5,7 +5,7 @@ use crate::{
         error::{ArgsError, SetupError},
         SpamScenario,
     },
-    error::ContenderError,
+    error::CliError,
     util::{check_private_keys, find_insufficient_balances, fund_accounts, load_seedfile},
     LATENCY_HIST as HIST, PROM,
 };
@@ -30,7 +30,7 @@ use tracing::{info, warn};
 pub async fn setup(
     db: &(impl contender_core::db::DbOps + Clone + Send + Sync + 'static),
     args: SetupCommandArgs,
-) -> Result<(), ContenderError> {
+) -> Result<(), CliError> {
     let ScenarioSendTxsCliArgs {
         min_balance,
         tx_type,
@@ -148,7 +148,7 @@ pub async fn setup(
     });
     let is_done = Arc::new(AtomicBool::new(false));
 
-    let mut fcu_handle: Option<JoinHandle<Result<(), ContenderError>>> = None;
+    let mut fcu_handle: Option<JoinHandle<Result<(), CliError>>> = None;
     if engine_params.call_fcu && scenario.auth_provider.is_some() {
         // spawn a task to advance the chain periodically while setup is running
         let auth_client = scenario.auth_provider.clone().expect("auth provider");
@@ -167,7 +167,7 @@ pub async fn setup(
             Ok(())
         }));
     }
-    let setup_task: JoinHandle<Result<(), ContenderError>> = {
+    let setup_task: JoinHandle<Result<(), CliError>> = {
         let is_done = is_done.clone();
         tokio::task::spawn(async move {
             info!("Deploying contracts...");
@@ -205,7 +205,7 @@ pub async fn setup(
                 // block until ctrl-C is received
                 tokio::signal::ctrl_c().await?;
             }
-            Ok::<_, ContenderError>(())
+            Ok::<_, CliError>(())
         } => {
             fcu_res?
         }
@@ -226,10 +226,7 @@ pub struct SetupCommandArgs {
 }
 
 impl SetupCommandArgs {
-    pub fn new(
-        scenario: SpamScenario,
-        cli_args: ScenarioSendTxsCliArgs,
-    ) -> Result<Self, ContenderError> {
+    pub fn new(scenario: SpamScenario, cli_args: ScenarioSendTxsCliArgs) -> Result<Self, CliError> {
         let seed = RandSeed::seed_from_str(&cli_args.seed.to_owned().unwrap_or(load_seedfile()?));
         Ok(Self {
             scenario,
@@ -238,14 +235,14 @@ impl SetupCommandArgs {
         })
     }
 
-    async fn engine_params(&self) -> Result<EngineParams, ContenderError> {
+    async fn engine_params(&self) -> Result<EngineParams, CliError> {
         self.eth_json_rpc_args
             .auth_args
             .engine_params(self.eth_json_rpc_args.call_forkchoice)
             .await
     }
 
-    pub async fn testconfig(&self) -> Result<TestConfig, ContenderError> {
+    pub async fn testconfig(&self) -> Result<TestConfig, CliError> {
         self.eth_json_rpc_args.testconfig(&self.scenario).await
     }
 }

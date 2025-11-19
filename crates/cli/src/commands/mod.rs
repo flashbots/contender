@@ -15,9 +15,9 @@ pub use setup::{setup, SetupCommandArgs};
 pub use spam::{spam, EngineArgs, SpamCliArgs, SpamCommandArgs, SpamScenario};
 pub use spamd::spamd;
 
-use crate::error::ContenderError;
+use crate::error::CliError;
 
-pub type Result<T> = std::result::Result<T, ContenderError>;
+pub type Result<T> = std::result::Result<T, CliError>;
 
 #[derive(Parser, Debug)]
 #[command(

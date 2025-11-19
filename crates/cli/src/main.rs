@@ -21,7 +21,7 @@ use commands::{
 use contender_core::db::DbOps;
 use contender_sqlite::{SqliteDb, DB_VERSION};
 use default_scenarios::{fill_block::FillBlockCliArgs, BuiltinScenarioCli};
-use error::ContenderError;
+use error::CliError;
 use std::{str::FromStr, sync::LazyLock};
 use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
@@ -42,7 +42,7 @@ async fn main() -> miette::Result<()> {
     run().await.map_err(|e| e.into())
 }
 
-async fn run() -> Result<(), ContenderError> {
+async fn run() -> Result<(), CliError> {
     init_tracing();
     init_reports_dir();
 
@@ -146,7 +146,7 @@ async fn run() -> Result<(), ContenderError> {
                 &data_dir().expect("invalid data dir"),
             )
             .await
-            .map_err(ContenderError::Report)?;
+            .map_err(CliError::Report)?;
         }
 
         ContenderSubcommand::Admin { command } => {
@@ -158,8 +158,8 @@ async fn run() -> Result<(), ContenderError> {
 }
 
 /// Check DB version, throw error if version is incompatible with currently-running version of contender.
-fn init_db(command: &ContenderSubcommand) -> Result<(), ContenderError> {
-    if DB.table_exists("run_txs").map_err(ContenderError::Db)? {
+fn init_db(command: &ContenderSubcommand) -> Result<(), CliError> {
+    if DB.table_exists("run_txs").map_err(CliError::Db)? {
         // check version and exit if DB version is incompatible
         let quit_early = DB.version() != DB_VERSION
             && !matches!(
@@ -184,11 +184,11 @@ fn init_db(command: &ContenderSubcommand) -> Result<(), ContenderError> {
                 DB_VERSION
             );
             warn!("{recommendation}");
-            return Err(ContenderError::DbVersion);
+            return Err(CliError::DbVersion);
         }
     } else {
         info!("no DB found, creating new DB");
-        DB.create_tables().map_err(ContenderError::Db)?;
+        DB.create_tables().map_err(CliError::Db)?;
     }
     Ok(())
 }
@@ -221,7 +221,7 @@ fn init_tracing() {
 
 /// Check if spam arguments are typical and prompt the user to continue if they are not.
 /// Returns true if the user chooses to continue, false otherwise.
-fn check_spam_args(args: &SpamCliArgs) -> Result<bool, ContenderError> {
+fn check_spam_args(args: &SpamCliArgs) -> Result<bool, CliError> {
     let (units, max_duration) = if args.spam_args.txs_per_block.is_some() {
         ("blocks", 50)
     } else if args.spam_args.txs_per_second.is_some() {

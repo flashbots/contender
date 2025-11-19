@@ -13,7 +13,7 @@ use crate::{
         transfers::{TransferStressArgs, TransferStressCliArgs},
         uni_v2::{UniV2Args, UniV2CliArgs},
     },
-    error::ContenderError,
+    error::CliError,
     util::{bold, load_seedfile},
 };
 use alloy::primitives::U256;
@@ -79,7 +79,7 @@ impl BuiltinScenarioCli {
         &self,
         provider: &AnyProvider,
         spam_args: &SpamCliArgs,
-    ) -> Result<BuiltinScenario, ContenderError> {
+    ) -> Result<BuiltinScenario, CliError> {
         match self.to_owned() {
             BuiltinScenarioCli::Blobs(args) => Ok(BuiltinScenario::Blobs(args)),
 
@@ -140,7 +140,7 @@ impl BuiltinScenarioCli {
                         SetCodeSubCommand::Execute(execute_args) => {
                             // assert `--sig` and `--args` are not specified in original setCode args
                             if args.args.is_some() || args.signature.is_some() {
-                                return Err(ContenderError::CliParamsInvalid(
+                                return Err(CliError::CliParamsInvalid(
                                     RuntimeParamErrorKind::InvalidArgs(format!(
                                         "{}{} may not be provided to {} when calling {}",
                                         if args.args.is_some() {
@@ -178,7 +178,7 @@ impl BuiltinScenarioCli {
 
             BuiltinScenarioCli::Storage(args) => {
                 let bad_args_err = |name: &str| {
-                    ContenderError::CliParamsInvalid(RuntimeParamErrorKind::InvalidArgs(format!(
+                    CliError::CliParamsInvalid(RuntimeParamErrorKind::InvalidArgs(format!(
                         "{} must be greater than 0",
                         bold(name)
                     )))
@@ -201,7 +201,7 @@ impl BuiltinScenarioCli {
                     && args.disable_all_opcodes
                     && args.disable_all_precompiles
                 {
-                    return Err::<_, ContenderError>(
+                    return Err::<_, CliError>(
                         RuntimeParamErrorKind::MissingArgs(
                             "At least one stress test must be enabled".to_string(),
                         )
@@ -214,7 +214,7 @@ impl BuiltinScenarioCli {
             BuiltinScenarioCli::UniV2(args) => {
                 let check_zero = |name: &str, value: U256| {
                     if value == U256::ZERO {
-                        return Err::<_, ContenderError>(
+                        return Err::<_, CliError>(
                             RuntimeParamErrorKind::InvalidArgs(format!(
                                 "{} must be greater than 0",
                                 bold(name),

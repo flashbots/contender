@@ -1,6 +1,5 @@
 use crate::{
-    commands::common::parse_amount, default_scenarios::setcode::SetCodeCliArgs,
-    error::ContenderError,
+    commands::common::parse_amount, default_scenarios::setcode::SetCodeCliArgs, error::CliError,
 };
 use alloy::{hex::ToHexExt, primitives::U256};
 use clap::Parser;
@@ -64,7 +63,7 @@ impl SetCodeExecuteCliArgs {
     pub fn to_setcode_cli_args(
         &self,
         og_args: &SetCodeCliArgs,
-    ) -> Result<SetCodeCliArgs, ContenderError> {
+    ) -> Result<SetCodeCliArgs, CliError> {
         Ok(SetCodeCliArgs {
             contract_address: og_args.contract_address.to_owned(),
             command: og_args.command.to_owned(),
