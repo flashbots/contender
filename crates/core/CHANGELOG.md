@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Most usage of `contender_core::Error` has been replaced by module-specific error types (`GeneratorError`, `TemplaterError`, `DbError`, etc.).
 These all implement `Into<contender_core::Error>`.
 
+- Spam callbacks now return [`CallbackError`](./src/spammer/error.rs).
+
 ---
 
 > Note: changelogs prior to this point were broken. Please excuse the mess.
