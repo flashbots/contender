@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Breaking changes
+
+**lib**
+
+- `contender_core::ContenderError` is now [`contender_core::Error`](./src/error.rs)
+    - it is a completely new error enum, replacing janky & opaque error types such as `SpamError(&'static str, Option<String>)` with concrete variants such as `Runtime(#[from] RuntimeErrorKind)`
+    - it implements `From` for all error types in the `contender_core` crate
+
+**db**
+
+- added `type Error` to the `DbOps` trait
+    - core db functions now return `Self::Error` instead of `contender_core::Error`
+    - it must implement [`Into<DbError>`](./src/db/error.rs)
+- `MockDb` now uses [`MockError`](./src/db/mock.rs#L9) instead of `contender_core::Error`
+- moved code from `db/mod.rs` into individual modules
+
+**other modules**
+
+Most usage of `contender_core::Error` has been replaced by module-specific error types (`GeneratorError`, `TemplaterError`, `DbError`, etc.).
+These all implement `Into<contender_core::Error>`.
+
 ---
 
 > Note: changelogs prior to this point were broken. Please excuse the mess.

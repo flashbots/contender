@@ -8,11 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 - use `miette` for error-printing
-
-### Breaking changes
-
 - all new error types, cli no longer uses (formerly named) `contender_core::ContenderError`
     - the cli now uses `contender_cli::error::CliError`
+    - `CliError` implements `From` for all new error types internal to the cli crate
 
 ## [0.5.6](https://github.com/flashbots/contender/releases/tag/v0.5.6) - 2025-10-10
 
