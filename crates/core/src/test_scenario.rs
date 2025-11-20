@@ -1,48 +1,55 @@
-use crate::agent_controller::AgentStore;
-use crate::buckets::Bucket;
-use crate::constants::{SETUP_SIM_END, SETUP_SIM_START};
-use crate::db::{DbOps, NamedTx};
-use crate::error::{Error, RuntimeErrorKind, RuntimeParamErrorKind};
-use crate::generator::named_txs::ExecutionRequest;
-use crate::generator::templater::Templater;
-use crate::generator::types::AnyProvider;
-use crate::generator::util::{complete_tx_request, generate_setcode_signer};
-use crate::generator::NamedTxRequest;
-use crate::generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig};
-use crate::provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID};
-use crate::spammer::tx_actor::TxActorHandle;
-use crate::spammer::{CallbackError, ExecutionPayload, RuntimeTxInfo, SpamCallback, SpamTrigger};
-use crate::util::{get_blob_fee_maybe, get_block_time, ExtraTxParams};
-use crate::Result;
-use alloy::consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI};
-use alloy::consensus::{Transaction, TxType};
-use alloy::eips::eip2718::Encodable2718;
-use alloy::eips::BlockId;
-use alloy::hex::ToHexExt;
-use alloy::network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, TransactionBuilder};
-use alloy::node_bindings::Anvil;
-use alloy::primitives::utils::{format_ether, format_units};
-use alloy::primitives::{keccak256, Address, Bytes, FixedBytes, TxKind, U256};
-use alloy::providers::{DynProvider, PendingTransactionConfig, Provider, ProviderBuilder};
-use alloy::rpc::client::ClientBuilder;
-use alloy::rpc::types::TransactionRequest;
-use alloy::serde::WithOtherFields;
-use alloy::signers::local::{LocalSigner, PrivateKeySigner};
-pub use alloy::transports::http::reqwest::Url;
-use contender_bundle_provider::bundle::BundleType;
-use contender_bundle_provider::bundle_provider::new_basic_bundle;
-use contender_bundle_provider::revert_bundle::RevertProtectBundleRequest;
-use contender_bundle_provider::BundleClient;
+use crate::{
+    agent_controller::AgentStore,
+    buckets::Bucket,
+    constants::{SETUP_SIM_END, SETUP_SIM_START},
+    db::{DbOps, NamedTx},
+    error::{Error, RuntimeErrorKind, RuntimeParamErrorKind},
+    generator::named_txs::ExecutionRequest,
+    generator::templater::Templater,
+    generator::types::AnyProvider,
+    generator::util::{complete_tx_request, generate_setcode_signer},
+    generator::NamedTxRequest,
+    generator::{seeder::Seeder, types::PlanType, Generator, PlanConfig},
+    provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID},
+    spammer::tx_actor::TxActorHandle,
+    spammer::{CallbackError, ExecutionPayload, RuntimeTxInfo, SpamCallback, SpamTrigger},
+    util::{get_blob_fee_maybe, get_block_time, ExtraTxParams},
+    Result,
+};
+use alloy::{
+    consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI},
+    consensus::{Transaction, TxType},
+    eips::eip2718::Encodable2718,
+    eips::BlockId,
+    hex::ToHexExt,
+    network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, TransactionBuilder},
+    node_bindings::Anvil,
+    primitives::utils::{format_ether, format_units},
+    primitives::{keccak256, Address, Bytes, FixedBytes, TxKind, U256},
+    providers::{DynProvider, PendingTransactionConfig, Provider, ProviderBuilder},
+    rpc::client::ClientBuilder,
+    rpc::types::TransactionRequest,
+    serde::WithOtherFields,
+    signers::local::{LocalSigner, PrivateKeySigner},
+};
+use contender_bundle_provider::{
+    bundle::BundleType, bundle_provider::new_basic_bundle,
+    revert_bundle::RevertProtectBundleRequest, BundleClient,
+};
 use contender_engine_provider::ControlChain;
 use futures::{Stream, StreamExt};
-use std::collections::{BTreeMap, HashMap};
-use std::pin::Pin;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+    collections::{BTreeMap, HashMap},
+    pin::Pin,
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
+
+pub use alloy::transports::http::reqwest::Url;
 
 #[derive(Clone)]
 pub struct PrometheusCollector {
