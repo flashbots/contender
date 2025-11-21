@@ -13,3 +13,4 @@ description = "Contender bundle provider"
 alloy = { workspace = true, features = ["node-bindings", "rpc-types-mev"] }
 serde = { workspace = true, features = ["derive"] }
 tracing = { workspace = true }
+thiserror = { workspace = true }

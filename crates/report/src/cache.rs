@@ -1,7 +1,7 @@
+use super::block_trace::TxTraceReceipt;
+use crate::Result;
 use alloy::network::AnyRpcBlock;
 use serde::{Deserialize, Serialize};
-
-use super::block_trace::TxTraceReceipt;
 
 static CACHE_FILENAME: &str = "debug_trace.json";
 
@@ -21,13 +21,13 @@ impl CacheFile {
         }
     }
 
-    pub fn load(data_dir: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load(data_dir: &str) -> Result<Self> {
         let file = std::fs::File::open(cache_path(data_dir))?;
         let cache_data: CacheFile = serde_json::from_reader(file)?;
         Ok(cache_data)
     }
 
-    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn save(&self) -> Result<()> {
         let file = std::fs::File::create(cache_path(&self.data_dir))?;
         serde_json::to_writer(file, self)?;
         Ok(())

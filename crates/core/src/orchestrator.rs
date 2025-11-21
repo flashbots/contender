@@ -1,12 +1,11 @@
 //! High-level builder/orchestrator to create a TestScenario and run a Spammer with sane defaults.
 //! Generally simplifies instantiation for library users, while maintaining flexibility by
 //! providing methods to override defaults.
-use std::{collections::HashMap, ops::Deref, str::FromStr, sync::Arc, time::Duration};
+use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use crate::{
     agent_controller::AgentStore,
     db::{DbOps, MockDb, SpamDuration, SpamRunRequest},
-    error::ContenderError,
     generator::{
         agent_pools::AgentPools,
         seeder::{rand_seed::SeedGenerator, Seeder},
@@ -446,8 +445,7 @@ where
                     self.ctx.funding,
                     scenario.rpc_client.to_owned(),
                 )
-                .await
-                .map_err(|e| ContenderError::with_err(e.deref(), "failed to fund agent signers"))?;
+                .await?;
         }
         scenario.deploy_contracts().await?;
         scenario.run_setup().await?;
@@ -516,7 +514,7 @@ where
             Duration::from_secs(self.ctx.pending_tx_timeout_secs),
             SP::duration_units(opts.periods),
         );
-        let run_id = scenario.db.insert_run(&run_req)?;
+        let run_id = scenario.db.insert_run(&run_req).map_err(|e| e.into())?;
 
         // send spam
         spammer

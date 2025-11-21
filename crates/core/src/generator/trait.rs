@@ -1,28 +1,30 @@
 use crate::{
     agent_controller::{AgentStore, SignerRegistry},
-    db::DbOps,
-    error::ContenderError,
+    db::{DbError, DbOps},
     generator::{
         constants::*,
+        error::GeneratorError,
         function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict, FuzzParam},
         named_txs::{ExecutionRequest, NamedTxRequest, NamedTxRequestBuilder},
         seeder::{SeedValue, Seeder},
         templater::Templater,
-        types::{AnyProvider, CallbackResult, PlanType, SpamRequest},
+        types::{AnyProvider, AsyncCallbackResult, PlanType, SpamRequest},
+        util::UtilError,
         CreateDefinition, CreateDefinitionStrict,
     },
-    Result,
+    spammer::CallbackError,
 };
 use alloy::{
-    consensus::{SidecarBuilder, SimpleCoder},
     eips::eip7702::SignedAuthorization,
-    hex::{FromHex, ToHexExt},
-    primitives::{Address, Bytes, FixedBytes, U256},
+    hex::ToHexExt,
+    primitives::{Address, FixedBytes, U256},
     rpc::types::Authorization,
     signers::{local::PrivateKeySigner, SignerSync},
 };
 use async_trait::async_trait;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
+
+pub type Result<T> = std::result::Result<T, GeneratorError>;
 
 pub trait PlanConfig<K>
 where
@@ -147,33 +149,21 @@ where
         let from_address: Address = if let Some(from_pool) = &create_def.from_pool {
             let agent = agents
                 .get_agent(from_pool)
-                .ok_or(ContenderError::SpamError(
-                    "from_pool not found in agent store",
-                    Some(from_pool.to_owned()),
-                ))?;
+                .ok_or(GeneratorError::from_pool_not_found(from_pool))?;
             agent
                 .get_address(idx % agent.signers.len())
-                .ok_or(ContenderError::SpamError(
-                    "signer not found in agent store",
-                    Some(format!("from_pool={from_pool}, idx={idx}")),
-                ))?
+                .ok_or(GeneratorError::signer_not_found(from_pool, idx))?
         } else if let Some(from) = &create_def.from {
             // inject env vars into placeholders where/if present
             let placeholder_map = self.get_plan_conf().get_env()?;
             let from_address = self
                 .get_templater()
                 .replace_placeholders(from, &placeholder_map);
-            from_address.parse().map_err(|e| {
-                ContenderError::SpamError(
-                    "failed to parse 'from' address",
-                    Some(format!("from={from}, error={e}")),
-                )
-            })?
+            from_address
+                .parse()
+                .map_err(|e| GeneratorError::from_address_parse_failed(from, e))?
         } else {
-            return Err(ContenderError::SpamError(
-                "invalid runtime config: must specify 'from' or 'from_pool'",
-                None,
-            ));
+            return Err(GeneratorError::InvalidSender);
         };
 
         // handle direct variable injection
@@ -208,17 +198,10 @@ where
         let from_address: Address = if let Some(from_pool) = &funcdef.from_pool {
             let agent = agents
                 .get_agent(from_pool)
-                .ok_or(ContenderError::SpamError(
-                    "from_pool not found in agent store",
-                    Some(from_pool.to_owned()),
-                ))?;
-            let signer =
-                agent
-                    .get_signer(idx % agent.signers.len())
-                    .ok_or(ContenderError::SpamError(
-                        "signer not found in agent store",
-                        Some(format!("from_pool={from_pool}, idx={idx}")),
-                    ))?;
+                .ok_or(GeneratorError::from_pool_not_found(from_pool))?;
+            let signer = agent
+                .get_signer(idx % agent.signers.len())
+                .ok_or(GeneratorError::signer_not_found(from_pool, idx))?;
             signer.address()
         } else if let Some(from) = &funcdef.from {
             // inject env vars into placeholders where/if present
@@ -226,17 +209,11 @@ where
             let from_address = self
                 .get_templater()
                 .replace_placeholders(from, &placeholder_map);
-            from_address.parse::<Address>().map_err(|e| {
-                ContenderError::SpamError(
-                    "failed to parse 'from' address",
-                    Some(format!("from={from}, error={e}")),
-                )
-            })?
+            from_address
+                .parse::<Address>()
+                .map_err(|e| GeneratorError::from_address_parse_failed(from, e))?
         } else {
-            return Err(ContenderError::SpamError(
-                "invalid runtime config: must specify 'from' or 'from_pool'",
-                None,
-            ));
+            return Err(GeneratorError::InvalidSender);
         };
 
         // manually replace {_sender} with the 'from' address
@@ -259,23 +236,6 @@ where
         let args = args.iter().map(special_replace).collect::<Vec<String>>();
         let to_address = special_replace(&funcdef.to);
 
-        let sidecar_data = if let Some(data) = funcdef.blob_data.as_ref() {
-            let parsed_data = Bytes::from_hex(if data.starts_with("0x") {
-                data.to_owned()
-            } else {
-                data.encode_hex()
-            })
-            .map_err(|e| {
-                ContenderError::with_err(e, "failed to parse blob data; invalid hex value")
-            })?;
-            let sidecar = SidecarBuilder::<SimpleCoder>::from_slice(&parsed_data)
-                .build()
-                .map_err(|e| ContenderError::with_err(e, "failed to build sidecar"))?;
-            Some(sidecar)
-        } else {
-            None
-        };
-
         let signed_auth = if let Some(auth_address) = &funcdef.authorization_address {
             let mut placeholder_map = HashMap::<K, String>::new();
             let templater = self.get_templater();
@@ -291,19 +251,16 @@ where
                 .get_templater()
                 .replace_placeholders(auth_address, &placeholder_map)
                 .parse::<Address>()
-                .map_err(|e| {
-                    ContenderError::with_err(e, "failed to find address in placeholder map")
-                })?;
+                .map_err(|_| GeneratorError::address_not_found(auth_address))?;
             let setcode_signer = self.get_setcode_signer();
 
             // the setcode nonce won't be updated in time for this function to recognize it
             // so we get the latest nonce (available from init) and add `idx`
-            let setcode_nonce = self.get_nonce_map().get(&setcode_signer.address()).ok_or(
-                ContenderError::GenericError(
-                    "failed to find nonce for address:",
-                    format!("{}", setcode_signer.address()),
-                ),
-            )? + idx as u64;
+            let setcode_nonce = self
+                .get_nonce_map()
+                .get(&setcode_signer.address())
+                .ok_or(GeneratorError::NonceNotFound(setcode_signer.address()))?
+                + idx as u64;
 
             // build & sign EIP-7702 authorization
             let auth_req = Authorization {
@@ -325,16 +282,16 @@ where
             fuzz: funcdef.fuzz.to_owned().unwrap_or_default(),
             kind: funcdef.kind.to_owned(),
             gas_limit: funcdef.gas_limit.to_owned(),
-            sidecar: sidecar_data,
+            sidecar: funcdef.sidecar_data()?,
             authorization: signed_auth.map(|a| vec![a]),
         })
     }
 
     /// Loads transactions from the plan configuration and returns execution requests.
-    async fn load_txs<F: Send + Sync + Fn(NamedTxRequest) -> CallbackResult>(
+    async fn load_txs<F: Send + Sync + Fn(NamedTxRequest) -> AsyncCallbackResult>(
         &self,
         plan_type: PlanType<F>,
-    ) -> Result<Vec<ExecutionRequest>> {
+    ) -> std::result::Result<Vec<ExecutionRequest>, crate::Error> {
         let conf = self.get_plan_conf();
         let env = conf.get_env().unwrap_or_default();
         let db = self.get_db();
@@ -373,9 +330,7 @@ where
 
                     let handle = on_create_step(tx.to_owned())?;
                     if let Some(handle) = handle {
-                        handle.await.map_err(|e| {
-                            ContenderError::with_err(e, "join error; callback crashed")
-                        })??;
+                        handle.await.map_err(CallbackError::Join)??;
                     }
                     txs.push(tx.into());
                 }
@@ -406,9 +361,7 @@ where
 
                     let handle = on_setup_step(tx.to_owned())?;
                     if let Some(handle) = handle {
-                        handle.await.map_err(|e| {
-                            ContenderError::with_err(e, "join error; callback crashed")
-                        })??;
+                        handle.await.map_err(CallbackError::Join)??;
                     }
                     txs.push(tx.into());
                 }
@@ -425,27 +378,27 @@ where
                     let fuzz_args = req.fuzz.to_owned().unwrap_or_default();
                     let fuzz_map = self.create_fuzz_map(num_txs as usize, &fuzz_args)?; // this may create more values than needed, but it's fine
                     canonical_fuzz_map.extend(fuzz_map);
-                    Ok::<_, ContenderError>(())
+                    Ok::<_, crate::Error>(())
                 };
 
                 // finds placeholders in a function call definition and populates `placeholder_map` and `canonical_fuzz_map` with injectable values.
                 let rpc_url = self.get_rpc_url();
                 let mut lookup_tx_placeholders = |tx: &FunctionCallDefinition| {
-                    let res = templater.find_fncall_placeholders(
-                        tx,
-                        db,
-                        &mut placeholder_map,
-                        &rpc_url,
-                        self.get_genesis_hash(),
-                    );
-                    if let Err(e) = res {
-                        return Err(ContenderError::SpamError(
-                            "failed to find placeholder value",
-                            Some(e.to_string()),
-                        ));
-                    }
+                    templater
+                        .find_fncall_placeholders(
+                            tx,
+                            db,
+                            &mut placeholder_map,
+                            &rpc_url,
+                            self.get_genesis_hash(),
+                        )
+                        .map_err(|e| {
+                            DbError::NotFound(format!(
+                                "failed to find placeholder value in DB: {e}"
+                            ))
+                        })?;
                     find_fuzz(tx)?;
-                    Ok(())
+                    Ok::<_, crate::Error>(())
                 };
 
                 for step in spam_steps.iter() {
@@ -486,16 +439,14 @@ where
                                 req.kind.to_owned(),
                             );
                             let setup_res = on_spam_setup(tx.to_owned())?;
-                            Ok::<_, ContenderError>((setup_res, tx))
+                            Ok::<_, crate::Error>((setup_res, tx))
                         };
 
                         match step {
                             SpamRequest::Tx(req) => {
                                 let (handle, tx) = prepare_tx(req)?;
                                 if let Some(handle) = handle {
-                                    handle.await.map_err(|e| {
-                                        ContenderError::with_err(e, "error from callback")
-                                    })??;
+                                    handle.await.map_err(CallbackError::Join)??;
                                 }
                                 txs.push(tx.into());
                             }
@@ -504,9 +455,7 @@ where
                                 for tx in req.txs.iter() {
                                     let (handle, txr) = prepare_tx(tx)?;
                                     if let Some(handle) = handle {
-                                        handle.await.map_err(|e| {
-                                            ContenderError::with_err(e, "error from callback")
-                                        })??;
+                                        handle.await.map_err(CallbackError::Join)??;
                                     }
                                     bundle_txs.push(txr);
                                 }
@@ -597,30 +546,17 @@ fn get_fuzzed_tx_value(
 
 fn parse_map_key(fuzz: FuzzParam) -> Result<String> {
     if fuzz.param.is_none() && fuzz.value.is_none() {
-        return Err(ContenderError::SpamError(
-            "fuzz must specify either `param` or `value`",
-            None,
-        ));
+        return Err(GeneratorError::FuzzMissingParams);
     }
     if fuzz.param.is_some() && fuzz.value.is_some() {
-        return Err(ContenderError::SpamError(
-            "fuzz cannot specify both `param` and `value`; choose one per fuzz directive",
-            None,
-        ));
+        return Err(GeneratorError::FuzzConflictingParams);
     }
 
-    let key = if let Some(param) = &fuzz.param {
-        param.to_owned()
-    } else if let Some(value) = fuzz.value {
-        if !value {
-            return Err(ContenderError::SpamError(
-                "fuzz.value is false, but no param is specified",
-                None,
-            ));
-        }
-        VALUE_KEY.to_owned()
-    } else {
-        return Err(ContenderError::SpamError("this should never happen", None));
+    let key = match (fuzz.param.as_ref(), fuzz.value) {
+        (Some(param), _) => param.to_owned(),
+        (None, Some(true)) => VALUE_KEY.to_owned(),
+        (None, Some(false)) => return Err(GeneratorError::FuzzValueNeedsParam),
+        _ => return Err(GeneratorError::FuzzInvalid),
     };
 
     Ok(key)
@@ -629,6 +565,6 @@ fn parse_map_key(fuzz: FuzzParam) -> Result<String> {
 pub fn sign_auth(signer: &PrivateKeySigner, auth: Authorization) -> Result<SignedAuthorization> {
     let auth_sig = signer
         .sign_hash_sync(&auth.signature_hash())
-        .map_err(|e| ContenderError::with_err(e, "failed to sign authorization hash"))?;
+        .map_err(UtilError::Signer)?;
     Ok(auth.into_signed(auth_sig))
 }

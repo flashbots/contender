@@ -4,6 +4,7 @@ use crate::chart::time_to_inclusion::TimeToInclusionData;
 use crate::chart::tx_gas_used::TxGasUsedData;
 use crate::chart::{gas_per_block::GasPerBlockData, heatmap::HeatmapData};
 use crate::command::SpamRunMetrics;
+use crate::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::info;
@@ -55,10 +56,7 @@ impl TemplateData {
 }
 
 /// Builds an HTML report for the given run IDs. Returns the path to the report.
-pub fn build_html_report(
-    meta: ReportMetadata,
-    reports_dir: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
+pub fn build_html_report(meta: ReportMetadata, reports_dir: &str) -> Result<String> {
     let template = include_str!("template.html.handlebars");
 
     let mut data = HashMap::new();

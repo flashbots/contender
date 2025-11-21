@@ -2,11 +2,11 @@ use std::str::FromStr;
 
 use alloy::primitives::U256;
 use clap::Parser;
-use contender_core::{
-    error::ContenderError,
-    generator::{types::SpamRequest, CompiledContract, CreateDefinition, FunctionCallDefinition},
+use contender_core::generator::{
+    types::SpamRequest, CompiledContract, CreateDefinition, FunctionCallDefinition,
 };
 use contender_testfile::TestConfig;
+use thiserror::Error;
 
 use crate::{
     commands::common::parse_amount,
@@ -105,6 +105,12 @@ impl From<UniV2CliArgs> for UniV2Args {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum UniV2Error {
+    #[error("contract '{0}' was not found in create steps")]
+    ContractNameNotFound(String),
+}
+
 impl ToTestConfig for UniV2Args {
     fn to_testconfig(&self) -> TestConfig {
         let mut config = TestConfig::from_str(include_str!("../../../../scenarios/uniV2.toml"))
@@ -136,13 +142,10 @@ impl ToTestConfig for UniV2Args {
             let contract = create_steps
                 .iter()
                 .find(|c| c.contract.name == name)
-                .ok_or(ContenderError::SetupError(
-                    "contract not found in create steps:",
-                    Some(name.to_owned()),
-                ))?
+                .ok_or(UniV2Error::ContractNameNotFound(name.to_owned()))?
                 .contract
                 .to_owned();
-            Ok::<_, ContenderError>(contract)
+            Ok::<_, UniV2Error>(contract)
         };
 
         let weth = find_contract("weth").expect("contract");

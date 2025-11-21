@@ -2,7 +2,7 @@ use alloy::{hex::ToHexExt, primitives::Address};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use crate::generator::util::encode_calldata;
+use crate::generator::{error::GeneratorError, util::encode_calldata};
 
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct CompiledContract<S: AsRef<str> = String> {
@@ -35,7 +35,7 @@ impl CompiledContract {
         mut self,
         sig: impl AsRef<str>,
         args: &[impl AsRef<str>],
-    ) -> crate::Result<Self> {
+    ) -> Result<Self, GeneratorError> {
         let sig = sig.as_ref();
         let sig = if sig.starts_with("(") {
             // coerce sig into `function(...)` format to make encode_calldata happy

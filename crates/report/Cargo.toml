@@ -22,3 +22,4 @@ chrono = { workspace = true }
 handlebars = { workspace = true }
 webbrowser = { workspace = true }
 regex = { workspace = true }
+thiserror = { workspace = true }

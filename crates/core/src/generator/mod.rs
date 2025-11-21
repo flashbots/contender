@@ -1,5 +1,6 @@
 pub mod agent_pools;
 mod create_def;
+pub mod error;
 mod function_def;
 mod r#trait;
 
@@ -28,4 +29,4 @@ pub use function_def::*;
 pub use named_txs::NamedTxRequestBuilder;
 pub use r#trait::{Generator, PlanConfig};
 pub use seeder::rand_seed::RandSeed;
-pub use types::{CallbackResult, NamedTxRequest, PlanType};
+pub use types::{NamedTxRequest, PlanType};

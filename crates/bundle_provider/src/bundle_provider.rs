@@ -52,7 +52,7 @@ impl BundleClient {
         self.client
             .raw_request::<_, Option<Response>>("eth_sendBundle".into(), [bundle])
             .await
-            .map_err(|e| BundleProviderError::SendBundleError(e.into()))
+            .map_err(BundleProviderError::SendBundleError)
     }
 }
 

@@ -1,13 +1,13 @@
 use crate::default_scenarios::builtin::ToTestConfig;
 use crate::util::bold;
 use alloy::json_abi::JsonAbi;
-use contender_core::error::ContenderError;
+use contender_core::generator::error::GeneratorError;
 use contender_core::generator::types::SpamRequest;
 use contender_core::generator::util::encode_calldata;
 use contender_core::generator::{CompiledContract, CreateDefinition, FunctionCallDefinition};
-use contender_core::Result;
 use contender_testfile::TestConfig;
 use std::process::Command;
+use thiserror::Error;
 use tracing::debug;
 
 const ARTIFACTS_PATH: &str = "/tmp/contender-contracts";
@@ -58,34 +58,22 @@ impl CustomContractCliArgs {
 
     /// read smart contract src.
     /// format must be <path/to/contract.sol>:<ContractName>
-    pub fn read_sol_file(&self) -> Result<ContractMeta> {
-        let contract_path = self
-            .contract_path
-            .to_str()
-            .ok_or(ContenderError::GenericError(
-                "invalid contract path",
-                String::new(),
-            ))?;
+    pub fn read_sol_file(&self) -> Result<ContractMeta, CustomContractArgsError> {
+        let contract_path = self.contract_path.to_str().expect("contract"); // unwrap bc we already read this from a string
 
-        let re = regex::Regex::new(r"^(.+\.sol):([A-Za-z_][A-Za-z0-9_]*)$")
-            .map_err(|e| ContenderError::GenericError("failed to compile regex", e.to_string()))?;
-        let caps = re.captures(contract_path).ok_or_else(|| {
-            ContenderError::GenericError(
-                "invalid contract path format; expected <path/to/contract.sol>:<ContractName>",
-                contract_path.to_owned(),
-            )
-        })?;
+        let re = regex::Regex::new(r"^(.+\.sol):([A-Za-z_][A-Za-z0-9_]*)$")?;
+        let caps = re.captures(contract_path).ok_or(
+            CustomContractArgsError::InvalidContractPathFormat(contract_path.to_owned()),
+        )?;
         let contract_path = caps
             .get(1)
-            .ok_or(ContenderError::GenericError(
-                "invalid contract path",
+            .ok_or(CustomContractArgsError::InvalidContractPath(
                 contract_path.to_owned(),
             ))?
             .as_str();
         let contract_name = caps
             .get(2)
-            .ok_or(ContenderError::GenericError(
-                "invalid contract name",
+            .ok_or(CustomContractArgsError::InvalidContractName(
                 contract_path.to_owned(),
             ))?
             .as_str();
@@ -93,30 +81,22 @@ impl CustomContractCliArgs {
         let contract_filename = std::path::Path::new(contract_path)
             .file_name()
             .and_then(|f| f.to_str())
-            .ok_or_else(|| {
-                ContenderError::GenericError(
-                    "failed to extract contract filename",
-                    contract_path.to_owned(),
-                )
-            })?;
+            .ok_or_else(|| CustomContractArgsError::FilenameNotFound(contract_path.to_owned()))?;
 
         let contract_path_obj = std::path::Path::new(contract_path);
-        let parent_dir = contract_path_obj.parent().ok_or_else(|| {
-            ContenderError::GenericError(
-                "failed to get contract parent directory",
-                contract_path.to_owned(),
-            )
-        })?;
+        let parent_dir =
+            contract_path_obj
+                .parent()
+                .ok_or(CustomContractArgsError::ParentDirectoryNotFound(
+                    contract_path.to_owned(),
+                ))?;
 
         // try to find root directory containing foundry.toml, otherwise assume the source file's parent dir
         let mut root_dir = parent_dir;
         if let Some(foundry_dir) = find_foundry_toml(parent_dir) {
             root_dir = foundry_dir;
         }
-        let root_dir = root_dir.to_str().ok_or(ContenderError::SpamError(
-            "failed to convert project root directory to str",
-            Some(format!("{root_dir:?}")),
-        ))?;
+        let root_dir = root_dir.to_str().expect("directory is well-formed");
 
         Ok(ContractMeta {
             name: contract_name.to_owned(),
@@ -124,6 +104,44 @@ impl CustomContractCliArgs {
             root_dir: root_dir.to_owned(),
         })
     }
+}
+
+#[derive(Debug, Error)]
+pub enum CustomContractArgsError {
+    #[error("regex error")]
+    Regex(#[from] regex::Error),
+
+    #[error(
+        "invalid contract path format ('{0}'); expected <path/to/contract.sol>:<ContractName>"
+    )]
+    InvalidContractPathFormat(String),
+
+    #[error("invalid contract path: {0}")]
+    InvalidContractPath(String),
+
+    #[error("invalid name in contract path: {0}")]
+    InvalidContractName(String),
+
+    #[error("path {0} does not include a filename")]
+    FilenameNotFound(String),
+
+    #[error("failed to access parent directory of path {0}")]
+    ParentDirectoryNotFound(String),
+
+    #[error(
+        "invalid CLI params: must provide at least one {} argument",
+        bold("--spam")
+    )]
+    SpamArgsEmpty,
+
+    #[error("core error")]
+    Core(#[from] contender_core::Error),
+
+    #[error("contract error")]
+    Meta(#[from] ContractMetaError),
+
+    #[error("generator error")]
+    Generator(#[from] GeneratorError),
 }
 
 /// This contract is expected to have its constructor args already appended to the bytecode, so it's ready to deploy.
@@ -145,8 +163,50 @@ pub struct ContractArtifacts {
     bytecode: String,
 }
 
+#[derive(Debug, Error)]
+pub enum ContractMetaError {
+    /// ABI not found in file
+    #[error("abi not found")]
+    ABINotFound,
+
+    #[error("failed to find appropriate ABI for function call: {0}")]
+    ABIFunctionNotFound(String),
+
+    #[error("failed to read artifact file at {0}")]
+    ArtifactMissing(String),
+
+    #[error("failed to parse JSON from artifact file {0}")]
+    ArtifactInvalid(String, serde_json::Error),
+
+    #[error("invalid artifact: bytecode missing")]
+    BytecodeMissing,
+
+    #[error("cannot find constructor in ABI")]
+    ConstructorNotFound,
+
+    #[error("failed to compile contract: {0}")]
+    ContractBuildFailed(String),
+
+    #[error("failed to deserialize ABI: {0}")]
+    DeserializeABI(serde_json::Error),
+
+    #[error("failed to run forge build in subprocess: {0}")]
+    ForgeBuildFailed(std::io::Error),
+
+    #[error("function with name '{0}' not found in ABI")]
+    FunctionNotFound(String),
+
+    #[error("invalid function call: {0}")]
+    InvalidCall(String),
+
+    #[error("no solidity files found in the project ({0}): {1}")]
+    NoSolidityFiles(String, String),
+}
+
 impl ContractMeta {
-    pub fn build_source(&self) -> Result<()> {
+    pub fn build_source(&self) -> Result<(), ContractMetaError> {
+        use ContractMetaError::*;
+
         let res = Command::new("forge")
             .args([
                 "build", //
@@ -156,57 +216,44 @@ impl ContractMeta {
                 &self.root_dir, // project root
             ])
             .output()
-            .map_err(|e| ContenderError::with_err(e, "failed to run forge in subprocess"))?;
+            .map_err(ForgeBuildFailed)?;
         debug!("forge build result: {res:?}");
         if !res.status.success() {
             let err_output = String::from_utf8_lossy(&res.stderr).into_owned();
-            return Err(ContenderError::SpamError(
-                "failed to compile contract",
-                Some(err_output),
-            ));
+            return Err(ContractBuildFailed(err_output));
         } else {
             let std_out = String::from_utf8_lossy(&res.stdout).into_owned();
             if std_out.to_lowercase().contains("nothing to compile") {
-                return Err(ContenderError::SpamError(
-                    "no solidity files found in the given directory:",
-                    Some(std_out),
-                ));
+                return Err(NoSolidityFiles(self.root_dir.clone(), std_out));
             }
         }
         Ok(())
     }
 
     /// Parse artifacts from build output. Must be called after `build_source` has run.
-    pub fn parse_artifacts(&self) -> Result<ContractArtifacts> {
-        let artifact_path = std::path::Path::new(&format!(
-            "{ARTIFACTS_PATH}/{}/{}.json",
-            self.filename, self.name
-        ))
-        .to_owned();
-        let build_artifact = std::fs::read(artifact_path)
-            .map_err(|e| ContenderError::with_err(e, "failed to read artifact file"))?;
+    pub fn parse_artifacts(&self) -> Result<ContractArtifacts, ContractMetaError> {
+        use ContractMetaError::*;
+
+        let raw_artifact_path = format!("{ARTIFACTS_PATH}/{}/{}.json", self.filename, self.name);
+        let artifact_path = std::path::Path::new(&raw_artifact_path);
+        let build_artifact =
+            std::fs::read(artifact_path).map_err(|_| ArtifactMissing(raw_artifact_path.clone()))?;
         let artifact_json: serde_json::Value = serde_json::from_slice(&build_artifact)
-            .map_err(|e| ContenderError::with_err(e, "failed to parse artifact JSON"))?;
+            .map_err(|e| ArtifactInvalid(raw_artifact_path, e))?;
 
         // get bytecode
         let bytecode = artifact_json
             .get("bytecode")
             .and_then(|v| v.get("object").and_then(|v| v.as_str()))
-            .ok_or_else(|| {
-                ContenderError::GenericError("missing bytecode in artifact", String::new())
-            })?
+            .ok_or(BytecodeMissing)?
             .to_string();
 
         // get abi
-        let abi = artifact_json
-            .get("abi")
-            .ok_or(ContenderError::GenericError("ABI not found", String::new()))?;
+        let abi = artifact_json.get("abi").ok_or(ABINotFound)?;
 
         // Deserialize ABI into alloy_rs ABI type
         let json_abi: alloy::json_abi::JsonAbi =
-            serde_json::from_value(abi.clone()).map_err(|e| {
-                ContenderError::with_err(e, "failed to deserialize ABI into alloy_rs type")
-            })?;
+            serde_json::from_value(abi.clone()).map_err(DeserializeABI)?;
 
         Ok(ContractArtifacts {
             abi: json_abi,
@@ -216,15 +263,10 @@ impl ContractMeta {
 }
 
 impl CustomContractArgs {
-    pub fn from_cli_args(args: CustomContractCliArgs) -> Result<Self> {
+    pub fn from_cli_args(args: CustomContractCliArgs) -> Result<Self, CustomContractArgsError> {
+        use CustomContractArgsError::*;
         if args.spam_calls.is_empty() {
-            return Err(ContenderError::SpamError(
-                "invalid CLI params:",
-                Some(format!(
-                    "must provide at least one {} argument",
-                    bold("--spam")
-                )),
-            ));
+            return Err(SpamArgsEmpty);
         }
 
         // read smart contract src
@@ -295,11 +337,10 @@ fn find_foundry_toml(mut dir: &std::path::Path) -> Option<&std::path::Path> {
     None
 }
 
-pub fn constructor_sig(json_abi: &JsonAbi) -> Result<String> {
-    let constructor = json_abi.constructor().ok_or(ContenderError::GenericError(
-        "failed to find constructor in ABI",
-        String::new(),
-    ))?;
+pub fn constructor_sig(json_abi: &JsonAbi) -> Result<String, ContractMetaError> {
+    let constructor = json_abi
+        .constructor()
+        .ok_or(ContractMetaError::ConstructorNotFound)?;
     let input_types = constructor
         .inputs
         .iter()
@@ -321,28 +362,21 @@ impl NameAndArgs {
     /// ```rs
     /// let res = parse_function_call("callMe(100, 0xbeef)");
     /// ```
-    pub fn from_function_call(fn_call: impl AsRef<str>) -> Result<Self> {
+    pub fn from_function_call(fn_call: impl AsRef<str>) -> Result<Self, ContractMetaError> {
+        use ContractMetaError::*;
+
         let call = fn_call.as_ref();
-        let open_paren = call.find('(').ok_or_else(|| {
-            ContenderError::GenericError(
-                "invalid function call format; missing '('",
-                call.to_string(),
-            )
-        })?;
+        let open_paren = call
+            .find('(')
+            .ok_or(InvalidCall(format!("'{call}' missing '('")))?;
         let fn_name = &call[..open_paren];
         if fn_name.is_empty() {
-            return Err(ContenderError::GenericError(
-                "function name is empty",
-                call.to_string(),
-            ));
+            return Err(InvalidCall(format!("'{call}' function name is empty")));
         }
 
-        let close_paren = call.rfind(')').ok_or_else(|| {
-            ContenderError::GenericError(
-                "invalid function call format; missing ')'",
-                call.to_string(),
-            )
-        })?;
+        let close_paren = call
+            .rfind(')')
+            .ok_or(InvalidCall(format!("'{call}' missing ')'")))?;
         let args_str = &call[open_paren + 1..close_paren];
         let args: Vec<String> = if args_str.trim().is_empty() {
             vec![]
@@ -361,14 +395,11 @@ impl NameAndArgs {
         format!("{name}({})", args.join(", "))
     }
 
-    fn signature(&self, abi: &JsonAbi) -> Result<String> {
+    fn signature(&self, abi: &JsonAbi) -> Result<String, ContractMetaError> {
         let fn_abis = abi
             .functions
             .get(&self.name)
-            .ok_or(ContenderError::GenericError(
-                "function name was not found in contract's ABI:",
-                self.name.to_owned(),
-            ))?;
+            .ok_or(ContractMetaError::FunctionNotFound(self.name.to_owned()))?;
 
         // find the appropriate ABI for the provided args
         let function_abi = fn_abis
@@ -377,10 +408,7 @@ impl NameAndArgs {
                 let sig = abi.signature();
                 encode_calldata(&self.args, &sig).is_ok()
             })
-            .ok_or(ContenderError::GenericError(
-                "failed to find appropriate ABI for function call:",
-                format!("({})", self.to_fn_call()),
-            ))?;
+            .ok_or(ContractMetaError::ABIFunctionNotFound(self.to_fn_call()))?;
 
         Ok(function_abi.signature())
     }

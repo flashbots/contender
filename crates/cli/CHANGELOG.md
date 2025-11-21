@@ -5,7 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## Unreleased
+
+- use `miette` for error-printing
+- all new error types, cli no longer uses (formerly named) `contender_core::ContenderError`
+    - the cli now uses `contender_cli::error::CliError`
+    - `CliError` implements `From` for all new error types internal to the cli crate
+
+## [0.5.6](https://github.com/flashbots/contender/releases/tag/v0.5.6) - 2025-10-10
+
+- erc20: fuzz recipient address ([#366](https://github.com/flashbots/contender/pull/366))
+- add reclaim-eth admin subcommand ([#363](https://github.com/flashbots/contender/pull/363))
+
+---
+
+> Note: changelogs prior to this point were broken. Please excuse the mess.
 
 ## [0.5.5](https://github.com/flashbots/contender/releases/tag/contender_cli-v0.5.5) - 2025-05-14
 

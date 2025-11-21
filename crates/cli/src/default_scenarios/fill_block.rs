@@ -1,15 +1,13 @@
 use crate::{
     commands::common::SendSpamCliArgs,
     default_scenarios::{builtin::ToTestConfig, contracts, BuiltinScenario},
+    error::CliError,
 };
 use alloy::providers::Provider;
 use clap::Parser;
-use contender_core::{
-    error::ContenderError,
-    generator::{
-        types::{AnyProvider, SpamRequest},
-        CreateDefinition, FunctionCallDefinition,
-    },
+use contender_core::generator::{
+    types::{AnyProvider, SpamRequest},
+    CreateDefinition, FunctionCallDefinition,
 };
 use contender_testfile::TestConfig;
 use tracing::{info, warn};
@@ -32,7 +30,7 @@ pub async fn fill_block(
     provider: &AnyProvider,
     spam_args: &SendSpamCliArgs,
     args: &FillBlockCliArgs,
-) -> Result<BuiltinScenario, ContenderError> {
+) -> Result<BuiltinScenario, CliError> {
     let SendSpamCliArgs {
         txs_per_block,
         txs_per_second,
@@ -45,8 +43,7 @@ pub async fn fill_block(
     } else {
         let block_gas_limit = provider
             .get_block_by_number(alloy::eips::BlockNumberOrTag::Latest)
-            .await
-            .map_err(|e| ContenderError::with_err(e, "provider failed to get block"))?
+            .await?
             .map(|b| b.header.gas_limit);
         if block_gas_limit.is_none() {
             warn!("Could not get block gas limit from provider, using default 30M");

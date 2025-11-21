@@ -1,7 +1,9 @@
+use crate::generator::error::GeneratorError;
 use alloy::{
-    consensus::BlobTransactionSidecar,
+    consensus::{BlobTransactionSidecar, SidecarBuilder, SimpleCoder},
     eips::eip7702::SignedAuthorization,
-    primitives::{Address, U256},
+    hex::{FromHex, ToHexExt},
+    primitives::{Address, Bytes, U256},
 };
 use serde::{Deserialize, Serialize};
 
@@ -100,6 +102,24 @@ impl FunctionCallDefinition {
     pub fn with_authorization(mut self, auth_addr: impl AsRef<str>) -> Self {
         self.authorization_address = Some(auth_addr.as_ref().to_owned());
         self
+    }
+
+    pub fn sidecar_data(&self) -> Result<Option<BlobTransactionSidecar>, GeneratorError> {
+        let sidecar_data = if let Some(data) = self.blob_data.as_ref() {
+            let parsed_data = Bytes::from_hex(if data.starts_with("0x") {
+                data.to_owned()
+            } else {
+                data.encode_hex()
+            })
+            .map_err(|_| GeneratorError::BlobDataParseFailed(data.to_owned()))?;
+            let sidecar = SidecarBuilder::<SimpleCoder>::from_slice(&parsed_data)
+                .build()
+                .map_err(|_| GeneratorError::SidecarBuildFailed)?;
+            Some(sidecar)
+        } else {
+            None
+        };
+        Ok(sidecar_data)
     }
 }
 

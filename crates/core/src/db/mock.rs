@@ -1,44 +1,66 @@
-use std::collections::BTreeMap;
-
-use alloy::primitives::{Address, FixedBytes, TxHash};
-
 use super::{DbOps, NamedTx, RunTx, SpamRunRequest};
-use crate::{buckets::Bucket, Result};
+use crate::{buckets::Bucket, db::DbError};
+use alloy::primitives::{Address, FixedBytes, TxHash};
+use std::collections::BTreeMap;
 
 pub struct MockDb;
 
+#[derive(Debug)]
+pub enum MockError {}
+
+impl std::fmt::Display for MockError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "mock error")
+    }
+}
+
+impl std::error::Error for MockError {}
+
+impl From<MockError> for DbError {
+    fn from(value: MockError) -> Self {
+        DbError::Internal(value.to_string())
+    }
+}
+
+impl From<MockError> for crate::Error {
+    fn from(value: MockError) -> Self {
+        Self::Db(value.into())
+    }
+}
+
 impl DbOps for MockDb {
+    type Error = MockError;
+
     fn get_rpc_url_id(
         &self,
         _rpc_url: impl AsRef<str>,
         _genesis_hash: FixedBytes<32>,
-    ) -> Result<u64> {
+    ) -> Result<u64, Self::Error> {
         Ok(0)
     }
 
-    fn get_replay_report(&self, id: u64) -> Result<super::ReplayReport> {
-        Ok(super::ReplayReport {
+    fn get_replay_report(&self, id: u64) -> Result<super::ReplayReport, Self::Error> {
+        Ok(super::ReplayReport::new(
             id,
-            req: super::ReplayReportRequest {
-                rpc_url_id: 0,
-                gas_per_second: 0,
-                gas_used: 0,
-            },
-        })
+            super::ReplayReportRequest::new(),
+        ))
     }
 
     fn insert_replay_report(
         &self,
-        report: super::ReplayReportRequest,
-    ) -> Result<super::ReplayReport> {
-        Ok(super::ReplayReport { id: 0, req: report })
+        req: super::ReplayReportRequest,
+    ) -> Result<super::ReplayReport, Self::Error> {
+        Ok(super::ReplayReport::new(0, req))
     }
 
-    fn num_replay_reports(&self) -> Result<u64> {
+    fn num_replay_reports(&self) -> Result<u64, Self::Error> {
         Ok(0)
     }
 
-    fn get_rpc_url_for_scenario(&self, _scenario_name: &str) -> Result<Option<String>> {
+    fn get_rpc_url_for_scenario(
+        &self,
+        _scenario_name: &str,
+    ) -> Result<Option<String>, Self::Error> {
         Ok(Some("http://localhost:8545".to_string()))
     }
 
@@ -46,19 +68,19 @@ impl DbOps for MockDb {
         u64::MAX
     }
 
-    fn create_tables(&self) -> Result<()> {
+    fn create_tables(&self) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    fn insert_run(&self, _run: &SpamRunRequest) -> Result<u64> {
+    fn insert_run(&self, _run: &SpamRunRequest) -> Result<u64, Self::Error> {
         Ok(0)
     }
 
-    fn get_run(&self, _run_id: u64) -> Result<Option<super::SpamRun>> {
+    fn get_run(&self, _run_id: u64) -> Result<Option<super::SpamRun>, Self::Error> {
         Ok(None)
     }
 
-    fn num_runs(&self) -> Result<u64> {
+    fn num_runs(&self) -> Result<u64, Self::Error> {
         Ok(0)
     }
 
@@ -67,7 +89,7 @@ impl DbOps for MockDb {
         _named_txs: &[NamedTx],
         _rpc_url: &str,
         _genesis_hash: FixedBytes<32>,
-    ) -> Result<()> {
+    ) -> Result<(), Self::Error> {
         Ok(())
     }
 
@@ -76,7 +98,7 @@ impl DbOps for MockDb {
         _name: &str,
         _rpc_url: &str,
         _genesis_hash: FixedBytes<32>,
-    ) -> Result<Option<NamedTx>> {
+    ) -> Result<Option<NamedTx>, Self::Error> {
         Ok(Some(NamedTx::new(
             String::default(),
             TxHash::default(),
@@ -84,7 +106,7 @@ impl DbOps for MockDb {
         )))
     }
 
-    fn get_named_tx_by_address(&self, address: &Address) -> Result<Option<NamedTx>> {
+    fn get_named_tx_by_address(&self, address: &Address) -> Result<Option<NamedTx>, Self::Error> {
         Ok(Some(NamedTx::new(
             String::default(),
             TxHash::default(),
@@ -92,15 +114,15 @@ impl DbOps for MockDb {
         )))
     }
 
-    fn get_latency_metrics(&self, _run_id: u64, _method: &str) -> Result<Vec<Bucket>> {
+    fn get_latency_metrics(&self, _run_id: u64, _method: &str) -> Result<Vec<Bucket>, Self::Error> {
         Ok(vec![(0.0, 1).into()])
     }
 
-    fn insert_run_txs(&self, _run_id: u64, _run_txs: &[RunTx]) -> Result<()> {
+    fn insert_run_txs(&self, _run_id: u64, _run_txs: &[RunTx]) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    fn get_run_txs(&self, _run_id: u64) -> Result<Vec<RunTx>> {
+    fn get_run_txs(&self, _run_id: u64) -> Result<Vec<RunTx>, Self::Error> {
         Ok(vec![])
     }
 
@@ -108,7 +130,7 @@ impl DbOps for MockDb {
         &self,
         _run_id: u64,
         _latency_metrics: &BTreeMap<String, Vec<Bucket>>,
-    ) -> Result<()> {
+    ) -> Result<(), Self::Error> {
         Ok(())
     }
 }

@@ -1,5 +1,7 @@
-use crate::generator::NamedTxRequest;
+use crate::{generator::NamedTxRequest, spammer::error::CallbackError};
 use alloy::{consensus::TxEnvelope, primitives::FixedBytes};
+
+pub type CallbackResult<T> = Result<T, CallbackError>;
 
 #[derive(Clone, Debug)]
 pub enum ExecutionPayload {

@@ -2,6 +2,7 @@ pub mod admin;
 pub mod common;
 mod contender_subcommand;
 pub mod db;
+pub mod error;
 pub mod replay;
 mod setup;
 mod spam;
@@ -13,6 +14,10 @@ pub use contender_subcommand::{ContenderSubcommand, DbCommand};
 pub use setup::{setup, SetupCommandArgs};
 pub use spam::{spam, EngineArgs, SpamCliArgs, SpamCommandArgs, SpamScenario};
 pub use spamd::spamd;
+
+use crate::error::CliError;
+
+pub type Result<T> = std::result::Result<T, CliError>;
 
 #[derive(Parser, Debug)]
 #[command(

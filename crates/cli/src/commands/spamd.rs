@@ -1,11 +1,11 @@
 use super::SpamCommandArgs;
+use crate::CliError;
 use crate::{
     commands::{self},
     util::data_dir,
 };
-use contender_core::{db::DbOps, error::ContenderError};
+use contender_core::db::DbOps;
 use std::{
-    ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -26,7 +26,7 @@ pub async fn spamd(
     args: SpamCommandArgs,
     gen_report: bool,
     limit_loops: Option<u64>,
-) -> Result<(), ContenderError> {
+) -> Result<(), CliError> {
     let is_done = Arc::new(AtomicBool::new(false));
     let mut scenario = args.init_scenario(db).await?;
 
@@ -110,7 +110,7 @@ pub async fn spamd(
         if gen_report {
             if run_ids.is_empty() {
                 warn!("No runs found, exiting.");
-                return Ok::<_, ContenderError>(());
+                return Ok::<_, CliError>(());
             }
             let first_run_id = run_ids.iter().min().expect("no run IDs found");
             let last_run_id = *run_ids.iter().max().expect("no run IDs found");
@@ -118,13 +118,9 @@ pub async fn spamd(
                 Some(last_run_id),
                 last_run_id - first_run_id,
                 db,
-                &data_dir()
-                    .map_err(|e| ContenderError::with_err(e.deref(), "failed to load data dir"))?,
+                &data_dir()?,
             )
-            .await
-            .map_err(|e| {
-                ContenderError::GenericError("failed to generate report", e.to_string())
-            })?;
+            .await?;
         }
         Ok(())
     };

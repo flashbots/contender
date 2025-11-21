@@ -1,5 +1,6 @@
 pub mod agent_controller;
 pub mod buckets;
+mod constants;
 pub mod db;
 pub mod error;
 pub mod generator;
@@ -9,7 +10,8 @@ pub mod spammer;
 pub mod test_scenario;
 pub mod util;
 
-pub type Result<T> = std::result::Result<T, error::ContenderError>;
+pub use error::Error;
+pub type Result<T> = std::result::Result<T, error::Error>;
 
 pub use alloy;
 pub use contender_bundle_provider::bundle::BundleType;

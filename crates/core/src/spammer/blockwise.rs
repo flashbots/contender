@@ -6,7 +6,7 @@ use tracing::info;
 
 use crate::{
     db::DbOps,
-    error::ContenderError,
+    error::Error,
     generator::{seeder::Seeder, templater::Templater, PlanConfig},
     test_scenario::TestScenario,
 };
@@ -43,7 +43,7 @@ where
             .rpc_client
             .watch_blocks()
             .await
-            .map_err(|e| ContenderError::with_err(e, "failed to get block stream"))?;
+            .map_err(Error::Rpc)?;
         Ok(poller
             .into_stream()
             .flat_map(futures::stream::iter)

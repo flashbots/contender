@@ -6,11 +6,12 @@ use tracing::{debug, info, warn};
 
 use crate::{
     db::{DbOps, RunTx},
-    error::ContenderError,
     generator::types::AnyProvider,
+    spammer::CallbackError,
+    Result,
 };
 
-enum TxActorMessage {
+pub enum TxActorMessage {
     SentRunTx {
         tx_hash: TxHash,
         start_timestamp_ms: u128,
@@ -97,13 +98,13 @@ where
         run_id: u64,
         on_flush: oneshot::Sender<Vec<PendingRunTx>>, // returns the number of txs remaining in cache
         target_block_num: u64,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<()> {
         info!("unconfirmed txs: {}", cache.len());
 
         if cache.is_empty() {
             on_flush
                 .send(cache.to_owned())
-                .map_err(|_| ContenderError::SpamError("failed to join TxActor on_flush", None))?;
+                .map_err(CallbackError::FlushCache)?;
             return Ok(());
         }
 
@@ -182,10 +183,10 @@ where
                 }
             })
             .collect::<Vec<_>>();
-        db.insert_run_txs(run_id, &run_txs)?;
+        db.insert_run_txs(run_id, &run_txs).map_err(|e| e.into())?;
         on_flush
             .send(new_txs.to_owned())
-            .map_err(|_| ContenderError::SpamError("failed to join TxActor on_flush", None))?;
+            .map_err(CallbackError::FlushCache)?;
         Ok(())
     }
 
@@ -194,7 +195,7 @@ where
         cache: &mut Vec<PendingRunTx>,
         db: &Arc<D>,
         run_id: u64,
-    ) -> Result<Vec<RunTx>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<RunTx>> {
         let run_txs = cache
             .iter()
             .map(|pending_tx| RunTx {
@@ -207,22 +208,16 @@ where
                 error: pending_tx.error.to_owned(),
             })
             .collect::<Vec<_>>();
-        db.insert_run_txs(run_id, &run_txs)?;
+        db.insert_run_txs(run_id, &run_txs).map_err(|e| e.into())?;
         cache.clear();
         Ok(run_txs)
     }
 
-    async fn remove_cached_tx(
-        cache: &mut Vec<PendingRunTx>,
-        old_tx_hash: TxHash,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn remove_cached_tx(cache: &mut Vec<PendingRunTx>, old_tx_hash: TxHash) -> Result<()> {
         let old_tx = cache
             .iter()
             .position(|tx| tx.tx_hash == old_tx_hash)
-            .ok_or(ContenderError::SpamError(
-                "failed to find tx in cache to replace",
-                None,
-            ))?;
+            .ok_or(CallbackError::CacheRemoveTx(old_tx_hash))?;
         cache.remove(old_tx);
         Ok(())
     }
@@ -232,12 +227,10 @@ where
         db: &Arc<D>,
         rpc: &Arc<AnyProvider>,
         message: TxActorMessage,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<()> {
         match message {
             TxActorMessage::Stop { on_stop } => {
-                on_stop.send(()).map_err(|_| {
-                    ContenderError::SpamError("failed to join TxActor on_stop (Stop)", None)
-                })?;
+                on_stop.send(()).map_err(|_| CallbackError::Stop)?;
                 return Ok(());
             }
             TxActorMessage::SentRunTx {
@@ -254,18 +247,11 @@ where
                     error,
                 };
                 cache.push(run_tx.to_owned());
-                on_receive.send(()).map_err(|_| {
-                    ContenderError::SpamError("failed to join TxActor on_receive (SentRunTx)", None)
-                })?;
+                on_receive.send(()).map_err(CallbackError::OneshotSend)?;
             }
             TxActorMessage::RemovedRunTx { tx_hash, on_remove } => {
                 Self::remove_cached_tx(cache, tx_hash).await?;
-                on_remove.send(()).map_err(|_| {
-                    ContenderError::SpamError(
-                        "failed to join TxActor on_replace (ReplacedRunTx)",
-                        None,
-                    )
-                })?;
+                on_remove.send(()).map_err(CallbackError::OneshotSend)?;
             }
             TxActorMessage::FlushCache {
                 on_flush,
@@ -279,18 +265,13 @@ where
                 run_id,
             } => {
                 let res = Self::dump_cache(cache, db, run_id).await?;
-                on_dump_cache.send(res).map_err(|_| {
-                    ContenderError::SpamError(
-                        "failed to join TxActor on_get_cache (FlushCache)",
-                        None,
-                    )
-                })?;
+                on_dump_cache.send(res).map_err(CallbackError::DumpCache)?;
             }
         }
         Ok(())
     }
 
-    pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(&mut self) -> Result<()> {
         while let Some(msg) = self.receiver.recv().await {
             match &msg {
                 TxActorMessage::DumpCache {
@@ -372,7 +353,7 @@ impl TxActorHandle {
     }
 
     /// Adds a new tx to the cache.
-    pub async fn cache_run_tx(&self, params: CacheTx) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn cache_run_tx(&self, params: CacheTx) -> Result<()> {
         let CacheTx {
             tx_hash,
             start_timestamp_ms,
@@ -388,21 +369,24 @@ impl TxActorHandle {
                 on_receive: sender,
                 error,
             })
-            .await?;
-        receiver.await?;
-        Ok(())
+            .await
+            .map_err(Box::new)
+            .map_err(CallbackError::from)?;
+        Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
     }
 
     /// Dumps remaining txs in cache to the DB and returns them. Does not assign `end_timestamp`, `block_number`, or `gas_used`.
-    pub async fn dump_cache(&self, run_id: u64) -> Result<Vec<RunTx>, Box<dyn std::error::Error>> {
+    pub async fn dump_cache(&self, run_id: u64) -> Result<Vec<RunTx>> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(TxActorMessage::DumpCache {
                 on_dump_cache: sender,
                 run_id,
             })
-            .await?;
-        Ok(receiver.await?)
+            .await
+            .map_err(Box::new)
+            .map_err(CallbackError::from)?;
+        Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
     }
 
     /// Removes txs included onchain from the cache, saves them to the DB, and returns the number of txs remaining in the cache.
@@ -410,7 +394,7 @@ impl TxActorHandle {
         &self,
         run_id: u64,
         target_block_num: u64,
-    ) -> Result<Vec<PendingRunTx>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<PendingRunTx>> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(TxActorMessage::FlushCache {
@@ -418,32 +402,35 @@ impl TxActorHandle {
                 on_flush: sender,
                 target_block_num,
             })
-            .await?;
-        Ok(receiver.await?)
+            .await
+            .map_err(Box::new)
+            .map_err(CallbackError::from)?;
+        Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
     }
 
     /// Removes an existing tx in the cache.
-    pub async fn remove_cached_tx(
-        &self,
-        tx_hash: TxHash,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn remove_cached_tx(&self, tx_hash: TxHash) -> Result<()> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(TxActorMessage::RemovedRunTx {
                 tx_hash,
                 on_remove: sender,
             })
-            .await?;
+            .await
+            .map_err(Box::new)
+            .map_err(CallbackError::from)?;
 
-        Ok(receiver.await?)
+        Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
     }
 
     /// Stops the actor, terminating any pending tasks.
-    pub async fn stop(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn stop(&self) -> Result<()> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(TxActorMessage::Stop { on_stop: sender })
-            .await?;
-        Ok(receiver.await?)
+            .await
+            .map_err(Box::new)
+            .map_err(CallbackError::from)?;
+        Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
     }
 }

@@ -4,6 +4,7 @@
 use futures::FutureExt;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use thiserror::Error;
 use tokio::sync::RwLock;
 use tower::Service;
 
@@ -195,11 +196,19 @@ impl AuthenticatedTransport {
     }
 }
 
-fn build_auth(secret: JwtSecret) -> eyre::Result<(Authorization, Claims)> {
+#[derive(Debug, Error)]
+pub enum JwtError {
+    #[error("failed to encode auth claims with JWT secret")]
+    EncodeSecretFailed,
+}
+
+fn build_auth(secret: JwtSecret) -> Result<(Authorization, Claims), JwtError> {
     // Generate claims (iat with current timestamp), this happens by default using the Default trait
     // for Claims.
     let claims = Claims::default();
-    let token = secret.encode(&claims)?;
+    let token = secret
+        .encode(&claims)
+        .map_err(|_| JwtError::EncodeSecretFailed)?;
     let auth = Authorization::Bearer(token);
 
     Ok((auth, claims))

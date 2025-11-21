@@ -1,13 +1,11 @@
 use crate::{
-    db::DbOps,
-    error::ContenderError,
+    db::{DbError, DbOps},
     generator::{
         constants::{SENDER_KEY, SETCODE_KEY},
         function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict},
-        util::encode_calldata,
+        util::{encode_calldata, UtilError},
         CreateDefinition,
     },
-    Result,
 };
 use alloy::{
     hex::{FromHex, ToHexExt},
@@ -15,8 +13,29 @@ use alloy::{
     rpc::types::TransactionRequest,
 };
 use std::collections::HashMap;
+use thiserror::Error;
 
 use super::CreateDefinitionStrict;
+
+pub type Result<T> = std::result::Result<T, TemplaterError>;
+
+#[derive(Debug, Error)]
+pub enum TemplaterError {
+    #[error("failed to find placeholder key '{0}'")]
+    KeyNotFound(String),
+
+    #[error("contract address for '{0}' not found in DB. You may need to run setup steps first.")]
+    ContractNotFoundInDB(String),
+
+    #[error("DB error")]
+    Db(#[from] DbError),
+
+    #[error("failed to parse address '{0}'")]
+    ParseAddressFailed(String),
+
+    #[error("templater util error")]
+    Util(#[from] UtilError),
+}
 
 pub trait Templater<K>
 where
@@ -46,12 +65,9 @@ where
 
         for _ in 0..num_template_vals {
             template_input = self.copy_end(&template_input, last_end);
-            let (template_key, template_end) =
-                self.find_key(&template_input)
-                    .ok_or(ContenderError::SpamError(
-                        "failed to find placeholder key",
-                        Some(arg.to_string()),
-                    ))?;
+            let (template_key, template_end) = self
+                .find_key(&template_input)
+                .ok_or(TemplaterError::KeyNotFound(arg.to_string()))?;
             last_end = template_end + 1;
 
             // ignore {_sender} placeholder; it's handled outside the templater
@@ -67,12 +83,7 @@ where
 
             let template_value = db
                 .get_named_tx(&template_key.to_string(), rpc_url, genesis_hash)
-                .map_err(|e| {
-                    ContenderError::SpamError(
-                        "Failed to get named tx from DB. There may be an issue with your database.",
-                        Some(format!("value={template_key:?} ({e})")),
-                    )
-                })?;
+                .map_err(|e| e.into())?;
             if let Some(template_value) = template_value {
                 placeholder_map.insert(
                     template_key,
@@ -82,9 +93,8 @@ where
                         .unwrap_or_default(),
                 );
             } else {
-                return Err(ContenderError::SpamError(
-                    "Address for named contract not found in DB. You may need to run setup steps first.",
-                    Some(template_key.to_string()),
+                return Err(TemplaterError::ContractNotFoundInDB(
+                    template_key.to_string(),
                 ));
             }
         }
@@ -162,7 +172,7 @@ where
         let to = self.replace_placeholders(&funcdef.to, placeholder_map);
         let to = to
             .parse::<Address>()
-            .map_err(|e| ContenderError::with_err(e, "failed to parse address"))?;
+            .map_err(|_| TemplaterError::ParseAddressFailed(to))?;
         let value = funcdef
             .value
             .as_ref()

@@ -29,7 +29,6 @@ async-trait.workspace = true
 tokio = { workspace = true }
 thiserror = { workspace = true }
 tower = { workspace = true }
-eyre = { workspace = true }
 
 # engine provider
 reth-node-api = { workspace = true }

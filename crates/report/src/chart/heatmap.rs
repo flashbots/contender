@@ -1,7 +1,7 @@
 use crate::block_trace::TxTraceReceipt;
+use crate::{Error, Result};
 use alloy::hex::ToHexExt;
 use alloy::primitives::FixedBytes;
-use contender_core::error::ContenderError;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use tracing::warn;
@@ -14,14 +14,11 @@ impl TxTraceReceipt {
     pub fn copy_slot_access_map(
         &self,
         updates_per_slot_per_block: &mut BTreeMap<u64, BTreeMap<FixedBytes<32>, u64>>,
-    ) -> Result<(), ContenderError> {
+    ) -> Result<()> {
         let block_num = self
             .receipt
             .block_number
-            .ok_or(ContenderError::GenericError(
-                "Block number not found in receipt.",
-                "".to_string(),
-            ))?;
+            .ok_or(Error::ReceiptMissingBlockNum(self.receipt.transaction_hash))?;
         let trace_frame = self.trace.to_owned().try_into_pre_state_frame().ok();
         // If the trace frame is None, it means that the preState trace was not found.
         // This can happen if the target node does not support preState traces.
@@ -36,10 +33,7 @@ impl TxTraceReceipt {
         let trace_frame = trace_frame.expect("trace frame should be Some");
         let account_map = &trace_frame
             .as_default()
-            .ok_or(ContenderError::GenericError(
-                "failed to decode PreStateMode",
-                format!("{trace_frame:?}"),
-            ))?
+            .ok_or(Error::DecodePrestateTraceFrame(trace_frame.to_owned()))?
             .0;
 
         // "for each account in this transaction trace"
@@ -70,7 +64,7 @@ pub struct HeatmapData {
 
 /// Represents data as a mapping of block_num => slot => count.
 impl HeatMapChart {
-    pub fn new(trace_data: &[TxTraceReceipt]) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(trace_data: &[TxTraceReceipt]) -> Result<Self> {
         let mut updates_per_slot_per_block: BTreeMap<u64, BTreeMap<FixedBytes<32>, u64>> =
             Default::default();
 

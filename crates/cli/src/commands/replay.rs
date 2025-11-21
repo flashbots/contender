@@ -1,7 +1,9 @@
 use crate::commands::common::{AuthCliArgs, EngineParams};
+use crate::commands::error::ArgsError;
+use crate::error::CliError;
 use crate::util::{human_readable_duration, human_readable_gas};
 use contender_core::db::{DbOps, ReplayReportRequest};
-use contender_core::error::ContenderError;
+use contender_sqlite::SqliteDb;
 use tracing::info;
 
 #[derive(Clone, Debug, clap::Args)]
@@ -42,7 +44,7 @@ impl ReplayArgs {
         }
     }
 
-    pub async fn from_cli_args(args: ReplayCliArgs) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn from_cli_args(args: ReplayCliArgs) -> Result<Self, CliError> {
         Ok(Self::new(
             args.auth_params.engine_params(true).await?,
             args.start_block,
@@ -51,14 +53,12 @@ impl ReplayArgs {
     }
 }
 
-pub async fn replay(args: ReplayArgs, db: impl DbOps) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn replay(args: ReplayArgs, db: &SqliteDb) -> Result<(), CliError> {
     let engine_provider =
         args.engine_params
             .engine_provider
-            .ok_or(ContenderError::InvalidRuntimeParams(
-                contender_core::error::RuntimeParamErrorKind::MissingArgs(
-                    "engine_provider is required for replay".to_owned(),
-                ),
+            .ok_or(ArgsError::EngineProviderUninitialized(
+                "required for replay".to_string(),
             ))?;
 
     let res = engine_provider

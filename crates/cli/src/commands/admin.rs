@@ -1,4 +1,7 @@
+use crate::commands::error::ArgsError;
+use crate::commands::Result;
 use crate::util::data_dir;
+use crate::util::error::UtilError;
 use alloy::hex::{self, ToHexExt};
 use alloy::network::{EthereumWallet, TransactionBuilder};
 use alloy::primitives::{Address, U256};
@@ -7,12 +10,28 @@ use clap::Subcommand;
 use contender_core::{
     agent_controller::SignerStore,
     db::DbOps,
-    error::ContenderError,
     generator::{util::generate_setcode_signer, RandSeed},
 };
+use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
 use std::path::Path;
+use thiserror::Error;
 use tracing::{info, warn};
+
+#[derive(Debug, Error)]
+pub enum AdminError {
+    #[error("seed file is empty. path: {0}")]
+    SeedFileEmpty(String),
+
+    #[error("failed to read seed file at path: {0}")]
+    SeedFileDoesNotExist(String),
+
+    #[error("invalid data in seed file at path: {0}")]
+    SeedFileInvalid(String),
+
+    #[error("failed to read input from stdin")]
+    Readline(std::io::Error),
+}
 
 #[derive(Debug, Subcommand)]
 pub enum AdminCommand {
@@ -53,7 +72,7 @@ pub enum AdminCommand {
             short = 't',
             default_value = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
         )]
-        to: String,
+        to: Address,
 
         /// RPC URL (defaults to http://localhost:8545 or derived from scenario)
         #[arg(long, short = 'r')]
@@ -73,42 +92,33 @@ pub enum AdminCommand {
 }
 
 /// Reads and validates the seed file
-fn read_seed_file() -> Result<Vec<u8>, ContenderError> {
-    let data_dir = data_dir()
-        .map_err(|e| ContenderError::GenericError("Failed to get data dir", e.to_string()))?;
+fn read_seed_file() -> Result<Vec<u8>> {
+    let data_dir = data_dir()?;
     let seed_path = format!("{data_dir}/seed");
-    let seed_hex = std::fs::read_to_string(&seed_path).map_err(|e| {
-        ContenderError::AdminError("Failed to read seed file", format!("at {seed_path}: {e}"))
-    })?;
-    let decoded = hex::decode(seed_hex.trim()).map_err(|_| {
-        ContenderError::AdminError("Invalid hex data in seed file", format!("at {seed_path}"))
-    })?;
+    let seed_hex = std::fs::read_to_string(&seed_path)
+        .map_err(|_| AdminError::SeedFileDoesNotExist(seed_path.to_owned()))?;
+    let decoded = hex::decode(seed_hex.trim())
+        .map_err(|_| AdminError::SeedFileInvalid(seed_path.to_owned()))?;
     if decoded.is_empty() {
-        return Err(ContenderError::AdminError(
-            "Empty seed file",
-            format!("at {seed_path}"),
-        ));
+        return Err(AdminError::SeedFileEmpty(seed_path).into());
     }
     Ok(decoded)
 }
 
 /// Prompts for confirmation before displaying sensitive information
-fn confirm_sensitive_operation(_operation: &str) -> Result<(), ContenderError> {
+fn confirm_sensitive_operation(_operation: &str) -> Result<()> {
     println!("WARNING: This command will display sensitive information.");
     println!("This information should not be shared or exposed in CI environments.");
     println!("Press Enter to continue or Ctrl+C to cancel...");
     let mut input = String::new();
     std::io::stdin()
         .read_line(&mut input)
-        .map_err(|e| ContenderError::AdminError("Failed to read input", format!("{e}")))?;
+        .map_err(AdminError::Readline)?;
     Ok(())
 }
 
 /// Handles the accounts subcommand
-fn handle_accounts(
-    from_pool: String,
-    num_signers: usize,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_accounts(from_pool: String, num_signers: usize) -> Result<()> {
     let seed_bytes = read_seed_file()?;
     let seed = RandSeed::seed_from_bytes(&seed_bytes);
     print_accounts_for_pool(&from_pool, num_signers, &seed)?;
@@ -116,11 +126,7 @@ fn handle_accounts(
 }
 
 /// Prints accounts for a specific pool
-fn print_accounts_for_pool(
-    pool: &str,
-    num_signers: usize,
-    seed: &RandSeed,
-) -> Result<(), ContenderError> {
+fn print_accounts_for_pool(pool: &str, num_signers: usize, seed: &RandSeed) -> Result<()> {
     info!("Generating addresses for pool: {}", pool);
     let agent = SignerStore::new(num_signers, seed, pool);
     let mut private_keys = vec![];
@@ -139,14 +145,14 @@ fn print_accounts_for_pool(
 }
 
 /// Handles the seed subcommand
-fn handle_seed() -> Result<(), Box<dyn std::error::Error>> {
+fn handle_seed() -> Result<()> {
     confirm_sensitive_operation("displaying seed value")?;
     let seed_bytes = read_seed_file()?;
     println!("{}", hex::encode(seed_bytes));
     Ok(())
 }
 
-fn print_setcode_account() -> Result<(), Box<dyn std::error::Error>> {
+fn print_setcode_account() -> Result<()> {
     confirm_sensitive_operation("displaying private key")?;
     let seed_bytes = read_seed_file()?;
     let seed = RandSeed::seed_from_bytes(&seed_bytes);
@@ -158,16 +164,13 @@ fn print_setcode_account() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Handles the reclaim-eth subcommand
 async fn handle_reclaim_eth(
-    to: String,
+    recipient: Address,
     rpc: Option<String>,
     from_pool: Vec<String>,
     num_accounts: usize,
     scenario_file: Option<String>,
-    db: &impl DbOps,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Default recipient address
-    let recipient = to.parse::<Address>()?;
-
+    db: &SqliteDb,
+) -> Result<()> {
     // Determine RPC URL and from_pools
     let (rpc_url, agent_pools) = if let Some(scenario_path) = scenario_file {
         let config = TestConfig::from_file(&scenario_path)?;
@@ -259,7 +262,8 @@ async fn handle_reclaim_eth(
     info!("Recipient: {}", recipient);
 
     // Create provider
-    let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
+    let provider =
+        ProviderBuilder::new().connect_http(rpc_url.parse().map_err(ArgsError::UrlParse)?);
 
     // Generate accounts from seed
     let seed_bytes = read_seed_file()?;
@@ -321,7 +325,10 @@ async fn handle_reclaim_eth(
                 .with_chain_id(chain_id);
 
             let wallet = EthereumWallet::from(signer.clone());
-            let signed_tx = tx_req.build(&wallet).await?;
+            let signed_tx = tx_req
+                .build(&wallet)
+                .await
+                .map_err(UtilError::BuildTxFailed)?;
 
             let pending = provider.send_tx_envelope(signed_tx).await?;
             let tx_hash = pending.tx_hash();
@@ -351,10 +358,7 @@ async fn handle_reclaim_eth(
     Ok(())
 }
 
-pub async fn handle_admin_command(
-    command: AdminCommand,
-    db: impl DbOps,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn handle_admin_command(command: AdminCommand, db: SqliteDb) -> Result<()> {
     match command {
         AdminCommand::Accounts {
             from_pool,

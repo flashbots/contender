@@ -1,13 +1,16 @@
 use super::common::ScenarioSendTxsCliArgs;
 use crate::{
-    commands::{common::EngineParams, SpamScenario},
+    commands::{
+        common::EngineParams,
+        error::{ArgsError, SetupError},
+        SpamScenario,
+    },
+    error::CliError,
     util::{check_private_keys, find_insufficient_balances, fund_accounts, load_seedfile},
     LATENCY_HIST as HIST, PROM,
 };
-use alloy::primitives::utils::format_ether;
 use contender_core::{
     agent_controller::{AgentStore, SignerStore},
-    error::ContenderError,
     generator::RandSeed,
     test_scenario::{TestScenario, TestScenarioParams},
 };
@@ -15,7 +18,6 @@ use contender_core::{generator::PlanConfig, util::get_block_time};
 use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use contender_testfile::TestConfig;
 use std::{
-    ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -28,7 +30,7 @@ use tracing::{info, warn};
 pub async fn setup(
     db: &(impl contender_core::db::DbOps + Clone + Send + Sync + 'static),
     args: SetupCommandArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), CliError> {
     let ScenarioSendTxsCliArgs {
         min_balance,
         tx_type,
@@ -67,17 +69,7 @@ pub async fn setup(
     )
     .await?;
     if !broke_accounts.is_empty() {
-        return Err(ContenderError::SetupError(
-            "Insufficient balance in provided user account(s).",
-            Some(format!(
-                "{:?}",
-                broke_accounts
-                    .iter()
-                    .map(|(addr, bal)| format!("{}: {} ETH", addr, format_ether(*bal)))
-                    .collect::<Vec<_>>()
-            )),
-        )
-        .into());
+        return Err(SetupError::insufficient_funds(broke_accounts).into());
     }
 
     // load agents from setup and create pools
@@ -140,15 +132,10 @@ pub async fn setup(
 
     let total_cost = scenario.estimate_setup_cost().await?;
     if min_balance < total_cost {
-        return Err(ContenderError::SetupError(
-            "Insufficient balance in admin account.",
-            Some(format!(
-                "Admin account balance: {} ETH, required: {} ETH.\nSet --min-balance to {} or higher.",
-                format_ether(min_balance),
-                format_ether(total_cost),
-                format_ether(total_cost),
-            )),
-        )
+        return Err(ArgsError::MinBalanceInsufficient {
+            min_balance,
+            required_balance: total_cost,
+        }
         .into());
     }
 
@@ -161,7 +148,7 @@ pub async fn setup(
     });
     let is_done = Arc::new(AtomicBool::new(false));
 
-    let mut fcu_handle: Option<JoinHandle<Result<(), ContenderError>>> = None;
+    let mut fcu_handle: Option<JoinHandle<Result<(), CliError>>> = None;
     if engine_params.call_fcu && scenario.auth_provider.is_some() {
         // spawn a task to advance the chain periodically while setup is running
         let auth_client = scenario.auth_provider.clone().expect("auth provider");
@@ -172,10 +159,7 @@ pub async fn setup(
                     break;
                 }
 
-                auth_client
-                    .advance_chain(DEFAULT_BLOCK_TIME)
-                    .await
-                    .map_err(|e| ContenderError::with_err(e, "failed to advance chain"))?;
+                auth_client.advance_chain(DEFAULT_BLOCK_TIME).await?;
                 info!("Chain advanced successfully.");
 
                 tokio::time::sleep(Duration::from_millis(500)).await;
@@ -183,7 +167,7 @@ pub async fn setup(
             Ok(())
         }));
     }
-    let setup_task: JoinHandle<Result<(), ContenderError>> = {
+    let setup_task: JoinHandle<Result<(), CliError>> = {
         let is_done = is_done.clone();
         tokio::task::spawn(async move {
             info!("Deploying contracts...");
@@ -216,12 +200,12 @@ pub async fn setup(
 
         fcu_res = async move {
             if let Some(handle) = fcu_handle {
-                handle.await.map_err(|e| ContenderError::with_err(e, "failed to wait for fcu task"))??;
+                handle.await??;
             } else {
                 // block until ctrl-C is received
-                tokio::signal::ctrl_c().await.map_err(|e| ContenderError::with_err(e, "failed to wait for ctrl-c"))?;
+                tokio::signal::ctrl_c().await?;
             }
-            Ok::<_, ContenderError>(())
+            Ok::<_, CliError>(())
         } => {
             fcu_res?
         }
@@ -242,16 +226,8 @@ pub struct SetupCommandArgs {
 }
 
 impl SetupCommandArgs {
-    pub fn new(
-        scenario: SpamScenario,
-        cli_args: ScenarioSendTxsCliArgs,
-    ) -> contender_core::Result<Self> {
-        let seed = RandSeed::seed_from_str(
-            &cli_args.seed.to_owned().unwrap_or(
-                load_seedfile()
-                    .map_err(|e| ContenderError::with_err(e.deref(), "failed to load seedfile"))?,
-            ),
-        );
+    pub fn new(scenario: SpamScenario, cli_args: ScenarioSendTxsCliArgs) -> Result<Self, CliError> {
+        let seed = RandSeed::seed_from_str(&cli_args.seed.to_owned().unwrap_or(load_seedfile()?));
         Ok(Self {
             scenario,
             eth_json_rpc_args: cli_args.clone(),
@@ -259,18 +235,14 @@ impl SetupCommandArgs {
         })
     }
 
-    async fn engine_params(&self) -> contender_core::Result<EngineParams> {
+    async fn engine_params(&self) -> Result<EngineParams, CliError> {
         self.eth_json_rpc_args
             .auth_args
             .engine_params(self.eth_json_rpc_args.call_forkchoice)
             .await
-            .map_err(|e| ContenderError::with_err(e.deref(), "failed to build engine params"))
     }
 
-    pub async fn testconfig(&self) -> contender_core::Result<TestConfig> {
-        self.eth_json_rpc_args
-            .testconfig(&self.scenario)
-            .await
-            .map_err(|e| ContenderError::with_err(e.deref(), "failed to build testconfig"))
+    pub async fn testconfig(&self) -> Result<TestConfig, CliError> {
+        self.eth_json_rpc_args.testconfig(&self.scenario).await
     }
 }
