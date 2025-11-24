@@ -442,7 +442,7 @@ where
                             if req
                                 .kind
                                 .as_ref()
-                                .map_or(false, |k| k == "groth16-verifyProof")
+                                .is_some_and(|k| k == "groth16-verifyProof")
                             {
                                 let a_point = crate::generator::bn254_points::generate_g1_point(i);
                                 let b_point = crate::generator::bn254_points::generate_g2_point(i);
