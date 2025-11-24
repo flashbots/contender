@@ -14,6 +14,9 @@ contender_bundle_provider = { workspace = true }
 contender_engine_provider = { workspace = true }
 
 alloy = { workspace = true, features = ["full", "node-bindings"] }
+ark-bn254 = { workspace = true }
+ark-ec = { workspace = true }
+ark-ff = { workspace = true }
 async-trait.workspace = true
 futures = { workspace = true }
 prometheus = { workspace = true }
@@ -26,10 +29,6 @@ tower = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 thiserror = { workspace = true }
-
-ark-bn254 = "0.5.0"
-ark-ec = "0.5.0"
-ark-ff = "0.5.0"
 
 [dev-dependencies]
 contender_testfile = { workspace = true }
