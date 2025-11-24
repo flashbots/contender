@@ -4,8 +4,8 @@ pub mod error;
 mod function_def;
 mod r#trait;
 
-pub mod constants;
 pub mod bn254_points;
+pub mod constants;
 
 /// Defines named tx requests, which are used to store transaction requests with optional names and kinds.
 /// Used for tracking transactions in a test scenario.

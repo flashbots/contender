@@ -10,8 +10,7 @@ use crate::{
         templater::Templater,
         types::{AnyProvider, AsyncCallbackResult, PlanType, SpamRequest},
         util::UtilError,
-        CreateDefinition, CreateDefinitionStrict,
-        RandSeed,
+        CreateDefinition, CreateDefinitionStrict, RandSeed,
     },
     spammer::CallbackError,
 };
@@ -143,10 +142,11 @@ where
             seed_input.extend_from_slice(key.as_bytes());
             let param_seed_bytes = keccak256(&seed_input);
             let param_seed = RandSeed::seed_from_bytes(param_seed_bytes.as_slice());
-            
+
             map.insert(
                 key,
-                param_seed.seed_values(num_values, fuzz.min, fuzz.max)
+                param_seed
+                    .seed_values(num_values, fuzz.min, fuzz.max)
                     .map(|v| v.as_u256())
                     .collect(),
             );
@@ -439,17 +439,26 @@ where
                             let mut args = get_fuzzed_args(req, &canonical_fuzz_map, i);
                             let fuzz_tx_value = get_fuzzed_tx_value(req, &canonical_fuzz_map, i);
                             // Special handling for WorldID proof generation
-                            if req.kind.as_ref().map_or(false, |k| k == "groth16-verifyProof") {
+                            if req
+                                .kind
+                                .as_ref()
+                                .map_or(false, |k| k == "groth16-verifyProof")
+                            {
                                 let a_point = crate::generator::bn254_points::generate_g1_point(i);
                                 let b_point = crate::generator::bn254_points::generate_g2_point(i);
-                                let c_point = crate::generator::bn254_points::generate_g1_point(i + 1000);  // Offset for uniqueness
+                                let c_point =
+                                    crate::generator::bn254_points::generate_g1_point(i + 1000); // Offset for uniqueness
                                 let proof_values = [
-                                    a_point[0], a_point[1],  // a.x, a.y
-                                    b_point[1], b_point[0],  // b.x1, b.x0
-                                    b_point[3], b_point[2],  // b.y1, b.y0
-                                    c_point[0], c_point[1],  // c.x, c.y
+                                    a_point[0], a_point[1], // a.x, a.y
+                                    b_point[1], b_point[0], // b.x1, b.x0
+                                    b_point[3], b_point[2], // b.y1, b.y0
+                                    c_point[0], c_point[1], // c.x, c.y
                                 ];
-                                let proof_str = proof_values.iter().map(|v| format!("0x{:064x}", v)).collect::<Vec<_>>().join(", ");
+                                let proof_str = proof_values
+                                    .iter()
+                                    .map(|v| format!("0x{:064x}", v))
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
                                 args[5] = format!("[{}]", proof_str);
                             }
 
