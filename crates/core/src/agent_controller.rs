@@ -9,7 +9,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use std::{collections::HashMap, sync::Arc};
-use tracing::info;
+use tracing::{debug, info};
 
 pub trait SignerRegistry<Index: Ord> {
     fn get_signer(&self, idx: Index) -> Option<&PrivateKeySigner>;
@@ -189,22 +189,26 @@ impl SignerStore {
         }
 
         // send txs
+        let mut sent_txs = vec![];
         for (signed_tx, to_addr) in signed_txs {
             let provider = provider.clone();
 
             // Sleep to avoid overwhelming the provider with requests
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
-            let tx_hash = provider
+            let pending_tx = provider
                 .send_tx_envelope(AnyTxEnvelope::Ethereum(signed_tx))
-                .await?
+                .await?;
+            sent_txs.push(pending_tx);
+            info!("Funding {to_addr} with {} ether", format_ether(amount));
+        }
+
+        for tx in sent_txs {
+            let tx_hash = tx
                 // .with_required_confirmations(1)
                 .watch()
                 .await?;
-            info!(
-                "Funded {to_addr} with {} ether, ({tx_hash})",
-                format_ether(amount)
-            );
+            debug!("funding tx landed: {tx_hash}");
         }
 
         Ok(())
