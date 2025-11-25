@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## v0.6.0
+## [0.6.0](https://github.com/flashbots/contender/releases/tag/v0.6.0) - 2025-11-25
 
 Features:
 
