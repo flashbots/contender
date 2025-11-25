@@ -16,6 +16,7 @@ use crate::{
     util::{get_blob_fee_maybe, get_block_time, ExtraTxParams},
     Result,
 };
+use alloy::transports::http::reqwest;
 use alloy::{
     consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI},
     consensus::{Transaction, TxType},
@@ -38,6 +39,7 @@ use contender_bundle_provider::{
 };
 use contender_engine_provider::ControlChain;
 use futures::{Stream, StreamExt};
+use serde_json::json;
 use std::{
     collections::{BTreeMap, HashMap},
     pin::Pin,
@@ -117,6 +119,9 @@ where
     pub redeploy: bool,
     /// Determines whether scenario.sync_nonces is called automatically after each spam run batch.
     pub should_sync_nonces: bool,
+    /// Max num of eth_sendRawTransaction calls per json-rpc batch; 0 disables batching.
+    pub rpc_batch_size: u64,
+    pub num_rpc_batches_sent: u64,
 }
 
 pub struct TestScenarioParams {
@@ -130,6 +135,7 @@ pub struct TestScenarioParams {
     pub extra_msg_handles: Option<HashMap<String, Arc<TxActorHandle>>>,
     pub redeploy: bool,
     pub sync_nonces_after_batch: bool,
+    pub rpc_batch_size: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -189,6 +195,7 @@ where
             extra_msg_handles,
             redeploy,
             sync_nonces_after_batch,
+            rpc_batch_size,
         } = params;
 
         let (setcode_signer, _) = generate_setcode_signer(&rand_seed);
@@ -297,6 +304,8 @@ where
             setcode_signer,
             redeploy,
             should_sync_nonces: sync_nonces_after_batch,
+            rpc_batch_size,
+            num_rpc_batches_sent: 0,
         })
     }
 
@@ -403,6 +412,7 @@ where
                 extra_msg_handles: None,
                 redeploy: self.redeploy,
                 sync_nonces_after_batch: self.should_sync_nonces,
+                rpc_batch_size: self.rpc_batch_size,
             },
             None,
             (&PROM, &HIST).into(),
@@ -868,9 +878,6 @@ where
 
         let mut tasks: Vec<tokio::task::JoinHandle<()>> = vec![];
 
-        // spawn at regular interval
-        let micros_per_task = 1_000_000 / num_payloads.max(1) as u64;
-
         // takes gas to add to the gas price for the next batch (if needed)
         let gas_sender = Arc::new(context_handler.add_gas);
         // counts number of txs that were sent successfully
@@ -879,19 +886,31 @@ where
         let (error_sender, error_receiver) = tokio::sync::mpsc::channel::<Error>(1);
         let error_sender = Arc::new(error_sender);
 
-        for payload in payloads {
-            let rpc_client = self.rpc_client.clone();
-            let bundle_client = self.bundle_client.clone();
-            let tx_handlers = self.msg_handles.clone();
-            let callback_handler = callback_handler.clone();
-            let gas_sender = gas_sender.clone();
-            let success_sender = success_sender.clone();
-            let cancel_token = self.ctx.cancel_token.clone();
-            let error_sender = error_sender.clone();
+        // Should use json-rpc batching for this tick if both conditions are met:
+        //  - rpc_batch_size > 0
+        //  - all payloads are SignedTx (no builder bundles)
+        let should_batch_rpc = self.rpc_batch_size > 0
+            && payloads
+                .iter()
+                .all(|p| matches!(p, ExecutionPayload::SignedTx(_, _)));
 
-            // wait to space transactions out evenly across a second
-            std::thread::sleep(Duration::from_micros(micros_per_task));
-            tasks.push(tokio::task::spawn(async move {
+        if !should_batch_rpc {
+            let micros_per_task = 1_000_000 / num_payloads.max(1) as u64;
+
+            for payload in payloads {
+                self.num_rpc_batches_sent += 1;
+                let rpc_client = self.rpc_client.clone();
+                let bundle_client = self.bundle_client.clone();
+                let tx_handlers = self.msg_handles.clone();
+                let callback_handler = callback_handler.clone();
+                let gas_sender = gas_sender.clone();
+                let success_sender = success_sender.clone();
+                let cancel_token = self.ctx.cancel_token.clone();
+                let error_sender = error_sender.clone();
+
+                // Wait to space transactions out evenly across a second
+                std::thread::sleep(Duration::from_micros(micros_per_task));
+                tasks.push(tokio::task::spawn(async move {
                 let extra = RuntimeTxInfo::default();
                 let handles = match payload {
                     ExecutionPayload::SignedTx(signed_tx, req) => {
@@ -901,60 +920,40 @@ where
                             .await;
 
                         match res {
-                            Ok(res) => {
-                                let maybe_handle = callback_handler.on_tx_sent(
-                                    res.into_inner(),
+                            Ok(_) => {
+                                // no error message
+                                handle_tx_outcome(
+                                    tx_hash,
                                     &req,
                                     extra,
-                                    Some(tx_handlers),
-                                );
-
-                                tokio::select! {
-                                    _ = cancel_token.cancelled() => {
-                                        return;
-                                    }
-                                    _ = success_sender
-                                    .send(()) => {
-                                        // wait for the task to finish
-                                    }
-                                };
-
-                                vec![maybe_handle]
+                                    None,
+                                    &gas_sender,
+                                    &success_sender,
+                                    callback_handler.as_ref(),
+                                    &tx_handlers,
+                                    &cancel_token,
+                                )
+                                .await;
+                                Vec::<Option<tokio::task::JoinHandle<_>>>::new()
                             }
                             Err(e) => {
-                                if let Some(err) = e.as_error_resp() {
-                                    if err
-                                        .message
-                                        .to_lowercase()
-                                        .contains("replacement transaction underpriced")
-                                    {
-                                        // send the current gas price / 10 to increase it by 10% for the next batch
-                                        gas_sender
-                                            .send(
-                                                req.tx.max_fee_per_gas.unwrap_or(
-                                                    req.tx.gas_price.unwrap_or(1_000_000_000),
-                                                ) / 10,
-                                            )
-                                            .await
-                                            .expect("failed to send gas update signal");
-                                    }
-
-                                    // include errored txs in the cache; user may want to retry them
-                                    // if they are due to nonce issues, this will fail, but if they do land somehow,
-                                    // they will be awaited in the post-spam loop
-                                    warn!("error from tx {tx_hash}: {err:?}");
-                                    let extra = extra.with_error(err.to_string());
-                                    vec![callback_handler.on_tx_sent(
-                                        PendingTransactionConfig::new(tx_hash),
-                                        &req,
-                                        extra,
-                                        Some(tx_handlers),
-                                    )]
-                                } else {
-                                    // ignore errors that can't be decoded
-                                    warn!("ignoring tx response, could not decode error: {e:?}");
-                                    vec![]
-                                }
+                                let msg_string = e
+                                    .as_error_resp()
+                                    .map(|err| err.message.to_string())
+                                    .unwrap_or_else(|| "send_tx_envelope failed".to_string());
+                                handle_tx_outcome(
+                                    tx_hash,
+                                    &req,
+                                    extra,
+                                    Some(msg_string.as_str()),
+                                    &gas_sender,
+                                    &success_sender,
+                                    callback_handler.as_ref(),
+                                    &tx_handlers,
+                                    &cancel_token,
+                                )
+                                .await;
+                                Vec::<Option<tokio::task::JoinHandle<_>>>::new()
                             }
                         }
                     }
@@ -988,7 +987,8 @@ where
                                 .prepare(),
                         };
                         let success_sender = success_sender.clone();
-                        let bundle_client = bundle_client.expect("test_scenario must be initialized with a bundle client to send bundles");
+                        let bundle_client = bundle_client
+                            .expect("test_scenario must be initialized with a bundle client to send bundles");
                         info!("sending bundle...");
                         debug!("bundle: {rpc_bundle:?}");
 
@@ -1019,6 +1019,7 @@ where
                     }
                 };
 
+                // Handle bundle tx callbacks
                 for handle in handles.into_iter().flatten() {
                     tokio::select! {
                         _ = cancel_token.cancelled() => {
@@ -1029,6 +1030,102 @@ where
                             // wait for the task to finish
                         }
                     }
+                }
+            }));
+            }
+
+            return Ok((tasks, error_receiver));
+        }
+
+        // === json-rpc batch mode for SignedTx payloads ===
+        let batch_size = self.rpc_batch_size as usize;
+        let num_batches = ((num_payloads + batch_size - 1) / batch_size).max(1) as u64;
+        let micros_per_batch = 1_000_000 / num_batches;
+
+        let rpc_url = self.rpc_url.clone();
+        let http_client = reqwest::Client::new();
+
+        info!(
+            "using json-rpc batching with batch size {}",
+            self.rpc_batch_size
+        );
+
+        for chunk in payloads.chunks(batch_size) {
+            self.num_rpc_batches_sent += 1;
+            let tx_handlers = self.msg_handles.clone();
+            let callback_handler = callback_handler.clone();
+            let gas_sender = gas_sender.clone();
+            let success_sender = success_sender.clone();
+            let cancel_token = self.ctx.cancel_token.clone();
+            let http_client = http_client.clone();
+            let rpc_url = rpc_url.clone();
+
+            let signed_chunk: Vec<_> = chunk
+                .iter()
+                .map(|p| {
+                    if let ExecutionPayload::SignedTx(signed_tx, req) = p {
+                        (signed_tx.clone(), req.as_ref().clone())
+                    } else {
+                        unreachable!("can_batch_rpc guarantees only SignedTx here");
+                    }
+                })
+                .collect();
+
+            std::thread::sleep(Duration::from_micros(micros_per_batch));
+            tasks.push(tokio::task::spawn(async move {
+                // Build json-rpc batch payload with multiple eth_sendRawTransaction requests
+                let mut requests = Vec::with_capacity(signed_chunk.len());
+                for (i, (signed_tx, _)) in signed_chunk.iter().enumerate() {
+                    let mut raw_tx = Vec::new();
+                    signed_tx.encode_2718(&mut raw_tx);
+                    let raw_hex = format!("0x{}", raw_tx.encode_hex());
+                    requests.push(json!({
+                        "jsonrpc": "2.0",
+                        "id": i as u64,
+                        "method": "eth_sendRawTransaction",
+                        "params": [raw_hex],
+                    }));
+                }
+
+                let resp = match http_client.post(rpc_url).json(&requests).send().await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        warn!("failed to send JSON-RPC batch: {e:?}");
+                        return;
+                    }
+                };
+
+                let responses: Vec<serde_json::Value> = match resp.json().await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        warn!("failed to parse JSON-RPC batch response: {e:?}");
+                        return;
+                    }
+                };
+
+                // Process each response; align by index with signed_chunk
+                for (i, (signed_tx, req)) in signed_chunk.into_iter().enumerate() {
+                    let tx_hash = *signed_tx.tx_hash();
+                    let extra = RuntimeTxInfo::default();
+
+                    let error_msg = responses
+                        .get(i)
+                        .and_then(|resp| resp.get("error"))
+                        .and_then(|e| e.get("message"))
+                        .and_then(|m| m.as_str());
+
+                    handle_tx_outcome(
+                        tx_hash,
+                        &req,
+                        extra,
+                        error_msg,
+                        &gas_sender,
+                        &success_sender,
+                        callback_handler.as_ref(),
+                        &tx_handlers,
+                        &cancel_token,
+                    )
+                    .await;
                 }
             }));
         }
@@ -1183,6 +1280,7 @@ where
                 extra_msg_handles: None,
                 redeploy: false,
                 sync_nonces_after_batch: self.should_sync_nonces,
+                rpc_batch_size: self.rpc_batch_size,
             },
             None,
             (&PROM, &HIST).into(),
@@ -1405,6 +1503,52 @@ where
     }
 }
 
+async fn handle_tx_outcome<F: SpamCallback + 'static>(
+    tx_hash: alloy::primitives::TxHash,
+    req: &NamedTxRequest,
+    mut extra: RuntimeTxInfo,
+    error_msg: Option<&str>,
+    gas_sender: &tokio::sync::mpsc::Sender<u128>,
+    success_sender: &tokio::sync::mpsc::Sender<()>,
+    callback_handler: &F,
+    tx_handlers: &HashMap<String, Arc<TxActorHandle>>,
+    cancel_token: &CancellationToken,
+) {
+    // gas bump if needed
+    if let Some(msg) = error_msg {
+        let lower = msg.to_lowercase();
+        if lower.contains("replacement transaction underpriced") {
+            let bump = req
+                .tx
+                .max_fee_per_gas
+                .unwrap_or(req.tx.gas_price.unwrap_or(1_000_000_000))
+                / 10;
+            let _ = gas_sender.send(bump).await;
+        }
+        warn!("error from tx {tx_hash}: {msg}");
+        extra = extra.with_error(msg.to_string());
+    } else {
+        // success path
+        let _ = success_sender.send(()).await;
+    }
+
+    let maybe_handle = callback_handler.on_tx_sent(
+        PendingTransactionConfig::new(tx_hash),
+        req,
+        extra,
+        Some(tx_handlers.clone()),
+    );
+
+    if let Some(handle) = maybe_handle {
+        tokio::select! {
+            _ = cancel_token.cancelled() => {
+                debug!("cancelled spammer task");
+            }
+            _ = handle => { /* wait for callback */ }
+        }
+    }
+}
+
 async fn sync_nonces(
     wallet_map: &HashMap<Address, PrivateKeySigner>,
     nonces: &mut HashMap<Address, u64>,
@@ -1524,6 +1668,7 @@ pub mod tests {
         PlanConfig,
     };
     use crate::spammer::util::test::get_test_signers;
+    use crate::spammer::{BlockwiseSpammer, NilCallback, Spammer};
     use crate::test_scenario::TestScenario;
     use crate::Error;
     use crate::Result;
@@ -1535,6 +1680,7 @@ pub mod tests {
     use alloy::providers::Provider;
     use contender_bundle_provider::bundle::BundleType;
     use std::collections::HashMap;
+    use std::sync::Arc;
     use tokio::sync::OnceCell;
 
     use super::TestScenarioParams;
@@ -1741,6 +1887,7 @@ pub mod tests {
                 extra_msg_handles: None,
                 redeploy: true,
                 sync_nonces_after_batch: true,
+                rpc_batch_size: 0,
             },
             None,
             (&PROM, &HIST).into(),
@@ -1836,6 +1983,60 @@ pub mod tests {
             }
             _ => panic!("expected tx"),
         }
+    }
+
+    #[tokio::test]
+    async fn rpc_batch_size_controls_num_rpc_batches_sent() -> Result<()> {
+        // --- Common setup ---
+        let txs_per_duration: u64 = 35;
+        let num_periods = 2;
+        let total_txs = txs_per_duration * num_periods;
+        let anvil = spawn_anvil();
+
+        // --- Non-batched case: rpc_batch_size = 0 ---
+        let mut scenario = get_test_scenario(&anvil, txs_per_duration, None).await?;
+        scenario.rpc_batch_size = 0;
+
+        let spammer = BlockwiseSpammer::new();
+        let callback = NilCallback;
+
+        spammer
+            .spam_rpc(
+                &mut scenario,
+                txs_per_duration,
+                num_periods,
+                None,
+                Arc::new(callback),
+            )
+            .await?;
+
+        // With no bundles and rpc_batch_size = 0, each payload is sent in its own "batch".
+        assert_eq!(scenario.num_rpc_batches_sent, total_txs);
+
+        // --- Batched case: rpc_batch_size = 10 ---
+        let mut scenario_batched = get_test_scenario(&anvil, txs_per_duration, None).await?;
+        scenario_batched.rpc_batch_size = 10;
+
+        let spammer_batched = BlockwiseSpammer::new();
+        let callback_batched = NilCallback;
+
+        spammer_batched
+            .spam_rpc(
+                &mut scenario_batched,
+                txs_per_duration,
+                num_periods,
+                None,
+                Arc::new(callback_batched),
+            )
+            .await?;
+
+        let remaining = txs_per_duration % scenario_batched.rpc_batch_size;
+        let expected_batches = ((txs_per_duration / scenario_batched.rpc_batch_size)
+            + (if remaining > 0 { 1 } else { 0 }))
+            * num_periods;
+        assert_eq!(scenario_batched.num_rpc_batches_sent, expected_batches);
+
+        Ok(())
     }
 
     #[tokio::test]
