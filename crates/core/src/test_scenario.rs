@@ -1039,7 +1039,7 @@ where
 
         // === json-rpc batch mode for SignedTx payloads ===
         let batch_size = self.rpc_batch_size as usize;
-        let num_batches = ((num_payloads + batch_size - 1) / batch_size).max(1) as u64;
+        let num_batches = num_payloads.div_ceil(batch_size).max(1) as u64;
         let micros_per_batch = 1_000_000 / num_batches;
 
         let rpc_url = self.rpc_url.clone();
@@ -1503,6 +1503,7 @@ where
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_tx_outcome<F: SpamCallback + 'static>(
     tx_hash: alloy::primitives::TxHash,
     req: &NamedTxRequest,
