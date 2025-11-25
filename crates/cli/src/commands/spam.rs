@@ -118,6 +118,21 @@ pub struct SpamCliArgs {
         long_help = "If set, skip contract deployment & setup transactions when running builtin scenarios. Does nothing when running a scenario file."
     )]
     pub skip_setup: bool,
+
+    /// Max number of txs to send in a single json-rpc batch request.
+    ///
+    /// If set to 0 (default), contender sends one eth_sendRawTransaction request per tx.
+    /// If set to N > 0, contender will group up to N txs into each json-rpc batch
+    /// request (one http POST containing multiple eth_sendRawTransaction calls), while
+    /// still sending the same total num of independent txs to the node.
+    #[arg(
+        long = "rpc-batch-size",
+        value_name = "N",
+        default_value_t = 0,
+        long_help = "Max number of eth_sendRawTransaction calls to send in a single JSON-RPC batch request. \
+                     0 (default) disables batching and sends one eth_sendRawTransaction per tx."
+    )]
+    pub rpc_batch_size: u64,
 }
 
 pub enum SpamScenario {
@@ -193,6 +208,26 @@ impl SpamCommandArgs {
         let spam_len = testconfig.spam.as_ref().map(|s| s.len()).unwrap_or(0);
         let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam_len as u64));
         let engine_params = self.engine_params().await?;
+
+        // Clamp rpc_batch_size to txs_per_duration (tps or tpb) if needed.
+        let mut rpc_batch_size = self.spam_args.rpc_batch_size;
+        if rpc_batch_size > 0 {
+            if txs_per_duration == 0 {
+                tracing::warn!(
+                    "batch-rpc-num={} but there are no spam txs (txs_per_duration=0); disabling JSON-RPC batching",
+                    rpc_batch_size
+                );
+                rpc_batch_size = 0;
+            } else if rpc_batch_size > txs_per_duration {
+                tracing::warn!(
+                    "batch-rpc-num={} is greater than txs_per_duration={} (tps/tpb). Clamping batch-rpc-num to {}.",
+                    rpc_batch_size,
+                    txs_per_duration,
+                    txs_per_duration
+                );
+                rpc_batch_size = txs_per_duration;
+            }
+        }
 
         if self.spam_args.redeploy && self.spam_args.skip_setup {
             return Err(RuntimeParamErrorKind::InvalidArgs(format!(
@@ -333,6 +368,7 @@ impl SpamCommandArgs {
             extra_msg_handles: None,
             redeploy: self.spam_args.redeploy,
             sync_nonces_after_batch: !self.spam_args.optimistic_nonces,
+            rpc_batch_size,
         };
 
         if !override_senders {

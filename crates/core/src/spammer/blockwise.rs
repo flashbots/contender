@@ -132,6 +132,7 @@ mod tests {
                 extra_msg_handles: None,
                 redeploy: false,
                 sync_nonces_after_batch: true,
+                rpc_batch_size: 0,
             },
             None,
             (&PROM, &HIST).into(),

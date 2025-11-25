@@ -31,4 +31,9 @@ the code change.
 
 - [ ] Added Tests
 - [ ] Added Documentation
-- [ ] Breaking changes
+- [ ] Ran `cargo +nightly clippy --workspace --lib --examples --tests --benches --all-features --locked --fix`
+- [ ] Ran `cargo fmt --all`
+- [ ] Note breaking changes in PR description, if applicable
+- [ ] update changelogs
+    - [ ] Update `CHANGELOG.md` in each affected crate
+    - [ ] add a high-level description in the [root changelog](../CHANGELOG.md)
