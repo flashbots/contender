@@ -204,10 +204,7 @@ impl SignerStore {
         }
 
         for tx in sent_txs {
-            let tx_hash = tx
-                // .with_required_confirmations(1)
-                .watch()
-                .await?;
+            let tx_hash = tx.with_required_confirmations(1).watch().await?;
             debug!("funding tx landed: {tx_hash}");
         }
 
