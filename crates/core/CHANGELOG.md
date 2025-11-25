@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- support groth16 proof verification in fuzzer ([#379](https://github.com/flashbots/contender/pull/379))
+- `TestScenario::execute_spam` now supports batch-sending transactions ([#381](https://github.com/flashbots/contender/pull/381))
+- speed up funding step ([#382](https://github.com/flashbots/contender/pull/382))
+
 ### Breaking changes
 
 **lib**

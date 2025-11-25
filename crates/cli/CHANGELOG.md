@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-- use `miette` for error-printing
-- all new error types, cli no longer uses (formerly named) `contender_core::ContenderError`
+- support new ENV vars ([#376](https://github.com/flashbots/contender/pull/376))
+- add `--skip-setup` flag ([#377](https://github.com/flashbots/contender/pull/377))
+- all new error types, cli no longer uses (formerly named) `contender_core::ContenderError` ([#378](https://github.com/flashbots/contender/pull/378))
+    - use `miette` for error-printing
     - the cli now uses `contender_cli::error::CliError`
     - `CliError` implements `From` for all new error types internal to the cli crate
+- add `--rpc-batch-size` flag to support batch-sending txs ([#381](https://github.com/flashbots/contender/pull/381))
 
 ## [0.5.6](https://github.com/flashbots/contender/releases/tag/v0.5.6) - 2025-10-10
 
