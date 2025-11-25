@@ -5,12 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.6.0](https://github.com/flashbots/contender/releases/tag/v0.6.0) - 2025-11-25
 
-- use `miette` for error-printing
-- all new error types, cli no longer uses (formerly named) `contender_core::ContenderError`
+- support new ENV vars ([#376](https://github.com/flashbots/contender/pull/376))
+- add `--skip-setup` flag ([#377](https://github.com/flashbots/contender/pull/377))
+- all new error types, cli no longer uses (formerly named) `contender_core::ContenderError` ([#378](https://github.com/flashbots/contender/pull/378))
+    - use `miette` for error-printing
     - the cli now uses `contender_cli::error::CliError`
     - `CliError` implements `From` for all new error types internal to the cli crate
+- add `--rpc-batch-size` flag to support batch-sending txs ([#381](https://github.com/flashbots/contender/pull/381))
 
 ## [0.5.6](https://github.com/flashbots/contender/releases/tag/v0.5.6) - 2025-10-10
 
