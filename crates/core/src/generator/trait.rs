@@ -385,7 +385,12 @@ where
                 let spam_steps = conf.get_spam_steps()?;
                 let num_steps = spam_steps.len() as u64;
                 // round num_txs up to the nearest multiple of num_steps to prevent missed steps
-                let num_txs = num_txs + (num_txs % num_steps);
+                let remainder = num_txs % num_steps;
+                let num_txs = if remainder == 0 {
+                    num_txs
+                } else {
+                    num_txs + (num_steps - remainder)
+                };
                 let mut canonical_fuzz_map = HashMap::<String, Vec<U256>>::new();
 
                 // finds fuzzed values for a function call definition and populates `canonical_fuzz_map` with fuzzy values.
