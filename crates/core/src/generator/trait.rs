@@ -471,7 +471,8 @@ where
                             req.args = Some(args);
 
                             if fuzz_tx_value.is_some() {
-                                req.value = fuzz_tx_value;
+                                req.value =
+                                    Some(fuzz_tx_value.unwrap().parse().unwrap_or_default());
                             }
 
                             let tx = NamedTxRequest::new(

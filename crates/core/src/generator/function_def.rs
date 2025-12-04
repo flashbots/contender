@@ -21,7 +21,7 @@ pub struct FunctionCallDefinition {
     /// Parameters to pass to the function.
     pub args: Option<Vec<String>>,
     /// Value in wei to send with the tx.
-    pub value: Option<String>,
+    pub value: Option<U256>,
     /// Parameters to fuzz during the test.
     pub fuzz: Option<Vec<FuzzParam>>,
     /// Optional type of the spam transaction for categorization.
@@ -80,7 +80,7 @@ impl FunctionCallDefinition {
     }
     /// Set value in wei to send with the tx.
     pub fn with_value(mut self, value: U256) -> Self {
-        self.value = Some(value.to_string());
+        self.value = Some(value);
         self
     }
     pub fn with_fuzz(mut self, fuzz: &[FuzzParam]) -> Self {
@@ -128,7 +128,7 @@ pub struct FunctionCallDefinitionStrict {
     pub from: Address,
     pub signature: String,
     pub args: Vec<String>,
-    pub value: Option<String>,
+    pub value: Option<U256>,
     pub fuzz: Vec<FuzzParam>,
     pub kind: Option<String>,
     pub gas_limit: Option<u64>,

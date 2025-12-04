@@ -191,7 +191,7 @@ pub mod tests {
                     "0x70997970C51812dc3A010C7d01b50e0d17dc79C8".to_owned()
                 );
                 assert_eq!(setup.len(), 1);
-                assert_eq!(setup[0].value, Some("1234".to_owned()));
+                assert_eq!(setup[0].value, Some(U256::from(1234)));
                 assert_eq!(
                     fncall.fuzz.as_ref().unwrap()[0].param.to_owned().unwrap(),
                     "amountIn"
@@ -467,7 +467,7 @@ mySender = \"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\"
 [spam.tx]
 from = \"{mySender}\"
 to = \"{_sender}\"
-value = \"1eth\"
+value = \"1000000000000000000\"
 ",
         )
         .unwrap();
