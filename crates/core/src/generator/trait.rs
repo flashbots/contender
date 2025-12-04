@@ -470,9 +470,9 @@ where
                             let mut req = req.to_owned();
                             req.args = Some(args);
 
-                            if fuzz_tx_value.is_some() {
+                            if let Some(fuzz_tx_value_unwrapped) = fuzz_tx_value {
                                 req.value =
-                                    Some(fuzz_tx_value.unwrap().parse().unwrap_or_default());
+                                    Some(fuzz_tx_value_unwrapped.parse().unwrap_or_default());
                             }
 
                             let tx = NamedTxRequest::new(
