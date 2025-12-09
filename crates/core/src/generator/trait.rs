@@ -17,6 +17,7 @@ use crate::{
 use alloy::{
     eips::eip7702::SignedAuthorization,
     hex::ToHexExt,
+    primitives::utils::parse_units,
     primitives::{keccak256, Address, FixedBytes, U256},
     rpc::types::Authorization,
     signers::{local::PrivateKeySigner, SignerSync},
@@ -96,6 +97,27 @@ where
         from_pools.sort();
         from_pools.dedup();
         from_pools
+    }
+}
+
+pub fn parse_value(input: &str) -> Result<U256> {
+    let input = input.trim().to_lowercase();
+
+    match input.parse() {
+        Ok(value) => Ok(value),
+        Err(_) => {
+            let (num_str, unit) = input.trim().split_at(
+                input
+                    .find(|c: char| !c.is_numeric() && c != '.')
+                    .ok_or(GeneratorError::ValueParseFailed(input.to_string()))?,
+            );
+            let unit = unit.trim();
+            let value: U256 = parse_units(num_str, unit)
+                .map_err(|_| GeneratorError::ValueParseFailed(input.to_string()))?
+                .into();
+
+            Ok(value)
+        }
     }
 }
 
@@ -288,12 +310,18 @@ where
             None
         };
 
+        let value = if let Some(input) = funcdef.value.to_owned() {
+            Some(parse_value(&input)?)
+        } else {
+            None
+        };
+
         Ok(FunctionCallDefinitionStrict {
             to: to_address,
             from: from_address,
             signature: funcdef.signature.to_owned().unwrap_or_default(),
             args,
-            value: funcdef.value.to_owned(),
+            value,
             fuzz: funcdef.fuzz.to_owned().unwrap_or_default(),
             kind: funcdef.kind.to_owned(),
             gas_limit: funcdef.gas_limit.to_owned(),
@@ -470,9 +498,8 @@ where
                             let mut req = req.to_owned();
                             req.args = Some(args);
 
-                            if let Some(fuzz_tx_value_unwrapped) = fuzz_tx_value {
-                                req.value =
-                                    Some(fuzz_tx_value_unwrapped.parse().unwrap_or_default());
+                            if fuzz_tx_value.is_some() {
+                                req.value = fuzz_tx_value;
                             }
 
                             let tx = NamedTxRequest::new(
