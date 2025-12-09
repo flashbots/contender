@@ -38,6 +38,16 @@ pub struct Erc20CliArgs {
     pub token_recipient: Option<Address>,
 }
 
+impl Default for Erc20CliArgs {
+    fn default() -> Self {
+        Self {
+            send_amount: parse_amount("0.00001 ether").unwrap(),
+            fund_amount: parse_amount("1000000 ether").unwrap(),
+            token_recipient: None,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Erc20Args {
     pub send_amount: U256,

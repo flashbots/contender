@@ -161,6 +161,14 @@ pub struct SpamCommandArgs {
     pub seed: RandSeed,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct SpamRunContext {
+    pub campaign_id: Option<String>,
+    pub campaign_name: Option<String>,
+    pub stage_name: Option<String>,
+    pub scenario_name: Option<String>,
+}
+
 impl SpamCommandArgs {
     pub fn new(scenario: SpamScenario, cli_args: SpamCliArgs) -> Result<Self> {
         Ok(Self {
@@ -172,7 +180,7 @@ impl SpamCommandArgs {
         })
     }
 
-    async fn engine_params(&self) -> Result<EngineParams> {
+    pub async fn engine_params(&self) -> Result<EngineParams> {
         self.spam_args
             .eth_json_rpc_args
             .auth_args
@@ -552,6 +560,7 @@ pub async fn spam<
     db: &D,
     args: &SpamCommandArgs,
     test_scenario: &mut TestScenario<D, S, P>,
+    run_context: SpamRunContext,
 ) -> Result<Option<u64>> {
     let SpamCommandArgs {
         scenario,
@@ -579,10 +588,17 @@ pub async fn spam<
     let engine_params = auth_args.engine_params(call_forkchoice).await?;
 
     let mut run_id = None;
-    let scenario_name = match scenario {
+    let base_scenario_name = match scenario {
         SpamScenario::Testfile(testfile) => testfile.to_owned(),
         SpamScenario::Builtin(scenario) => scenario.title(),
     };
+    let scenario_name = run_context
+        .scenario_name
+        .clone()
+        .unwrap_or(base_scenario_name);
+    let campaign_id = run_context.campaign_id.clone();
+    let campaign_name = run_context.campaign_name.clone();
+    let stage_name = run_context.stage_name.clone();
 
     let rpc_client = test_scenario.rpc_client.clone();
     let auth_client = test_scenario.auth_provider.to_owned();
@@ -604,17 +620,19 @@ pub async fn spam<
         _ => err,
     };
 
-    let (spammer, txs_per_batch) = if let Some(txs_per_block) = txs_per_block {
+    let (spammer, txs_per_batch, spam_duration) = if let Some(txs_per_block) = txs_per_block {
         info!("Blockwise spammer starting. Sending {txs_per_block} txs per block.");
         (
             TypedSpammer::Blockwise(BlockwiseSpammer::new()),
             txs_per_block,
+            SpamDuration::Blocks(duration),
         )
     } else if let Some(txs_per_second) = txs_per_second {
         info!("Timed spammer starting. Sending {txs_per_second} txs per second.");
         (
             TypedSpammer::Timed(TimedSpammer::new(std::time::Duration::from_secs(1))),
             txs_per_second,
+            SpamDuration::Seconds(duration),
         )
     } else {
         return Err(ArgsError::SpamRateNotFound.into());
@@ -628,7 +646,7 @@ pub async fn spam<
         test_scenario.ctx.cancel_token.clone(),
     );
 
-    if callback.is_log() {
+    if callback.is_log() || run_context.campaign_id.is_some() {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("Time went backwards")
@@ -637,15 +655,27 @@ pub async fn spam<
             timestamp: timestamp as usize,
             tx_count: (txs_per_batch * duration) as usize,
             scenario_name,
+            campaign_id: campaign_id.clone(),
+            campaign_name: campaign_name.clone(),
+            stage_name: stage_name.clone(),
             rpc_url: test_scenario.rpc_url.to_string(),
             txs_per_duration: txs_per_batch,
-            duration: SpamDuration::Blocks(duration),
+            duration: spam_duration,
             pending_timeout: Duration::from_secs(block_time * pending_timeout),
         };
         run_id = Some(
             db.insert_run(&run)
                 .map_err(|e| contender_core::Error::Db(e.into()))?, // TODO: revise this, we shouldn't need to use core errors here
         );
+        if let Some(id) = run_id {
+            info!(
+                run_id = id,
+                campaign_id = campaign_id.as_deref().unwrap_or(""),
+                campaign_name = campaign_name.as_deref().unwrap_or(""),
+                stage = stage_name.as_deref().unwrap_or(""),
+                "Created spam run"
+            );
+        }
     }
 
     spammer

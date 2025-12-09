@@ -1,6 +1,7 @@
 use clap::Subcommand;
 use std::path::PathBuf;
 
+use crate::commands::campaign::CampaignCliArgs;
 use crate::commands::common::ScenarioSendTxsCliArgs;
 use crate::commands::replay::ReplayCliArgs;
 use crate::default_scenarios::BuiltinScenarioCli;
@@ -71,6 +72,27 @@ pub enum ContenderSubcommand {
             default_value = "0"
         )]
         preceding_runs: u64,
+
+        /// Generate a campaign summary by campaign_id.
+        #[arg(
+            long,
+            help = "Generate reports for all runs associated with the given campaign ID.",
+            visible_alias = "campaign",
+            conflicts_with = "last_run_id",
+            value_name = "CAMPAIGN_ID",
+            num_args = 0..=1,
+            default_missing_value = "__LATEST_CAMPAIGN__"
+        )]
+        campaign_id: Option<String>,
+    },
+
+    #[command(
+        name = "campaign",
+        long_about = "Run a composite/meta scenario described by a campaign file."
+    )]
+    Campaign {
+        #[command(flatten)]
+        args: Box<CampaignCliArgs>,
     },
 }
 

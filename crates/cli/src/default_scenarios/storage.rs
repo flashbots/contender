@@ -21,6 +21,15 @@ pub struct StorageStressCliArgs {
     pub num_iterations: u64,
 }
 
+impl Default for StorageStressCliArgs {
+    fn default() -> Self {
+        Self {
+            num_slots: 500,
+            num_iterations: 1,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct StorageStressArgs {
     pub num_slots: u64,

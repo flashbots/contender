@@ -1,4 +1,4 @@
-use super::SpamCommandArgs;
+use super::{SpamCommandArgs, SpamRunContext};
 use crate::CliError;
 use crate::{
     commands::{self},
@@ -68,7 +68,7 @@ pub async fn spamd(
         }
 
         let db = db.clone();
-        let spam_res = commands::spam(&db, &args, &mut scenario).await;
+        let spam_res = commands::spam(&db, &args, &mut scenario, SpamRunContext::default()).await;
         let wait_time = Duration::from_secs(3);
 
         if let Err(e) = spam_res {

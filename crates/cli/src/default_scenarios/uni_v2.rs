@@ -66,6 +66,18 @@ pub struct UniV2CliArgs {
     pub token_trade_amount: Option<U256>,
 }
 
+impl Default for UniV2CliArgs {
+    fn default() -> Self {
+        Self {
+            num_tokens: 2,
+            weth_per_token: parse_amount("1 eth").expect("valid default amount"),
+            initial_token_supply: parse_amount("5000000 eth").expect("valid default amount"),
+            weth_trade_amount: None,
+            token_trade_amount: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct UniV2Args {
     /// The number of tokens to create in the scenario. Each token will be paired with WETH and each other token.

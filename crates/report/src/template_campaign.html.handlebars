@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Campaign Report</title>
+  <style>
+    body{font-family:'CMU-Serif',serif;max-width:960px;margin:0 auto;padding:2rem;}
+    h1,h2,h3{font-weight:500;}
+    table{width:100%;border-collapse:collapse;margin:1rem 0;}
+    th,td{padding:0.4rem;border-bottom:1px solid #ddd;text-align:left;}
+    th{font-weight:600;}
+    code{background:#f6f6f6;padding:0.2rem 0.4rem;border-radius:3px;}
+  </style>
+</head>
+<body>
+  <h1>Campaign Report</h1>
+  <p>
+    <b>Campaign:</b>
+    {{#if campaign.campaign_name}}{{campaign.campaign_name}}{{else}}unnamed{{/if}}
+    <br/>
+    <b>Campaign ID:</b> {{campaign.campaign_id}}
+  </p>
+
+  {{#if campaign.logs_incomplete}}
+  <p style="color:#b45309; background:#fff7ed; padding:0.6rem 0.8rem; border:1px solid #fed7aa; border-radius:4px;">
+    Note: Transaction logs were incomplete for one or more runs. Totals and durations use stored run metadata; error counts may be under-reported.
+  </p>
+  {{/if}}
+
+  {{#if campaign.overall}}
+  <h2>Campaign Summary</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Total TX</th>
+        <th>Total Errors</th>
+        <th>Error Rate</th>
+        <th>Start</th>
+        <th>End</th>
+        <th>Duration (s)</th>
+        <th>Avg TPS</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>{{campaign.overall.total_tx_count}}</td>
+        <td>{{campaign.overall.total_error_count}}</td>
+        <td>{{campaign.overall.error_rate}}</td>
+        <td>{{#if campaign.overall.campaign_start_time}}{{campaign.overall.campaign_start_time}}{{else}}-{{/if}}</td>
+        <td>{{#if campaign.overall.campaign_end_time}}{{campaign.overall.campaign_end_time}}{{else}}-{{/if}}</td>
+        <td>{{campaign.overall.campaign_duration_secs}}</td>
+        <td>{{campaign.overall.avg_tps}}</td>
+      </tr>
+    </tbody>
+  </table>
+  {{/if}}
+
+  {{#if campaign.stage_scenario}}
+  <h2>Per Stage &amp; Scenario</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Stage</th>
+        <th>Scenario</th>
+        <th>Total TX</th>
+        <th>Total Errors</th>
+        <th>Error Rate</th>
+        <th>Duration (s)</th>
+        <th>Avg TPS</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each campaign.stage_scenario}}
+      <tr>
+        <td>{{stage_name}}</td>
+        <td>{{scenario_name}}</td>
+        <td>{{total_tx_count}}</td>
+        <td>{{total_error_count}}</td>
+        <td>{{error_rate}}</td>
+        <td>{{duration_secs}}</td>
+        <td>{{avg_tps}}</td>
+      </tr>
+      {{/each}}
+    </tbody>
+  </table>
+  {{/if}}
+
+  {{#if campaign.totals_by_stage}}
+  <h2>Totals by Stage</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Stage</th>
+        <th>Scenario</th>
+        <th>TXs</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each campaign.totals_by_stage}}
+        {{#each this}}
+          <tr>
+            <td>{{@../key}}</td>
+            <td>{{@key}}</td>
+            <td>{{this}}</td>
+          </tr>
+        {{/each}}
+      {{/each}}
+    </tbody>
+  </table>
+  {{/if}}
+
+  {{#if campaign.runs}}
+  <h2>Runs</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Run ID</th>
+        <th>Stage</th>
+        <th>Scenario</th>
+        <th>TX Count</th>
+        <th>Duration</th>
+        <th>Report</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each campaign.runs}}
+      <tr>
+        <td>{{run_id}}</td>
+        <td>{{#if stage_name}}{{stage_name}}{{else}}unspecified-stage{{/if}}</td>
+        <td>{{scenario_name}}</td>
+        <td>{{tx_count}}</td>
+        <td>{{duration}}</td>
+        <td><a href="{{report_path}}">View report</a></td>
+      </tr>
+      {{/each}}
+    </tbody>
+  </table>
+  {{/if}}
+</body>
+</html>
+

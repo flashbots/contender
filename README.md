@@ -80,6 +80,7 @@ It supports both **per-second** (TPS) and **per-block** (TPB) timing, seeded fuz
 - [Engine API Spamming](docs/engine-api.md)
 - [Reports, Database, and Admin Tools](docs/reports-db-admin.md)
 - [Using Contender as a Library](docs/library-usage.md)
+- [Composite Campaigns](docs/campaigns.md)
 
 ### 5. Internals
 - [Architecture](docs/architecture.md)

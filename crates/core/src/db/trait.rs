@@ -25,7 +25,12 @@ pub trait DbOps {
 
     fn get_run(&self, run_id: u64) -> Result<Option<SpamRun>, Self::Error>;
 
+    fn get_runs_by_campaign(&self, campaign_id: &str) -> Result<Vec<SpamRun>, Self::Error>;
+
     fn get_run_txs(&self, run_id: u64) -> Result<Vec<RunTx>, Self::Error>;
+
+    /// Get latest non-null campaign_id (by run id desc).
+    fn latest_campaign_id(&self) -> Result<Option<String>, Self::Error>;
 
     /// Insert a new named tx into the database. Used for named contracts.
     fn insert_named_txs(

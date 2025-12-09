@@ -17,4 +17,7 @@ pub enum Error {
 
     #[error("toml serialization error")]
     TomlSer(#[from] toml::ser::Error),
+
+    #[error("campaign validation error: {0}")]
+    Campaign(String),
 }

@@ -48,6 +48,9 @@ pub enum Error {
     #[error("run (id={0}) does not exist")]
     RunDoesNotExist(u64),
 
+    #[error("no runs found for campaign id {0}")]
+    CampaignNotFound(String),
+
     #[error("serde_json error")]
     SerdeJson(#[from] serde_json::Error),
 }

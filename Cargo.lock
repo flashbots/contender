@@ -2171,6 +2171,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber 0.3.20",
  "url",
+ "uuid",
  "webbrowser",
 ]
 

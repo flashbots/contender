@@ -77,3 +77,13 @@ contender spam erc20 --tps 20
 ```
 
 If you are running a builtin scenario and encounter an issue, don't forget to check `contender spam --help` as well as `contender spam <builtin_scenario> --help`.
+
+## Composite / Meta-Scenarios (Campaigns)
+
+To run multiple scenarios in parallel (with staged mixes), create a campaign TOML and run:
+
+```bash
+contender campaign ./campaigns/base_composite.toml -r $RPC_URL -p $PKEY
+```
+
+Campaigns reference existing scenario files and specify per-stage mixes and rates. See `docs/campaigns.md` for the full format and examples.
