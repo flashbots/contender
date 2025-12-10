@@ -20,6 +20,7 @@ use alloy::{
     primitives::{keccak256, Address, FixedBytes, U256},
     rpc::types::Authorization,
     signers::{local::PrivateKeySigner, SignerSync},
+    providers::Provider,
 };
 use async_trait::async_trait;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
@@ -354,6 +355,10 @@ where
                 let setup_steps = conf.get_setup_steps()?;
                 let rpc_url = self.get_rpc_url();
 
+                let mut handles = Vec::new();
+                let mut next_nonce: HashMap<Address, u64> = HashMap::new();
+
+
                 for step in setup_steps.iter() {
                     // lookup placeholders in DB & update map before templating
                     templater.find_fncall_placeholders(
@@ -365,7 +370,7 @@ where
                     )?;
 
                     // setup tx with template values
-                    let tx = NamedTxRequest::new(
+                    let mut tx = NamedTxRequest::new(
                         templater.template_function_call(
                             &self.make_strict_call(step, 0)?, // 'from' address injected here
                             &placeholder_map,
@@ -374,11 +379,27 @@ where
                         step.kind.to_owned(),
                     );
 
+                    // assign a unique nonce to each tx (tracker per sender)
+                    // - we need to block on the future to ensure it's correct before sending the tx)
+                    let from = tx.tx.from.unwrap();
+                    let nonce = next_nonce.entry(from).or_insert_with(|| {
+                        futures::executor::block_on(async {
+                            self.get_rpc_provider().get_transaction_count(from).await
+                        }).unwrap()
+                    });
+                    tx.tx.nonce = Some(*nonce);
+                    *nonce += 1;
+
+                    // spawn and store handle (will await all txs later)
                     let handle = on_setup_step(tx.to_owned())?;
                     if let Some(handle) = handle {
-                        handle.await.map_err(CallbackError::Join)??;
+                        handles.push(handle);
                     }
                     txs.push(tx.into());
+                }
+
+                for handle in handles {
+                    handle.await.map_err(CallbackError::Join)??;
                 }
             }
             PlanType::Spam(num_txs, on_spam_setup) => {
