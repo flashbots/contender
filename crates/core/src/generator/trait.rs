@@ -18,9 +18,9 @@ use alloy::{
     eips::eip7702::SignedAuthorization,
     hex::ToHexExt,
     primitives::{keccak256, Address, FixedBytes, U256},
+    providers::Provider,
     rpc::types::Authorization,
     signers::{local::PrivateKeySigner, SignerSync},
-    providers::Provider,
 };
 use async_trait::async_trait;
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
@@ -358,7 +358,6 @@ where
                 let mut handles = Vec::new();
                 let mut next_nonce: HashMap<Address, u64> = HashMap::new();
 
-
                 for step in setup_steps.iter() {
                     // lookup placeholders in DB & update map before templating
                     templater.find_fncall_placeholders(
@@ -385,7 +384,8 @@ where
                     let nonce = next_nonce.entry(from).or_insert_with(|| {
                         futures::executor::block_on(async {
                             self.get_rpc_provider().get_transaction_count(from).await
-                        }).unwrap()
+                        })
+                        .unwrap()
                     });
                     tx.tx.nonce = Some(*nonce);
                     *nonce += 1;
