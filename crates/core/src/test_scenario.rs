@@ -2107,8 +2107,8 @@ pub mod tests {
                 ExecutionRequest::Tx(tx) => tx,
                 _ => continue,
             };
-            if tx.tx.from.is_some() {
-                assert!(scenario.signer_map.contains_key(&tx.tx.from.unwrap()));
+            if let Some(from_addr) = tx.tx.from {
+                assert!(scenario.signer_map.contains_key(&from_addr));
             }
             let admin_pools = ["admin1", "admin2"];
             for pool in admin_pools {
