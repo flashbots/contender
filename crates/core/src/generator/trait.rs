@@ -380,13 +380,12 @@ where
 
                     // assign a unique nonce to each tx (tracker per sender)
                     // - we need to block on the future to ensure it's correct before sending the tx)
-                    let from = tx.tx.from.unwrap();
-                    let nonce = next_nonce.entry(from).or_insert_with(|| {
-                        futures::executor::block_on(async {
-                            self.get_rpc_provider().get_transaction_count(from).await
-                        })
-                        .unwrap()
-                    });
+                    let from = tx.tx.from.expect("from address");
+                    if !next_nonce.contains_key(&from) {
+                        let nonce = self.get_rpc_provider().get_transaction_count(from).await?;
+                        next_nonce.insert(from, nonce);
+                    }
+                    let nonce = next_nonce.get_mut(&from).expect("nonce");
                     tx.tx.nonce = Some(*nonce);
                     *nonce += 1;
 
