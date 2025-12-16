@@ -25,6 +25,8 @@ pub struct CampaignStage {
     #[serde(default)]
     pub duration_blocks: Option<u64>,
     #[serde(default)]
+    pub rate: Option<u64>,
+    #[serde(default)]
     pub tps: Option<u64>,
     #[serde(default)]
     pub tpb: Option<u64>,
@@ -44,6 +46,8 @@ pub struct CampaignSetup {
 pub struct CampaignSpam {
     #[serde(default)]
     pub mode: Option<CampaignMode>,
+    #[serde(default)]
+    pub rate: Option<u64>,
     #[serde(default)]
     pub tps: Option<u64>,
     #[serde(default)]
@@ -92,6 +96,16 @@ pub struct ResolvedMixEntry {
     pub rate: u64,
 }
 
+fn validate_rate_fields(rate: Option<u64>, tps: Option<u64>, tpb: Option<u64>, context: &str) -> Result<()> {
+    let set_count = rate.is_some() as usize + tps.is_some() as usize + tpb.is_some() as usize;
+    if set_count > 1 {
+        return Err(Error::Campaign(format!(
+            "{context}: specify only one of rate/tps/tpb"
+        )));
+    }
+    Ok(())
+}
+
 impl CampaignConfig {
     /// Parse a campaign from TOML file.
     pub fn from_file(path: &str) -> Result<Self> {
@@ -114,7 +128,20 @@ impl CampaignConfig {
         // Normalize stages first so validation covers both explicit and shorthand forms.
         let normalized_stages = self.spam.normalized_stages()?;
 
+        validate_rate_fields(
+            self.spam.rate,
+            self.spam.tps,
+            self.spam.tpb,
+            "campaign spam defaults",
+        )?;
+
         for (idx, stage) in normalized_stages.iter().enumerate() {
+            validate_rate_fields(
+                stage.rate,
+                stage.tps,
+                stage.tpb,
+                &format!("stage {} ({})", idx, stage.name),
+            )?;
             if stage.mix.is_empty() {
                 return Err(Error::Campaign(format!(
                     "stage {} ({}) must include at least one mix entry",
@@ -151,7 +178,8 @@ impl CampaignConfig {
             })
             .ok_or_else(|| {
                 Error::Campaign(
-                    "campaign.spam.mode must be set when no tps/tpb default is provided".into(),
+                    "campaign.spam.mode must be set when no tps/tpb default is provided (required when using rate)"
+                        .into(),
                 )
             })?;
 
@@ -165,18 +193,28 @@ impl CampaignConfig {
                 .expect("default mode checked");
 
             let rate = match mode {
-                CampaignMode::Tps => stage.tps.or(self.spam.tps).ok_or_else(|| {
-                    Error::Campaign(format!(
-                        "stage {} requires tps or default spam.tps when mode is tps",
-                        stage.name
-                    ))
-                })?,
-                CampaignMode::Tpb => stage.tpb.or(self.spam.tpb).ok_or_else(|| {
-                    Error::Campaign(format!(
-                        "stage {} requires tpb or default spam.tpb when mode is tpb",
-                        stage.name
-                    ))
-                })?,
+                CampaignMode::Tps => stage
+                    .tps
+                    .or(stage.rate)
+                    .or(self.spam.tps)
+                    .or(self.spam.rate)
+                    .ok_or_else(|| {
+                        Error::Campaign(format!(
+                            "stage {} requires rate (or spam.tps) when mode is tps",
+                            stage.name
+                        ))
+                    })?,
+                CampaignMode::Tpb => stage
+                    .tpb
+                    .or(stage.rate)
+                    .or(self.spam.tpb)
+                    .or(self.spam.rate)
+                    .ok_or_else(|| {
+                        Error::Campaign(format!(
+                            "stage {} requires rate (or spam.tpb) when mode is tpb",
+                            stage.name
+                        ))
+                    })?,
             };
 
             let duration = match mode {
@@ -293,6 +331,7 @@ impl CampaignSpam {
                 name: "steady".to_string(),
                 duration_secs: Some(duration),
                 duration_blocks: None,
+                rate: self.rate,
                 tps: self.tps,
                 tpb: self.tpb,
                 mix: mix.clone(),
@@ -314,13 +353,14 @@ mod tests {
     fn normalized_prefers_stages_when_present() {
         let spam = CampaignSpam {
             mode: Some(CampaignMode::Tps),
-            tps: Some(10),
+            rate: Some(10),
             duration: Some(100),
             stage: vec![CampaignStage {
                 name: "explicit".into(),
                 duration_secs: Some(50),
                 duration_blocks: None,
-                tps: Some(10),
+                rate: Some(10),
+                tps: None,
                 tpb: None,
                 mix: vec![CampaignMixEntry {
                     scenario: "s1".into(),
@@ -339,7 +379,7 @@ mod tests {
     fn normalized_shorthand_builds_stage() {
         let spam = CampaignSpam {
             mode: Some(CampaignMode::Tps),
-            tps: Some(20),
+            rate: Some(20),
             duration: Some(600),
             mix: Some(vec![
                 CampaignMixEntry {
@@ -359,7 +399,7 @@ mod tests {
         let s = &stages[0];
         assert_eq!(s.name, "steady");
         assert_eq!(s.duration_secs, Some(600));
-        assert_eq!(s.tps, Some(20));
+        assert_eq!(s.rate, Some(20));
         assert_eq!(s.mix.len(), 2);
     }
 
@@ -370,6 +410,7 @@ mod tests {
                 name: "explicit".into(),
                 duration_secs: Some(10),
                 duration_blocks: None,
+                rate: None,
                 tps: Some(5),
                 tpb: None,
                 mix: vec![CampaignMixEntry {
@@ -416,13 +457,14 @@ mod tests {
             },
             spam: CampaignSpam {
                 mode: Some(CampaignMode::Tps),
-                tps: Some(20),
+                rate: Some(20),
                 duration: Some(600),
                 stage: vec![CampaignStage {
                     name: "steady".into(),
                     duration_secs: Some(600),
                     duration_blocks: None,
-                    tps: Some(20),
+                    rate: Some(20),
+                    tps: None,
                     tpb: None,
                     mix: mix.clone(),
                 }],
@@ -438,7 +480,7 @@ mod tests {
             },
             spam: CampaignSpam {
                 mode: Some(CampaignMode::Tps),
-                tps: Some(20),
+                rate: Some(20),
                 duration: Some(600),
                 mix: Some(mix.clone()),
                 ..Default::default()
@@ -473,7 +515,7 @@ mod tests {
             },
             spam: CampaignSpam {
                 mode: Some(CampaignMode::Tps),
-                tps: Some(5),
+                rate: Some(5),
                 duration: Some(30),
                 mix: Some(vec![CampaignMixEntry {
                     scenario: "s1".into(),

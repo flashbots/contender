@@ -9,13 +9,13 @@ scenarios = [
 
 [spam]
 mode     = "tps"
-tps      = 150   # default rate if a stage omits one
+rate     = 150   # default rate if a stage omits one
 duration = 60   # default duration per stage (seconds)
 seed     = 1337
 
 [[spam.stage]]
 name          = "warmup"
-tps           = 100
+rate          = 100
 duration_secs = 60
   [[spam.stage.mix]]
   scenario  = "builtin:erc20"
@@ -26,7 +26,7 @@ duration_secs = 60
 
 [[spam.stage]]
 name          = "steady"
-tps           = 500
+rate          = 500
 duration_secs = 120
   [[spam.stage.mix]]
   scenario  = "builtin:erc20"
@@ -37,7 +37,7 @@ duration_secs = 120
 
 [[spam.stage]]
 name          = "cooldown"
-tps           = 20
+rate          = 20
 duration_secs = 60
   [[spam.stage.mix]]
   scenario  = "builtin:erc20"

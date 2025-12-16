@@ -17,7 +17,7 @@ scenarios = [
 
 [spam]
 mode = "tps"        # or "tpb"
-tps = 20            # default rate if a stage omits one
+rate = 20           # default rate if a stage omits one (TPS or TPB via mode)
 duration = 600      # default duration (seconds if tps, blocks if tpb)
 seed = 42           # optional; falls back to CLI --seed or seed file
 
@@ -36,12 +36,13 @@ duration_secs = 600
 ```
 
 - `mode`: `tps` (per-second) or `tpb` (per-block). Stages can override rate/duration; otherwise they inherit from `[spam]`.
+- `rate`: rate per mode (TPS if `mode="tps"`, TPB if `mode="tpb"`). Set once at `[spam]` or per stage.
 - `duration` at `[spam]` is a **default per-stage** duration, not a total campaign time. Each stage runs for its own duration (seconds if `tps`, blocks if `tpb`), then the next stage starts.
 - `share_pct`: scenario weight inside a stage; shares are normalized and rounded, and the last entry absorbs rounding drift to preserve the target rate.
 - `[setup].scenarios`: run once, in order, before spamming. Uses the standard `setup` logic for each referenced scenario file.
 
 ### Stage basics
-- Stages run **sequentially**. Each stage inherits `mode`/`tps`/`duration` from `[spam]` unless the stage overrides them.
+- Stages run **sequentially**. Each stage inherits `mode`/`rate`/`duration` from `[spam]` unless the stage overrides them.
 - Each stage performs its own setup/init (funding, deploy/config for builtins, scenario init), then starts its spammers at the resolved rate/mix.
 - Within a stage, we spin up one spammer per `mix` entry at the computed per-scenario rate; they share a DB handle and run id.
 - The next stage starts only after the previous one completes its **stage duration** (seconds for `tps`, blocks for `tpb`). Campaign duration is the sum of stage durations.
@@ -58,7 +59,7 @@ If you omit `[[spam.stage]]` and instead set `spam.duration` plus `[[spam.mix]]`
 ```toml
 [spam]
 mode = "tps"
-tps = 20
+rate = 20
 duration = 600
 seed = 42
 

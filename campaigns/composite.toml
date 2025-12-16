@@ -10,7 +10,7 @@ scenarios = [
 
 [spam]
 mode     = "tps"
-tps      = 50
+rate     = 50
 duration = 60
 
 [[spam.mix]]

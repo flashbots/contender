@@ -571,7 +571,7 @@ scenarios = [
 
 [spam]
 mode = "tps"
-tps = 20
+rate = 20
 duration = 600
 seed = 42
 
