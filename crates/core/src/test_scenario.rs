@@ -1929,7 +1929,7 @@ pub mod tests {
 
         let create_txs = scenario
             .load_txs(PlanType::Create(|tx| {
-                println!("create tx callback triggered! {tx:?}\n");
+                println!("create tx callback triggered! name: {:?}\n", tx.name);
                 Ok(None)
             }))
             .await?;
@@ -1937,7 +1937,7 @@ pub mod tests {
 
         let setup_txs = scenario
             .load_txs(PlanType::Setup(|tx| {
-                println!("setup tx callback triggered! {tx:?}\n");
+                println!("setup tx callback triggered! name: {:?}\n", tx.name);
                 Ok(None)
             }))
             .await?;
@@ -1945,7 +1945,7 @@ pub mod tests {
 
         let spam_txs = scenario
             .load_txs(PlanType::Spam(20, |tx| {
-                println!("spam tx callback triggered! {tx:?}\n");
+                println!("spam tx callback triggered! name: {:?}\n", tx.name);
                 Ok(None)
             }))
             .await?;
@@ -2107,8 +2107,8 @@ pub mod tests {
                 ExecutionRequest::Tx(tx) => tx,
                 _ => continue,
             };
-            if tx.tx.from.is_some() {
-                assert!(scenario.signer_map.contains_key(&tx.tx.from.unwrap()));
+            if let Some(from_addr) = tx.tx.from {
+                assert!(scenario.signer_map.contains_key(&from_addr));
             }
             let admin_pools = ["admin1", "admin2"];
             for pool in admin_pools {
