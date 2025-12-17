@@ -411,7 +411,7 @@ async fn execute_stage(
 
 fn parse_builtin_reference(name: &str) -> Option<BuiltinScenarioCli> {
     let norm = name.trim().strip_prefix("builtin:")?.to_lowercase();
-    match norm.as_str() {
+    match norm.to_lowercase().as_str() {
         "erc20" => Some(BuiltinScenarioCli::Erc20(Default::default())),
         "revert" | "reverts" => Some(BuiltinScenarioCli::Revert(Default::default())),
         "stress" => Some(BuiltinScenarioCli::Stress(Default::default())),
