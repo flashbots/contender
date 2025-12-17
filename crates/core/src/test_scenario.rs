@@ -1569,9 +1569,10 @@ async fn handle_tx_outcome<'a, F: SpamCallback + 'static>(
                 / 10;
             let _ = ctx.gas_sender.send(bump).await;
         } else if message.contains("nonce too low") {
-            println!("incrementing nonce for {}", req.tx.from.unwrap());
+            debug!("incrementing nonce for {}", req.tx.from.unwrap());
             let _ = ctx.nonce_sender.send((req.tx.from.expect("from"), 1)).await;
         } else if message.contains("nonce too high") {
+            debug!("decrementing nonce for {}", req.tx.from.unwrap());
             let _ = ctx
                 .nonce_sender
                 .send((req.tx.from.expect("from"), -1))
