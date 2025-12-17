@@ -1570,11 +1570,15 @@ async fn handle_tx_outcome<'a, F: SpamCallback + 'static>(
                 .max_fee_per_gas
                 .unwrap_or(req.tx.gas_price.unwrap_or(1_000_000_000))
                 / 10;
-            let _ = ctx.gas_sender.send(bump).await;
+            if let Err(e) = ctx.gas_sender.send(bump).await {
+                warn!("failed to send gas bump for tx {}: {:?}", tx_hash, e);
+            }
         } else if message.contains("nonce too low") {
             if let Some(from) = req.tx.from {
                 debug!("incrementing nonce for {}", from);
-                let _ = ctx.nonce_sender.send((from, 1)).await;
+                if let Err(e) = ctx.nonce_sender.send((from, 1)).await {
+                    warn!("failed to send nonce increment for {}: {:?}", from, e);
+                }
             } else {
                 warn!(
                     "nonce too low error but tx.from is missing for tx {}",
@@ -1584,7 +1588,9 @@ async fn handle_tx_outcome<'a, F: SpamCallback + 'static>(
         } else if message.contains("nonce too high") {
             if let Some(from) = req.tx.from {
                 debug!("decrementing nonce for {}", from);
-                let _ = ctx.nonce_sender.send((from, -1)).await;
+                if let Err(e) = ctx.nonce_sender.send((from, -1)).await {
+                    warn!("failed to send nonce decrement for {}: {:?}", from, e);
+                }
             } else {
                 warn!(
                     "nonce too high error but tx.from is missing for tx {}",
@@ -1596,7 +1602,12 @@ async fn handle_tx_outcome<'a, F: SpamCallback + 'static>(
         extra = extra.with_error(msg.to_string());
     } else {
         // success path
-        let _ = ctx.success_sender.send(()).await;
+        if let Err(e) = ctx.success_sender.send(()).await {
+            warn!(
+                "failed to send success notification for tx {}: {:?}",
+                tx_hash, e
+            );
+        }
     }
 
     let maybe_handle = ctx.callback_handler.on_tx_sent(
