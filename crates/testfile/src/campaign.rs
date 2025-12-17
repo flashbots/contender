@@ -87,6 +87,12 @@ pub struct ResolvedMixEntry {
     pub rate: u64,
 }
 
+impl ResolvedMixEntry {
+    pub fn scenario_label(&self) -> String {
+        self.scenario.trim_start_matches("builtin:").to_owned()
+    }
+}
+
 impl CampaignConfig {
     /// Parse a campaign from TOML file.
     pub fn from_file(path: &str) -> Result<Self> {

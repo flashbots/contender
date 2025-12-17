@@ -252,9 +252,10 @@ impl SpamCommandArgs {
         }
 
         // check if txs_per_duration is enough to cover the spam requests
-        if txs_per_duration < spam_len as u64 {
+        if (txs_per_duration * duration) < spam_len as u64 {
             return Err(ArgsError::TransactionsPerDurationInsufficient {
                 min_tpd: spam_len as u64,
+                tpd: txs_per_duration,
             }
             .into());
         }

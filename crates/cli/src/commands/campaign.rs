@@ -3,14 +3,18 @@ use super::{
     spam::{SpamCommandArgs, SpamRunContext},
     SpamScenario,
 };
-use crate::commands::{
-    self,
-    common::{ScenarioSendTxsCliArgs, SendTxsCliArgsInner},
-};
 use crate::error::CliError;
 use crate::util::load_testconfig;
-use crate::util::{bold, data_dir, load_seedfile, parse_duration};
+use crate::util::{data_dir, load_seedfile, parse_duration};
 use crate::BuiltinScenarioCli;
+use crate::{
+    commands::{
+        self,
+        common::{ScenarioSendTxsCliArgs, SendTxsCliArgsInner},
+        SpamCliArgs,
+    },
+    util::bold,
+};
 use alloy::primitives::U256;
 use clap::Args;
 use contender_core::db::DbOps;
@@ -135,6 +139,11 @@ pub async fn run_campaign(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     args: CampaignCliArgs,
 ) -> Result<(), CliError> {
+    let campaign = CampaignConfig::from_file(&args.campaign)?;
+    let stages = campaign.resolve()?;
+    validate_stage_rates(&stages, &args).await?;
+    let campaign_id = Uuid::new_v4().to_string();
+
     if args.redeploy && args.skip_setup {
         return Err(RuntimeParamErrorKind::InvalidArgs(format!(
             "{} and {} cannot be passed together",
@@ -143,11 +152,6 @@ pub async fn run_campaign(
         ))
         .into());
     }
-
-    let campaign = CampaignConfig::from_file(&args.campaign)?;
-    let stages = campaign.resolve()?;
-    validate_stage_rates(&stages, &args).await?;
-    let campaign_id = Uuid::new_v4().to_string();
 
     let base_seed = args
         .eth_json_rpc_args
@@ -158,15 +162,29 @@ pub async fn run_campaign(
 
     // Setup phase. Skip builtin scenarios since they do their own setup at spam time.
     let setup = &campaign.setup;
-    for scenario in &setup.scenarios {
-        if parse_builtin_reference(scenario).is_some() {
-            continue;
+    let provider = args.eth_json_rpc_args.new_rpc_provider()?;
+    if !args.skip_setup {
+        for scenario_label in &setup.scenarios {
+            let scenario = match parse_builtin_reference(&scenario_label) {
+                Some(builtin) => SpamScenario::Builtin(
+                    builtin
+                        .to_builtin_scenario(
+                            &provider,
+                            &create_spam_cli_args(None, &args, CampaignMode::Tps, 1, 1),
+                            /* TODO: KLUDGE:
+                               - I don't think a `BuiltinScenarioCli` *needs* `rate` or `duration` -- that's for the spammer.
+                               - we should use a different interface for `to_builtin_scenario` (replace `SpamCliArgs`)
+                            */
+                        )
+                        .await?,
+                ),
+                None => SpamScenario::Testfile(scenario_label.to_owned()),
+            };
+            let mut setup_args = args.eth_json_rpc_args.clone();
+            setup_args.seed = Some(base_seed.clone());
+            let setup_cmd = SetupCommandArgs::new(scenario, setup_args)?;
+            commands::setup(db, setup_cmd).await?;
         }
-        let mut setup_args = args.eth_json_rpc_args.clone();
-        setup_args.seed = Some(base_seed.clone());
-        let setup_cmd =
-            SetupCommandArgs::new(SpamScenario::Testfile(scenario.clone()), setup_args)?;
-        commands::setup(db, setup_cmd).await?;
     }
 
     let mut run_ids = vec![];
@@ -266,6 +284,45 @@ async fn validate_stage_rates(
     Ok(())
 }
 
+fn create_spam_cli_args(
+    testfile: Option<String>,
+    args: &CampaignCliArgs,
+    spam_mode: CampaignMode,
+    spam_rate: u64,
+    spam_duration: u64,
+) -> SpamCliArgs {
+    SpamCliArgs {
+        eth_json_rpc_args: ScenarioSendTxsCliArgs {
+            testfile,
+            rpc_args: args.eth_json_rpc_args.clone(),
+        },
+        spam_args: crate::commands::common::SendSpamCliArgs {
+            builder_url: args.builder_url.clone(),
+            txs_per_second: if matches!(spam_mode, CampaignMode::Tps) {
+                Some(spam_rate)
+            } else {
+                None
+            },
+            txs_per_block: if matches!(spam_mode, CampaignMode::Tpb) {
+                Some(spam_rate)
+            } else {
+                None
+            },
+            duration: spam_duration,
+            pending_timeout: args.pending_timeout,
+            loops: Some(Some(1)),
+            accounts_per_agent: args.accounts_per_agent,
+        },
+        ignore_receipts: args.ignore_receipts,
+        optimistic_nonces: args.optimistic_nonces,
+        gen_report: false,
+        spam_timeout: args.spam_timeout,
+        redeploy: args.redeploy,
+        skip_setup: true,
+        rpc_batch_size: args.rpc_batch_size,
+    }
+}
+
 async fn execute_stage(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     campaign: &CampaignConfig,
@@ -299,36 +356,13 @@ async fn execute_stage(
         let mut eth_args = args.eth_json_rpc_args.clone();
         eth_args.seed = Some(scenario_seed.clone());
 
-        let spam_cli_args = crate::commands::spam::SpamCliArgs {
-            eth_json_rpc_args: ScenarioSendTxsCliArgs {
-                testfile: Some(mix.scenario.clone()),
-                rpc_args: eth_args,
-            },
-            spam_args: crate::commands::common::SendSpamCliArgs {
-                builder_url: args.builder_url.clone(),
-                txs_per_second: if matches!(campaign.spam.mode, CampaignMode::Tps) {
-                    Some(mix.rate)
-                } else {
-                    None
-                },
-                txs_per_block: if matches!(campaign.spam.mode, CampaignMode::Tpb) {
-                    Some(mix.rate)
-                } else {
-                    None
-                },
-                duration: stage.duration,
-                pending_timeout: args.pending_timeout,
-                loops: Some(Some(1)),
-                accounts_per_agent: args.accounts_per_agent,
-            },
-            ignore_receipts: args.ignore_receipts,
-            optimistic_nonces: args.optimistic_nonces,
-            gen_report: false,
-            spam_timeout: args.spam_timeout,
-            redeploy: args.redeploy,
-            skip_setup: args.skip_setup,
-            rpc_batch_size: args.rpc_batch_size,
-        };
+        let spam_cli_args = create_spam_cli_args(
+            Some(mix.scenario.clone()),
+            args,
+            campaign.spam.mode,
+            mix.rate,
+            stage.duration,
+        );
 
         let spam_scenario = if let Some(builtin_cli) = parse_builtin_reference(&mix.scenario) {
             let provider = args.eth_json_rpc_args.new_rpc_provider()?;
@@ -409,9 +443,16 @@ async fn execute_stage(
     Ok(run_ids)
 }
 
+fn strip_builtin_name(name: impl AsRef<str>) -> String {
+    name.as_ref()
+        .trim()
+        .trim_start_matches("builtin:")
+        .to_owned()
+}
+
 fn parse_builtin_reference(name: &str) -> Option<BuiltinScenarioCli> {
-    let norm = name.trim().strip_prefix("builtin:")?.to_lowercase();
-    match norm.to_lowercase().as_str() {
+    let norm = strip_builtin_name(name).to_lowercase();
+    match norm.as_str() {
         "erc20" => Some(BuiltinScenarioCli::Erc20(Default::default())),
         "revert" | "reverts" => Some(BuiltinScenarioCli::Revert(Default::default())),
         "stress" => Some(BuiltinScenarioCli::Stress(Default::default())),
