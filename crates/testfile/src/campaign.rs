@@ -169,13 +169,51 @@ impl CampaignConfig {
                 .unwrap_or(self.spam.rate.ok_or(CampaignError::SpamRateMissing)?);
 
             // Normalize shares and compute integer rates; last entry absorbs rounding drift.
-            // Note: This approach ensures the total rate matches exactly, but may result in
-            // small discrepancies for individual scenarios due to rounding.
+            // Ensure mixes with share_pct > 0 get at least rate 1 to avoid unexpected 0 rates.
             let mut resolved_mix = Vec::new();
             let mut assigned = 0u64;
+
+            // First pass: calculate rates with rounding
+            let mut rates: Vec<u64> = stage
+                .mix
+                .iter()
+                .map(|mix| {
+                    let normalized_share = mix.share_pct / mix_sum;
+                    (rate as f64 * normalized_share).round() as u64
+                })
+                .collect();
+
+            // Second pass: ensure non-zero share_pct mixes get at least rate 1
+            let non_zero_mixes = stage.mix.iter().filter(|m| m.share_pct > 0.0).count();
+            if non_zero_mixes > 0 && rate >= non_zero_mixes as u64 {
+                // Find mixes that got 0 but have share_pct > 0
+                let mut zero_indices = Vec::new();
+                for (idx, mix) in stage.mix.iter().enumerate() {
+                    if mix.share_pct > 0.0 && rates[idx] == 0 {
+                        zero_indices.push(idx);
+                    }
+                }
+
+                // Give each zero-rated mix a rate of 1, taking from the largest allocations
+                for zero_idx in zero_indices {
+                    // Find the mix with the highest rate (excluding last to avoid complications)
+                    if let Some((max_idx, _)) = rates
+                        .iter()
+                        .enumerate()
+                        .take(rates.len().saturating_sub(1))
+                        .max_by_key(|(_, &r)| r)
+                    {
+                        if rates[max_idx] > 1 {
+                            rates[max_idx] -= 1;
+                            rates[zero_idx] = 1;
+                        }
+                    }
+                }
+            }
+
+            // Third pass: create ResolvedMixEntry with adjusted rates
             for (idx, mix) in stage.mix.iter().enumerate() {
-                let normalized_share = mix.share_pct / mix_sum;
-                let mut scenario_rate = (rate as f64 * normalized_share).round() as u64;
+                let mut scenario_rate = rates[idx];
                 if idx == stage.mix.len() - 1 {
                     // Last entry gets exactly what's left to ensure total equals rate
                     let remaining = rate.saturating_sub(assigned);
@@ -190,7 +228,7 @@ impl CampaignConfig {
                         .into());
                     }
 
-                    // Warn if the adjustment is significant (more than 50% off from expected)
+                    // Warn if the adjustment is significant
                     let expected = scenario_rate;
                     if expected > 0 && remaining > 0 {
                         let drift_pct = if remaining > expected {
@@ -198,7 +236,6 @@ impl CampaignConfig {
                         } else {
                             ((expected - remaining) as f64 / expected as f64) * 100.0
                         };
-                        // Only warn for significant drift (> 10%)
                         if drift_pct > 10.0 {
                             eprintln!(
                                 "Warning: stage {} scenario {} rate adjusted from {} to {} ({:.1}% drift) due to rounding",
