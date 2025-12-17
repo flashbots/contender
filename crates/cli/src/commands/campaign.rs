@@ -198,7 +198,7 @@ pub async fn run_campaign(
             let timeout_duration = std::time::Duration::from_secs(timeout_secs);
             match tokio::time::timeout(
                 timeout_duration,
-                execute_stage(db, &campaign, stage, &args, &campaign_id, &stage_seed)
+                execute_stage(db, &campaign, stage, &args, &campaign_id, &stage_seed),
             )
             .await
             {

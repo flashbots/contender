@@ -508,13 +508,13 @@ impl OverallAccumulator {
         };
         let avg_tps = if duration_secs > 0 {
             let raw = self.total_tx as f64 / duration_secs as f64;
-            (raw * 100.0).round() / 100.0  // Round to 2 decimal places
+            (raw * 100.0).round() / 100.0 // Round to 2 decimal places
         } else {
             0.0
         };
         let error_rate = if self.total_tx > 0 {
             let raw = self.total_errors as f64 / self.total_tx as f64;
-            (raw * 100.0).round() / 100.0  // Round to 2 decimal places
+            (raw * 100.0).round() / 100.0 // Round to 2 decimal places
         } else {
             0.0
         };
@@ -557,13 +557,13 @@ impl StageAccumulator {
         };
         let avg_tps = if duration_secs > 0 {
             let raw = self.total_tx as f64 / duration_secs as f64;
-            (raw * 100.0).round() / 100.0  // Round to 2 decimal places
+            (raw * 100.0).round() / 100.0 // Round to 2 decimal places
         } else {
             0.0
         };
         let error_rate = if self.total_tx > 0 {
             let raw = self.total_errors as f64 / self.total_tx as f64;
-            (raw * 100.0).round() / 100.0  // Round to 2 decimal places
+            (raw * 100.0).round() / 100.0 // Round to 2 decimal places
         } else {
             0.0
         };

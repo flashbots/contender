@@ -96,7 +96,12 @@ pub struct ResolvedMixEntry {
     pub rate: u64,
 }
 
-fn validate_rate_fields(rate: Option<u64>, tps: Option<u64>, tpb: Option<u64>, context: &str) -> Result<()> {
+fn validate_rate_fields(
+    rate: Option<u64>,
+    tps: Option<u64>,
+    tpb: Option<u64>,
+    context: &str,
+) -> Result<()> {
     let set_count = rate.is_some() as usize + tps.is_some() as usize + tpb.is_some() as usize;
     if set_count > 1 {
         return Err(Error::Campaign(format!(
