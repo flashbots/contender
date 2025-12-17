@@ -267,6 +267,16 @@ async fn validate_stage_rates(
                 ))
                 .into());
             }
+            // Check if rate * duration is sufficient to cover all spam entries
+            let total_txs = mix.rate * stage.duration;
+            if total_txs < spam_len {
+                return Err(RuntimeParamErrorKind::InvalidArgs(format!(
+                    "Stage '{}' scenario '{}': insufficient transactions (rate {} * duration {} = {}) to cover {} spam entries. Minimum rate needed: {}",
+                    stage.name, mix.scenario, mix.rate, stage.duration, total_txs, spam_len,
+                    spam_len.div_ceil(stage.duration)  // ceiling division
+                ))
+                .into());
+            }
         }
     }
     Ok(())
