@@ -1,13 +1,6 @@
 name = "devnet-steady"
 description = "Steady devnet load with a mix of erc20, uni_v2 and stress"
 
-[setup]
-scenarios = [
-  "builtin:erc20",
-  "builtin:uni_v2",
-  "builtin:stress",
-]
-
 [spam]
 mode     = "tps"
 rate     = 250

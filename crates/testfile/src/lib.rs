@@ -3,8 +3,8 @@ pub mod error;
 mod test_config;
 
 pub use campaign::{
-    CampaignConfig, CampaignMixEntry, CampaignMode, CampaignSetup, CampaignSpam, CampaignStage,
-    ResolvedMixEntry, ResolvedStage,
+    CampaignConfig, CampaignMixEntry, CampaignMode, CampaignSpam, CampaignStage, ResolvedMixEntry,
+    ResolvedStage,
 };
 pub use error::Error;
 pub use test_config::TestConfig;
@@ -562,12 +562,6 @@ mod campaign_tests {
         let toml = r#"
 name = "composite"
 description = "traffic mix of erc20 and groth16_verify"
-
-[setup]
-scenarios = [
-  "builtin:erc20_transfer.toml",
-  "scenario:groth16_verify.toml",
-]
 
 [spam]
 mode = "tps"

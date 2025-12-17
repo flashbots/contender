@@ -32,13 +32,6 @@ pub struct CampaignStage {
     pub mix: Vec<CampaignMixEntry>,
 }
 
-/// Setup section – run once before spam stages.
-#[derive(Clone, Debug, Deserialize, Serialize, Default)]
-pub struct CampaignSetup {
-    #[serde(default)]
-    pub scenarios: Vec<String>,
-}
-
 /// Spam configuration shared across stages.
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
 pub struct CampaignSpam {
@@ -65,9 +58,30 @@ pub struct CampaignConfig {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
-    #[serde(default)]
-    pub setup: CampaignSetup,
     pub spam: CampaignSpam,
+}
+
+impl CampaignConfig {
+    /// Returns all scenario labels mentioned in spam declarations.
+    pub fn setup_scenarios(&self) -> Vec<String> {
+        let mut all_scenarios = vec![];
+        if let Some(mix) = &self.spam.mix {
+            let mut v = mix.iter().map(|m| m.scenario.clone()).collect::<Vec<_>>();
+            all_scenarios.append(&mut v);
+        }
+
+        for stage in &self.spam.stage {
+            let mut v = stage
+                .mix
+                .iter()
+                .map(|m| m.scenario.clone())
+                .collect::<Vec<_>>();
+            all_scenarios.append(&mut v);
+        }
+
+        all_scenarios.dedup();
+        all_scenarios
+    }
 }
 
 /// Resolved runtime parameters per stage after validation/defaulting.
@@ -352,9 +366,6 @@ mod tests {
         let explicit = CampaignConfig {
             name: "cmp".into(),
             description: None,
-            setup: CampaignSetup {
-                scenarios: vec!["s1".into(), "s2".into()],
-            },
             spam: CampaignSpam {
                 mode: CampaignMode::Tps,
                 rate: Some(20),
@@ -372,9 +383,6 @@ mod tests {
         let shorthand = CampaignConfig {
             name: "cmp".into(),
             description: None,
-            setup: CampaignSetup {
-                scenarios: vec!["s1".into(), "s2".into()],
-            },
             spam: CampaignSpam {
                 mode: CampaignMode::Tps,
                 rate: Some(20),
@@ -406,9 +414,6 @@ mod tests {
         let cfg = CampaignConfig {
             name: "cmp".into(),
             description: None,
-            setup: CampaignSetup {
-                scenarios: vec!["s1".into()],
-            },
             spam: CampaignSpam {
                 mode: CampaignMode::Tps,
                 rate: Some(5),

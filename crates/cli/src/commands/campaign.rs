@@ -161,10 +161,9 @@ pub async fn run_campaign(
         .unwrap_or(load_seedfile()?);
 
     // Setup phase. Skip builtin scenarios since they do their own setup at spam time.
-    let setup = &campaign.setup;
     let provider = args.eth_json_rpc_args.new_rpc_provider()?;
     if !args.skip_setup {
-        for scenario_label in &setup.scenarios {
+        for scenario_label in campaign.setup_scenarios() {
             let scenario = match parse_builtin_reference(&scenario_label) {
                 Some(builtin) => SpamScenario::Builtin(
                     builtin

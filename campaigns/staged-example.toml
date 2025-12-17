@@ -1,12 +1,6 @@
 name = "staged-example"
 description = "Warmup then steady-state blend across two stages"
 
-[setup]
-scenarios = [
-  "builtin:erc20",
-  "scenarios/groth16Verify.toml",
-]
-
 [spam]
 mode     = "tps"
 rate     = 150   # default rate if a stage omits one
