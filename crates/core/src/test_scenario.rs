@@ -138,6 +138,15 @@ pub struct TestScenarioParams {
     pub rpc_batch_size: u64,
 }
 
+pub struct SpamRunContext<'a, F: SpamCallback + 'static> {
+    pub gas_sender: &'a tokio::sync::mpsc::Sender<u128>,
+    pub nonce_sender: &'a tokio::sync::mpsc::Sender<(Address, i32)>,
+    pub success_sender: &'a tokio::sync::mpsc::Sender<()>,
+    pub callback_handler: &'a F,
+    pub tx_handlers: &'a HashMap<String, Arc<TxActorHandle>>,
+    pub cancel_token: &'a CancellationToken,
+}
+
 #[derive(Clone, Debug)]
 pub struct ExecutionContext {
     /// Adds this amount of wei per gas to the gas price given to each transaction. May be negative to subtract gas.
@@ -156,6 +165,10 @@ pub struct ExecutionContext {
 impl ExecutionContext {
     pub fn add_to_gas_price(&mut self, amount: i128) {
         self.gas_price_adder += amount;
+    }
+
+    pub fn cancel_run(&self) {
+        self.cancel_token.cancel();
     }
 }
 
@@ -890,6 +903,8 @@ where
 
         // takes gas to add to the gas price for the next batch (if needed)
         let gas_sender = Arc::new(context_handler.add_gas);
+        // shifts nonce of address by given amount
+        let nonce_sender = Arc::new(context_handler.shift_nonce);
         // counts number of txs that were sent successfully
         let success_sender = Arc::new(context_handler.success_send_tx);
         let bundle_type = self.bundle_type;
@@ -915,6 +930,7 @@ where
                 let callback_handler = callback_handler.clone();
                 let gas_sender = gas_sender.clone();
                 let success_sender = success_sender.clone();
+                let nonce_sender = nonce_sender.clone();
                 let cancel_token = self.ctx.cancel_token.clone();
                 let error_sender = error_sender.clone();
 
@@ -928,6 +944,14 @@ where
                         let res = rpc_client
                             .send_tx_envelope(AnyTxEnvelope::Ethereum(*signed_tx))
                             .await;
+                        let ctx = SpamRunContext {
+                            nonce_sender: &nonce_sender,
+                            success_sender: &success_sender,
+                            gas_sender: &gas_sender,
+                            callback_handler: callback_handler.as_ref(),
+                            tx_handlers: &tx_handlers,
+                            cancel_token: &cancel_token,
+                        };
 
                         match res {
                             Ok(_) => {
@@ -937,11 +961,7 @@ where
                                     &req,
                                     extra,
                                     None,
-                                    &gas_sender,
-                                    &success_sender,
-                                    callback_handler.as_ref(),
-                                    &tx_handlers,
-                                    &cancel_token,
+                                    &ctx
                                 )
                                 .await;
                                 Vec::<Option<tokio::task::JoinHandle<_>>>::new()
@@ -956,11 +976,7 @@ where
                                     &req,
                                     extra,
                                     Some(msg_string.as_str()),
-                                    &gas_sender,
-                                    &success_sender,
-                                    callback_handler.as_ref(),
-                                    &tx_handlers,
-                                    &cancel_token,
+                                    &ctx
                                 )
                                 .await;
                                 Vec::<Option<tokio::task::JoinHandle<_>>>::new()
@@ -1065,6 +1081,7 @@ where
             let tx_handlers = self.msg_handles.clone();
             let callback_handler = callback_handler.clone();
             let gas_sender = gas_sender.clone();
+            let nonce_sender = nonce_sender.clone();
             let success_sender = success_sender.clone();
             let cancel_token = self.ctx.cancel_token.clone();
             let http_client = http_client.clone();
@@ -1124,18 +1141,15 @@ where
                         .and_then(|e| e.get("message"))
                         .and_then(|m| m.as_str());
 
-                    handle_tx_outcome(
-                        tx_hash,
-                        &req,
-                        extra,
-                        error_msg,
-                        &gas_sender,
-                        &success_sender,
-                        callback_handler.as_ref(),
-                        &tx_handlers,
-                        &cancel_token,
-                    )
-                    .await;
+                    let ctx = SpamRunContext {
+                        nonce_sender: &nonce_sender,
+                        success_sender: &success_sender,
+                        gas_sender: &gas_sender,
+                        callback_handler: callback_handler.as_ref(),
+                        tx_handlers: &tx_handlers,
+                        cancel_token: &cancel_token,
+                    };
+                    handle_tx_outcome(tx_hash, &req, extra, error_msg, &ctx).await;
                 }
             }));
         }
@@ -1162,9 +1176,12 @@ where
             // initialize async context handlers
             let (success_sender, mut success_receiver) = tokio::sync::mpsc::channel(num_payloads);
             let (add_gas_sender, mut add_gas_receiver) = tokio::sync::mpsc::channel(num_payloads);
+            let (shift_nonce_sender, mut shift_nonce_receiver) =
+                tokio::sync::mpsc::channel(tx_req_chunks[0].len());
             let context = SpamContextHandler {
                 success_send_tx: success_sender,
                 add_gas: add_gas_sender,
+                shift_nonce: shift_nonce_sender,
             };
 
             // send this batch of spam txs
@@ -1207,6 +1224,27 @@ where
                 }
                 debug!("incrementing gas price by {gas}");
                 self.ctx.add_to_gas_price(gas as i128);
+            }
+
+            // shift nonces if needed
+            while let Some(nonce_update) = shift_nonce_receiver.recv().await {
+                let (addr, shift) = nonce_update;
+                let nonce = self
+                    .nonces
+                    .get(&addr)
+                    .map(|x| x.to_owned())
+                    .unwrap_or_default();
+                let new_nonce = if shift < 0 {
+                    if nonce == 0 {
+                        0
+                    } else {
+                        nonce - shift.abs() as u64
+                    }
+                } else {
+                    nonce + shift as u64
+                };
+                println!("nonce ({nonce}) changed to {new_nonce}");
+                self.nonces.insert(addr, new_nonce);
             }
 
             // decrease gas price if all txs were sent successfully
@@ -1513,46 +1551,49 @@ where
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn handle_tx_outcome<F: SpamCallback + 'static>(
+async fn handle_tx_outcome<'a, F: SpamCallback + 'static>(
     tx_hash: alloy::primitives::TxHash,
     req: &NamedTxRequest,
     mut extra: RuntimeTxInfo,
     error_msg: Option<&str>,
-    gas_sender: &tokio::sync::mpsc::Sender<u128>,
-    success_sender: &tokio::sync::mpsc::Sender<()>,
-    callback_handler: &F,
-    tx_handlers: &HashMap<String, Arc<TxActorHandle>>,
-    cancel_token: &CancellationToken,
+    ctx: &SpamRunContext<'a, F>,
 ) {
     // gas bump if needed
     if let Some(msg) = error_msg {
-        let lower = msg.to_lowercase();
-        if lower.contains("replacement transaction underpriced") {
+        let message = msg.to_lowercase();
+        if message.contains("replacement transaction underpriced") {
             let bump = req
                 .tx
                 .max_fee_per_gas
                 .unwrap_or(req.tx.gas_price.unwrap_or(1_000_000_000))
                 / 10;
-            let _ = gas_sender.send(bump).await;
+            let _ = ctx.gas_sender.send(bump).await;
+        } else if message.contains("nonce too low") {
+            println!("incrementing nonce for {}", req.tx.from.unwrap());
+            let _ = ctx.nonce_sender.send((req.tx.from.expect("from"), 1)).await;
+        } else if message.contains("nonce too high") {
+            let _ = ctx
+                .nonce_sender
+                .send((req.tx.from.expect("from"), -1))
+                .await;
         }
         warn!("error from tx {tx_hash}: {msg}");
         extra = extra.with_error(msg.to_string());
     } else {
         // success path
-        let _ = success_sender.send(()).await;
+        let _ = ctx.success_sender.send(()).await;
     }
 
-    let maybe_handle = callback_handler.on_tx_sent(
+    let maybe_handle = ctx.callback_handler.on_tx_sent(
         PendingTransactionConfig::new(tx_hash),
         req,
         extra,
-        Some(tx_handlers.clone()),
+        Some(ctx.tx_handlers.clone()),
     );
 
     if let Some(handle) = maybe_handle {
         tokio::select! {
-            _ = cancel_token.cancelled() => {
+            _ = ctx.cancel_token.cancelled() => {
                 debug!("cancelled spammer task");
             }
             _ = handle => { /* wait for callback */ }
@@ -1651,6 +1692,7 @@ where
 struct SpamContextHandler {
     add_gas: tokio::sync::mpsc::Sender<u128>,
     success_send_tx: tokio::sync::mpsc::Sender<()>,
+    shift_nonce: tokio::sync::mpsc::Sender<(Address, i32)>,
 }
 
 trait TxKey {
