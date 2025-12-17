@@ -1,8 +1,5 @@
-use super::{
-    setup::SetupCommandArgs,
-    spam::{SpamCommandArgs, SpamRunContext},
-    SpamScenario,
-};
+use super::{setup::SetupCommandArgs, spam::SpamCommandArgs, SpamScenario};
+use crate::commands::spam::SpamCampaignContext;
 use crate::error::CliError;
 use crate::util::load_testconfig;
 use crate::util::{data_dir, load_seedfile, parse_duration};
@@ -15,13 +12,13 @@ use crate::{
     },
     util::bold,
 };
-use alloy::primitives::U256;
+use alloy::primitives::{keccak256, U256};
 use clap::Args;
 use contender_core::db::DbOps;
 use contender_core::error::RuntimeParamErrorKind;
 use contender_testfile::{CampaignConfig, CampaignMode, ResolvedStage};
 use std::time::Duration;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, Args)]
@@ -122,17 +119,9 @@ pub struct CampaignCliArgs {
     pub spam_timeout: Duration,
 }
 
-fn bump_seed(base: &str, bump: u64) -> Result<String, CliError> {
-    let (radix, trimmed) = if let Some(stripped) = base.strip_prefix("0x") {
-        (16, stripped)
-    } else {
-        (10, base)
-    };
-    let val = U256::from_str_radix(trimmed, radix).map_err(|e| {
-        RuntimeParamErrorKind::InvalidArgs(format!("Invalid seed value '{}': {}", base, e))
-    })?;
-    let bumped = val.wrapping_add(U256::from(bump));
-    Ok(format!("{bumped}"))
+fn bump_seed(base_seed: &str, stage_name: &str) -> String {
+    let compound_hash = keccak256(base_seed).bit_or(keccak256(stage_name));
+    U256::from_be_bytes(compound_hash.0).to_string()
 }
 
 pub async fn run_campaign(
@@ -210,7 +199,7 @@ pub async fn run_campaign(
             .into());
         }
 
-        let stage_seed = bump_seed(&base_seed, stage_idx as u64)?;
+        let stage_seed = bump_seed(&base_seed, &stage.name);
 
         // Execute stage with optional timeout
         let stage_run_ids = if let Some(timeout_secs) = stage.stage_timeout {
@@ -351,13 +340,14 @@ async fn execute_stage(
             continue;
         }
         let mix = mix.clone();
-        let scenario_seed = bump_seed(stage_seed, mix_idx as u64)?;
-        let mut eth_args = args.eth_json_rpc_args.clone();
-        eth_args.seed = Some(scenario_seed.clone());
+        let scenario_seed = bump_seed(stage_seed, &mix_idx.to_string());
+        let mut args = args.to_owned();
+        args.eth_json_rpc_args.seed = Some(scenario_seed.clone());
+        debug!("mix {mix_idx} seed: {}", scenario_seed);
 
         let spam_cli_args = create_spam_cli_args(
             Some(mix.scenario.clone()),
-            args,
+            &args,
             campaign.spam.mode,
             mix.rate,
             stage.duration,
@@ -381,7 +371,7 @@ async fn execute_stage(
         let campaign_name = campaign.name.clone();
         let stage_name = stage.name.clone();
         let scenario_label = mix.scenario.clone();
-        let ctx = SpamRunContext {
+        let ctx = SpamCampaignContext {
             campaign_id: Some(campaign_id_owned.clone()),
             campaign_name: Some(campaign_name.clone()),
             stage_name: Some(stage.name.clone()),

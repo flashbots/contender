@@ -12,7 +12,7 @@ mod spamd;
 use clap::Parser;
 pub use contender_subcommand::{ContenderSubcommand, DbCommand};
 pub use setup::{setup, SetupCommandArgs};
-pub use spam::{spam, EngineArgs, SpamCliArgs, SpamCommandArgs, SpamRunContext, SpamScenario};
+pub use spam::{spam, EngineArgs, SpamCampaignContext, SpamCliArgs, SpamCommandArgs, SpamScenario};
 pub use spamd::spamd;
 
 use crate::error::CliError;

@@ -162,7 +162,7 @@ pub struct SpamCommandArgs {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct SpamRunContext {
+pub struct SpamCampaignContext {
     pub campaign_id: Option<String>,
     pub campaign_name: Option<String>,
     pub stage_name: Option<String>,
@@ -572,7 +572,7 @@ pub async fn spam<
     db: &D,
     args: &SpamCommandArgs,
     test_scenario: &mut TestScenario<D, S, P>,
-    run_context: SpamRunContext,
+    run_context: SpamCampaignContext,
 ) -> Result<Option<u64>> {
     let SpamCommandArgs {
         scenario,
