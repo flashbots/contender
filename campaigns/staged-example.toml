@@ -16,7 +16,7 @@ seed     = 1337
 [[spam.stage]]
 name          = "warmup"
 rate          = 100
-duration_secs = 60
+# duration = 60
   [[spam.stage.mix]]
   scenario  = "builtin:erc20"
   share_pct = 90.0
@@ -27,7 +27,7 @@ duration_secs = 60
 [[spam.stage]]
 name          = "steady"
 rate          = 500
-duration_secs = 120
+duration = 120
   [[spam.stage.mix]]
   scenario  = "builtin:erc20"
   share_pct = 10.0
@@ -38,7 +38,7 @@ duration_secs = 120
 [[spam.stage]]
 name          = "cooldown"
 rate          = 20
-duration_secs = 60
+# duration = 60
   [[spam.stage.mix]]
   scenario  = "builtin:erc20"
   share_pct = 90.0

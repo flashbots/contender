@@ -90,6 +90,7 @@ impl BuiltinScenarioCli {
             BuiltinScenarioCli::Erc20(args) => {
                 let seed = spam_args
                     .eth_json_rpc_args
+                    .rpc_args
                     .seed
                     .to_owned()
                     .unwrap_or(load_seedfile()?);

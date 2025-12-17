@@ -593,7 +593,7 @@ duration_secs = 600
         let stages = cfg.resolve().expect("campaign resolves");
         assert_eq!(stages.len(), 1);
         let stage = &stages[0];
-        assert_eq!(stage.mode, CampaignMode::Tps);
+        assert_eq!(cfg.spam.mode, CampaignMode::Tps);
         assert_eq!(stage.rate, 20);
         assert_eq!(stage.duration, 600);
         assert_eq!(stage.mix.len(), 3);

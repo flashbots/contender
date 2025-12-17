@@ -3,8 +3,10 @@ use super::{
     spam::{SpamCommandArgs, SpamRunContext},
     SpamScenario,
 };
-use crate::commands;
-use crate::commands::common::ScenarioSendTxsCliArgs;
+use crate::commands::{
+    self,
+    common::{ScenarioSendTxsCliArgs, SendTxsCliArgsInner},
+};
 use crate::error::CliError;
 use crate::util::load_testconfig;
 use crate::util::{bold, data_dir, load_seedfile, parse_duration};
@@ -25,7 +27,7 @@ pub struct CampaignCliArgs {
     pub campaign: String,
 
     #[command(flatten)]
-    pub eth_json_rpc_args: ScenarioSendTxsCliArgs,
+    pub eth_json_rpc_args: SendTxsCliArgsInner,
 
     /// HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`).
     #[arg(
@@ -176,7 +178,7 @@ pub async fn run_campaign(
             "Starting campaign stage {}: {} ({}={})",
             stage_idx + 1,
             stage.name,
-            match stage.mode {
+            match campaign.spam.mode {
                 CampaignMode::Tps => "tps",
                 CampaignMode::Tpb => "tpb",
             },
@@ -198,7 +200,7 @@ pub async fn run_campaign(
             let timeout_duration = std::time::Duration::from_secs(timeout_secs);
             match tokio::time::timeout(
                 timeout_duration,
-                execute_stage(db, &campaign, stage, &args, &campaign_id, &stage_seed)
+                execute_stage(db, &campaign, stage, &args, &campaign_id, &stage_seed),
             )
             .await
             {
@@ -298,15 +300,18 @@ async fn execute_stage(
         eth_args.seed = Some(scenario_seed.clone());
 
         let spam_cli_args = crate::commands::spam::SpamCliArgs {
-            eth_json_rpc_args: eth_args,
+            eth_json_rpc_args: ScenarioSendTxsCliArgs {
+                testfile: Some(mix.scenario.clone()),
+                rpc_args: eth_args,
+            },
             spam_args: crate::commands::common::SendSpamCliArgs {
                 builder_url: args.builder_url.clone(),
-                txs_per_second: if matches!(stage.mode, CampaignMode::Tps) {
+                txs_per_second: if matches!(campaign.spam.mode, CampaignMode::Tps) {
                     Some(mix.rate)
                 } else {
                     None
                 },
-                txs_per_block: if matches!(stage.mode, CampaignMode::Tpb) {
+                txs_per_block: if matches!(campaign.spam.mode, CampaignMode::Tpb) {
                     Some(mix.rate)
                 } else {
                     None
@@ -350,14 +355,13 @@ async fn execute_stage(
             scenario_name: Some(mix.scenario.clone()),
         };
         let rate = mix.rate;
-        let stage_mode = stage.mode;
         let barrier_clone = barrier.clone();
         info!(
             campaign_id = %campaign_id_owned,
             campaign_name = %campaign_name,
             stage = %stage_name,
             scenario = %scenario_label,
-            mode = ?stage_mode,
+            mode = ?campaign.spam.mode,
             rate,
             duration,
             "Starting campaign scenario spammer",
@@ -418,7 +422,7 @@ fn parse_builtin_reference(name: &str) -> Option<BuiltinScenarioCli> {
 
 #[cfg(test)]
 mod tests {
-    use contender_testfile::{CampaignMode, ResolvedMixEntry, ResolvedStage};
+    use contender_testfile::{ResolvedMixEntry, ResolvedStage};
     use std::sync::Arc;
     use tokio::sync::{Barrier, Mutex};
     use tokio::time::{sleep, Duration};
@@ -426,7 +430,6 @@ mod tests {
     fn test_stage(name: &str) -> ResolvedStage {
         ResolvedStage {
             name: name.to_string(),
-            mode: CampaignMode::Tps,
             rate: 1,
             duration: 1,
             stage_timeout: None,
