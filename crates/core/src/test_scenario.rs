@@ -1572,14 +1572,25 @@ async fn handle_tx_outcome<'a, F: SpamCallback + 'static>(
                 / 10;
             let _ = ctx.gas_sender.send(bump).await;
         } else if message.contains("nonce too low") {
-            debug!("incrementing nonce for {}", req.tx.from.unwrap());
-            let _ = ctx.nonce_sender.send((req.tx.from.expect("from"), 1)).await;
+            if let Some(from) = req.tx.from {
+                debug!("incrementing nonce for {}", from);
+                let _ = ctx.nonce_sender.send((from, 1)).await;
+            } else {
+                warn!(
+                    "nonce too low error but tx.from is missing for tx {}",
+                    tx_hash
+                );
+            }
         } else if message.contains("nonce too high") {
-            debug!("decrementing nonce for {}", req.tx.from.unwrap());
-            let _ = ctx
-                .nonce_sender
-                .send((req.tx.from.expect("from"), -1))
-                .await;
+            if let Some(from) = req.tx.from {
+                debug!("decrementing nonce for {}", from);
+                let _ = ctx.nonce_sender.send((from, -1)).await;
+            } else {
+                warn!(
+                    "nonce too high error but tx.from is missing for tx {}",
+                    tx_hash
+                );
+            }
         }
         warn!("error from tx {tx_hash}: {msg}");
         extra = extra.with_error(msg.to_string());
