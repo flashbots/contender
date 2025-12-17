@@ -1227,23 +1227,26 @@ where
             }
 
             // shift nonces if needed
-            while let Some(nonce_update) = shift_nonce_receiver.recv().await {
-                let (addr, shift) = nonce_update;
-                let nonce = self
-                    .nonces
-                    .get(&addr)
-                    .map(|x| x.to_owned())
-                    .unwrap_or_default();
-                let new_nonce = if shift < 0 {
-                    if nonce == 0 {
-                        0
-                    } else {
-                        nonce - shift.abs() as u64
-                    }
+            // Accumulate all nonce adjustments per address to avoid race conditions
+            // where multiple updates for the same address read stale nonce values
+            shift_nonce_receiver.close();
+            let mut nonce_adjustments: HashMap<Address, i32> = HashMap::new();
+            while let Some((addr, shift)) = shift_nonce_receiver.recv().await {
+                *nonce_adjustments.entry(addr).or_insert(0) += shift;
+            }
+
+            // Apply accumulated adjustments
+            for (addr, total_shift) in nonce_adjustments {
+                let current_nonce = self.nonces.get(&addr).copied().unwrap_or_default();
+                let new_nonce = if total_shift < 0 {
+                    current_nonce.saturating_sub(total_shift.unsigned_abs() as u64)
                 } else {
-                    nonce + shift as u64
+                    current_nonce.saturating_add(total_shift as u64)
                 };
-                println!("nonce ({nonce}) changed to {new_nonce}");
+                debug!(
+                    "nonce for {} adjusted by {} (from {} to {})",
+                    addr, total_shift, current_nonce, new_nonce
+                );
                 self.nonces.insert(addr, new_nonce);
             }
 
@@ -1567,22 +1570,44 @@ async fn handle_tx_outcome<'a, F: SpamCallback + 'static>(
                 .max_fee_per_gas
                 .unwrap_or(req.tx.gas_price.unwrap_or(1_000_000_000))
                 / 10;
-            let _ = ctx.gas_sender.send(bump).await;
+            if let Err(e) = ctx.gas_sender.send(bump).await {
+                warn!("failed to send gas bump for tx {}: {:?}", tx_hash, e);
+            }
         } else if message.contains("nonce too low") {
-            debug!("incrementing nonce for {}", req.tx.from.unwrap());
-            let _ = ctx.nonce_sender.send((req.tx.from.expect("from"), 1)).await;
+            if let Some(from) = req.tx.from {
+                debug!("incrementing nonce for {}", from);
+                if let Err(e) = ctx.nonce_sender.send((from, 1)).await {
+                    warn!("failed to send nonce increment for {}: {:?}", from, e);
+                }
+            } else {
+                warn!(
+                    "nonce too low error but tx.from is missing for tx {}",
+                    tx_hash
+                );
+            }
         } else if message.contains("nonce too high") {
-            debug!("decrementing nonce for {}", req.tx.from.unwrap());
-            let _ = ctx
-                .nonce_sender
-                .send((req.tx.from.expect("from"), -1))
-                .await;
+            if let Some(from) = req.tx.from {
+                debug!("decrementing nonce for {}", from);
+                if let Err(e) = ctx.nonce_sender.send((from, -1)).await {
+                    warn!("failed to send nonce decrement for {}: {:?}", from, e);
+                }
+            } else {
+                warn!(
+                    "nonce too high error but tx.from is missing for tx {}",
+                    tx_hash
+                );
+            }
         }
         warn!("error from tx {tx_hash}: {msg}");
         extra = extra.with_error(msg.to_string());
     } else {
         // success path
-        let _ = ctx.success_sender.send(()).await;
+        if let Err(e) = ctx.success_sender.send(()).await {
+            warn!(
+                "failed to send success notification for tx {}: {:?}",
+                tx_hash, e
+            );
+        }
     }
 
     let maybe_handle = ctx.callback_handler.on_tx_sent(
