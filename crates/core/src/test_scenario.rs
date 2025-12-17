@@ -16,7 +16,6 @@ use crate::{
     util::{get_blob_fee_maybe, get_block_time, ExtraTxParams},
     Result,
 };
-use alloy::transports::http::reqwest;
 use alloy::{
     consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI},
     consensus::{Transaction, TxType},
@@ -33,6 +32,7 @@ use alloy::{
     serde::WithOtherFields,
     signers::local::{LocalSigner, PrivateKeySigner},
 };
+use alloy::{network::ReceiptResponse, transports::http::reqwest};
 use contender_bundle_provider::{
     bundle::BundleType, bundle_provider::new_basic_bundle,
     revert_bundle::RevertProtectBundleRequest, BundleClient,
@@ -675,6 +675,16 @@ where
 
                 // get receipt using provider (not wallet) to allow any receipt type (support non-eth chains)
                 let receipt = res.get_receipt().await?;
+                debug!(
+                    "got receipt for {:?}: ({}) {}",
+                    tx_req.kind,
+                    if receipt.status() {
+                        "LANDED"
+                    } else {
+                        "REVERTED"
+                    },
+                    receipt.transaction_hash
+                );
 
                 if let Some(name) = tx_req.name {
                     db.insert_named_txs(

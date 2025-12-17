@@ -112,7 +112,7 @@ impl From<UniV2CliArgs> for UniV2Args {
                 .unwrap_or(args.weth_per_token / U256::from(10_000)), // default to 0.01% of the pool's initial WETH
             token_trade_amount: args
                 .token_trade_amount
-                .unwrap_or(args.initial_token_supply / U256::from(10_000)), // default to 0.01% of the initial supply
+                .unwrap_or(args.initial_token_supply / U256::from(100_000)), // default to 0.001% of the initial supply
         }
     }
 }
@@ -183,6 +183,7 @@ impl ToTestConfig for UniV2Args {
                     token_a.name, token_b.name
                 ))
                 .with_args(&[token_a.template_name(), token_b.template_name()])
+                .with_gas_limit(3_000_000)
         };
         let add_liquidity = |token_a: &CompiledContract,
                              token_b: &CompiledContract,
@@ -212,12 +213,14 @@ impl ToTestConfig for UniV2Args {
                     "{_sender}".to_owned(),
                     deadline.to_string(),
                 ])
+                .with_gas_limit(300_000)
         };
         let transfer = |token: &CompiledContract, to: &CompiledContract, amount: U256| {
             FunctionCallDefinition::new(token.template_name())
                 .with_signature("transfer(address,uint256)")
                 .with_kind(format!("{}_transfer_to_{}", token.name, to.name))
                 .with_args(&[to.template_name(), amount.to_string()])
+                .with_gas_limit(200_000)
         };
         let approve_max = |token: &CompiledContract, spender: &CompiledContract| {
             FunctionCallDefinition::new(token.template_name())
