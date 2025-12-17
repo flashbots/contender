@@ -3,8 +3,8 @@ pub mod error;
 mod test_config;
 
 pub use campaign::{
-    CampaignConfig, CampaignMixEntry, CampaignMode, CampaignSetup, CampaignSpam, CampaignStage,
-    ResolvedMixEntry, ResolvedStage,
+    CampaignConfig, CampaignMixEntry, CampaignMode, CampaignSpam, CampaignStage, ResolvedMixEntry,
+    ResolvedStage,
 };
 pub use error::Error;
 pub use test_config::TestConfig;
@@ -563,12 +563,6 @@ mod campaign_tests {
 name = "composite"
 description = "traffic mix of erc20 and groth16_verify"
 
-[setup]
-scenarios = [
-  "builtin:erc20_transfer.toml",
-  "scenario:groth16_verify.toml",
-]
-
 [spam]
 mode = "tps"
 rate = 20
@@ -593,7 +587,7 @@ duration_secs = 600
         let stages = cfg.resolve().expect("campaign resolves");
         assert_eq!(stages.len(), 1);
         let stage = &stages[0];
-        assert_eq!(stage.mode, CampaignMode::Tps);
+        assert_eq!(cfg.spam.mode, CampaignMode::Tps);
         assert_eq!(stage.rate, 20);
         assert_eq!(stage.duration, 600);
         assert_eq!(stage.mix.len(), 3);

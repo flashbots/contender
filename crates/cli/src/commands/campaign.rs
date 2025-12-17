@@ -1,21 +1,24 @@
-use super::{
-    setup::SetupCommandArgs,
-    spam::{SpamCommandArgs, SpamRunContext},
-    SpamScenario,
-};
-use crate::commands;
-use crate::commands::common::ScenarioSendTxsCliArgs;
+use super::{setup::SetupCommandArgs, spam::SpamCommandArgs, SpamScenario};
+use crate::commands::spam::SpamCampaignContext;
 use crate::error::CliError;
 use crate::util::load_testconfig;
-use crate::util::{bold, data_dir, load_seedfile, parse_duration};
+use crate::util::{data_dir, load_seedfile, parse_duration};
 use crate::BuiltinScenarioCli;
-use alloy::primitives::U256;
+use crate::{
+    commands::{
+        self,
+        common::{ScenarioSendTxsCliArgs, SendTxsCliArgsInner},
+        SpamCliArgs,
+    },
+    util::bold,
+};
+use alloy::primitives::{keccak256, U256};
 use clap::Args;
 use contender_core::db::DbOps;
 use contender_core::error::RuntimeParamErrorKind;
 use contender_testfile::{CampaignConfig, CampaignMode, ResolvedStage};
 use std::time::Duration;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, Args)]
@@ -25,7 +28,7 @@ pub struct CampaignCliArgs {
     pub campaign: String,
 
     #[command(flatten)]
-    pub eth_json_rpc_args: ScenarioSendTxsCliArgs,
+    pub eth_json_rpc_args: SendTxsCliArgsInner,
 
     /// HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`).
     #[arg(
@@ -116,23 +119,20 @@ pub struct CampaignCliArgs {
     pub spam_timeout: Duration,
 }
 
-fn bump_seed(base: &str, bump: u64) -> Result<String, CliError> {
-    let (radix, trimmed) = if let Some(stripped) = base.strip_prefix("0x") {
-        (16, stripped)
-    } else {
-        (10, base)
-    };
-    let val = U256::from_str_radix(trimmed, radix).map_err(|e| {
-        RuntimeParamErrorKind::InvalidArgs(format!("Invalid seed value '{}': {}", base, e))
-    })?;
-    let bumped = val.wrapping_add(U256::from(bump));
-    Ok(format!("{bumped}"))
+fn bump_seed(base_seed: &str, stage_name: &str) -> String {
+    let compound_hash = keccak256(base_seed).bit_or(keccak256(stage_name));
+    U256::from_be_bytes(compound_hash.0).to_string()
 }
 
 pub async fn run_campaign(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     args: CampaignCliArgs,
 ) -> Result<(), CliError> {
+    let campaign = CampaignConfig::from_file(&args.campaign)?;
+    let stages = campaign.resolve()?;
+    validate_stage_rates(&stages, &args).await?;
+    let campaign_id = Uuid::new_v4().to_string();
+
     if args.redeploy && args.skip_setup {
         return Err(RuntimeParamErrorKind::InvalidArgs(format!(
             "{} and {} cannot be passed together",
@@ -142,11 +142,6 @@ pub async fn run_campaign(
         .into());
     }
 
-    let campaign = CampaignConfig::from_file(&args.campaign)?;
-    let stages = campaign.resolve()?;
-    validate_stage_rates(&stages, &args).await?;
-    let campaign_id = Uuid::new_v4().to_string();
-
     let base_seed = args
         .eth_json_rpc_args
         .seed
@@ -155,16 +150,29 @@ pub async fn run_campaign(
         .unwrap_or(load_seedfile()?);
 
     // Setup phase. Skip builtin scenarios since they do their own setup at spam time.
-    let setup = &campaign.setup;
-    for scenario in &setup.scenarios {
-        if parse_builtin_reference(scenario).is_some() {
-            continue;
+    let provider = args.eth_json_rpc_args.new_rpc_provider()?;
+    if !args.skip_setup {
+        for scenario_label in campaign.setup_scenarios() {
+            let scenario = match parse_builtin_reference(&scenario_label) {
+                Some(builtin) => SpamScenario::Builtin(
+                    builtin
+                        .to_builtin_scenario(
+                            &provider,
+                            &create_spam_cli_args(None, &args, CampaignMode::Tps, 1, 1),
+                            /* TODO: KLUDGE:
+                               - I don't think a `BuiltinScenarioCli` *needs* `rate` or `duration` -- that's for the spammer.
+                               - we should use a different interface for `to_builtin_scenario` (replace `SpamCliArgs`)
+                            */
+                        )
+                        .await?,
+                ),
+                None => SpamScenario::Testfile(scenario_label.to_owned()),
+            };
+            let mut setup_args = args.eth_json_rpc_args.clone();
+            setup_args.seed = Some(base_seed.clone());
+            let setup_cmd = SetupCommandArgs::new(scenario, setup_args)?;
+            commands::setup(db, setup_cmd).await?;
         }
-        let mut setup_args = args.eth_json_rpc_args.clone();
-        setup_args.seed = Some(base_seed.clone());
-        let setup_cmd =
-            SetupCommandArgs::new(SpamScenario::Testfile(scenario.clone()), setup_args)?;
-        commands::setup(db, setup_cmd).await?;
     }
 
     let mut run_ids = vec![];
@@ -176,7 +184,7 @@ pub async fn run_campaign(
             "Starting campaign stage {}: {} ({}={})",
             stage_idx + 1,
             stage.name,
-            match stage.mode {
+            match campaign.spam.mode {
                 CampaignMode::Tps => "tps",
                 CampaignMode::Tpb => "tpb",
             },
@@ -191,7 +199,7 @@ pub async fn run_campaign(
             .into());
         }
 
-        let stage_seed = bump_seed(&base_seed, stage_idx as u64)?;
+        let stage_seed = bump_seed(&base_seed, &stage.name);
 
         // Execute stage with optional timeout
         let stage_run_ids = if let Some(timeout_secs) = stage.stage_timeout {
@@ -259,9 +267,58 @@ async fn validate_stage_rates(
                 ))
                 .into());
             }
+            // Check if rate * duration is sufficient to cover all spam entries
+            let total_txs = mix.rate * stage.duration;
+            if total_txs < spam_len {
+                return Err(RuntimeParamErrorKind::InvalidArgs(format!(
+                    "Stage '{}' scenario '{}': insufficient transactions (rate {} * duration {} = {}) to cover {} spam entries. Minimum rate needed: {}",
+                    stage.name, mix.scenario, mix.rate, stage.duration, total_txs, spam_len,
+                    spam_len.div_ceil(stage.duration)  // ceiling division
+                ))
+                .into());
+            }
         }
     }
     Ok(())
+}
+
+fn create_spam_cli_args(
+    testfile: Option<String>,
+    args: &CampaignCliArgs,
+    spam_mode: CampaignMode,
+    spam_rate: u64,
+    spam_duration: u64,
+) -> SpamCliArgs {
+    SpamCliArgs {
+        eth_json_rpc_args: ScenarioSendTxsCliArgs {
+            testfile,
+            rpc_args: args.eth_json_rpc_args.clone(),
+        },
+        spam_args: crate::commands::common::SendSpamCliArgs {
+            builder_url: args.builder_url.clone(),
+            txs_per_second: if matches!(spam_mode, CampaignMode::Tps) {
+                Some(spam_rate)
+            } else {
+                None
+            },
+            txs_per_block: if matches!(spam_mode, CampaignMode::Tpb) {
+                Some(spam_rate)
+            } else {
+                None
+            },
+            duration: spam_duration,
+            pending_timeout: args.pending_timeout,
+            loops: Some(Some(1)),
+            accounts_per_agent: args.accounts_per_agent,
+        },
+        ignore_receipts: args.ignore_receipts,
+        optimistic_nonces: args.optimistic_nonces,
+        gen_report: false,
+        spam_timeout: args.spam_timeout,
+        redeploy: args.redeploy,
+        skip_setup: true,
+        rpc_batch_size: args.rpc_batch_size,
+    }
 }
 
 async fn execute_stage(
@@ -293,37 +350,18 @@ async fn execute_stage(
             continue;
         }
         let mix = mix.clone();
-        let scenario_seed = bump_seed(stage_seed, mix_idx as u64)?;
-        let mut eth_args = args.eth_json_rpc_args.clone();
-        eth_args.seed = Some(scenario_seed.clone());
+        let scenario_seed = bump_seed(stage_seed, &mix_idx.to_string());
+        let mut args = args.to_owned();
+        args.eth_json_rpc_args.seed = Some(scenario_seed.clone());
+        debug!("mix {mix_idx} seed: {}", scenario_seed);
 
-        let spam_cli_args = crate::commands::spam::SpamCliArgs {
-            eth_json_rpc_args: eth_args,
-            spam_args: crate::commands::common::SendSpamCliArgs {
-                builder_url: args.builder_url.clone(),
-                txs_per_second: if matches!(stage.mode, CampaignMode::Tps) {
-                    Some(mix.rate)
-                } else {
-                    None
-                },
-                txs_per_block: if matches!(stage.mode, CampaignMode::Tpb) {
-                    Some(mix.rate)
-                } else {
-                    None
-                },
-                duration: stage.duration,
-                pending_timeout: args.pending_timeout,
-                loops: Some(Some(1)),
-                accounts_per_agent: args.accounts_per_agent,
-            },
-            ignore_receipts: args.ignore_receipts,
-            optimistic_nonces: args.optimistic_nonces,
-            gen_report: false,
-            spam_timeout: args.spam_timeout,
-            redeploy: args.redeploy,
-            skip_setup: args.skip_setup,
-            rpc_batch_size: args.rpc_batch_size,
-        };
+        let spam_cli_args = create_spam_cli_args(
+            Some(mix.scenario.clone()),
+            &args,
+            campaign.spam.mode,
+            mix.rate,
+            stage.duration,
+        );
 
         let spam_scenario = if let Some(builtin_cli) = parse_builtin_reference(&mix.scenario) {
             let provider = args.eth_json_rpc_args.new_rpc_provider()?;
@@ -343,21 +381,20 @@ async fn execute_stage(
         let campaign_name = campaign.name.clone();
         let stage_name = stage.name.clone();
         let scenario_label = mix.scenario.clone();
-        let ctx = SpamRunContext {
+        let ctx = SpamCampaignContext {
             campaign_id: Some(campaign_id_owned.clone()),
             campaign_name: Some(campaign_name.clone()),
             stage_name: Some(stage.name.clone()),
             scenario_name: Some(mix.scenario.clone()),
         };
         let rate = mix.rate;
-        let stage_mode = stage.mode;
         let barrier_clone = barrier.clone();
         info!(
             campaign_id = %campaign_id_owned,
             campaign_name = %campaign_name,
             stage = %stage_name,
             scenario = %scenario_label,
-            mode = ?stage_mode,
+            mode = ?campaign.spam.mode,
             rate,
             duration,
             "Starting campaign scenario spammer",
@@ -405,8 +442,15 @@ async fn execute_stage(
     Ok(run_ids)
 }
 
+fn strip_builtin_name(name: impl AsRef<str>) -> String {
+    name.as_ref()
+        .trim()
+        .trim_start_matches("builtin:")
+        .to_owned()
+}
+
 fn parse_builtin_reference(name: &str) -> Option<BuiltinScenarioCli> {
-    let norm = name.trim().strip_prefix("builtin:")?.to_lowercase();
+    let norm = strip_builtin_name(name).to_lowercase();
     match norm.as_str() {
         "erc20" => Some(BuiltinScenarioCli::Erc20(Default::default())),
         "revert" | "reverts" => Some(BuiltinScenarioCli::Revert(Default::default())),
@@ -418,7 +462,7 @@ fn parse_builtin_reference(name: &str) -> Option<BuiltinScenarioCli> {
 
 #[cfg(test)]
 mod tests {
-    use contender_testfile::{CampaignMode, ResolvedMixEntry, ResolvedStage};
+    use contender_testfile::{ResolvedMixEntry, ResolvedStage};
     use std::sync::Arc;
     use tokio::sync::{Barrier, Mutex};
     use tokio::time::{sleep, Duration};
@@ -426,7 +470,6 @@ mod tests {
     fn test_stage(name: &str) -> ResolvedStage {
         ResolvedStage {
             name: name.to_string(),
-            mode: CampaignMode::Tps,
             rate: 1,
             duration: 1,
             stage_timeout: None,

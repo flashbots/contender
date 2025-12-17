@@ -1,7 +1,7 @@
 use super::common::{ScenarioSendTxsCliArgs, SendSpamCliArgs};
 use crate::{
     commands::{
-        common::{EngineParams, TxTypeCli},
+        common::{EngineParams, SendTxsCliArgsInner, TxTypeCli},
         error::ArgsError,
         Result,
     },
@@ -162,7 +162,7 @@ pub struct SpamCommandArgs {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct SpamRunContext {
+pub struct SpamCampaignContext {
     pub campaign_id: Option<String>,
     pub campaign_name: Option<String>,
     pub stage_name: Option<String>,
@@ -175,7 +175,11 @@ impl SpamCommandArgs {
             scenario,
             spam_args: cli_args.clone(),
             seed: RandSeed::seed_from_str(
-                &cli_args.eth_json_rpc_args.seed.unwrap_or(load_seedfile()?),
+                &cli_args
+                    .eth_json_rpc_args
+                    .rpc_args
+                    .seed
+                    .unwrap_or(load_seedfile()?),
             ),
         })
     }
@@ -183,8 +187,9 @@ impl SpamCommandArgs {
     pub async fn engine_params(&self) -> Result<EngineParams> {
         self.spam_args
             .eth_json_rpc_args
+            .rpc_args
             .auth_args
-            .engine_params(self.spam_args.eth_json_rpc_args.call_forkchoice)
+            .engine_params(self.spam_args.eth_json_rpc_args.rpc_args.call_forkchoice)
             .await
     }
 
@@ -203,14 +208,14 @@ impl SpamCommandArgs {
             loops,
             accounts_per_agent,
         } = self.spam_args.spam_args.clone();
-        let ScenarioSendTxsCliArgs {
+        let SendTxsCliArgsInner {
             min_balance,
             tx_type,
             bundle_type,
             env,
             override_senders,
             ..
-        } = self.spam_args.eth_json_rpc_args.clone();
+        } = self.spam_args.eth_json_rpc_args.rpc_args.clone();
 
         let mut testconfig = self.testconfig().await?;
         let spam_len = testconfig.spam.as_ref().map(|s| s.len()).unwrap_or(0);
@@ -247,9 +252,10 @@ impl SpamCommandArgs {
         }
 
         // check if txs_per_duration is enough to cover the spam requests
-        if txs_per_duration < spam_len as u64 {
+        if (txs_per_duration * duration) < spam_len as u64 {
             return Err(ArgsError::TransactionsPerDurationInsufficient {
                 min_tpd: spam_len as u64,
+                tpd: txs_per_duration,
             }
             .into());
         }
@@ -313,6 +319,7 @@ impl SpamCommandArgs {
         let user_signers = self
             .spam_args
             .eth_json_rpc_args
+            .rpc_args
             .user_signers_with_defaults();
 
         // distill all from_pool arguments from the spam requests
@@ -346,7 +353,11 @@ impl SpamCommandArgs {
             _ => tx_type.into(),
         };
 
-        let rpc_client = self.spam_args.eth_json_rpc_args.new_rpc_provider()?;
+        let rpc_client = self
+            .spam_args
+            .eth_json_rpc_args
+            .rpc_args
+            .new_rpc_provider()?;
         let block_time = get_block_time(&rpc_client).await?;
 
         check_private_keys(&testconfig, &user_signers);
@@ -364,7 +375,7 @@ impl SpamCommandArgs {
         let all_signer_addrs = agents.all_signer_addresses();
 
         let params = TestScenarioParams {
-            rpc_url: self.spam_args.eth_json_rpc_args.rpc_url()?,
+            rpc_url: self.spam_args.eth_json_rpc_args.rpc_args.rpc_url()?,
             builder_rpc_url: builder_url
                 .to_owned()
                 .map(|url| Url::parse(&url).expect("Invalid builder URL")),
@@ -492,6 +503,7 @@ impl SpamCommandArgs {
     pub async fn testconfig(&self) -> Result<TestConfig> {
         self.spam_args
             .eth_json_rpc_args
+            .rpc_args
             .testconfig(&self.scenario)
             .await
     }
@@ -560,7 +572,7 @@ pub async fn spam<
     db: &D,
     args: &SpamCommandArgs,
     test_scenario: &mut TestScenario<D, S, P>,
-    run_context: SpamRunContext,
+    run_context: SpamCampaignContext,
 ) -> Result<Option<u64>> {
     let SpamCommandArgs {
         scenario,
@@ -580,11 +592,11 @@ pub async fn spam<
         pending_timeout,
         ..
     } = spam_args;
-    let ScenarioSendTxsCliArgs {
+    let SendTxsCliArgsInner {
         auth_args,
         call_forkchoice,
         ..
-    } = eth_json_rpc_args;
+    } = eth_json_rpc_args.rpc_args;
     let engine_params = auth_args.engine_params(call_forkchoice).await?;
 
     let mut run_id = None;

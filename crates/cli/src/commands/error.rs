@@ -59,11 +59,11 @@ pub enum ArgsError {
     SpamRateNotFound,
 
     #[error(
-        "Not enough transactions per duration to cover all spam transactions.\nSet {} or {} to at least {min_tpd}",
+        "Not enough transactions per duration to cover all spam transactions (got {tpd}).\nSet {} or {} to at least {min_tpd}",
         bold("--txs-per-block (--tpb)"),
         bold("--txs-per-second (--tps)")
     )]
-    TransactionsPerDurationInsufficient { min_tpd: u64 },
+    TransactionsPerDurationInsufficient { min_tpd: u64, tpd: u64 },
 
     #[error(
         "invalid tx type for blob transactions (using '{current_type}'). must set tx type {}",

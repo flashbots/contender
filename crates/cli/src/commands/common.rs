@@ -28,6 +28,12 @@ pub struct ScenarioSendTxsCliArgs {
     /// Example: `scenario:simple.toml` or `scenario:precompiles/modexp.toml`
     pub testfile: Option<String>,
 
+    #[command(flatten)]
+    pub rpc_args: SendTxsCliArgsInner,
+}
+
+#[derive(Clone, Debug, clap::Args)]
+pub struct SendTxsCliArgsInner {
     /// RPC URL to send requests.
     #[arg(
         env = "RPC_URL",
@@ -116,7 +122,7 @@ Requires --auth-rpc-url and --jwt-secret to be set.",
     pub override_senders: bool,
 }
 
-impl ScenarioSendTxsCliArgs {
+impl SendTxsCliArgsInner {
     pub fn rpc_url(&self) -> Result<Url, ArgsError> {
         Ok(Url::parse(self.rpc_url.as_ref())?)
     }

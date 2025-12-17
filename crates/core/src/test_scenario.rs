@@ -16,7 +16,6 @@ use crate::{
     util::{get_blob_fee_maybe, get_block_time, ExtraTxParams},
     Result,
 };
-use alloy::transports::http::reqwest;
 use alloy::{
     consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI},
     consensus::{Transaction, TxType},
@@ -33,6 +32,7 @@ use alloy::{
     serde::WithOtherFields,
     signers::local::{LocalSigner, PrivateKeySigner},
 };
+use alloy::{network::ReceiptResponse, transports::http::reqwest};
 use contender_bundle_provider::{
     bundle::BundleType, bundle_provider::new_basic_bundle,
     revert_bundle::RevertProtectBundleRequest, BundleClient,
@@ -138,6 +138,15 @@ pub struct TestScenarioParams {
     pub rpc_batch_size: u64,
 }
 
+pub struct SpamRunContext<'a, F: SpamCallback + 'static> {
+    pub gas_sender: &'a tokio::sync::mpsc::Sender<u128>,
+    pub nonce_sender: &'a tokio::sync::mpsc::Sender<(Address, i32)>,
+    pub success_sender: &'a tokio::sync::mpsc::Sender<()>,
+    pub callback_handler: &'a F,
+    pub tx_handlers: &'a HashMap<String, Arc<TxActorHandle>>,
+    pub cancel_token: &'a CancellationToken,
+}
+
 #[derive(Clone, Debug)]
 pub struct ExecutionContext {
     /// Adds this amount of wei per gas to the gas price given to each transaction. May be negative to subtract gas.
@@ -156,6 +165,10 @@ pub struct ExecutionContext {
 impl ExecutionContext {
     pub fn add_to_gas_price(&mut self, amount: i128) {
         self.gas_price_adder += amount;
+    }
+
+    pub fn cancel_run(&self) {
+        self.cancel_token.cancel();
     }
 }
 
@@ -675,6 +688,16 @@ where
 
                 // get receipt using provider (not wallet) to allow any receipt type (support non-eth chains)
                 let receipt = res.get_receipt().await?;
+                debug!(
+                    "got receipt for {:?}: ({}) {}",
+                    tx_req.kind,
+                    if receipt.status() {
+                        "LANDED"
+                    } else {
+                        "REVERTED"
+                    },
+                    receipt.transaction_hash
+                );
 
                 if let Some(name) = tx_req.name {
                     db.insert_named_txs(
@@ -880,6 +903,8 @@ where
 
         // takes gas to add to the gas price for the next batch (if needed)
         let gas_sender = Arc::new(context_handler.add_gas);
+        // shifts nonce of address by given amount
+        let nonce_sender = Arc::new(context_handler.shift_nonce);
         // counts number of txs that were sent successfully
         let success_sender = Arc::new(context_handler.success_send_tx);
         let bundle_type = self.bundle_type;
@@ -905,6 +930,7 @@ where
                 let callback_handler = callback_handler.clone();
                 let gas_sender = gas_sender.clone();
                 let success_sender = success_sender.clone();
+                let nonce_sender = nonce_sender.clone();
                 let cancel_token = self.ctx.cancel_token.clone();
                 let error_sender = error_sender.clone();
 
@@ -918,6 +944,14 @@ where
                         let res = rpc_client
                             .send_tx_envelope(AnyTxEnvelope::Ethereum(*signed_tx))
                             .await;
+                        let ctx = SpamRunContext {
+                            nonce_sender: &nonce_sender,
+                            success_sender: &success_sender,
+                            gas_sender: &gas_sender,
+                            callback_handler: callback_handler.as_ref(),
+                            tx_handlers: &tx_handlers,
+                            cancel_token: &cancel_token,
+                        };
 
                         match res {
                             Ok(_) => {
@@ -927,11 +961,7 @@ where
                                     &req,
                                     extra,
                                     None,
-                                    &gas_sender,
-                                    &success_sender,
-                                    callback_handler.as_ref(),
-                                    &tx_handlers,
-                                    &cancel_token,
+                                    &ctx
                                 )
                                 .await;
                                 Vec::<Option<tokio::task::JoinHandle<_>>>::new()
@@ -946,11 +976,7 @@ where
                                     &req,
                                     extra,
                                     Some(msg_string.as_str()),
-                                    &gas_sender,
-                                    &success_sender,
-                                    callback_handler.as_ref(),
-                                    &tx_handlers,
-                                    &cancel_token,
+                                    &ctx
                                 )
                                 .await;
                                 Vec::<Option<tokio::task::JoinHandle<_>>>::new()
@@ -1055,6 +1081,7 @@ where
             let tx_handlers = self.msg_handles.clone();
             let callback_handler = callback_handler.clone();
             let gas_sender = gas_sender.clone();
+            let nonce_sender = nonce_sender.clone();
             let success_sender = success_sender.clone();
             let cancel_token = self.ctx.cancel_token.clone();
             let http_client = http_client.clone();
@@ -1114,18 +1141,15 @@ where
                         .and_then(|e| e.get("message"))
                         .and_then(|m| m.as_str());
 
-                    handle_tx_outcome(
-                        tx_hash,
-                        &req,
-                        extra,
-                        error_msg,
-                        &gas_sender,
-                        &success_sender,
-                        callback_handler.as_ref(),
-                        &tx_handlers,
-                        &cancel_token,
-                    )
-                    .await;
+                    let ctx = SpamRunContext {
+                        nonce_sender: &nonce_sender,
+                        success_sender: &success_sender,
+                        gas_sender: &gas_sender,
+                        callback_handler: callback_handler.as_ref(),
+                        tx_handlers: &tx_handlers,
+                        cancel_token: &cancel_token,
+                    };
+                    handle_tx_outcome(tx_hash, &req, extra, error_msg, &ctx).await;
                 }
             }));
         }
@@ -1152,9 +1176,12 @@ where
             // initialize async context handlers
             let (success_sender, mut success_receiver) = tokio::sync::mpsc::channel(num_payloads);
             let (add_gas_sender, mut add_gas_receiver) = tokio::sync::mpsc::channel(num_payloads);
+            let (shift_nonce_sender, mut shift_nonce_receiver) =
+                tokio::sync::mpsc::channel(tx_req_chunks[0].len());
             let context = SpamContextHandler {
                 success_send_tx: success_sender,
                 add_gas: add_gas_sender,
+                shift_nonce: shift_nonce_sender,
             };
 
             // send this batch of spam txs
@@ -1197,6 +1224,30 @@ where
                 }
                 debug!("incrementing gas price by {gas}");
                 self.ctx.add_to_gas_price(gas as i128);
+            }
+
+            // shift nonces if needed
+            // Accumulate all nonce adjustments per address to avoid race conditions
+            // where multiple updates for the same address read stale nonce values
+            shift_nonce_receiver.close();
+            let mut nonce_adjustments: HashMap<Address, i32> = HashMap::new();
+            while let Some((addr, shift)) = shift_nonce_receiver.recv().await {
+                *nonce_adjustments.entry(addr).or_insert(0) += shift;
+            }
+
+            // Apply accumulated adjustments
+            for (addr, total_shift) in nonce_adjustments {
+                let current_nonce = self.nonces.get(&addr).copied().unwrap_or_default();
+                let new_nonce = if total_shift < 0 {
+                    current_nonce.saturating_sub(total_shift.unsigned_abs() as u64)
+                } else {
+                    current_nonce.saturating_add(total_shift as u64)
+                };
+                debug!(
+                    "nonce for {} adjusted by {} (from {} to {})",
+                    addr, total_shift, current_nonce, new_nonce
+                );
+                self.nonces.insert(addr, new_nonce);
             }
 
             // decrease gas price if all txs were sent successfully
@@ -1503,46 +1554,72 @@ where
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn handle_tx_outcome<F: SpamCallback + 'static>(
+async fn handle_tx_outcome<'a, F: SpamCallback + 'static>(
     tx_hash: alloy::primitives::TxHash,
     req: &NamedTxRequest,
     mut extra: RuntimeTxInfo,
     error_msg: Option<&str>,
-    gas_sender: &tokio::sync::mpsc::Sender<u128>,
-    success_sender: &tokio::sync::mpsc::Sender<()>,
-    callback_handler: &F,
-    tx_handlers: &HashMap<String, Arc<TxActorHandle>>,
-    cancel_token: &CancellationToken,
+    ctx: &SpamRunContext<'a, F>,
 ) {
     // gas bump if needed
     if let Some(msg) = error_msg {
-        let lower = msg.to_lowercase();
-        if lower.contains("replacement transaction underpriced") {
+        let message = msg.to_lowercase();
+        if message.contains("replacement transaction underpriced") {
             let bump = req
                 .tx
                 .max_fee_per_gas
                 .unwrap_or(req.tx.gas_price.unwrap_or(1_000_000_000))
                 / 10;
-            let _ = gas_sender.send(bump).await;
+            if let Err(e) = ctx.gas_sender.send(bump).await {
+                warn!("failed to send gas bump for tx {}: {:?}", tx_hash, e);
+            }
+        } else if message.contains("nonce too low") {
+            if let Some(from) = req.tx.from {
+                debug!("incrementing nonce for {}", from);
+                if let Err(e) = ctx.nonce_sender.send((from, 1)).await {
+                    warn!("failed to send nonce increment for {}: {:?}", from, e);
+                }
+            } else {
+                warn!(
+                    "nonce too low error but tx.from is missing for tx {}",
+                    tx_hash
+                );
+            }
+        } else if message.contains("nonce too high") {
+            if let Some(from) = req.tx.from {
+                debug!("decrementing nonce for {}", from);
+                if let Err(e) = ctx.nonce_sender.send((from, -1)).await {
+                    warn!("failed to send nonce decrement for {}: {:?}", from, e);
+                }
+            } else {
+                warn!(
+                    "nonce too high error but tx.from is missing for tx {}",
+                    tx_hash
+                );
+            }
         }
         warn!("error from tx {tx_hash}: {msg}");
         extra = extra.with_error(msg.to_string());
     } else {
         // success path
-        let _ = success_sender.send(()).await;
+        if let Err(e) = ctx.success_sender.send(()).await {
+            warn!(
+                "failed to send success notification for tx {}: {:?}",
+                tx_hash, e
+            );
+        }
     }
 
-    let maybe_handle = callback_handler.on_tx_sent(
+    let maybe_handle = ctx.callback_handler.on_tx_sent(
         PendingTransactionConfig::new(tx_hash),
         req,
         extra,
-        Some(tx_handlers.clone()),
+        Some(ctx.tx_handlers.clone()),
     );
 
     if let Some(handle) = maybe_handle {
         tokio::select! {
-            _ = cancel_token.cancelled() => {
+            _ = ctx.cancel_token.cancelled() => {
                 debug!("cancelled spammer task");
             }
             _ = handle => { /* wait for callback */ }
@@ -1641,6 +1718,7 @@ where
 struct SpamContextHandler {
     add_gas: tokio::sync::mpsc::Sender<u128>,
     success_send_tx: tokio::sync::mpsc::Sender<()>,
+    shift_nonce: tokio::sync::mpsc::Sender<(Address, i32)>,
 }
 
 trait TxKey {
@@ -1929,7 +2007,7 @@ pub mod tests {
 
         let create_txs = scenario
             .load_txs(PlanType::Create(|tx| {
-                println!("create tx callback triggered! {tx:?}\n");
+                println!("create tx callback triggered! name: {:?}\n", tx.name);
                 Ok(None)
             }))
             .await?;
@@ -1937,7 +2015,7 @@ pub mod tests {
 
         let setup_txs = scenario
             .load_txs(PlanType::Setup(|tx| {
-                println!("setup tx callback triggered! {tx:?}\n");
+                println!("setup tx callback triggered! name: {:?}\n", tx.name);
                 Ok(None)
             }))
             .await?;
@@ -1945,7 +2023,7 @@ pub mod tests {
 
         let spam_txs = scenario
             .load_txs(PlanType::Spam(20, |tx| {
-                println!("spam tx callback triggered! {tx:?}\n");
+                println!("spam tx callback triggered! name: {:?}\n", tx.name);
                 Ok(None)
             }))
             .await?;
@@ -2107,8 +2185,8 @@ pub mod tests {
                 ExecutionRequest::Tx(tx) => tx,
                 _ => continue,
             };
-            if tx.tx.from.is_some() {
-                assert!(scenario.signer_map.contains_key(&tx.tx.from.unwrap()));
+            if let Some(from_addr) = tx.tx.from {
+                assert!(scenario.signer_map.contains_key(&from_addr));
             }
             let admin_pools = ["admin1", "admin2"];
             for pool in admin_pools {

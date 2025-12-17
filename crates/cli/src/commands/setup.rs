@@ -1,7 +1,6 @@
-use super::common::ScenarioSendTxsCliArgs;
 use crate::{
     commands::{
-        common::EngineParams,
+        common::{EngineParams, SendTxsCliArgsInner},
         error::{ArgsError, SetupError},
         SpamScenario,
     },
@@ -31,7 +30,7 @@ pub async fn setup(
     db: &(impl contender_core::db::DbOps + Clone + Send + Sync + 'static),
     args: SetupCommandArgs,
 ) -> Result<(), CliError> {
-    let ScenarioSendTxsCliArgs {
+    let SendTxsCliArgsInner {
         min_balance,
         tx_type,
         env,
@@ -222,12 +221,12 @@ pub async fn setup(
 
 pub struct SetupCommandArgs {
     pub scenario: SpamScenario,
-    pub eth_json_rpc_args: ScenarioSendTxsCliArgs,
+    pub eth_json_rpc_args: SendTxsCliArgsInner,
     pub seed: RandSeed,
 }
 
 impl SetupCommandArgs {
-    pub fn new(scenario: SpamScenario, cli_args: ScenarioSendTxsCliArgs) -> Result<Self, CliError> {
+    pub fn new(scenario: SpamScenario, cli_args: SendTxsCliArgsInner) -> Result<Self, CliError> {
         let seed = RandSeed::seed_from_str(&cli_args.seed.to_owned().unwrap_or(load_seedfile()?));
         Ok(Self {
             scenario,
