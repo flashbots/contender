@@ -4,15 +4,11 @@ use serde::{Deserialize, Serialize};
 /// Defines the traffic pacing mode for a campaign stage.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum CampaignMode {
+    #[default]
     Tps,
     Tpb,
-}
-
-impl Default for CampaignMode {
-    fn default() -> Self {
-        Self::Tps
-    }
 }
 
 /// Scenario weight for a stage.

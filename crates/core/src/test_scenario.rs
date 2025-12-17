@@ -1227,23 +1227,26 @@ where
             }
 
             // shift nonces if needed
-            while let Some(nonce_update) = shift_nonce_receiver.recv().await {
-                let (addr, shift) = nonce_update;
-                let nonce = self
-                    .nonces
-                    .get(&addr)
-                    .map(|x| x.to_owned())
-                    .unwrap_or_default();
-                let new_nonce = if shift < 0 {
-                    if nonce == 0 {
-                        0
-                    } else {
-                        nonce - shift.abs() as u64
-                    }
+            // Accumulate all nonce adjustments per address to avoid race conditions
+            // where multiple updates for the same address read stale nonce values
+            shift_nonce_receiver.close();
+            let mut nonce_adjustments: HashMap<Address, i32> = HashMap::new();
+            while let Some((addr, shift)) = shift_nonce_receiver.recv().await {
+                *nonce_adjustments.entry(addr).or_insert(0) += shift;
+            }
+
+            // Apply accumulated adjustments
+            for (addr, total_shift) in nonce_adjustments {
+                let current_nonce = self.nonces.get(&addr).copied().unwrap_or_default();
+                let new_nonce = if total_shift < 0 {
+                    current_nonce.saturating_sub(total_shift.unsigned_abs() as u64)
                 } else {
-                    nonce + shift as u64
+                    current_nonce.saturating_add(total_shift as u64)
                 };
-                println!("nonce ({nonce}) changed to {new_nonce}");
+                debug!(
+                    "nonce for {} adjusted by {} (from {} to {})",
+                    addr, total_shift, current_nonce, new_nonce
+                );
                 self.nonces.insert(addr, new_nonce);
             }
 
