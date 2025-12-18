@@ -80,6 +80,14 @@ impl DbOps for MockDb {
         Ok(None)
     }
 
+    fn latest_campaign_id(&self) -> Result<Option<String>, Self::Error> {
+        Ok(None)
+    }
+
+    fn get_runs_by_campaign(&self, _campaign_id: &str) -> Result<Vec<super::SpamRun>, Self::Error> {
+        Ok(vec![])
+    }
+
     fn num_runs(&self) -> Result<u64, Self::Error> {
         Ok(0)
     }

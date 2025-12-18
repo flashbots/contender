@@ -10,7 +10,7 @@ use crate::{
     default_scenarios::{builtin::ToTestConfig, contracts::test_token},
 };
 
-#[derive(Clone, Debug, clap::Parser)]
+#[derive(Clone, Default, Debug, clap::Parser)]
 pub struct Erc20CliArgs {
     #[arg(
         short,
@@ -33,7 +33,7 @@ pub struct Erc20CliArgs {
     #[arg(
         short = 'r',
         long = "recipient",
-        long_help = "The address to receive tokens sent by spam txs. By default, the sender receives their own tokens."
+        long_help = "The address to receive tokens sent by spam txs. By default, address(0) receives the tokens."
     )]
     pub token_recipient: Option<Address>,
 }
@@ -107,7 +107,7 @@ impl ToTestConfig for Erc20Args {
                         value: None,
                         min: Some(U256::from(1)),
                         max: Some(
-                            U256::from_str("0x00ffffffffffffffffffffffffffffffffffffffff").unwrap(),
+                            U256::from_str("0x0000000000ffffffffffffffffffffffffffffffff").unwrap(),
                         ),
                     }]);
                 }

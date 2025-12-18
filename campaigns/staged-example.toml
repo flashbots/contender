@@ -1,0 +1,41 @@
+name = "staged-example"
+description = "Warmup then steady-state blend across two stages"
+
+[spam]
+mode     = "tps"
+rate     = 150   # default rate if a stage omits one
+duration = 60   # default duration per stage (seconds)
+seed     = 1337
+
+[[spam.stage]]
+name          = "warmup"
+rate          = 100
+# duration = 60
+  [[spam.stage.mix]]
+  scenario  = "builtin:erc20"
+  share_pct = 90.0
+  [[spam.stage.mix]]
+  scenario  = "scenarios/groth16Verify.toml"
+  share_pct = 10.0
+
+[[spam.stage]]
+name          = "steady"
+rate          = 500
+duration = 120
+  [[spam.stage.mix]]
+  scenario  = "builtin:erc20"
+  share_pct = 10.0
+  [[spam.stage.mix]]
+  scenario  = "scenarios/groth16Verify.toml"
+  share_pct = 90.0
+
+[[spam.stage]]
+name          = "cooldown"
+rate          = 20
+# duration = 60
+  [[spam.stage.mix]]
+  scenario  = "builtin:erc20"
+  share_pct = 90.0
+  [[spam.stage.mix]]
+  scenario  = "scenarios/groth16Verify.toml"
+  share_pct = 10.0

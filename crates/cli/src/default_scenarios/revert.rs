@@ -15,6 +15,12 @@ pub struct RevertCliArgs {
     pub gas_use: u64,
 }
 
+impl Default for RevertCliArgs {
+    fn default() -> Self {
+        Self { gas_use: 30_000 }
+    }
+}
+
 impl ToTestConfig for RevertCliArgs {
     fn to_testconfig(&self) -> contender_testfile::TestConfig {
         TestConfig {
