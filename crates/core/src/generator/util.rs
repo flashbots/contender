@@ -187,7 +187,7 @@ pub fn parse_value(input: &str) -> Result<U256, UtilError> {
             );
             let unit = unit.trim();
             let value: U256 = parse_units(num_str, unit)
-                .map_err(|e| UtilError::ParseValueFailed(e))?
+                .map_err(UtilError::ParseValueFailed)?
                 .into();
 
             Ok(value)

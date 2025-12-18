@@ -176,7 +176,7 @@ where
         let value = funcdef
             .value
             .as_ref()
-            .map(|x| self.replace_placeholders(x, &placeholder_map))
+            .map(|x| self.replace_placeholders(x, placeholder_map))
             .and_then(|s| s.parse::<U256>().ok());
 
         Ok(TransactionRequest {
