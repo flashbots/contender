@@ -26,7 +26,7 @@ jobs:
       with:
         cache-on-failure: true
     - name: Install deps
-      run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev fontconfig libfontconfig1-dev libfontconfig
+      run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev fontconfig libfontconfig1-dev libfontconfig uuid-dev && rm -rf /var/lib/apt/lists/*
     - name: Build
       run: cargo build --verbose --workspace
 
@@ -50,6 +50,6 @@ jobs:
       with:
         cache-on-failure: true
     - name: Install deps
-      run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev fontconfig libfontconfig1-dev libfontconfig
+      run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev fontconfig libfontconfig1-dev libfontconfig uuid-dev && rm -rf /var/lib/apt/lists/*
     - name: Run tests
       run: cargo test --verbose --workspace
