@@ -24,6 +24,15 @@ pub struct TransferStressCliArgs {
     pub recipient: Option<Address>,
 }
 
+impl Default for TransferStressCliArgs {
+    fn default() -> Self {
+        Self {
+            amount: parse_amount("0.001 eth").expect("valid default amount"),
+            recipient: None,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct TransferStressArgs {
     pub amount: U256,

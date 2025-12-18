@@ -1,6 +1,11 @@
+mod campaign;
 pub mod error;
 mod test_config;
 
+pub use campaign::{
+    CampaignConfig, CampaignMixEntry, CampaignMode, CampaignSpam, CampaignStage, ResolvedMixEntry,
+    ResolvedStage,
+};
 pub use error::Error;
 pub use test_config::TestConfig;
 
@@ -545,5 +550,52 @@ mod more_tests {
         contender.spam(spammer, callback.into(), opts).await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod campaign_tests {
+    use super::{CampaignConfig, CampaignMode};
+
+    #[test]
+    fn parses_campaign_and_resolves_stages() {
+        let toml = r#"
+name = "composite"
+description = "traffic mix of erc20 and groth16_verify"
+
+[spam]
+mode = "tps"
+rate = 20
+duration = 600
+seed = 42
+
+[[spam.stage]]
+name = "steady"
+duration_secs = 600
+  [[spam.stage.mix]]
+  scenario  = "scenario:other_contract_call.toml"
+  share_pct = 95.0
+  [[spam.stage.mix]]
+  scenario  = "scenario:eth_transfer.toml"
+  share_pct = 4.8
+  [[spam.stage.mix]]
+  scenario  = "scenario:erc20_transfer.toml"
+  share_pct = 0.2
+"#;
+
+        let cfg = CampaignConfig::from_toml_str(toml).expect("campaign parses");
+        let stages = cfg.resolve().expect("campaign resolves");
+        assert_eq!(stages.len(), 1);
+        let stage = &stages[0];
+        assert_eq!(cfg.spam.mode, CampaignMode::Tps);
+        assert_eq!(stage.rate, 20);
+        assert_eq!(stage.duration, 600);
+        assert_eq!(stage.mix.len(), 3);
+        let total: u64 = stage.mix.iter().map(|m| m.rate).sum();
+        assert_eq!(total, 20);
+        assert!(stage
+            .mix
+            .iter()
+            .any(|m| m.scenario.contains("erc20_transfer")));
     }
 }

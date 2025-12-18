@@ -172,6 +172,13 @@
     <p><i>{{data.date}}</i></p>
     <br />
     <p>Scenario: {{data.scenario_name}}</p>
+    {{#if data.campaign}}
+    <p>Campaign: {{data.campaign.name}} (id: {{data.campaign.id}})</p>
+    <p>Stage: {{data.campaign.stage}}</p>
+    {{#if data.campaign.scenario}}
+    <p>Campaign Scenario: {{data.campaign.scenario}}</p>
+    {{/if}}
+    {{/if}}
     <p>Block Range: {{data.start_block}} - {{data.end_block}}</p>
     <a href="{{data.rpc_url}}" target="_blank">
       <p>Target Chain</p>

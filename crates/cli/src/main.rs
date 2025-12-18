@@ -68,7 +68,7 @@ async fn run() -> Result<(), CliError> {
                 "scenario:simple.toml"
             };
             let scenario = SpamScenario::Testfile(testfile.to_owned());
-            let args = SetupCommandArgs::new(scenario, *args)?;
+            let args = SetupCommandArgs::new(scenario, args.rpc_args)?;
 
             commands::setup(&db, args).await?
         }
@@ -87,7 +87,7 @@ async fn run() -> Result<(), CliError> {
             let SpamCliArgs {
                 eth_json_rpc_args:
                     ScenarioSendTxsCliArgs {
-                        testfile, rpc_url, ..
+                        testfile, rpc_args, ..
                     },
                 spam_args,
                 gen_report,
@@ -97,7 +97,7 @@ async fn run() -> Result<(), CliError> {
             let SendSpamCliArgs { loops, .. } = spam_args.to_owned();
 
             let client = ClientBuilder::default()
-                .http(Url::from_str(&rpc_url).map_err(ArgsError::UrlParse)?);
+                .http(Url::from_str(&rpc_args.rpc_url).map_err(ArgsError::UrlParse)?);
             let provider = DynProvider::new(
                 ProviderBuilder::new()
                     .network::<AnyNetwork>()
@@ -138,19 +138,48 @@ async fn run() -> Result<(), CliError> {
         ContenderSubcommand::Report {
             last_run_id,
             preceding_runs,
+            campaign_id,
         } => {
-            contender_report::command::report(
-                last_run_id,
-                preceding_runs,
-                &db,
-                &data_dir().expect("invalid data dir"),
-            )
-            .await
-            .map_err(CliError::Report)?;
+            if let Some(campaign_id) = campaign_id {
+                let resolved_campaign_id = if campaign_id == "__LATEST_CAMPAIGN__" {
+                    db.latest_campaign_id()
+                        .map_err(CliError::Db)?
+                        .ok_or_else(|| {
+                            CliError::Report(contender_report::Error::CampaignNotFound(
+                                "latest".to_string(),
+                            ))
+                        })?
+                } else {
+                    campaign_id
+                };
+                if preceding_runs > 0 {
+                    warn!("--preceding-runs is ignored when --campaign is provided");
+                }
+                contender_report::command::report_campaign(
+                    &resolved_campaign_id,
+                    &db,
+                    &data_dir().expect("invalid data dir"),
+                )
+                .await
+                .map_err(CliError::Report)?;
+            } else {
+                contender_report::command::report(
+                    last_run_id,
+                    preceding_runs,
+                    &db,
+                    &data_dir().expect("invalid data dir"),
+                )
+                .await
+                .map_err(CliError::Report)?;
+            }
         }
 
         ContenderSubcommand::Admin { command } => {
             handle_admin_command(command, db).await?;
+        }
+
+        ContenderSubcommand::Campaign { args } => {
+            commands::campaign::run_campaign(&db, *args).await?;
         }
     };
 

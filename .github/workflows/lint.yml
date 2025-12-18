@@ -23,7 +23,8 @@ jobs:
         with:
           cache-on-failure: true
       - name: Install deps
-        run: sudo apt-get install -y fontconfig libfontconfig1-dev libfontconfig
+        run: |
+          sudo apt-get update && sudo apt-get install -y libsqlite3-dev fontconfig libfontconfig1-dev libfontconfig uuid-dev
       - run: cargo clippy --workspace --lib --examples --tests --benches --all-features --locked
         env:
           RUSTFLAGS: -D warnings
@@ -51,6 +52,7 @@ jobs:
         with:
           cache-on-failure: true
       - name: Install deps
-        run: sudo apt-get install -y fontconfig libfontconfig1-dev libfontconfig
+        run: |
+          sudo apt-get update && sudo apt-get install -y libsqlite3-dev fontconfig libfontconfig1-dev libfontconfig uuid-dev
       - uses: taiki-e/install-action@cargo-udeps
       - run: cargo udeps --workspace --lib --examples --tests --benches --all-features --locked

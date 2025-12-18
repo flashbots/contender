@@ -89,6 +89,23 @@ pub struct StressCliArgs {
     pub with_fails: bool,
 }
 
+impl Default for StressCliArgs {
+    fn default() -> Self {
+        Self {
+            disable_storage: false,
+            disable_transfers: false,
+            disable_opcodes: None,
+            disable_precompiles: None,
+            disable_all_precompiles: false,
+            disable_all_opcodes: false,
+            storage: StorageStressCliArgs::default(),
+            transfers: TransferStressCliArgs::default(),
+            opcode_iterations: 10,
+            with_fails: false,
+        }
+    }
+}
+
 impl ToTestConfig for StressCliArgs {
     fn to_testconfig(&self) -> TestConfig {
         let mut configs = vec![];

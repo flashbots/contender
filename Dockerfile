@@ -3,7 +3,8 @@ FROM rust:slim AS builder
 
 # Install build dependencies
 RUN apt-get update && \
-    apt-get install -y make curl git libsqlite3-dev fontconfig libfontconfig1-dev libfontconfig libssl-dev libclang-dev
+    apt-get install -y make curl git libsqlite3-dev fontconfig libfontconfig1-dev libfontconfig libssl-dev libclang-dev uuid-dev && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy in project files
 COPY . /app

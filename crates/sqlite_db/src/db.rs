@@ -148,6 +148,9 @@ struct SpamRunRow {
     pub timestamp: String,
     pub tx_count: usize,
     pub scenario_name: String,
+    pub campaign_id: Option<String>,
+    pub campaign_name: Option<String>,
+    pub stage_name: Option<String>,
     pub rpc_url: String,
     pub txs_per_duration: u64,
     pub duration: String,
@@ -161,6 +164,9 @@ impl From<SpamRunRow> for SpamRun {
             timestamp: row.timestamp.parse::<usize>().expect("invalid timestamp"),
             tx_count: row.tx_count,
             scenario_name: row.scenario_name,
+            campaign_id: row.campaign_id,
+            campaign_name: row.campaign_name,
+            stage_name: row.stage_name,
             rpc_url: row.rpc_url,
             txs_per_duration: row.txs_per_duration,
             duration: row.duration.into(),
@@ -224,6 +230,9 @@ impl DbOps for SqliteDb {
                 timestamp TEXT NOT NULL,
                 tx_count INTEGER NOT NULL,
                 scenario_name TEXT NOT NULL DEFAULT '',
+                campaign_id TEXT,
+                campaign_name TEXT,
+                stage_name TEXT,
                 rpc_url TEXT NOT NULL DEFAULT '',
                 txs_per_duration INTEGER NOT NULL,
                 duration TEXT NOT NULL,
@@ -286,14 +295,17 @@ impl DbOps for SqliteDb {
             timestamp,
             tx_count,
             scenario_name,
+            campaign_id,
+            campaign_name,
+            stage_name,
             rpc_url,
             txs_per_duration,
             duration,
             pending_timeout,
         } = run;
         self.execute(
-            "INSERT INTO runs (timestamp, tx_count, scenario_name, rpc_url, txs_per_duration, duration, timeout) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            params![timestamp, tx_count, scenario_name, rpc_url, txs_per_duration, &duration.to_string(), pending_timeout.as_secs()],
+            "INSERT INTO runs (timestamp, tx_count, scenario_name, campaign_id, campaign_name, stage_name, rpc_url, txs_per_duration, duration, timeout) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![timestamp, tx_count, scenario_name, campaign_id, campaign_name, stage_name, rpc_url, txs_per_duration, &duration.to_string(), pending_timeout.as_secs()],
         )?;
         // get ID from newly inserted row
         let id: u64 = self.query_row("SELECT last_insert_rowid()", params![], |row| row.get(0))?;
@@ -321,7 +333,7 @@ impl DbOps for SqliteDb {
         let pool = self.get_pool()?;
         let mut stmt = pool
             .prepare(
-                "SELECT id, timestamp, tx_count, scenario_name, rpc_url, txs_per_duration, duration, timeout FROM runs WHERE id = ?1",
+                "SELECT id, timestamp, tx_count, scenario_name, campaign_id, campaign_name, stage_name, rpc_url, txs_per_duration, duration, timeout FROM runs WHERE id = ?1",
             )?;
 
         let row = stmt.query_map(params![run_id], |row| {
@@ -330,14 +342,56 @@ impl DbOps for SqliteDb {
                 timestamp: row.get(1)?,
                 tx_count: row.get(2)?,
                 scenario_name: row.get(3)?,
-                rpc_url: row.get(4)?,
-                txs_per_duration: row.get(5)?,
-                duration: row.get(6)?,
-                timeout: row.get(7)?,
+                campaign_id: row.get(4)?,
+                campaign_name: row.get(5)?,
+                stage_name: row.get(6)?,
+                rpc_url: row.get(7)?,
+                txs_per_duration: row.get(8)?,
+                duration: row.get(9)?,
+                timeout: row.get(10)?,
             })
         })?;
         let res = row.last().transpose()?;
         Ok(res.map(|r| r.into()))
+    }
+
+    fn get_runs_by_campaign(&self, campaign_id: &str) -> Result<Vec<SpamRun>> {
+        let pool = self.get_pool()?;
+        let mut stmt = pool.prepare(
+            "SELECT id, timestamp, tx_count, scenario_name, campaign_id, campaign_name, stage_name, rpc_url, txs_per_duration, duration, timeout FROM runs WHERE campaign_id = ?1 ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map(params![campaign_id], |row| {
+            Ok(SpamRunRow {
+                id: row.get(0)?,
+                timestamp: row.get(1)?,
+                tx_count: row.get(2)?,
+                scenario_name: row.get(3)?,
+                campaign_id: row.get(4)?,
+                campaign_name: row.get(5)?,
+                stage_name: row.get(6)?,
+                rpc_url: row.get(7)?,
+                txs_per_duration: row.get(8)?,
+                duration: row.get(9)?,
+                timeout: row.get(10)?,
+            })
+        })?;
+        let res = rows
+            .map(|r| r.map(|r| r.into()))
+            .map(|r| r.map_err(|e| e.into()))
+            .collect::<Result<Vec<SpamRun>>>()?;
+        Ok(res)
+    }
+
+    fn latest_campaign_id(&self) -> Result<Option<String>> {
+        let pool = self.get_pool()?;
+        let mut stmt = pool.prepare(
+            "SELECT campaign_id FROM runs WHERE campaign_id IS NOT NULL ORDER BY id DESC LIMIT 1",
+        )?;
+        let row = stmt
+            .query_map(params![], |row| row.get(0))?
+            .last()
+            .transpose()?;
+        Ok(row)
     }
 
     fn insert_named_txs(
@@ -346,26 +400,25 @@ impl DbOps for SqliteDb {
         rpc_url: &str,
         genesis_hash: FixedBytes<32>,
     ) -> Result<()> {
-        let pool = self.get_pool()?;
         let rpc_url_id = self.get_rpc_url_id(rpc_url, genesis_hash)?;
 
-        let stmts = named_txs.iter().map(|tx| {
-            format!(
-                "INSERT INTO named_txs (name, tx_hash, contract_address, rpc_url_id) VALUES ('{}', '{}', '{}', {});",
-                tx.name,
-                tx.tx_hash.encode_hex(),
-                tx.address.map(|a| a.encode_hex()).unwrap_or_default(),
-                rpc_url_id,
-            )
-        });
-        pool.execute_batch(&format!(
-            "BEGIN;
-            {}
-            COMMIT;",
-            stmts
-                .reduce(|ac, c| format!("{ac}\n{c}"))
-                .unwrap_or_default(),
-        ))?;
+        // Use a transaction for batch inserts with parameterized queries
+        let mut conn = self.get_pool()?;
+        let tx = conn.transaction()?;
+
+        for named_tx in named_txs {
+            tx.execute(
+                "INSERT INTO named_txs (name, tx_hash, contract_address, rpc_url_id) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    &named_tx.name,
+                    named_tx.tx_hash.encode_hex(),
+                    named_tx.address.map(|a| a.encode_hex()).unwrap_or_default(),
+                    rpc_url_id,
+                ],
+            )?;
+        }
+
+        tx.commit()?;
         Ok(())
     }
 
@@ -555,6 +608,9 @@ mod tests {
                 timestamp: 100,
                 tx_count: 20,
                 scenario_name: "test".to_string(),
+                campaign_id: None,
+                campaign_name: None,
+                stage_name: None,
                 rpc_url: "http://test:8545".to_string(),
                 txs_per_duration: 10,
                 duration: SpamDuration::Seconds(10),
@@ -567,6 +623,45 @@ mod tests {
         println!("id: {}", do_it());
         println!("id: {}", do_it());
         assert_eq!(db.num_runs().unwrap(), 3);
+    }
+
+    #[test]
+    fn groups_runs_by_campaign_id() {
+        let db = SqliteDb::new_memory();
+        db.create_tables().unwrap();
+        let pending_timeout = Duration::from_secs(12);
+        let mk_run = |scenario: &str| SpamRunRequest {
+            timestamp: 100,
+            tx_count: 10,
+            scenario_name: scenario.to_string(),
+            campaign_id: Some("cmp-test".to_string()),
+            campaign_name: Some("cmp".to_string()),
+            stage_name: Some("stage-a".to_string()),
+            rpc_url: "http://test:8545".to_string(),
+            txs_per_duration: 5,
+            duration: SpamDuration::Seconds(2),
+            pending_timeout,
+        };
+
+        let first = db.insert_run(&mk_run("scenario:a")).unwrap();
+        let second = db.insert_run(&mk_run("scenario:b")).unwrap();
+        assert_ne!(first, second);
+
+        let runs = db.get_runs_by_campaign("cmp-test").unwrap();
+        assert_eq!(runs.len(), 2);
+        assert_ne!(runs[0].id, runs[1].id);
+        assert!(runs
+            .iter()
+            .all(|r| r.campaign_id.as_deref() == Some("cmp-test")));
+        assert!(runs
+            .iter()
+            .all(|r| r.campaign_name.as_deref() == Some("cmp")));
+        assert!(runs
+            .iter()
+            .all(|r| r.stage_name.as_deref() == Some("stage-a")));
+        let scenario_names: Vec<_> = runs.iter().map(|r| r.scenario_name.as_str()).collect();
+        assert!(scenario_names.contains(&"scenario:a"));
+        assert!(scenario_names.contains(&"scenario:b"));
     }
 
     #[test]
@@ -617,6 +712,9 @@ mod tests {
             timestamp: 100,
             tx_count: 20,
             scenario_name: "test".to_string(),
+            campaign_id: None,
+            campaign_name: None,
+            stage_name: None,
             rpc_url: "http://test:8545".to_string(),
             txs_per_duration: 10,
             duration: SpamDuration::Seconds(10),

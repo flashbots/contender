@@ -18,6 +18,15 @@ pub struct ReportMetadata {
     pub rpc_url: String,
     pub metrics: SpamRunMetrics,
     pub chart_data: ChartData,
+    pub campaign: Option<CampaignMetadata>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CampaignMetadata {
+    pub id: Option<String>,
+    pub name: Option<String>,
+    pub stage: Option<String>,
+    pub scenario: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -39,6 +48,7 @@ struct TemplateData {
     end_block: String,
     metrics: SpamRunMetrics,
     chart_data: ChartData,
+    campaign: Option<CampaignMetadata>,
 }
 
 impl TemplateData {
@@ -51,6 +61,7 @@ impl TemplateData {
             end_block: meta.end_block.to_string(),
             metrics: meta.metrics.to_owned(),
             chart_data: meta.chart_data.to_owned(),
+            campaign: meta.campaign.to_owned(),
         }
     }
 }

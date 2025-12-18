@@ -8,6 +8,7 @@ contender spam <testfile> [OPTIONS]
 contender report [OPTIONS]
 contender admin [OPTIONS]
 contender db [OPTIONS]
+contender campaign <campaign> [OPTIONS]
 ```
 
 Quick help:
@@ -90,3 +91,13 @@ contender spam transfers -r $RPC_URL --tps 50
 # Mixed load
 contender spam stress -r $RPC_URL --tps 150 -d 3 --report
 ```
+
+## Campaigns (composite scenarios)
+
+Run multiple scenarios in parallel (optionally in stages) from a campaign TOML:
+
+```bash
+contender campaign ./campaigns/base_composite.toml -r $RPC_URL -p $PRIVATE_KEY --report
+```
+
+See `docs/campaigns.md` for the file format and execution semantics.
