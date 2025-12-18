@@ -12,6 +12,8 @@ use crate::{
 };
 
 pub enum TxActorMessage {
+    InitCtx(ActorContext),
+    GetCacheLen(oneshot::Sender<usize>),
     SentRunTx {
         tx_hash: TxHash,
         start_timestamp_ms: u128,
@@ -45,6 +47,7 @@ where
     db: Arc<D>,
     cache: Vec<PendingRunTx>,
     rpc: Arc<AnyProvider>,
+    ctx: Option<ActorContext>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -71,6 +74,21 @@ impl PendingRunTx {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct ActorContext {
+    pub run_id: u64,
+    pub target_block: u64,
+}
+
+impl ActorContext {
+    pub fn new(target_block: u64, run_id: u64) -> Self {
+        Self {
+            run_id,
+            target_block,
+        }
+    }
+}
+
 impl<D> TxActor<D>
 where
     D: DbOps + Send + Sync + 'static,
@@ -85,6 +103,7 @@ where
             db,
             cache: Vec::new(),
             rpc,
+            ctx: None,
         }
     }
 
@@ -229,6 +248,15 @@ where
         message: TxActorMessage,
     ) -> Result<()> {
         match message {
+            TxActorMessage::GetCacheLen(on_len) => {
+                on_len
+                    .send(cache.len())
+                    .map_err(|_| CallbackError::OneshotSend(()))?;
+            }
+            TxActorMessage::InitCtx(_) => {
+                // don't do anything here; this message's behavior is defined in `Self::run`
+                // handle_message can probably be deleted; its contents placed in `Self::run`
+            }
             TxActorMessage::Stop { on_stop } => {
                 on_stop.send(()).map_err(|_| CallbackError::Stop)?;
                 return Ok(());
@@ -271,56 +299,97 @@ where
         Ok(())
     }
 
+    /// Receive & handle messages.
     pub async fn run(&mut self) -> Result<()> {
-        while let Some(msg) = self.receiver.recv().await {
-            match &msg {
-                TxActorMessage::DumpCache {
-                    on_dump_cache: _,
-                    run_id: _,
-                } => {
-                    tokio::select! {
-                        _ = Self::handle_message(&mut self.cache, &self.db, &self.rpc,
-                            msg
-                        ) => {},
-                        Some(TxActorMessage::Stop{on_stop: _}) = self.receiver.recv() => {
-                            // exits early if a stop message is received
-                        },
-                    };
+        let mut interval =
+            tokio::time::interval(/* self.cfg.poll_interval */ Duration::from_secs(1));
+        let mut shutting_down = false;
+        let provider = self.rpc.clone();
+
+        loop {
+            tokio::select! {
+                // periodically flush cache in background while spammer runs
+                _ = interval.tick() => {
+                    if let Some(ctx) = self.ctx.as_mut() {
+                        let new_block = provider.get_block_number().await?;
+                        for bn in ctx.target_block..new_block {
+                            let (on_flush, _receiver) = oneshot::channel();
+                            Self::flush_cache(&mut self.cache, &self.db, &self.rpc, ctx.run_id, on_flush, bn).await?;
+                        }
+                        ctx.target_block = new_block;
+                    } else {
+                        debug!("TxActor context not initialized.");
+                    }
                 }
-                TxActorMessage::FlushCache {
-                    run_id: _,
-                    on_flush: _,
-                    target_block_num: _,
-                } => {
-                    tokio::select! {
-                        _ = Self::handle_message(&mut self.cache, &self.db, &self.rpc,
-                            msg
-                        ) => {},
-                        Some(TxActorMessage::Stop{on_stop: _}) = self.receiver.recv() => {
-                            // exits early if a stop message is received
-                        },
-                    };
-                }
-                TxActorMessage::SentRunTx {
-                    tx_hash: _,
-                    start_timestamp_ms: _,
-                    kind: _,
-                    on_receive: _,
-                    error: _,
-                } => {
-                    Self::handle_message(&mut self.cache, &self.db, &self.rpc, msg).await?;
-                }
-                TxActorMessage::RemovedRunTx {
-                    tx_hash: _,
-                    on_remove: _,
-                } => {
-                    Self::handle_message(&mut self.cache, &self.db, &self.rpc, msg).await?;
-                }
-                TxActorMessage::Stop { on_stop: _ } => {
-                    // do nothing here; stop is a signal to interrupt other message handlers
+
+                // handle messages (sent by test_scenario)
+                msg = self.receiver.recv() => {
+                    if let Some(msg) = msg {
+                        match &msg {
+                            TxActorMessage::GetCacheLen(_) => {
+                                Self::handle_message(&mut self.cache, &self.db, &self.rpc, msg).await?;
+                            }
+                            TxActorMessage::InitCtx(ctx) => {
+                                self.ctx = Some(ctx.clone());
+                            }
+                            TxActorMessage::DumpCache {
+                                on_dump_cache: _,
+                                run_id: _,
+                            } => {
+                                tokio::select! {
+                                    _ = Self::handle_message(&mut self.cache, &self.db, &self.rpc,
+                                        msg
+                                    ) => {},
+                                    Some(TxActorMessage::Stop{on_stop: _}) = self.receiver.recv() => {
+                                        // exits early if a stop message is received
+                                        shutting_down = true;
+                                    },
+                                };
+                            }
+                            TxActorMessage::FlushCache {
+                                run_id: _,
+                                on_flush: _,
+                                target_block_num: _,
+                            } => {
+                                tokio::select! {
+                                    _ = Self::handle_message(&mut self.cache, &self.db, &self.rpc,
+                                        msg
+                                    ) => {},
+                                    Some(TxActorMessage::Stop{on_stop: _}) = self.receiver.recv() => {
+                                        // exits early if a stop message is received
+                                        shutting_down = true;
+                                    },
+                                };
+                            }
+                            TxActorMessage::SentRunTx {
+                                tx_hash: _,
+                                start_timestamp_ms: _,
+                                kind: _,
+                                on_receive: _,
+                                error: _,
+                            } => {
+                                Self::handle_message(&mut self.cache, &self.db, &self.rpc, msg).await?;
+                            }
+                            TxActorMessage::RemovedRunTx {
+                                tx_hash: _,
+                                on_remove: _,
+                            } => {
+                                Self::handle_message(&mut self.cache, &self.db, &self.rpc, msg).await?;
+                            }
+                            TxActorMessage::Stop { on_stop: _ } => {
+                                shutting_down = true;
+                                // do nothing here; stop is a signal to interrupt other message handlers
+                            }
+                        }
+                    }
                 }
             }
+            if shutting_down {
+                break;
+            }
         }
+
+        // }
         Ok(())
     }
 }
@@ -408,6 +477,17 @@ impl TxActorHandle {
         Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
     }
 
+    pub async fn done_flushing(&self) -> Result<bool> {
+        let (sender, receiver) = oneshot::channel();
+        self.sender
+            .send(TxActorMessage::GetCacheLen(sender))
+            .await
+            .map_err(Box::new)
+            .map_err(CallbackError::from)?;
+        let cache_len = receiver.await.map_err(CallbackError::from)?;
+        Ok(cache_len == 0)
+    }
+
     /// Removes an existing tx in the cache.
     pub async fn remove_cached_tx(&self, tx_hash: TxHash) -> Result<()> {
         let (sender, receiver) = oneshot::channel();
@@ -432,5 +512,15 @@ impl TxActorHandle {
             .map_err(Box::new)
             .map_err(CallbackError::from)?;
         Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
+    }
+
+    pub async fn init_ctx(&self, ctx: ActorContext) -> Result<()> {
+        // let (sender, receiver) = oneshot::channel::<()>();
+        self.sender
+            .send(TxActorMessage::InitCtx(ctx))
+            .await
+            .map_err(Box::new)
+            .map_err(CallbackError::from)?;
+        Ok(())
     }
 }

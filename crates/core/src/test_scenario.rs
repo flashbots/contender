@@ -45,7 +45,7 @@ use std::{
     pin::Pin,
     str::FromStr,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
@@ -330,6 +330,12 @@ where
             self.setcode_signer.address(),
         )
         .await
+    }
+
+    pub fn tx_actor(&self) -> &TxActorHandle {
+        self.msg_handles
+            .get("default")
+            .expect("default msg_handle uninitialized")
     }
 
     // Polls anvil to ensure its initialized and ready to accept RPC requests
@@ -1464,10 +1470,19 @@ where
         Ok(())
     }
 
+    /// Wait for `self.pending_tx_timeout_secs` for pending txs to confirm, then delete any remaining cache items.
     pub async fn dump_tx_cache(&self, run_id: u64) -> Result<()> {
         debug!("dumping tx cache...");
 
+        let start_time = Instant::now();
         for msg_handle in self.msg_handles.values() {
+            while !self.tx_actor().done_flushing().await? {
+                if start_time.elapsed().as_secs() > self.pending_tx_timeout_secs {
+                    warn!("timed out waiting for pending transactions");
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
             let failed_txs = msg_handle.dump_cache(run_id).await?;
             if !failed_txs.is_empty() {
                 warn!(

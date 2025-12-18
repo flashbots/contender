@@ -9,6 +9,7 @@ use futures::StreamExt;
 use tracing::{info, warn};
 
 use crate::db::SpamDuration;
+use crate::spammer::tx_actor::ActorContext;
 use crate::spammer::CallbackError;
 use crate::{
     db::DbOps,
@@ -77,8 +78,11 @@ where
             let is_fcu_done = self.context().done_fcu.clone();
             let is_sending_done = self.context().done_sending.clone();
             let auth_provider = scenario.auth_provider.clone();
-            // run loop in background to call fcu when spamming is done
+            let start_block = scenario.rpc_client.get_block_number().await.map_err(|e| {
+                CallbackError::ProviderCall(format!("failed to get block number: {e}"))
+            })?;
 
+            // run loop in background to call fcu when spamming is done
             let fcu_handle: tokio::task::JoinHandle<Result<()>> = tokio::task::spawn(async move {
                 if let Some(auth_client) = &auth_provider {
                     loop {
@@ -108,9 +112,6 @@ where
             let tx_req_chunks = scenario
                 .get_spam_tx_chunks(txs_per_period, num_periods)
                 .await?;
-            let start_block = scenario.rpc_client.get_block_number().await.map_err(|e| {
-                CallbackError::ProviderCall(format!("failed to get block number: {e}"))
-            })?;
             let mut cursor = self.on_spam(scenario).await?.take(num_periods as usize);
 
             if scenario.should_sync_nonces {
@@ -120,6 +121,9 @@ where
             // calling cancel() on cancel_token should stop all running tasks
             // (as long as each task checks for it)
             let cancel_token = self.context().do_quit.clone();
+
+            let actor_ctx = ActorContext::new(start_block, run_id);
+            scenario.tx_actor().init_ctx(actor_ctx).await?;
 
             // run spammer within tokio::select! to allow for graceful shutdown
             let spam_finished: bool = tokio::select! {
@@ -142,29 +146,6 @@ where
             self.context()
                 .done_sending
                 .store(true, std::sync::atomic::Ordering::SeqCst);
-
-            // collect results from cached pending txs
-            let flush_finished: bool = tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
-                    warn!("CTRL-C received, stopping result collection...");
-                    for msg_handle in scenario.msg_handles.values() {
-                        let _ = msg_handle.stop().await;
-                    }
-                    cancel_token.cancel();
-                    self.context().done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
-                    false
-                },
-                _ = scenario.flush_tx_cache(start_block, run_id) => {
-                    true
-                }
-            };
-            if !flush_finished {
-                warn!("Result collection terminated. Some pending txs may not have been saved to the database.");
-            } else {
-                self.context()
-                    .done_fcu
-                    .store(true, std::sync::atomic::Ordering::SeqCst);
-            }
 
             fcu_handle.await.map_err(CallbackError::Join)??;
 
