@@ -1,14 +1,11 @@
 use alloy::primitives::{Address, U256};
 use contender_core::generator::{
-    types::SpamRequest, CreateDefinition, FunctionCallDefinition, FuzzParam,
+    types::SpamRequest, util::parse_value, CreateDefinition, FunctionCallDefinition, FuzzParam,
 };
 use contender_testfile::TestConfig;
 use std::str::FromStr;
 
-use crate::{
-    commands::common::parse_amount,
-    default_scenarios::{builtin::ToTestConfig, contracts::test_token},
-};
+use crate::default_scenarios::{builtin::ToTestConfig, contracts::test_token};
 
 #[derive(Clone, Default, Debug, clap::Parser)]
 pub struct Erc20CliArgs {
@@ -17,7 +14,7 @@ pub struct Erc20CliArgs {
         long,
         long_help = "The amount to send in each spam tx.",
         default_value = "0.00001 ether",
-        value_parser = parse_amount,
+        value_parser = parse_value,
     )]
     pub send_amount: U256,
 
@@ -26,7 +23,7 @@ pub struct Erc20CliArgs {
         long,
         long_help = "The amount of tokens to give each spammer account before spamming starts.",
         default_value = "1000000 ether",
-        value_parser = parse_amount,
+        value_parser = parse_value,
     )]
     pub fund_amount: U256,
 

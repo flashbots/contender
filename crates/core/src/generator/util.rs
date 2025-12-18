@@ -3,7 +3,10 @@ use alloy::{
     consensus::TxType,
     dyn_abi::{self, DynSolType, DynSolValue, JsonAbiExt},
     json_abi,
-    primitives::FixedBytes,
+    primitives::{
+        utils::{parse_units, UnitsError},
+        FixedBytes, U256,
+    },
     rpc::types::TransactionRequest,
     signers::{self, local::PrivateKeySigner},
 };
@@ -17,6 +20,12 @@ pub enum UtilError {
 
     #[error("failed to parse function signature: {0}")]
     ParseFunctionSigFailed(json_abi::parser::Error),
+
+    #[error("failed to parse 'value': {0}")]
+    ParseValueFailed(#[from] UnitsError),
+
+    #[error("invalid `value` for tx: {0}. Must be wei (1234000000000000000) or contain units (1.234 eth)")]
+    InvalidValueNumeric(String),
 
     #[error("invalid args for function signature '{sig}': {required} param(s) in sig, {given} args provided")]
     FunctionSignatureNumArgsInvalid {
@@ -162,6 +171,28 @@ pub fn generate_setcode_signer(seed: &impl Seeder) -> (PrivateKeySigner, [u8; 32
             .expect("failed to parse seed value into private key"),
         FixedBytes::from_slice(seed_bytes).0,
     )
+}
+
+/// Parses a string like "1eth" or "20 gwei" into a U256.
+pub fn parse_value(input: &str) -> Result<U256, UtilError> {
+    let input = input.trim().to_lowercase();
+
+    match input.parse() {
+        Ok(value) => Ok(value),
+        Err(_) => {
+            let (num_str, unit) = input.trim().split_at(
+                input
+                    .find(|c: char| !c.is_numeric() && c != '.')
+                    .ok_or(UtilError::InvalidValueNumeric(input.clone()))?,
+            );
+            let unit = unit.trim();
+            let value: U256 = parse_units(num_str, unit)
+                .map_err(|e| UtilError::ParseValueFailed(e))?
+                .into();
+
+            Ok(value)
+        }
+    }
 }
 
 #[cfg(test)]

@@ -9,7 +9,7 @@ use crate::{
 };
 use alloy::{
     hex::{FromHex, ToHexExt},
-    primitives::{Address, Bytes, FixedBytes, TxKind},
+    primitives::{Address, Bytes, FixedBytes, TxKind, U256},
     rpc::types::TransactionRequest,
 };
 use std::collections::HashMap;
@@ -173,7 +173,11 @@ where
         let to = to
             .parse::<Address>()
             .map_err(|_| TemplaterError::ParseAddressFailed(to))?;
-        let value = funcdef.value;
+        let value = funcdef
+            .value
+            .as_ref()
+            .map(|x| self.replace_placeholders(x, &placeholder_map))
+            .and_then(|s| s.parse::<U256>().ok());
 
         Ok(TransactionRequest {
             to: Some(TxKind::Call(to)),

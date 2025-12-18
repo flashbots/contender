@@ -17,5 +17,5 @@ gas_limit = 70000
 to = "{SpamMe}"
 from_pool = "bluepool"
 signature = "tipCoinbase()"
-value = "100000000000000"
+value = "0.0001 eth"
 gas_limit = 42000

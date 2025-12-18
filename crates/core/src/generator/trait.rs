@@ -9,7 +9,7 @@ use crate::{
         seeder::{SeedValue, Seeder},
         templater::Templater,
         types::{AnyProvider, AsyncCallbackResult, PlanType, SpamRequest},
-        util::UtilError,
+        util::{parse_value, UtilError},
         CreateDefinition, CreateDefinitionStrict, RandSeed,
     },
     spammer::CallbackError,
@@ -17,7 +17,6 @@ use crate::{
 use alloy::{
     eips::eip7702::SignedAuthorization,
     hex::ToHexExt,
-    primitives::utils::parse_units,
     primitives::{keccak256, Address, FixedBytes, U256},
     providers::Provider,
     rpc::types::Authorization,
@@ -98,27 +97,6 @@ where
         from_pools.sort();
         from_pools.dedup();
         from_pools
-    }
-}
-
-pub fn parse_value(input: &str) -> Result<U256> {
-    let input = input.trim().to_lowercase();
-
-    match input.parse() {
-        Ok(value) => Ok(value),
-        Err(_) => {
-            let (num_str, unit) = input.trim().split_at(
-                input
-                    .find(|c: char| !c.is_numeric() && c != '.')
-                    .ok_or(GeneratorError::ValueParseFailed(input.to_string()))?,
-            );
-            let unit = unit.trim();
-            let value: U256 = parse_units(num_str, unit)
-                .map_err(|_| GeneratorError::ValueParseFailed(input.to_string()))?
-                .into();
-
-            Ok(value)
-        }
     }
 }
 
@@ -311,8 +289,27 @@ where
             None
         };
 
+        // if string is `(value, units)`, parse into U256
+        // otherwise it may be a {placeholder}, so leave as-is
         let value = if let Some(input) = funcdef.value.to_owned() {
-            Some(parse_value(&input)?)
+            Some(match parse_value(&input) {
+                Ok(u256) => Ok(u256.to_string()),
+                Err(e) => {
+                    if self.get_templater().terminator_start(&input).is_none() {
+                        // no placeholder detected
+                        if input.chars().all(|c| c.is_numeric()) {
+                            // treat as wei
+                            Ok(input)
+                        } else {
+                            // error: not a placeholder; invalid "val+unit" string
+                            Err(e)
+                        }
+                    } else {
+                        // placeholder, leave string as-is
+                        Ok(input)
+                    }
+                }
+            }?)
         } else {
             None
         };

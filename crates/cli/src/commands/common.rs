@@ -6,10 +6,10 @@ use crate::commands::SpamScenario;
 use crate::error::CliError;
 use crate::util::get_signers_with_defaults;
 use alloy::consensus::TxType;
-use alloy::primitives::utils::parse_units;
 use alloy::primitives::U256;
 use alloy::providers::{DynProvider, ProviderBuilder};
 use alloy::signers::local::PrivateKeySigner;
+use contender_core::generator::util::parse_value;
 use contender_core::test_scenario::Url;
 use contender_core::BundleType;
 use contender_engine_provider::reth_node_api::EngineApiMessageVersion;
@@ -69,7 +69,7 @@ Flag may be specified multiple times."
         long,
         long_help = "The minimum balance to keep in each spammer EOA, with units.",
         default_value = "0.01 ether",
-        value_parser = parse_amount,
+        value_parser = parse_value,
     )]
     pub min_balance: U256,
 
@@ -441,23 +441,6 @@ pub fn cli_env_vars_parser(s: &str) -> Result<(String, String), String> {
         s[..equal_sign_index].to_string(),
         s[equal_sign_index + 1..].to_string(),
     ))
-}
-
-/// Parses an amount string with units (e.g., "1 ether", "100 gwei") into a U256 value.
-/// Used for inline parsing of amounts in CLI arguments.
-pub fn parse_amount(input: &str) -> Result<U256, String> {
-    let input = input.trim().to_lowercase();
-    let (num_str, unit) = input.trim().split_at(
-        input
-            .find(|c: char| !c.is_numeric() && c != '.')
-            .ok_or("Missing unit in amount")?,
-    );
-    let unit = unit.trim();
-    let value: U256 = parse_units(num_str, unit)
-        .map_err(|e| format!("Failed to parse units: {e}"))?
-        .into();
-
-    Ok(value)
 }
 
 #[cfg(test)]

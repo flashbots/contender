@@ -22,9 +22,6 @@ pub enum GeneratorError {
         error: <Address as FromStr>::Err,
     },
 
-    #[error("failed to parse 'value': {0}")]
-    ValueParseFailed(String),
-
     #[error("from_pool {0} not found in agent store")]
     FromPoolNotFound(String),
 
