@@ -9,7 +9,7 @@ use crate::{
         seeder::{SeedValue, Seeder},
         templater::Templater,
         types::{AnyProvider, AsyncCallbackResult, PlanType, SpamRequest},
-        util::UtilError,
+        util::{parse_value, UtilError},
         CreateDefinition, CreateDefinitionStrict, RandSeed,
     },
     spammer::CallbackError,
@@ -289,12 +289,37 @@ where
             None
         };
 
+        // if string is `(value, units)`, parse into U256
+        // otherwise it may be a {placeholder}, so leave as-is
+        let value = if let Some(input) = funcdef.value.to_owned() {
+            Some(match parse_value(&input) {
+                Ok(u256) => Ok(u256.to_string()),
+                Err(e) => {
+                    if self.get_templater().terminator_start(&input).is_none() {
+                        // no placeholder detected
+                        if input.chars().all(|c| c.is_numeric()) {
+                            // treat as wei
+                            Ok(input)
+                        } else {
+                            // error: not a placeholder; invalid "val+unit" string
+                            Err(e)
+                        }
+                    } else {
+                        // placeholder, leave string as-is
+                        Ok(input)
+                    }
+                }
+            }?)
+        } else {
+            None
+        };
+
         Ok(FunctionCallDefinitionStrict {
             to: to_address,
             from: from_address,
             signature: funcdef.signature.to_owned().unwrap_or_default(),
             args,
-            value: funcdef.value.to_owned(),
+            value,
             fuzz: funcdef.fuzz.to_owned().unwrap_or_default(),
             kind: funcdef.kind.to_owned(),
             gas_limit: funcdef.gas_limit.to_owned(),

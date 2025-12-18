@@ -1,17 +1,14 @@
 use std::str::FromStr;
 
+use crate::default_scenarios::{builtin::ToTestConfig, contracts::test_token};
 use alloy::primitives::U256;
 use clap::Parser;
+use contender_core::generator::util::parse_value;
 use contender_core::generator::{
     types::SpamRequest, CompiledContract, CreateDefinition, FunctionCallDefinition,
 };
 use contender_testfile::TestConfig;
 use thiserror::Error;
-
-use crate::{
-    commands::common::parse_amount,
-    default_scenarios::{builtin::ToTestConfig, contracts::test_token},
-};
 
 #[derive(Debug, Clone, Parser)]
 pub struct UniV2CliArgs {
@@ -31,7 +28,7 @@ pub struct UniV2CliArgs {
         long_help = "The amount of ETH to deposit into each TOKEN pool. One additional multiple of this is also minted for trading.",
         default_value = "1 eth",
         value_name = "ETH_AMOUNT",
-        value_parser = parse_amount,
+        value_parser = parse_value,
         visible_aliases = ["weth"]
     )]
     pub weth_per_token: U256,
@@ -41,7 +38,7 @@ pub struct UniV2CliArgs {
         long,
         long_help = "The initial amount minted for each token. 50% of this will be deposited among trading pools. Units must be provided, e.g. '1 eth' to mint 1 token with 1e18 decimal precision.",
         default_value = "5000000 eth",
-        value_parser = parse_amount,
+        value_parser = parse_value,
         visible_aliases = ["mint"],
         value_name = "TOKEN_AMOUNT"
     )]
@@ -50,7 +47,7 @@ pub struct UniV2CliArgs {
     #[arg(
         long,
         long_help = "The amount of WETH to trade in the scenario. If not provided, 0.01% of the pool's initial WETH will be traded for each token. Units must be provided, e.g. '0.1 eth'.",
-        value_parser = parse_amount,
+        value_parser = parse_value,
         value_name = "WETH_AMOUNT",
         visible_aliases = ["trade-weth"]
     )]
@@ -59,7 +56,7 @@ pub struct UniV2CliArgs {
     #[arg(
         long,
         long_help = "The amount of tokens to trade in the scenario. If not provided, 0.01% of the initial supply will be traded for each token.",
-        value_parser = parse_amount,
+        value_parser = parse_value,
         value_name = "TOKEN_AMOUNT",
         visible_aliases = ["trade-token"]
     )]
@@ -70,8 +67,8 @@ impl Default for UniV2CliArgs {
     fn default() -> Self {
         Self {
             num_tokens: 2,
-            weth_per_token: parse_amount("1 eth").expect("valid default amount"),
-            initial_token_supply: parse_amount("5000000 eth").expect("valid default amount"),
+            weth_per_token: parse_value("1 eth").expect("valid default amount"),
+            initial_token_supply: parse_value("5000000 eth").expect("valid default amount"),
             weth_trade_amount: None,
             token_trade_amount: None,
         }

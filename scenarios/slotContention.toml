@@ -9,7 +9,7 @@ to = "{slotContention}"
 kind = "fund_contract"
 signature = "fundMe()"
 args = []
-value = "1000000000000000000"
+value = "1eth"
 
 # more likely to fail over time
 [[spam]]

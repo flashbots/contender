@@ -123,12 +123,15 @@ impl FunctionCallDefinition {
     }
 }
 
+/// `FunctionCallDefinition` with a definite `from` address.
+/// String fields may represent placeholders, which are replaced by
+/// functions like `template_function_call`.
 pub struct FunctionCallDefinitionStrict {
     pub to: String, // may be a placeholder, so we can't use Address
     pub from: Address,
     pub signature: String,
     pub args: Vec<String>,
-    pub value: Option<String>,
+    pub value: Option<String>, // may be a placeholder, so we can't use U256
     pub fuzz: Vec<FuzzParam>,
     pub kind: Option<String>,
     pub gas_limit: Option<u64>,
