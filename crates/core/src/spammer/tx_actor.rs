@@ -87,16 +87,13 @@ impl ActorContext {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[derive(Default)]
 pub enum ActorStatus {
     ShuttingDown,
+    #[default]
     Running,
 }
 
-impl Default for ActorStatus {
-    fn default() -> Self {
-        ActorStatus::Running
-    }
-}
 
 impl<D> TxActor<D>
 where

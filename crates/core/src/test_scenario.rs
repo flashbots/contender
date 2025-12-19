@@ -1030,13 +1030,11 @@ where
                                 .send(e)
                                 .await
                                 .unwrap_or_else(|e| trace!("failed to send error signal: {e:?}"));
-                        } else {
-                            if !cancel_token.is_cancelled() {
-                                success_sender
-                                    .send(())
-                                    .await
-                                    .unwrap_or_else(|e| trace!("failed to send success signal: {e:?}"));
-                            }
+                        } else if !cancel_token.is_cancelled() {
+                            success_sender
+                                .send(())
+                                .await
+                                .unwrap_or_else(|e| trace!("failed to send success signal: {e:?}"));
                         }
 
                         let mut tx_handles = vec![];
