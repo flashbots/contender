@@ -1031,10 +1031,12 @@ where
                                 .await
                                 .unwrap_or_else(|e| trace!("failed to send error signal: {e:?}"));
                         } else {
-                            success_sender
-                                .send(())
-                                .await
-                                .unwrap_or_else(|e| trace!("failed to send success signal: {e:?}"));
+                            if !cancel_token.is_cancelled() {
+                                success_sender
+                                    .send(())
+                                    .await
+                                    .unwrap_or_else(|e| trace!("failed to send success signal: {e:?}"));
+                            }
                         }
 
                         let mut tx_handles = vec![];
@@ -1419,57 +1421,6 @@ where
             .collect::<_>())
     }
 
-    pub async fn flush_tx_cache(&self, block_start: u64, run_id: u64) -> Result<()> {
-        let mut block_counter = 0;
-        // the number of blocks to check for stalled txs
-        let block_timeout = ((self.pending_tx_timeout_secs / self.ctx.block_time_secs) + 1)
-            // must be at least 2 blocks because otherwise we have nothing to compare
-            .max(2);
-        let mut cache_size_queue = vec![];
-        cache_size_queue.resize(block_timeout as usize, 1);
-        for msg_handle in self.msg_handles.values() {
-            loop {
-                let pending_txs = msg_handle
-                    .flush_cache(run_id, block_start + block_counter as u64)
-                    .await?;
-                cache_size_queue.rotate_right(1);
-                cache_size_queue[0] = pending_txs.len();
-
-                if pending_txs.is_empty() {
-                    break;
-                }
-
-                let current_timestamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("time went backwards")
-                    .as_millis();
-
-                // remove cached txs if the size hasn't changed for the last N blocks
-                if cache_size_queue
-                    .iter()
-                    .all(|&size| size == cache_size_queue[0])
-                {
-                    warn!(
-                        "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
-                    );
-
-                    for tx in &pending_txs {
-                        // only remove txs that have been waiting for > T seconds
-                        if current_timestamp
-                            > tx.start_timestamp_ms + (self.pending_tx_timeout_secs as u128 * 1000)
-                        {
-                            msg_handle.remove_cached_tx(tx.tx_hash).await?;
-                        }
-                    }
-                }
-
-                block_counter += 1;
-            }
-        }
-
-        Ok(())
-    }
-
     /// Wait for `self.pending_tx_timeout_secs` for pending txs to confirm, then delete any remaining cache items.
     pub async fn dump_tx_cache(&self, run_id: u64) -> Result<()> {
         debug!("dumping tx cache...");
@@ -1615,10 +1566,11 @@ async fn handle_tx_outcome<'a, F: SpamCallback + 'static>(
         }
         warn!("error from tx {tx_hash}: {msg}");
         extra = extra.with_error(msg.to_string());
-    } else {
+    } else if !ctx.cancel_token.is_cancelled() {
         // success path
         if let Err(e) = ctx.success_sender.send(()).await {
-            warn!(
+            // this error can safely be ignored; it just means the receiver was closed (e.g. by CTRL-C)
+            debug!(
                 "failed to send success notification for tx {}: {:?}",
                 tx_hash, e
             );

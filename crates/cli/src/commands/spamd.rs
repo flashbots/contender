@@ -12,7 +12,7 @@ use std::{
     },
     time::Duration,
 };
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Runs spam in a loop, potentially executing multiple spam runs.
 ///
@@ -63,7 +63,7 @@ pub async fn spamd(
             do_finish = true;
         }
         if do_finish {
-            info!("Spam loop finished.");
+            debug!("spamd loop finished");
             break;
         }
 

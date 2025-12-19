@@ -11,6 +11,7 @@ use crate::{
     Result,
 };
 
+#[derive(Debug)]
 pub enum TxActorMessage {
     InitCtx(ActorContext),
     GetCacheLen(oneshot::Sender<usize>),
@@ -24,11 +25,6 @@ pub enum TxActorMessage {
     RemovedRunTx {
         tx_hash: TxHash,
         on_remove: oneshot::Sender<()>,
-    },
-    FlushCache {
-        run_id: u64,
-        on_flush: oneshot::Sender<Vec<PendingRunTx>>, // returns the number of txs remaining in cache
-        target_block_num: u64,
     },
     DumpCache {
         run_id: u64,
@@ -121,17 +117,26 @@ where
         }
     }
 
+    pub fn update_ctx_target_block(&mut self, target_block_num: u64) -> Result<()> {
+        if let Some(ctx) = self.ctx.as_mut() {
+            ctx.target_block = target_block_num;
+        } else {
+            return Err(CallbackError::UpdateRequiresCtx.into());
+        }
+
+        Ok(())
+    }
+
     /// Waits for target block to appear onchain,
     /// gets block receipts for the target block,
     /// removes txs that were included in the block from cache, and saves them to the DB.
     async fn flush_cache(
-        cache: &mut Vec<PendingRunTx>,
-        db: &Arc<D>,
-        rpc: &Arc<AnyProvider>,
+        &mut self,
         run_id: u64,
         on_flush: oneshot::Sender<Vec<PendingRunTx>>, // returns the number of txs remaining in cache
         target_block_num: u64,
     ) -> Result<()> {
+        let Self { cache, rpc, db, .. } = self;
         info!("unconfirmed txs: {}", cache.len());
 
         if cache.is_empty() {
@@ -255,11 +260,8 @@ where
         Ok(())
     }
 
+    /// Parse message and execute appropriate methods.
     async fn handle_message(&mut self, message: TxActorMessage) -> Result<()> {
-        if self.status == ActorStatus::ShuttingDown {
-            return Ok(());
-        }
-
         match message {
             TxActorMessage::GetCacheLen(on_len) => {
                 on_len
@@ -293,21 +295,6 @@ where
                 Self::remove_cached_tx(&mut self.cache, tx_hash).await?;
                 on_remove.send(()).map_err(CallbackError::OneshotSend)?;
             }
-            TxActorMessage::FlushCache {
-                on_flush,
-                run_id,
-                target_block_num,
-            } => {
-                Self::flush_cache(
-                    &mut self.cache,
-                    &self.db,
-                    &self.rpc,
-                    run_id,
-                    on_flush,
-                    target_block_num,
-                )
-                .await?;
-            }
             TxActorMessage::DumpCache {
                 on_dump_cache,
                 run_id,
@@ -334,13 +321,13 @@ where
             tokio::select! {
                 // periodically flush cache in background while spammer runs
                 _ = interval.tick() => {
-                    if let Some(ctx) = self.ctx.as_mut() {
+                    if let Some(ctx) = self.ctx.to_owned() {
                         let new_block = provider.get_block_number().await?;
                         for bn in ctx.target_block..new_block {
                             let (on_flush, _receiver) = oneshot::channel();
-                            Self::flush_cache(&mut self.cache, &self.db, &self.rpc, ctx.run_id, on_flush, bn).await?;
+                            self.flush_cache(ctx.run_id, on_flush, bn).await?;
                         }
-                        ctx.target_block = new_block;
+                        self.update_ctx_target_block(new_block)?;
                     } else {
                         debug!("TxActor context not initialized.");
                     }
@@ -429,25 +416,6 @@ impl TxActorHandle {
         Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
     }
 
-    /// Removes txs included onchain from the cache, saves them to the DB, and returns the number of txs remaining in the cache.
-    pub async fn flush_cache(
-        &self,
-        run_id: u64,
-        target_block_num: u64,
-    ) -> Result<Vec<PendingRunTx>> {
-        let (sender, receiver) = oneshot::channel();
-        self.sender
-            .send(TxActorMessage::FlushCache {
-                run_id,
-                on_flush: sender,
-                target_block_num,
-            })
-            .await
-            .map_err(Box::new)
-            .map_err(CallbackError::from)?;
-        Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
-    }
-
     pub async fn done_flushing(&self) -> Result<bool> {
         let (sender, receiver) = oneshot::channel();
         self.sender
@@ -474,7 +442,7 @@ impl TxActorHandle {
         Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
     }
 
-    /// Stops the actor, terminating any pending tasks.
+    /// Stops the actor, terminating all pending tasks.
     pub async fn stop(&self) -> Result<()> {
         let (sender, receiver) = oneshot::channel();
         self.sender
@@ -486,7 +454,6 @@ impl TxActorHandle {
     }
 
     pub async fn init_ctx(&self, ctx: ActorContext) -> Result<()> {
-        // let (sender, receiver) = oneshot::channel::<()>();
         self.sender
             .send(TxActorMessage::InitCtx(ctx))
             .await

@@ -6,7 +6,7 @@ use alloy::providers::Provider;
 use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use futures::Stream;
 use futures::StreamExt;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::db::SpamDuration;
 use crate::spammer::tx_actor::ActorContext;
@@ -128,7 +128,7 @@ where
             // run spammer within tokio::select! to allow for graceful shutdown
             let spam_finished: bool = tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
-                    warn!("CTRL-C received, stopping spamming...");
+                    debug!("CTRL-C received, dropping execute_spammer call...");
                     cancel_token.cancel();
 
                     false
@@ -153,7 +153,8 @@ where
             let dump_finished: bool = tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
                     warn!("CTRL-C received, stopping tx cache dump...");
-                    cancel_token.cancel();
+                    self.get_msg_handler(scenario.db.clone(), scenario.rpc_client.clone()).stop().await?;
+
                     false
                 },
                 _ = scenario.dump_tx_cache(run_id) => {

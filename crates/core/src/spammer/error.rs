@@ -29,6 +29,9 @@ pub enum CallbackError {
     #[error("failed to flush cache. pending txs: {0:?}")]
     FlushCache(Vec<PendingRunTx>),
 
+    #[error("ctx cannot be updated before it's initialized")]
+    UpdateRequiresCtx,
+
     #[error("failed to send mpsc message: {0}")]
     TxActorSendMessage(#[from] Box<mpsc::error::SendError<TxActorMessage>>),
 
