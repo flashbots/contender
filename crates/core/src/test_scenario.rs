@@ -122,6 +122,8 @@ where
     /// Max num of eth_sendRawTransaction calls per json-rpc batch; 0 disables batching.
     pub rpc_batch_size: u64,
     pub num_rpc_batches_sent: u64,
+    /// Number of blocks between automatic cache flushes during spam runs (default: 5)
+    pub cache_flush_interval_blocks: u64,
 }
 
 pub struct TestScenarioParams {
@@ -319,6 +321,7 @@ where
             should_sync_nonces: sync_nonces_after_batch,
             rpc_batch_size,
             num_rpc_batches_sent: 0,
+            cache_flush_interval_blocks: 5,
         })
     }
 

@@ -94,7 +94,7 @@ async fn run() -> Result<(), CliError> {
                 ..
             } = *args.to_owned();
 
-            let SendSpamCliArgs { loops, .. } = spam_args.to_owned();
+            let SendSpamCliArgs { indefinite, .. } = spam_args.to_owned();
 
             let client = ClientBuilder::default()
                 .http(Url::from_str(&rpc_args.rpc_url).map_err(ArgsError::UrlParse)?);
@@ -119,15 +119,15 @@ async fn run() -> Result<(), CliError> {
                 )
             };
 
-            let real_loops = if let Some(loops) = loops {
-                // loops flag is set; spamd will interpret a None value as infinite
-                loops
+            let limit_loops = if indefinite {
+                // indefinite flag is set; spamd will interpret None as infinite
+                None
             } else {
-                // loops flag is not set, so only loop once
+                // indefinite flag is not set, so only loop once
                 Some(1)
             };
             let spamd_args = SpamCommandArgs::new(scenario, *args)?;
-            commands::spamd(&db, spamd_args, gen_report, real_loops).await?;
+            commands::spamd(&db, spamd_args, gen_report, limit_loops).await?;
         }
 
         ContenderSubcommand::Replay { args } => {

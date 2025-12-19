@@ -308,7 +308,8 @@ fn create_spam_cli_args(
             },
             duration: spam_duration,
             pending_timeout: args.pending_timeout,
-            loops: Some(Some(1)),
+            indefinite: false,
+            cache_flush_interval: 5, // Use default for campaigns
             accounts_per_agent: args.accounts_per_agent,
         },
         ignore_receipts: args.ignore_receipts,

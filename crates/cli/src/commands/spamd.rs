@@ -16,7 +16,7 @@ use tracing::{error, info, warn};
 
 /// Runs spam in a loop, potentially executing multiple spam runs.
 ///
-/// If `limit_loops` is `None`, it will run indefinitely.
+/// If `limit_loops` is `None`, it will run indefinitely (--indefinite flag).
 ///
 /// If `limit_loops` is `Some(n)`, it will run `n` times.
 ///

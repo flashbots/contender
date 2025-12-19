@@ -117,6 +117,22 @@ where
                 scenario.sync_nonces().await?;
             }
 
+            // ═══════════════════════════════════════════════════════════════
+            // START AUTO-FLUSH: Begin background receipt processing
+            // ═══════════════════════════════════════════════════════════════
+            // From this point forward, pending transactions will be automatically
+            // flushed to the database every N blocks (configurable via --cache-flush-interval).
+            // This allows spamming to continue uninterrupted while receipts are collected.
+            // 
+            // The auto-flush process:
+            // 1. TxActor monitors block numbers via periodic checks
+            // 2. When interval blocks have passed, it fetches receipts for those blocks
+            // 3. Confirmed transactions are saved to DB, unconfirmed remain in cache
+            // 4. Process repeats automatically until auto-flush is stopped
+            for msg_handle in scenario.msg_handles.values() {
+                msg_handle.start_auto_flush(run_id, scenario.cache_flush_interval_blocks).await?;
+            }
+
             // calling cancel() on cancel_token should stop all running tasks
             // (as long as each task checks for it)
             let cancel_token = self.context().do_quit.clone();
@@ -142,6 +158,22 @@ where
             self.context()
                 .done_sending
                 .store(true, std::sync::atomic::Ordering::SeqCst);
+
+            // ═══════════════════════════════════════════════════════════════
+            // STOP AUTO-FLUSH: Transition to final manual flush
+            // ═══════════════════════════════════════════════════════════════
+            // Now that spamming is complete, we stop the background auto-flush
+            // and do a final comprehensive manual flush to ensure all remaining
+            // transactions are processed.
+            //
+            // Why stop auto-flush before final flush:
+            // 1. Prevents interference between auto-flush and manual flush
+            // 2. Manual flush has more sophisticated timeout/stall detection
+            // 3. Ensures we wait for all blocks to be available
+            // 4. Cleaner separation of concerns
+            for msg_handle in scenario.msg_handles.values() {
+                let _ = msg_handle.stop_auto_flush().await;
+            }
 
             // collect results from cached pending txs
             let flush_finished: bool = tokio::select! {

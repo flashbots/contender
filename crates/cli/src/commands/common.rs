@@ -294,13 +294,18 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
     /// If set without a value, the spam run will be repeated indefinitely.
     /// If not set, the spam run will be executed once.
     #[arg(
-        short,
         long,
-        num_args = 0..=1,
-        long_help = "The number of times to repeat the spam run. If set with a value, the spam run will be repeated this many times. If set without a value, the spam run will be repeated indefinitely. If not set, the spam run will be repeated once."
+        long_help = "Run spam indefinitely until manually stopped. If not set, the spam run will be executed once."
     )]
-    pub loops: Option<Option<u64>>,
-
+    pub indefinite: bool,
+    /// How often (in blocks) to flush the pending transaction cache to the database.
+    /// Lower values reduce memory usage but increase DB writes. Higher values batch more efficiently.
+    #[arg(
+        long,
+        default_value_t = 5,
+        long_help = "Number of blocks between automatic cache flushes. Controls memory usage vs DB write frequency."
+    )]
+    pub cache_flush_interval: u64,
     /// The number of accounts to generate for each agent (`from_pool` in scenario files)
     #[arg(
         short,

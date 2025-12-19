@@ -205,7 +205,8 @@ impl SpamCommandArgs {
             txs_per_block,
             duration,
             pending_timeout,
-            loops,
+            indefinite,
+            cache_flush_interval,
             accounts_per_agent,
         } = self.spam_args.spam_args.clone();
         let SendTxsCliArgsInner {
@@ -478,7 +479,7 @@ impl SpamCommandArgs {
         }
         done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
 
-        if loops.is_some_and(|inner_loops| inner_loops.is_none()) {
+        if indefinite {
             warn!("Spammer agents will eventually run out of funds.");
             println!(
                 "Make sure you add plenty of funds with {} (set your pre-funded account with {}).",
@@ -487,7 +488,7 @@ impl SpamCommandArgs {
             );
         }
 
-        let total_cost = U256::from(duration * loops.flatten().unwrap_or(1))
+        let total_cost = U256::from(duration)
             * test_scenario.get_max_spam_cost(&user_signers).await?;
         if min_balance < U256::from(total_cost) {
             return Err(ArgsError::MinBalanceInsufficient {
@@ -496,6 +497,9 @@ impl SpamCommandArgs {
             }
             .into());
         }
+
+        // Set the cache flush interval from CLI args
+        test_scenario.cache_flush_interval_blocks = cache_flush_interval;
 
         Ok(test_scenario)
     }

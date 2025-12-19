@@ -32,19 +32,55 @@ pub enum TxActorMessage {
         run_id: u64,
         on_dump_cache: oneshot::Sender<Vec<RunTx>>,
     },
+    StartAutoFlush {
+        run_id: u64,
+        flush_interval_blocks: u64,
+        on_start: oneshot::Sender<()>,
+    },
+    StopAutoFlush {
+        on_stop_auto: oneshot::Sender<()>,
+    },
     Stop {
         on_stop: oneshot::Sender<()>,
     },
 }
 
+/// Actor responsible for managing pending transaction cache and processing receipts.
+/// 
+/// The TxActor runs in a background task and handles:
+/// - Caching transaction hashes as they're sent
+/// - Automatically flushing confirmed transactions to the database at regular intervals
+/// - Manual flush operations on demand
+/// - Graceful shutdown
+/// 
+/// Auto-flush mechanism:
+/// - Monitors the blockchain via periodic block number checks
+/// - When enough blocks have passed (configurable interval), processes pending transactions
+/// - Fetches receipts for transactions in those blocks
+/// - Saves confirmed transactions to the database
+/// - Retains unconfirmed transactions in cache for next flush
+/// 
+/// This design allows spamming to continue uninterrupted while receipt processing
+/// happens in the background, improving performance and creating more realistic traffic patterns.
 struct TxActor<D>
 where
     D: DbOps,
 {
     receiver: mpsc::Receiver<TxActorMessage>,
     db: Arc<D>,
+    /// In-memory cache of pending transactions awaiting confirmation
     cache: Vec<PendingRunTx>,
     rpc: Arc<AnyProvider>,
+    /// Whether auto-flush is currently enabled
+    auto_flush_enabled: bool,
+    /// The run_id to associate with auto-flushed transactions
+    auto_flush_run_id: Option<u64>,
+    /// Number of blocks between auto-flush operations
+    auto_flush_interval_blocks: u64,
+    /// Last block number that was successfully flushed
+    last_flushed_block: u64,
+    /// Track consecutive auto-flush failures to prevent log spam and detect persistent issues
+    consecutive_flush_failures: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -85,6 +121,11 @@ where
             db,
             cache: Vec::new(),
             rpc,
+            auto_flush_enabled: false,
+            auto_flush_run_id: None,
+            auto_flush_interval_blocks: 10, // default interval
+            last_flushed_block: 0,
+            consecutive_flush_failures: 0,
         }
     }
 
@@ -227,6 +268,9 @@ where
         db: &Arc<D>,
         rpc: &Arc<AnyProvider>,
         message: TxActorMessage,
+        auto_flush_enabled: &mut bool,
+        auto_flush_run_id: &mut Option<u64>,
+        auto_flush_interval_blocks: &mut u64,
     ) -> Result<()> {
         match message {
             TxActorMessage::Stop { on_stop } => {
@@ -267,58 +311,155 @@ where
                 let res = Self::dump_cache(cache, db, run_id).await?;
                 on_dump_cache.send(res).map_err(CallbackError::DumpCache)?;
             }
+            TxActorMessage::StartAutoFlush {
+                run_id,
+                flush_interval_blocks,
+                on_start,
+            } => {
+                *auto_flush_enabled = true;
+                *auto_flush_run_id = Some(run_id);
+                *auto_flush_interval_blocks = flush_interval_blocks;
+                info!("Auto-flush enabled with interval: {} blocks", flush_interval_blocks);
+                on_start.send(()).map_err(CallbackError::OneshotSend)?;
+            }
+            TxActorMessage::StopAutoFlush { on_stop_auto } => {
+                *auto_flush_enabled = false;
+                *auto_flush_run_id = None;
+                info!("Auto-flush disabled");
+                on_stop_auto.send(()).map_err(CallbackError::OneshotSend)?;
+            }
         }
         Ok(())
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        while let Some(msg) = self.receiver.recv().await {
-            match &msg {
-                TxActorMessage::DumpCache {
-                    on_dump_cache: _,
-                    run_id: _,
-                } => {
-                    tokio::select! {
-                        _ = Self::handle_message(&mut self.cache, &self.db, &self.rpc,
-                            msg
-                        ) => {},
-                        Some(TxActorMessage::Stop{on_stop: _}) = self.receiver.recv() => {
-                            // exits early if a stop message is received
-                        },
-                    };
-                }
-                TxActorMessage::FlushCache {
-                    run_id: _,
-                    on_flush: _,
-                    target_block_num: _,
-                } => {
-                    tokio::select! {
-                        _ = Self::handle_message(&mut self.cache, &self.db, &self.rpc,
-                            msg
-                        ) => {},
-                        Some(TxActorMessage::Stop{on_stop: _}) = self.receiver.recv() => {
-                            // exits early if a stop message is received
-                        },
-                    };
-                }
-                TxActorMessage::SentRunTx {
-                    tx_hash: _,
-                    start_timestamp_ms: _,
-                    kind: _,
-                    on_receive: _,
-                    error: _,
-                } => {
-                    Self::handle_message(&mut self.cache, &self.db, &self.rpc, msg).await?;
-                }
-                TxActorMessage::RemovedRunTx {
-                    tx_hash: _,
-                    on_remove: _,
-                } => {
-                    Self::handle_message(&mut self.cache, &self.db, &self.rpc, msg).await?;
-                }
-                TxActorMessage::Stop { on_stop: _ } => {
-                    // do nothing here; stop is a signal to interrupt other message handlers
-                }
+        let mut block_check_interval = tokio::time::interval(Duration::from_secs(1));
+        
+        loop {
+            tokio::select! {
+                Some(msg) = self.receiver.recv() => {
+                    match &msg {
+                        TxActorMessage::DumpCache {
+                            on_dump_cache: _,
+                            run_id: _,
+                        } => {
+                            tokio::select! {
+                                _ = Self::handle_message(&mut self.cache, &self.db, &self.rpc,
+                                    msg, &mut self.auto_flush_enabled, &mut self.auto_flush_run_id,
+                                    &mut self.auto_flush_interval_blocks
+                                ) => {},
+                                Some(TxActorMessage::Stop{on_stop: _}) = self.receiver.recv() => {
+                                    // exits early if a stop message is received
+                                    break;
+                                },
+                            };
+                        }
+                        TxActorMessage::FlushCache {
+                            run_id: _,
+                            on_flush: _,
+                            target_block_num: _,
+                        } => {
+                            tokio::select! {
+                                _ = Self::handle_message(&mut self.cache, &self.db, &self.rpc,
+                                    msg, &mut self.auto_flush_enabled, &mut self.auto_flush_run_id,
+                                    &mut self.auto_flush_interval_blocks
+                                ) => {},
+                                Some(TxActorMessage::Stop{on_stop: _}) = self.receiver.recv() => {
+                                    // exits early if a stop message is received
+                                    break;
+                                },
+                            };
+                        }
+                        TxActorMessage::SentRunTx {
+                            tx_hash: _,
+                            start_timestamp_ms: _,
+                            kind: _,
+                            on_receive: _,
+                            error: _,
+                        } => {
+                            Self::handle_message(&mut self.cache, &self.db, &self.rpc, msg,
+                                &mut self.auto_flush_enabled, &mut self.auto_flush_run_id,
+                                &mut self.auto_flush_interval_blocks).await?;
+                        }
+                        TxActorMessage::RemovedRunTx {
+                            tx_hash: _,
+                            on_remove: _,
+                        } => {
+                            Self::handle_message(&mut self.cache, &self.db, &self.rpc, msg,
+                                &mut self.auto_flush_enabled, &mut self.auto_flush_run_id,
+                                &mut self.auto_flush_interval_blocks).await?;
+                        }
+                        TxActorMessage::StartAutoFlush { .. } | TxActorMessage::StopAutoFlush { .. } => {
+                            Self::handle_message(&mut self.cache, &self.db, &self.rpc, msg,
+                                &mut self.auto_flush_enabled, &mut self.auto_flush_run_id,
+                                &mut self.auto_flush_interval_blocks).await?;
+                        }
+                        TxActorMessage::Stop { on_stop: _ } => {
+                            // do nothing here; stop is a signal to interrupt other message handlers
+                            break;
+                        }
+                    }
+                },
+                _ = block_check_interval.tick() => {
+                    if self.auto_flush_enabled && !self.cache.is_empty() {
+                        if let Some(run_id) = self.auto_flush_run_id {
+                            // Check current block number
+                            match self.rpc.get_block_number().await {
+                                Ok(current_block) => {
+                                    // Initialize last_flushed_block if this is the first check
+                                    if self.last_flushed_block == 0 {
+                                        self.last_flushed_block = current_block.saturating_sub(1);
+                                    }
+                                    
+                                    // Flush if enough blocks have passed
+                                    if current_block >= self.last_flushed_block + self.auto_flush_interval_blocks {
+                                        let target_block = self.last_flushed_block + 1;
+                                        
+                                        // Only log periodically to avoid spam during failures
+                                        if self.consecutive_flush_failures == 0 {
+                                            debug!("Auto-flushing cache for block {} (cache size: {})", target_block, self.cache.len());
+                                        }
+                                        
+                                        // Create a dummy oneshot channel since we don't need the response
+                                        let (tx, _rx) = oneshot::channel();
+                                        match Self::flush_cache(
+                                            &mut self.cache,
+                                            &self.db,
+                                            &self.rpc,
+                                            run_id,
+                                            tx,
+                                            target_block,
+                                        ).await {
+                                            Ok(_) => {
+                                                self.last_flushed_block = target_block;
+                                                // Reset failure counter on success
+                                                if self.consecutive_flush_failures > 0 {
+                                                    info!("Auto-flush recovered after {} failures", self.consecutive_flush_failures);
+                                                    self.consecutive_flush_failures = 0;
+                                                }
+                                            },
+                                            Err(e) => {
+                                                self.consecutive_flush_failures += 1;
+                                                // Log every 10 failures to avoid spam
+                                                if self.consecutive_flush_failures == 1 || self.consecutive_flush_failures % 10 == 0 {
+                                                    warn!(
+                                                        "Auto-flush failed (attempt {}): {:?}. Cache size: {}. Will retry.",
+                                                        self.consecutive_flush_failures, e, self.cache.len()
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                Err(e) => {
+                                    if self.consecutive_flush_failures == 0 {
+                                        warn!("Failed to get block number for auto-flush: {:?}. Will retry.", e);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
             }
         }
         Ok(())
@@ -423,6 +564,65 @@ impl TxActorHandle {
         Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
     }
 
+    /// Starts automatic cache flushing in the background.
+    /// 
+    /// Once started, the TxActor will automatically flush pending transactions
+    /// every `flush_interval_blocks` blocks. This allows spam operations to continue
+    /// uninterrupted while receipts are collected and saved to the database.
+    /// 
+    /// # Arguments
+    /// * `run_id` - The database run ID to associate with flushed transactions
+    /// * `flush_interval_blocks` - Number of blocks between flush operations
+    /// 
+    /// # Returns
+    /// Ok(()) if auto-flush was successfully started
+    /// 
+    /// # Notes
+    /// - Auto-flush will continue until explicitly stopped via `stop_auto_flush()`
+    /// - Failures are automatically retried on the next interval
+    /// - Multiple calls to start_auto_flush will update the configuration
+    pub async fn start_auto_flush(
+        &self,
+        run_id: u64,
+        flush_interval_blocks: u64,
+    ) -> Result<()> {
+        let (sender, receiver) = oneshot::channel();
+        self.sender
+            .send(TxActorMessage::StartAutoFlush {
+                run_id,
+                flush_interval_blocks,
+                on_start: sender,
+            })
+            .await
+            .map_err(Box::new)
+            .map_err(CallbackError::from)?;
+        Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
+    }
+
+    /// Stops automatic cache flushing.
+    /// 
+    /// After calling this, the TxActor will no longer automatically flush
+    /// pending transactions. Any remaining transactions in the cache can be
+    /// flushed manually via `flush_cache()` or dumped via `dump_cache()`.
+    /// 
+    /// # Returns
+    /// Ok(()) if auto-flush was successfully stopped
+    /// 
+    /// # Notes
+    /// - Typically called before final manual flush at end of spam run
+    /// - Does not affect transactions already in the cache
+    pub async fn stop_auto_flush(&self) -> Result<()> {
+        let (sender, receiver) = oneshot::channel();
+        self.sender
+            .send(TxActorMessage::StopAutoFlush {
+                on_stop_auto: sender,
+            })
+            .await
+            .map_err(Box::new)
+            .map_err(CallbackError::from)?;
+        Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
+    }
+
     /// Stops the actor, terminating any pending tasks.
     pub async fn stop(&self) -> Result<()> {
         let (sender, receiver) = oneshot::channel();
@@ -432,5 +632,58 @@ impl TxActorHandle {
             .map_err(Box::new)
             .map_err(CallbackError::from)?;
         Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pending_run_tx_creation() {
+        let tx_hash = TxHash::default();
+        let timestamp = 1234567890u128;
+        let kind = Some("test");
+        let error = Some("error message");
+
+        let pending_tx = PendingRunTx::new(tx_hash, timestamp, kind, error);
+
+        assert_eq!(pending_tx.tx_hash, tx_hash);
+        assert_eq!(pending_tx.start_timestamp_ms, timestamp);
+        assert_eq!(pending_tx.kind, Some("test".to_string()));
+        assert_eq!(pending_tx.error, Some("error message".to_string()));
+    }
+
+    #[test]
+    fn test_pending_run_tx_no_kind_or_error() {
+        let tx_hash = TxHash::default();
+        let timestamp = 1234567890u128;
+
+        let pending_tx = PendingRunTx::new(tx_hash, timestamp, None, None);
+
+        assert_eq!(pending_tx.tx_hash, tx_hash);
+        assert_eq!(pending_tx.start_timestamp_ms, timestamp);
+        assert_eq!(pending_tx.kind, None);
+        assert_eq!(pending_tx.error, None);
+    }
+
+    #[test]
+    fn test_cache_tx_creation() {
+        let tx_hash = TxHash::default();
+        let timestamp = 9876543210u128;
+        let kind = Some("transfer".to_string());
+        let error = None;
+
+        let cache_tx = CacheTx {
+            tx_hash,
+            start_timestamp_ms: timestamp,
+            kind: kind.clone(),
+            error: error.clone(),
+        };
+
+        assert_eq!(cache_tx.tx_hash, tx_hash);
+        assert_eq!(cache_tx.start_timestamp_ms, timestamp);
+        assert_eq!(cache_tx.kind, kind);
+        assert_eq!(cache_tx.error, error);
     }
 }
