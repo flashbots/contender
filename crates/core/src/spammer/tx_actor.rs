@@ -229,12 +229,9 @@ where
     }
 
     /// Dumps all cached txs into the DB. Does not assign `end_timestamp`, `block_number`, or `gas_used`.
-    async fn dump_cache(
-        cache: &mut Vec<PendingRunTx>,
-        db: &Arc<D>,
-        run_id: u64,
-    ) -> Result<Vec<RunTx>> {
-        let run_txs = cache
+    async fn dump_cache(&mut self, run_id: u64) -> Result<Vec<RunTx>> {
+        let run_txs = self
+            .cache
             .iter()
             .map(|pending_tx| RunTx {
                 tx_hash: pending_tx.tx_hash,
@@ -246,17 +243,20 @@ where
                 error: pending_tx.error.to_owned(),
             })
             .collect::<Vec<_>>();
-        db.insert_run_txs(run_id, &run_txs).map_err(|e| e.into())?;
-        cache.clear();
+        self.db
+            .insert_run_txs(run_id, &run_txs)
+            .map_err(|e| e.into())?;
+        self.cache.clear();
         Ok(run_txs)
     }
 
-    async fn remove_cached_tx(cache: &mut Vec<PendingRunTx>, old_tx_hash: TxHash) -> Result<()> {
-        let old_tx = cache
+    async fn remove_cached_tx(&mut self, old_tx_hash: TxHash) -> Result<()> {
+        let old_tx = self
+            .cache
             .iter()
             .position(|tx| tx.tx_hash == old_tx_hash)
             .ok_or(CallbackError::CacheRemoveTx(old_tx_hash))?;
-        cache.remove(old_tx);
+        self.cache.remove(old_tx);
         Ok(())
     }
 
@@ -292,14 +292,14 @@ where
                 on_receive.send(()).map_err(CallbackError::OneshotSend)?;
             }
             TxActorMessage::RemovedRunTx { tx_hash, on_remove } => {
-                Self::remove_cached_tx(&mut self.cache, tx_hash).await?;
+                self.remove_cached_tx(tx_hash).await?;
                 on_remove.send(()).map_err(CallbackError::OneshotSend)?;
             }
             TxActorMessage::DumpCache {
                 on_dump_cache,
                 run_id,
             } => {
-                let res = Self::dump_cache(&mut self.cache, &self.db, run_id).await?;
+                let res = self.dump_cache(run_id).await?;
                 on_dump_cache.send(res).map_err(CallbackError::DumpCache)?;
             }
         }
