@@ -135,7 +135,7 @@ impl ToTestConfig for UniV2Args {
         let mut add_create_steps = vec![];
         for i in 0..self.num_tokens {
             let deployment = CreateDefinition {
-                contract: test_token(i + 1, self.initial_token_supply),
+                contract: test_token(i + 1, self.initial_token_supply).into(),
                 signature: None,
                 args: None,
                 from: None,
@@ -147,14 +147,18 @@ impl ToTestConfig for UniV2Args {
 
         // now that contract updates are done, we can update the config & use contracts in setup steps
         config.create = Some(create_steps.to_owned());
-        let find_contract = |name: &str| {
+        let find_contract = |name: &str| -> Result<CompiledContract, UniV2Error> {
             let contract = create_steps
                 .iter()
                 .find(|c| c.contract.name == name)
                 .ok_or(UniV2Error::ContractNameNotFound(name.to_owned()))?
                 .contract
                 .to_owned();
-            Ok::<_, UniV2Error>(contract)
+            Ok::<_, UniV2Error>(
+                contract
+                    .to_compiled_contract(Default::default())
+                    .expect("contract is static, this can't fail"),
+            )
         };
 
         let weth = find_contract("weth").expect("contract");

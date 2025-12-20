@@ -23,22 +23,19 @@ impl Default for RevertCliArgs {
 
 impl ToTestConfig for RevertCliArgs {
     fn to_testconfig(&self) -> contender_testfile::TestConfig {
-        TestConfig {
-            env: None,
-            create: Some(vec![CreateDefinition {
+        TestConfig::new()
+            .with_create(vec![CreateDefinition {
                 contract: SPAM_ME_6.into(),
                 signature: None,
                 args: None,
                 from: None,
                 from_pool: Some("admin".to_owned()),
-            }]),
-            setup: None,
-            spam: Some(vec![SpamRequest::new_tx(
+            }])
+            .with_spam(vec![SpamRequest::new_tx(
                 &FunctionCallDefinition::new(SPAM_ME_6.template_name())
                     .with_signature("consumeGasAndRevert(uint256 gas)")
                     .with_args(&[self.gas_use.to_string()])
                     .with_gas_limit(self.gas_use + 35000),
-            )]),
-        }
+            )])
     }
 }

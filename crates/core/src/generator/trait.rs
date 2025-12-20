@@ -7,7 +7,7 @@ use crate::{
         function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict, FuzzParam},
         named_txs::{ExecutionRequest, NamedTxRequest, NamedTxRequestBuilder},
         seeder::{SeedValue, Seeder},
-        templater::Templater,
+        templater::{Templater, TemplaterError},
         types::{AnyProvider, AsyncCallbackResult, PlanType, SpamRequest},
         util::{parse_value, UtilError},
         CreateDefinition, CreateDefinitionStrict, RandSeed,
@@ -185,13 +185,17 @@ where
         // handle direct variable injection
         // (backwards-compatible for bytecode defs that include placeholders,
         // rather than using `args` + `signature` in the `CreateDefinition`)
-        let bytecode = create_def.contract.bytecode.to_owned().replace(
+        let compiled_contract = create_def
+            .contract
+            .to_compiled_contract(self.get_templater().scenario_parent_directory())
+            .map_err(|e| TemplaterError::CreateError(e))?;
+        let bytecode = compiled_contract.bytecode.to_owned().replace(
             "{_sender}",
             &format!("{}{}", "0".repeat(24), from_address.encode_hex()),
         ); // inject address WITHOUT 0x prefix, padded with 24 zeroes
 
         Ok(CreateDefinitionStrict {
-            name: create_def.contract.name.to_owned(),
+            name: compiled_contract.name.to_owned(),
             bytecode,
             from: from_address,
             signature: create_def.signature.to_owned(),

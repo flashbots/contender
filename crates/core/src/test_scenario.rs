@@ -1754,7 +1754,8 @@ pub mod tests {
                     contract: CompiledContract {
                         bytecode: COUNTER_BYTECODE.to_string(),
                         name: "test_counter2".to_string(),
-                    },
+                    }
+                    .into(),
                     signature: None,
                     args: None,
                     from: None,
@@ -1764,7 +1765,8 @@ pub mod tests {
                     contract: CompiledContract {
                         bytecode: UNI_V2_FACTORY_BYTECODE.to_string(),
                         name: "univ2_factory".to_string(),
-                    },
+                    }
+                    .into(),
                     signature: None,
                     args: None,
                     from: None,
@@ -1868,6 +1870,9 @@ pub mod tests {
     }
 
     impl Templater<String> for MockConfig {
+        fn scenario_parent_directory(&self) -> std::path::PathBuf {
+            Default::default()
+        }
         fn copy_end(&self, input: &str, _last_end: usize) -> String {
             input.to_owned()
         }

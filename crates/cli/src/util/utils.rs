@@ -23,6 +23,7 @@ use contender_engine_provider::{ControlChain, DEFAULT_BLOCK_TIME};
 use contender_testfile::TestConfig;
 use nu_ansi_term::{AnsiGenericString, Color, Style as ANSIStyle};
 use rand::Rng;
+use std::path::PathBuf;
 use std::{str::FromStr, sync::Arc, time::Duration};
 use tracing::{debug, info, warn};
 
@@ -65,7 +66,11 @@ pub async fn load_testconfig(testfile: &str) -> Result<TestConfig, crate::CliErr
         );
         TestConfig::from_remote_url(&remote_url).await
     } else {
-        TestConfig::from_file(testfile)
+        let path: PathBuf = testfile.into();
+        let parent = path
+            .parent()
+            .ok_or(UtilError::InvalidScenarioPath(testfile.to_owned()))?;
+        Ok(TestConfig::from_file(testfile)?.with_scenario_directory(parent.into()))
     }?)
 }
 
