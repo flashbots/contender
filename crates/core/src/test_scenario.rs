@@ -1430,7 +1430,6 @@ where
                     warn!("timed out waiting for pending transactions");
                     break;
                 }
-                tokio::time::sleep(Duration::from_millis(500)).await;
             }
             let failed_txs = msg_handle.dump_cache(run_id).await?;
             if !failed_txs.is_empty() {

@@ -3,7 +3,7 @@ mod default_scenarios;
 mod error;
 mod util;
 
-use crate::commands::error::ArgsError;
+use crate::commands::{error::ArgsError, SpamCampaignContext};
 use alloy::{
     network::AnyNetwork,
     providers::{DynProvider, ProviderBuilder},
@@ -12,7 +12,7 @@ use alloy::{
 };
 use commands::{
     admin::handle_admin_command,
-    common::{ScenarioSendTxsCliArgs, SendSpamCliArgs},
+    common::ScenarioSendTxsCliArgs,
     db::{drop_db, export_db, import_db, reset_db},
     replay::ReplayArgs,
     ContenderCli, ContenderSubcommand, DbCommand, SetupCommandArgs, SpamCliArgs, SpamCommandArgs,
@@ -26,7 +26,7 @@ use std::{str::FromStr, sync::LazyLock};
 use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
-use util::{bold, data_dir, db_file, init_reports_dir, prompt_continue};
+use util::{data_dir, db_file, init_reports_dir};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
     let path = db_file().expect("failed to get DB file path");
@@ -77,9 +77,6 @@ async fn run() -> Result<(), CliError> {
             args,
             builtin_scenario_config,
         } => {
-            if !check_spam_args(&args)? {
-                return Ok(());
-            }
             if builtin_scenario_config.is_some() && args.eth_json_rpc_args.testfile.is_some() {
                 return Err(ArgsError::ScenarioFileBuiltinConflict.into());
             }
@@ -89,12 +86,8 @@ async fn run() -> Result<(), CliError> {
                     ScenarioSendTxsCliArgs {
                         testfile, rpc_args, ..
                     },
-                spam_args,
-                gen_report,
                 ..
             } = *args.to_owned();
-
-            let SendSpamCliArgs { loops, .. } = spam_args.to_owned();
 
             let client = ClientBuilder::default()
                 .http(Url::from_str(&rpc_args.rpc_url).map_err(ArgsError::UrlParse)?);
@@ -119,15 +112,8 @@ async fn run() -> Result<(), CliError> {
                 )
             };
 
-            let real_loops = if let Some(loops) = loops {
-                // loops flag is set; spamd will interpret a None value as infinite
-                loops
-            } else {
-                // loops flag is not set, so only loop once
-                Some(1)
-            };
-            let spamd_args = SpamCommandArgs::new(scenario, *args)?;
-            commands::spamd(&db, spamd_args, gen_report, real_loops).await?;
+            let spam_args = SpamCommandArgs::new(scenario, *args)?;
+            commands::spam(&db, &spam_args, SpamCampaignContext::default()).await?;
         }
 
         ContenderSubcommand::Replay { args } => {
@@ -246,38 +232,4 @@ fn init_tracing() {
     {
         contender_core::util::init_core_tracing(filter);
     }
-}
-
-/// Check if spam arguments are typical and prompt the user to continue if they are not.
-/// Returns true if the user chooses to continue, false otherwise.
-fn check_spam_args(args: &SpamCliArgs) -> Result<bool, CliError> {
-    let (units, max_duration) = if args.spam_args.txs_per_block.is_some() {
-        ("blocks", 50)
-    } else if args.spam_args.txs_per_second.is_some() {
-        ("seconds", 100)
-    } else {
-        return Err(ArgsError::SpamRateNotFound.into());
-    };
-    let duration = args.spam_args.duration;
-    if duration > max_duration {
-        let time_limit = duration / max_duration;
-        let scenario = args
-            .eth_json_rpc_args
-            .testfile
-            .as_deref()
-            .unwrap_or_default();
-        let suggestion_cmd = bold(format!(
-            "contender spam {scenario} -d {max_duration} -l {time_limit} ..."
-        ));
-        println!(
-"Duration is set to {duration} {units}, which is quite high. Generating transactions and collecting results may take a long time.
-You may want to use {} with a lower spamming duration {} and a loop limit {}:\n
-\t{suggestion_cmd}\n",
-            bold("spam"),
-            bold("(-d)"),
-            bold("(-l)")
-    );
-        return Ok(prompt_continue(None));
-    }
-    Ok(true)
 }
