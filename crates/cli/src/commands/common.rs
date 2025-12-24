@@ -294,6 +294,7 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
     /// If set without a value, the spam run will be repeated indefinitely.
     /// If not set, the spam run will be executed once.
     #[arg(
+        global = true,
         default_value_t = false, // pretty sure this line is unnecessary but it makes me feel safe
         long = "forever",
         long_help = "Run spammer indefinitely.",
