@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- core no longer processes CTRL-C signals ([#396](https://github.com/flashbots/contender/pull/396/files))
+  - instead, `TestScenario` uses a `cancel_token` to shut its processes down
+  - `cancel_token.cancel()` is triggered by the caller (e.g. the CLI)
+- pending txs are now processed asynchronously ([#396](https://github.com/flashbots/contender/pull/396/files))
+  - `cancel_token.cancelled()` terminates ALL bg processes, making shutdown nearly immediate (and one-step, not two like previously)
+- `TxActor` runs receipt-processing internally (automatically, async)
+- `TxActor` adds a new function `update_ctx_target_block` to internally track the target block to collect receipts from
+  - and `is_shutting_down` to report whether it will continue processing
+- `TxActorHandle` adds a new function `done_flushing` to track whether it's done emptying the cache internally
+- `TestScenario` added a new function `shutdown` to trigger cancellation on its `CancellationToken`
+
+### Breaking changes
+
+- `spammer::error::CallbackError::OneshotSend` now requires a string parameter to be passed along with it
+- `SpamRunContext` removed `do_quit` (it was an unnecessarily-copied clone of `TestScenario.ctx.cancel_token`)
+- `SpamRunContext` removed `get_msg_handler` (replaced with `TestScenario.tx_actor()`)
+- `TxActor` changes the signature of `flush_cache`, `dump_cache`, `remove_cached_tx`, `handle_message`
+- `TxActorHandle` adds a new function `init_ctx` which must be called before trying to process receipts
+- `flush_tx_cache` removed from `TestScenario` (queue is now passively managed)
+
+
 ## [0.6.0](https://github.com/flashbots/contender/releases/tag/v0.6.0) - 2025-11-25
 
 - support groth16 proof verification in fuzzer ([#379](https://github.com/flashbots/contender/pull/379))

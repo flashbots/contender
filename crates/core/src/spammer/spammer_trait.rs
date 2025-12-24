@@ -142,7 +142,6 @@ where
             // clear out unconfirmed txs from the cache
             let dump_finished: bool = tokio::select! {
                 _ = scenario.ctx.cancel_token.cancelled() => {
-                    // TODO: replace this ctrl_c handler, figure out whether we really need the stop() handler...
                     warn!("CTRL-C received, stopping tx cache dump...");
                     scenario.tx_actor().stop().await?;
                     false

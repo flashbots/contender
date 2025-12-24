@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- cli is now solely responsible for intercepting CTRL-C signals
+  - to shutdown background tasks, we rely on [`CancellationToken`s](https://docs.rs/tokio-util/latest/tokio_util/sync/struct.CancellationToken.html)
+  - we no longer require two-phase cancellation (CTRL-C once to stop spamming, CTRL-C again to stop result collection)
+    - result collection happens async, so when the user cancels, most results will have already been collected
+    - stopping quickly is a better UX than two-phase
+
+### Breaking changes
+
+- `commands::spam::spam` removes the `&mut TestScenario` param, creates a `TestScenario` from `spam_args` instead
+- `SendSpamCliArgs` replaces `--loops [NUM_LOOPS]` (optional `usize`) with `--forever` (`bool`)
+- some functions are moved from `utils` to `commands::spam`
+- `commands::spamd` has been deleted (it was just a junk wrapper for `spam`)
+
 ## [0.6.0](https://github.com/flashbots/contender/releases/tag/v0.6.0) - 2025-11-25
 
 - support new ENV vars ([#376](https://github.com/flashbots/contender/pull/376))
