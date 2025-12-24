@@ -9,17 +9,26 @@ use crate::{
     error::CliError,
     util::{
         bold, check_private_keys, fund_accounts, load_seedfile, load_testconfig, parse_duration,
-        provider::AuthClient, spam_callback_default, TypedSpamCallback,
+        provider::AuthClient,
     },
     LATENCY_HIST as HIST, PROM,
 };
-use alloy::{consensus::TxType, primitives::U256, transports::http::reqwest::Url};
+use alloy::{
+    consensus::TxType,
+    primitives::{utils::format_ether, U256},
+    transports::http::reqwest::Url,
+};
 use contender_core::{
     agent_controller::AgentStore,
     db::{DbOps, SpamDuration, SpamRunRequest},
     error::{RuntimeErrorKind, RuntimeParamErrorKind},
-    generator::{seeder::Seeder, templater::Templater, types::SpamRequest, PlanConfig, RandSeed},
-    spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
+    generator::{
+        seeder::Seeder,
+        templater::Templater,
+        types::{AnyProvider, SpamRequest},
+        PlanConfig, RandSeed,
+    },
+    spammer::{BlockwiseSpammer, LogCallback, NilCallback, Spammer, TimedSpammer},
     test_scenario::{TestScenario, TestScenarioParams},
     util::get_block_time,
 };
@@ -205,7 +214,7 @@ impl SpamCommandArgs {
             txs_per_block,
             duration,
             pending_timeout,
-            loops,
+            run_forever,
             accounts_per_agent,
         } = self.spam_args.spam_args.clone();
         let SendTxsCliArgsInner {
@@ -478,23 +487,34 @@ impl SpamCommandArgs {
         }
         done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
 
-        if loops.is_some_and(|inner_loops| inner_loops.is_none()) {
-            warn!("Spammer agents will eventually run out of funds.");
-            println!(
-                "Make sure you add plenty of funds with {} (set your pre-funded account with {}).",
-                bold("spam --min-balance"),
-                bold("spam -p"),
-            );
-        }
-
-        let total_cost = U256::from(duration * loops.flatten().unwrap_or(1))
-            * test_scenario.get_max_spam_cost(&user_signers).await?;
+        let total_cost =
+            U256::from(duration) * test_scenario.get_max_spam_cost(&user_signers).await?;
         if min_balance < U256::from(total_cost) {
             return Err(ArgsError::MinBalanceInsufficient {
                 min_balance,
                 required_balance: total_cost,
             }
             .into());
+        }
+
+        let duration_unit = if txs_per_second.is_some() {
+            "second"
+        } else {
+            "block"
+        };
+        let duration_units = if duration > 1 {
+            format!("{duration_unit}s")
+        } else {
+            duration_unit.to_owned()
+        };
+        if run_forever {
+            warn!("Spammer agents will eventually run out of funds. Each batch of spam (sent over {duration} {duration_units}) will cost {} ETH.", format_ether(total_cost));
+            // we use println! after warn! because warn! doesn't properly format bold strings
+            println!(
+                "Make sure you add plenty of funds with {} (set your pre-funded account with {}).",
+                bold("spam --min-balance"),
+                bold("spam -p"),
+            );
         }
 
         Ok(test_scenario)
@@ -506,6 +526,39 @@ impl SpamCommandArgs {
             .rpc_args
             .testconfig(&self.scenario)
             .await
+    }
+}
+
+pub fn spam_callback_default(
+    log_txs: bool,
+    send_fcu: bool,
+    rpc_client: Option<Arc<AnyProvider>>,
+    auth_client: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
+    cancel_token: tokio_util::sync::CancellationToken,
+) -> TypedSpamCallback {
+    if let Some(rpc_client) = rpc_client {
+        if log_txs {
+            let log_callback = LogCallback {
+                rpc_provider: rpc_client.clone(),
+                auth_provider: auth_client,
+                send_fcu,
+                cancel_token,
+            };
+            return TypedSpamCallback::Log(log_callback);
+        }
+    }
+    TypedSpamCallback::Nil(NilCallback)
+}
+
+#[derive(Clone)]
+pub enum TypedSpamCallback {
+    Log(LogCallback),
+    Nil(NilCallback),
+}
+
+impl TypedSpamCallback {
+    pub fn is_log(&self) -> bool {
+        matches!(self, TypedSpamCallback::Log(_))
     }
 }
 
@@ -564,16 +617,12 @@ impl TypedSpammer {
 }
 
 /// Runs spammer and returns run ID.
-pub async fn spam<
-    D: DbOps + Clone + Send + Sync + 'static,
-    S: Seeder + Send + Sync + Clone,
-    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
->(
+pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
     db: &D,
     args: &SpamCommandArgs,
-    test_scenario: &mut TestScenario<D, S, P>,
     run_context: SpamCampaignContext,
 ) -> Result<Option<u64>> {
+    let mut test_scenario = args.init_scenario(db).await?;
     let SpamCommandArgs {
         scenario,
         spam_args,
@@ -690,10 +739,29 @@ pub async fn spam<
         }
     }
 
-    spammer
-        .spam_rpc(test_scenario, txs_per_batch, duration, run_id, callback)
-        .await
-        .map_err(err_parse)?;
+    loop {
+        tokio::select! {
+            res = spammer
+            .spam_rpc(
+                &mut test_scenario,
+                txs_per_batch,
+                duration,
+                run_id,
+                callback.clone(),
+            ) => {
+                res.map_err(err_parse)?;
+            }
+
+            _ = tokio::signal::ctrl_c() => {
+                println!("\nCTRL-C received, shutting down spam run.");
+                test_scenario.shutdown().await;
+            }
+        }
+
+        if !args.spam_args.spam_args.run_forever || test_scenario.ctx.cancel_token.is_cancelled() {
+            break;
+        }
+    }
 
     Ok(run_id)
 }

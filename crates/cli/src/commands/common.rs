@@ -294,12 +294,13 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
     /// If set without a value, the spam run will be repeated indefinitely.
     /// If not set, the spam run will be executed once.
     #[arg(
-        short,
-        long,
-        num_args = 0..=1,
-        long_help = "The number of times to repeat the spam run. If set with a value, the spam run will be repeated this many times. If set without a value, the spam run will be repeated indefinitely. If not set, the spam run will be repeated once."
+        global = true,
+        default_value_t = false, // pretty sure this line is unnecessary but it makes me feel safe
+        long = "forever",
+        long_help = "Run spammer indefinitely.",
+        visible_aliases = ["indefinite", "indefinitely", "infinite"]
     )]
-    pub loops: Option<Option<u64>>,
+    pub run_forever: bool,
 
     /// The number of accounts to generate for each agent (`from_pool` in scenario files)
     #[arg(

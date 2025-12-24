@@ -308,7 +308,7 @@ fn create_spam_cli_args(
             },
             duration: spam_duration,
             pending_timeout: args.pending_timeout,
-            loops: Some(Some(1)),
+            run_forever: false,
             accounts_per_agent: args.accounts_per_agent,
         },
         ignore_receipts: args.ignore_receipts,
@@ -374,7 +374,6 @@ async fn execute_stage(
         };
 
         let spam_args = SpamCommandArgs::new(spam_scenario, spam_cli_args)?;
-        let scenario = spam_args.init_scenario(db).await?;
         let duration = stage.duration;
         let db = db.clone();
         let campaign_id_owned = campaign_id.to_owned();
@@ -403,8 +402,7 @@ async fn execute_stage(
             // Wait for all parallel scenarios to be ready before starting
             barrier_clone.wait().await;
 
-            let mut scenario = scenario;
-            let run_res = commands::spam(&db, &spam_args, &mut scenario, ctx).await;
+            let run_res = commands::spam(&db, &spam_args, ctx).await;
             match run_res {
                 Ok(Some(run_id)) => {
                     info!(

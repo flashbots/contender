@@ -45,7 +45,7 @@ use std::{
     pin::Pin,
     str::FromStr,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
@@ -166,10 +166,6 @@ impl ExecutionContext {
     pub fn add_to_gas_price(&mut self, amount: i128) {
         self.gas_price_adder += amount;
     }
-
-    pub fn cancel_run(&self) {
-        self.cancel_token.cancel();
-    }
 }
 
 struct DeployContractParams<'a, D: DbOps> {
@@ -282,7 +278,7 @@ where
         let cancel_token = CancellationToken::new();
 
         // default msg_handle to handle txs sent on rpc_url
-        let msg_handle = Arc::new(TxActorHandle::new(120, db.clone(), rpc_client.clone()));
+        let msg_handle = Arc::new(TxActorHandle::new(12000, db.clone(), rpc_client.clone()));
         let mut msg_handles = HashMap::new();
         msg_handles.insert("default".to_owned(), msg_handle);
         msg_handles.extend(extra_msg_handles.unwrap_or_default());
@@ -330,6 +326,12 @@ where
             self.setcode_signer.address(),
         )
         .await
+    }
+
+    pub fn tx_actor(&self) -> &TxActorHandle {
+        self.msg_handles
+            .get("default")
+            .expect("default msg_handle uninitialized")
     }
 
     // Polls anvil to ensure its initialized and ready to accept RPC requests
@@ -1413,67 +1415,32 @@ where
             .collect::<_>())
     }
 
-    pub async fn flush_tx_cache(&self, block_start: u64, run_id: u64) -> Result<()> {
-        let mut block_counter = 0;
-        // the number of blocks to check for stalled txs
-        let block_timeout = ((self.pending_tx_timeout_secs / self.ctx.block_time_secs) + 1)
-            // must be at least 2 blocks because otherwise we have nothing to compare
-            .max(2);
-        let mut cache_size_queue = vec![];
-        cache_size_queue.resize(block_timeout as usize, 1);
-        for msg_handle in self.msg_handles.values() {
-            loop {
-                let pending_txs = msg_handle
-                    .flush_cache(run_id, block_start + block_counter as u64)
-                    .await?;
-                cache_size_queue.rotate_right(1);
-                cache_size_queue[0] = pending_txs.len();
-
-                if pending_txs.is_empty() {
-                    break;
-                }
-
-                let current_timestamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("time went backwards")
-                    .as_millis();
-
-                // remove cached txs if the size hasn't changed for the last N blocks
-                if cache_size_queue
-                    .iter()
-                    .all(|&size| size == cache_size_queue[0])
-                {
-                    warn!(
-                        "Cache size has not changed for the last {block_timeout} blocks. Removing stalled txs...",
-                    );
-
-                    for tx in &pending_txs {
-                        // only remove txs that have been waiting for > T seconds
-                        if current_timestamp
-                            > tx.start_timestamp_ms + (self.pending_tx_timeout_secs as u128 * 1000)
-                        {
-                            msg_handle.remove_cached_tx(tx.tx_hash).await?;
-                        }
-                    }
-                }
-
-                block_counter += 1;
-            }
-        }
-
-        Ok(())
-    }
-
+    /// Wait for `self.pending_tx_timeout_secs` for pending txs to confirm, then delete any remaining cache items.
     pub async fn dump_tx_cache(&self, run_id: u64) -> Result<()> {
         debug!("dumping tx cache...");
 
+        let start_time = Instant::now();
         for msg_handle in self.msg_handles.values() {
-            let failed_txs = msg_handle.dump_cache(run_id).await?;
-            if !failed_txs.is_empty() {
-                warn!(
-                    "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
-                    failed_txs.len()
-                );
+            tokio::select! {
+                _ = self.ctx.cancel_token.cancelled() => {
+                    println!("dump_tx_cache cancelled");
+                }
+                _ = async {
+                    while !self.tx_actor().done_flushing().await? {
+                        if start_time.elapsed().as_secs() > self.pending_tx_timeout_secs {
+                            warn!("timed out waiting for pending transactions");
+                            break;
+                        }
+                    }
+                    let failed_txs = msg_handle.dump_cache(run_id).await?;
+                    if !failed_txs.is_empty() {
+                        warn!(
+                            "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
+                            failed_txs.len()
+                        );
+                    }
+                    Ok::<_, Error>(())
+                } => {}
             }
         }
 
@@ -1552,6 +1519,10 @@ where
         }
         Ok(key)
     }
+
+    pub async fn shutdown(&mut self) {
+        self.ctx.cancel_token.cancel();
+    }
 }
 
 async fn handle_tx_outcome<'a, F: SpamCallback + 'static>(
@@ -1603,7 +1574,8 @@ async fn handle_tx_outcome<'a, F: SpamCallback + 'static>(
     } else {
         // success path
         if let Err(e) = ctx.success_sender.send(()).await {
-            warn!(
+            // this error can safely be ignored; it just means the receiver was closed (e.g. by CTRL-C)
+            debug!(
                 "failed to send success notification for tx {}: {:?}",
                 tx_hash, e
             );
