@@ -753,7 +753,7 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
             }
 
             _ = tokio::signal::ctrl_c() => {
-                println!("CTRL-C received, shutting down TestScenario");
+                println!("\nCTRL-C received, shutting down spam run.");
                 test_scenario.shutdown().await;
             }
         }
