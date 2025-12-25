@@ -7,13 +7,11 @@ pub mod error;
 pub mod replay;
 mod setup;
 mod spam;
-mod spamd;
 
 use clap::Parser;
-pub use contender_subcommand::{ContenderSubcommand, DbCommand};
-pub use setup::{setup, SetupCommandArgs};
-pub use spam::{spam, EngineArgs, SpamCampaignContext, SpamCliArgs, SpamCommandArgs, SpamScenario};
-pub use spamd::spamd;
+pub use contender_subcommand::*;
+pub use setup::*;
+pub use spam::*;
 
 use crate::error::CliError;
 

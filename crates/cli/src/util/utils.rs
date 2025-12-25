@@ -16,27 +16,15 @@ use contender_core::{
         types::{AnyProvider, FunctionCallDefinition, SpamRequest},
         util::complete_tx_request,
     },
-    spammer::{LogCallback, NilCallback},
     util::get_blob_fee_maybe,
 };
-use contender_engine_provider::{ControlChain, DEFAULT_BLOCK_TIME};
+use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use contender_testfile::TestConfig;
-use nu_ansi_term::{AnsiGenericString, Color, Style as ANSIStyle};
+use nu_ansi_term::{AnsiGenericString, Style as ANSIStyle};
 use rand::Rng;
 use std::path::PathBuf;
 use std::{str::FromStr, sync::Arc, time::Duration};
 use tracing::{debug, info, warn};
-
-pub enum TypedSpamCallback {
-    Log(LogCallback),
-    Nil(NilCallback),
-}
-
-impl TypedSpamCallback {
-    pub fn is_log(&self) -> bool {
-        matches!(self, TypedSpamCallback::Log(_))
-    }
-}
 
 pub const DEFAULT_PRV_KEYS: [&str; 10] = [
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
@@ -360,45 +348,6 @@ pub async fn find_insufficient_balances(
         }
     }
     Ok(insufficient_balances)
-}
-
-pub fn spam_callback_default(
-    log_txs: bool,
-    send_fcu: bool,
-    rpc_client: Option<Arc<AnyProvider>>,
-    auth_client: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
-    cancel_token: tokio_util::sync::CancellationToken,
-) -> TypedSpamCallback {
-    if let Some(rpc_client) = rpc_client {
-        if log_txs {
-            let log_callback = LogCallback {
-                rpc_provider: rpc_client.clone(),
-                auth_provider: auth_client,
-                send_fcu,
-                cancel_token,
-            };
-            return TypedSpamCallback::Log(log_callback);
-        }
-    }
-    TypedSpamCallback::Nil(NilCallback)
-}
-
-pub fn prompt_cli(msg: impl AsRef<str>) -> String {
-    println!("{}", Color::Rgb(252, 186, 3).paint(msg.as_ref()));
-
-    let mut input = String::new();
-    std::io::stdin()
-        .read_line(&mut input)
-        .expect("Failed to read line");
-    input.trim().to_owned()
-}
-
-/// Prompts the user for a yes/no answer.
-/// Returns true if the answer starts with 'y' or 'Y', false otherwise.
-pub fn prompt_continue(msg: Option<&str>) -> bool {
-    prompt_cli(msg.unwrap_or("Do you want to continue anyways? [y/N]"))
-        .to_lowercase()
-        .starts_with("y")
 }
 
 /// Returns the path to the data directory.

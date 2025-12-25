@@ -8,25 +8,23 @@ use futures::Stream;
 use futures::StreamExt;
 use tracing::{debug, info, warn};
 
+use super::tx_callback::OnBatchSent;
+use super::OnTxSent;
+use super::SpamTrigger;
 use crate::db::SpamDuration;
 use crate::spammer::tx_actor::ActorContext;
 use crate::spammer::CallbackError;
 use crate::{
     db::DbOps,
-    generator::{seeder::Seeder, templater::Templater, types::AnyProvider, PlanConfig},
+    generator::{seeder::Seeder, templater::Templater, PlanConfig},
     test_scenario::TestScenario,
     Result,
 };
-
-use super::tx_callback::OnBatchSent;
-use super::SpamTrigger;
-use super::{tx_actor::TxActorHandle, OnTxSent};
 
 #[derive(Clone)]
 pub struct SpamRunContext {
     done_sending: Arc<AtomicBool>,
     done_fcu: Arc<AtomicBool>,
-    do_quit: tokio_util::sync::CancellationToken,
 }
 
 impl SpamRunContext {
@@ -40,7 +38,6 @@ impl Default for SpamRunContext {
         Self {
             done_sending: Arc::new(AtomicBool::new(false)),
             done_fcu: Arc::new(AtomicBool::new(false)),
-            do_quit: tokio_util::sync::CancellationToken::new(),
         }
     }
 }
@@ -52,10 +49,6 @@ where
     S: Seeder + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
-    fn get_msg_handler(&self, db: Arc<D>, rpc_client: Arc<AnyProvider>) -> TxActorHandle {
-        TxActorHandle::new(12, db.clone(), rpc_client.clone())
-    }
-
     fn context(&self) -> &SpamRunContext;
 
     fn on_spam(
@@ -118,18 +111,18 @@ where
                 scenario.sync_nonces().await?;
             }
 
-            // calling cancel() on cancel_token should stop all running tasks
-            // (as long as each task checks for it)
-            let cancel_token = self.context().do_quit.clone();
+            let actor_ctx = ActorContext::new(start_block, run_id);
+            scenario.tx_actor().init_ctx(actor_ctx).await?;
 
             let actor_ctx = ActorContext::new(start_block, run_id);
             scenario.tx_actor().init_ctx(actor_ctx).await?;
 
             // run spammer within tokio::select! to allow for graceful shutdown
+            let do_quit = scenario.ctx.cancel_token.clone();
             let spam_finished: bool = tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
+                _ = do_quit.cancelled() => {
                     debug!("CTRL-C received, dropping execute_spammer call...");
-                    cancel_token.cancel();
+
 
                     false
                 },
@@ -151,10 +144,9 @@ where
 
             // clear out unconfirmed txs from the cache
             let dump_finished: bool = tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
+                _ = scenario.ctx.cancel_token.cancelled() => {
                     warn!("CTRL-C received, stopping tx cache dump...");
-                    self.get_msg_handler(scenario.db.clone(), scenario.rpc_client.clone()).stop().await?;
-
+                    scenario.tx_actor().stop().await?;
                     false
                 },
                 _ = scenario.dump_tx_cache(run_id) => {

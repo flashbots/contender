@@ -38,8 +38,8 @@ pub enum CallbackError {
     #[error("failed to send mpsc message: {0}")]
     MpscSendAddrNonce(#[from] mpsc::error::SendError<(Address, u64)>),
 
-    #[error("oneshot failed to send")]
-    OneshotSend(()),
+    #[error("oneshot failed to send: {0}")]
+    OneshotSend(String),
 
     #[error("oneshot receiver failed: {0}")]
     OneshotReceive(#[from] oneshot::error::RecvError),

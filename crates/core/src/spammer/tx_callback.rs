@@ -93,6 +93,7 @@ impl<T: OnTxSent + OnBatchSent + Sized + Send + Sync> SpamCallback for T {}
 #[derive(Clone)]
 pub struct NilCallback;
 
+#[derive(Clone)]
 pub struct LogCallback {
     pub rpc_provider: Arc<AnyProvider>,
     pub auth_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,

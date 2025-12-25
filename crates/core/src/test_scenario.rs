@@ -166,10 +166,6 @@ impl ExecutionContext {
     pub fn add_to_gas_price(&mut self, amount: i128) {
         self.gas_price_adder += amount;
     }
-
-    pub fn cancel_run(&self) {
-        self.cancel_token.cancel();
-    }
 }
 
 struct DeployContractParams<'a, D: DbOps> {
@@ -282,7 +278,7 @@ where
         let cancel_token = CancellationToken::new();
 
         // default msg_handle to handle txs sent on rpc_url
-        let msg_handle = Arc::new(TxActorHandle::new(120, db.clone(), rpc_client.clone()));
+        let msg_handle = Arc::new(TxActorHandle::new(12000, db.clone(), rpc_client.clone()));
         let mut msg_handles = HashMap::new();
         msg_handles.insert("default".to_owned(), msg_handle);
         msg_handles.extend(extra_msg_handles.unwrap_or_default());
@@ -1425,19 +1421,26 @@ where
 
         let start_time = Instant::now();
         for msg_handle in self.msg_handles.values() {
-            while !self.tx_actor().done_flushing().await? {
-                if start_time.elapsed().as_secs() > self.pending_tx_timeout_secs {
-                    warn!("timed out waiting for pending transactions");
-                    break;
+            tokio::select! {
+                _ = self.ctx.cancel_token.cancelled() => {
+                    println!("dump_tx_cache cancelled");
                 }
-                tokio::time::sleep(Duration::from_millis(500)).await;
-            }
-            let failed_txs = msg_handle.dump_cache(run_id).await?;
-            if !failed_txs.is_empty() {
-                warn!(
-                    "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
-                    failed_txs.len()
-                );
+                _ = async {
+                    while !self.tx_actor().done_flushing().await? {
+                        if start_time.elapsed().as_secs() > self.pending_tx_timeout_secs {
+                            warn!("timed out waiting for pending transactions");
+                            break;
+                        }
+                    }
+                    let failed_txs = msg_handle.dump_cache(run_id).await?;
+                    if !failed_txs.is_empty() {
+                        warn!(
+                            "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
+                            failed_txs.len()
+                        );
+                    }
+                    Ok::<_, Error>(())
+                } => {}
             }
         }
 
@@ -1515,6 +1518,10 @@ where
             self.gas_limits.insert(key, gas_limit);
         }
         Ok(key)
+    }
+
+    pub async fn shutdown(&mut self) {
+        self.ctx.cancel_token.cancel();
     }
 }
 

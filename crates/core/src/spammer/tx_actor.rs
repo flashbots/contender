@@ -261,14 +261,14 @@ where
             TxActorMessage::GetCacheLen(on_len) => {
                 on_len
                     .send(self.cache.len())
-                    .map_err(|_| CallbackError::OneshotSend(()))?;
+                    .map_err(|e| CallbackError::OneshotSend(format!("GetCacheLen: {:?}", e)))?;
             }
             TxActorMessage::InitCtx(ctx) => {
                 self.ctx = Some(ctx);
             }
             TxActorMessage::Stop { on_stop } => {
-                on_stop.send(()).map_err(|_| CallbackError::Stop)?;
                 self.status = ActorStatus::ShuttingDown;
+                on_stop.send(()).map_err(|_| CallbackError::Stop)?;
             }
             TxActorMessage::SentRunTx {
                 tx_hash,
@@ -284,11 +284,15 @@ where
                     error,
                 };
                 self.cache.push(run_tx.to_owned());
-                on_receive.send(()).map_err(CallbackError::OneshotSend)?;
+                on_receive
+                    .send(())
+                    .map_err(|e| CallbackError::OneshotSend(format!("SentRunTx: {:?}", e)))?;
             }
             TxActorMessage::RemovedRunTx { tx_hash, on_remove } => {
                 self.remove_cached_tx(tx_hash).await?;
-                on_remove.send(()).map_err(CallbackError::OneshotSend)?;
+                on_remove
+                    .send(())
+                    .map_err(|e| CallbackError::OneshotSend(format!("RemovedRunTx: {:?}", e)))?;
             }
             TxActorMessage::DumpCache {
                 on_dump_cache,
@@ -339,6 +343,10 @@ where
 
         Ok(())
     }
+
+    pub fn is_shutting_down(&self) -> bool {
+        self.status == ActorStatus::ShuttingDown
+    }
 }
 
 impl<D: DbOps> TxActor<D> {
@@ -369,7 +377,8 @@ impl TxActorHandle {
         let (sender, receiver) = mpsc::channel(bufsize);
         let mut actor = TxActor::new(receiver, db, rpc);
         tokio::task::spawn(async move {
-            actor.run().await.expect("tx actor massively failed");
+            actor.run().await?;
+            Ok::<_, crate::Error>(())
         });
         Self { sender }
     }
