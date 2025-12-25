@@ -21,6 +21,21 @@ pub trait DbOps {
         genesis_hash: FixedBytes<32>,
     ) -> Result<Option<NamedTx>, Self::Error>;
 
+    fn get_named_txs(
+        &self,
+        name: &str,
+        rpc_url: &str,
+        genesis_hash: FixedBytes<32>,
+    ) -> Result<Vec<NamedTx>, Self::Error>;
+
+    fn get_setup_progress(&self, scenario_hash: &str) -> Result<Option<u64>, Self::Error>;
+
+    fn update_setup_progress(
+        &self,
+        scenario_hash: &str,
+        step_index: u64,
+    ) -> Result<(), Self::Error>;
+
     fn get_named_tx_by_address(&self, address: &Address) -> Result<Option<NamedTx>, Self::Error>;
 
     fn get_run(&self, run_id: u64) -> Result<Option<SpamRun>, Self::Error>;
