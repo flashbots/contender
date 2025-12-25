@@ -6,6 +6,7 @@ use contender_core::generator::{
     FunctionCallDefinition, PlanConfig,
 };
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::{collections::HashMap, str::FromStr};
 use std::{fs::read, ops::Deref};
 
@@ -24,6 +25,8 @@ pub struct TestConfig {
 
     /// Function to call in spam txs.
     pub spam: Option<Vec<SpamRequest>>,
+
+    _scenario_directory: Option<PathBuf>,
 }
 
 impl TestConfig {
@@ -33,7 +36,13 @@ impl TestConfig {
             create: None,
             setup: None,
             spam: None,
+            _scenario_directory: None,
         }
+    }
+
+    pub fn with_scenario_directory(mut self, dir: PathBuf) -> Self {
+        self._scenario_directory = Some(dir);
+        self
     }
 
     pub async fn from_remote_url(url: &str) -> Result<TestConfig> {
@@ -220,6 +229,14 @@ impl PlanConfig<String> for TestConfig {
 }
 
 impl Templater<String> for TestConfig {
+    fn scenario_parent_directory(&self) -> std::path::PathBuf {
+        if let Some(dir) = &self._scenario_directory {
+            dir.to_owned()
+        } else {
+            Default::default()
+        }
+    }
+
     /// Find values wrapped in brackets in a string and replace them with values from a hashmap whose key match the value in the brackets.
     /// example: "hello {world}" with hashmap {"world": "earth"} will return "hello earth"
     fn replace_placeholders(&self, input: &str, template_map: &HashMap<String, String>) -> String {

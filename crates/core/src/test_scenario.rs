@@ -1026,7 +1026,7 @@ where
                                 .send(e)
                                 .await
                                 .unwrap_or_else(|e| trace!("failed to send error signal: {e:?}"));
-                        } else {
+                        } else if !cancel_token.is_cancelled() {
                             success_sender
                                 .send(())
                                 .await
@@ -1571,7 +1571,7 @@ async fn handle_tx_outcome<'a, F: SpamCallback + 'static>(
         }
         warn!("error from tx {tx_hash}: {msg}");
         extra = extra.with_error(msg.to_string());
-    } else {
+    } else if !ctx.cancel_token.is_cancelled() {
         // success path
         if let Err(e) = ctx.success_sender.send(()).await {
             // this error can safely be ignored; it just means the receiver was closed (e.g. by CTRL-C)
@@ -1761,7 +1761,8 @@ pub mod tests {
                     contract: CompiledContract {
                         bytecode: COUNTER_BYTECODE.to_string(),
                         name: "test_counter2".to_string(),
-                    },
+                    }
+                    .into(),
                     signature: None,
                     args: None,
                     from: None,
@@ -1771,7 +1772,8 @@ pub mod tests {
                     contract: CompiledContract {
                         bytecode: UNI_V2_FACTORY_BYTECODE.to_string(),
                         name: "univ2_factory".to_string(),
-                    },
+                    }
+                    .into(),
                     signature: None,
                     args: None,
                     from: None,
@@ -1875,6 +1877,9 @@ pub mod tests {
     }
 
     impl Templater<String> for MockConfig {
+        fn scenario_parent_directory(&self) -> std::path::PathBuf {
+            Default::default()
+        }
         fn copy_end(&self, input: &str, _last_end: usize) -> String {
             input.to_owned()
         }

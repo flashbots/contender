@@ -114,6 +114,9 @@ where
             let actor_ctx = ActorContext::new(start_block, run_id);
             scenario.tx_actor().init_ctx(actor_ctx).await?;
 
+            let actor_ctx = ActorContext::new(start_block, run_id);
+            scenario.tx_actor().init_ctx(actor_ctx).await?;
+
             // run spammer within tokio::select! to allow for graceful shutdown
             let do_quit = scenario.ctx.cancel_token.clone();
             let spam_finished: bool = tokio::select! {
