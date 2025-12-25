@@ -349,12 +349,6 @@ where
     }
 }
 
-impl<D: DbOps> TxActor<D> {
-    pub fn is_shutting_down(&self) -> bool {
-        self.status == ActorStatus::ShuttingDown
-    }
-}
-
 #[derive(Debug)]
 pub struct TxActorHandle {
     sender: mpsc::Sender<TxActorMessage>,
