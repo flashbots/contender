@@ -397,6 +397,7 @@ impl SpamCommandArgs {
             redeploy: self.spam_args.redeploy,
             sync_nonces_after_batch: !self.spam_args.optimistic_nonces,
             rpc_batch_size,
+            gas_price: self.spam_args.eth_json_rpc_args.rpc_args.gas_price,
         };
 
         if !override_senders {

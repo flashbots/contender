@@ -122,6 +122,7 @@ where
     /// Max num of eth_sendRawTransaction calls per json-rpc batch; 0 disables batching.
     pub rpc_batch_size: u64,
     pub num_rpc_batches_sent: u64,
+    pub gas_price: Option<U256>,
 }
 
 pub struct TestScenarioParams {
@@ -136,6 +137,7 @@ pub struct TestScenarioParams {
     pub redeploy: bool,
     pub sync_nonces_after_batch: bool,
     pub rpc_batch_size: u64,
+    pub gas_price: Option<U256>,
 }
 
 pub struct SpamRunContext<'a, F: SpamCallback + 'static> {
@@ -205,6 +207,7 @@ where
             redeploy,
             sync_nonces_after_batch,
             rpc_batch_size,
+            gas_price,
         } = params;
 
         let (setcode_signer, _) = generate_setcode_signer(&rand_seed);
@@ -315,6 +318,7 @@ where
             should_sync_nonces: sync_nonces_after_batch,
             rpc_batch_size,
             num_rpc_batches_sent: 0,
+            gas_price,
         })
     }
 
@@ -368,8 +372,12 @@ where
     pub async fn estimate_setup_cost(&self) -> Result<U256> {
         println!("{}", SETUP_SIM_START);
 
-        // get gas price from chain to approximate gas cost
-        let gas_price = self.rpc_client.get_gas_price().await?;
+        // use user-provided gas price or get gas price from chain to approximate gas cost
+        let gas_price = match self.gas_price {
+            Some(gas_price) => gas_price.to::<u128>(),
+            None => self.rpc_client.get_gas_price().await?,
+        };
+
         debug!(
             "reference gas price: {}gwei",
             format_units(gas_price, "gwei").unwrap()
@@ -428,6 +436,7 @@ where
                 redeploy: self.redeploy,
                 sync_nonces_after_batch: self.should_sync_nonces,
                 rpc_batch_size: self.rpc_batch_size,
+                gas_price: self.gas_price,
             },
             None,
             (&PROM, &HIST).into(),
@@ -786,17 +795,28 @@ where
         &mut self,
         tx_requests: &[ExecutionRequest],
     ) -> Result<Vec<ExecutionPayload>> {
-        let gas_price = self.rpc_client.get_gas_price().await?;
-        let blob_gas_price = get_blob_fee_maybe(&self.rpc_client).await;
-        let adjusted_gas_price = |price: u128| {
-            if self.ctx.gas_price_adder < 0 {
-                price - self.ctx.gas_price_adder.unsigned_abs()
-            } else {
-                price + self.ctx.gas_price_adder as u128
+        let (gas_price, blob_gas_price) = match self.gas_price {
+            Some(override_price) => (
+                override_price.to::<u128>(),
+                get_blob_fee_maybe(&self.rpc_client).await,
+            ),
+            None => {
+                let gas_price = self.rpc_client.get_gas_price().await?;
+                let blob_gas_price = get_blob_fee_maybe(&self.rpc_client).await;
+                let adjusted_gas_price = |price: u128| {
+                    if self.ctx.gas_price_adder < 0 {
+                        price - self.ctx.gas_price_adder.unsigned_abs()
+                    } else {
+                        price + self.ctx.gas_price_adder as u128
+                    }
+                };
+
+                (
+                    adjusted_gas_price(gas_price),
+                    adjusted_gas_price(blob_gas_price),
+                )
             }
         };
-        let gas_price = adjusted_gas_price(gas_price);
-        let blob_gas_price = adjusted_gas_price(blob_gas_price);
 
         let mut payloads = vec![];
         info!("preparing {} spam payloads", tx_requests.len());
@@ -1334,6 +1354,7 @@ where
                 redeploy: false,
                 sync_nonces_after_batch: self.should_sync_nonces,
                 rpc_batch_size: self.rpc_batch_size,
+                gas_price: self.gas_price,
             },
             None,
             (&PROM, &HIST).into(),
@@ -1368,8 +1389,16 @@ where
             .collect::<Vec<_>>()
             .concat();
 
-        let gas_price = scenario.rpc_client.get_gas_price().await?;
-        let blob_gas_price = get_blob_fee_maybe(&scenario.rpc_client).await;
+        let (gas_price, blob_gas_price) = match scenario.gas_price {
+            Some(override_price) => (
+                override_price.to::<u128>(),
+                get_blob_fee_maybe(&scenario.rpc_client).await,
+            ),
+            None => (
+                scenario.rpc_client.get_gas_price().await?,
+                get_blob_fee_maybe(&scenario.rpc_client).await,
+            ),
+        };
 
         // get gas limit for each tx
         let mut prepared_sample_txs = vec![];
@@ -1903,6 +1932,7 @@ pub mod tests {
         anvil: &AnvilInstance,
         txs_per_duration: u64,
         builder_anvil: Option<&AnvilInstance>,
+        gas_price: Option<U256>,
     ) -> Result<TestScenario<MockDb, RandSeed, MockConfig>> {
         let seed = RandSeed::new();
         let tx_type = alloy::consensus::TxType::Eip1559;
@@ -1939,6 +1969,7 @@ pub mod tests {
                 redeploy: true,
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
+                gas_price,
             },
             None,
             (&PROM, &HIST).into(),
@@ -1967,7 +1998,10 @@ pub mod tests {
                 .unwrap();
         }
 
-        scenario.ctx.add_to_gas_price(GWEI_TO_WEI as i128 * 10);
+        // Only apply default gas_price_adder when no override is set
+        if gas_price.is_none() {
+            scenario.ctx.add_to_gas_price(GWEI_TO_WEI as i128 * 10);
+        }
 
         Ok(scenario)
     }
@@ -1975,7 +2009,7 @@ pub mod tests {
     #[tokio::test]
     async fn it_creates_scenarios() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10, None).await?;
+        let scenario = get_test_scenario(&anvil, 10, None, None).await?;
 
         let create_txs = scenario
             .load_txs(PlanType::Create(|tx| {
@@ -2008,7 +2042,7 @@ pub mod tests {
     #[tokio::test]
     async fn gas_limit_override_works() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
+        let scenario = get_test_scenario(&anvil, 10, None, None).await.unwrap();
         let spam_txs = scenario
             .load_txs(PlanType::Spam(20, |tx| {
                 println!("spam tx callback triggered! {tx:?}\n");
@@ -2045,7 +2079,7 @@ pub mod tests {
         let anvil = spawn_anvil();
 
         // --- Non-batched case: rpc_batch_size = 0 ---
-        let mut scenario = get_test_scenario(&anvil, txs_per_duration, None).await?;
+        let mut scenario = get_test_scenario(&anvil, txs_per_duration, None, None).await?;
         scenario.rpc_batch_size = 0;
 
         let spammer = BlockwiseSpammer::new();
@@ -2065,7 +2099,7 @@ pub mod tests {
         assert_eq!(scenario.num_rpc_batches_sent, total_txs);
 
         // --- Batched case: rpc_batch_size = 10 ---
-        let mut scenario_batched = get_test_scenario(&anvil, txs_per_duration, None).await?;
+        let mut scenario_batched = get_test_scenario(&anvil, txs_per_duration, None, None).await?;
         scenario_batched.rpc_batch_size = 10;
 
         let spammer_batched = BlockwiseSpammer::new();
@@ -2093,7 +2127,7 @@ pub mod tests {
     #[tokio::test]
     async fn fncall_replaces_sender_placeholder_with_from_address() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
+        let scenario = get_test_scenario(&anvil, 10, None, None).await.unwrap();
 
         let spam_txs = scenario
             .load_txs(PlanType::Spam(10, |tx| {
@@ -2117,7 +2151,7 @@ pub mod tests {
     #[tokio::test]
     async fn create_replaces_sender_placeholder_with_from_address() {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
+        let scenario = get_test_scenario(&anvil, 10, None, None).await.unwrap();
 
         let txs = scenario
             .load_txs(PlanType::Create(|tx| {
@@ -2143,7 +2177,7 @@ pub mod tests {
     #[tokio::test]
     async fn create_steps_use_agent_signers() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
+        let mut scenario = get_test_scenario(&anvil, 10, None, None).await.unwrap();
         scenario.deploy_contracts().await.unwrap();
 
         // assert that the agent store has the correct number of signers
@@ -2182,7 +2216,7 @@ pub mod tests {
     #[tokio::test]
     async fn setup_steps_use_agent_signers() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
+        let mut scenario = get_test_scenario(&anvil, 10, None, None).await.unwrap();
         scenario.deploy_contracts().await.unwrap();
         let setup_steps = scenario
             .load_txs(PlanType::Setup(|_| Ok(None)))
@@ -2217,7 +2251,7 @@ pub mod tests {
     #[tokio::test]
     async fn scenario_creates_contracts() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
+        let mut scenario = get_test_scenario(&anvil, 10, None, None).await.unwrap();
         let res = scenario.deploy_contracts().await;
         assert!(res.is_ok());
     }
@@ -2225,7 +2259,7 @@ pub mod tests {
     #[tokio::test]
     async fn scenario_runs_setup() {
         let anvil = spawn_anvil();
-        let mut scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
+        let mut scenario = get_test_scenario(&anvil, 10, None, None).await.unwrap();
         scenario.deploy_contracts().await.unwrap();
         let res = scenario.run_setup().await;
         println!("{res:?}");
@@ -2236,7 +2270,7 @@ pub mod tests {
     async fn setup_cost_estimates_are_correct(
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let anvil = spawn_anvil();
-        let scenario = get_test_scenario(&anvil, 10, None).await.unwrap();
+        let scenario = get_test_scenario(&anvil, 10, None, None).await.unwrap();
         let cost = scenario.estimate_setup_cost().await?;
         let total_txs = scenario.config.get_setup_steps().unwrap().len()
             + scenario.config.get_create_steps().unwrap().len();
@@ -2251,7 +2285,7 @@ pub mod tests {
         let anvil = spawn_anvil();
         let txs_per_duration = 50u64;
         let duration = 3;
-        let mut scenario = get_test_scenario(&anvil, txs_per_duration, None).await?;
+        let mut scenario = get_test_scenario(&anvil, txs_per_duration, None, None).await?;
 
         // make tx chunks
         let tx_req_chunks = scenario
@@ -2311,7 +2345,7 @@ pub mod tests {
     async fn new_scenario_rejects_mismatched_chain_ids() {
         let anvil = spawn_anvil();
         let anvil2 = Anvil::new().chain_id(12321).spawn();
-        let scenario = get_test_scenario(&anvil, 10, Some(&anvil2)).await;
+        let scenario = get_test_scenario(&anvil, 10, Some(&anvil2), None).await;
 
         if let Err(e) = scenario {
             println!("error (this is part of the test): {e}");
@@ -2322,5 +2356,42 @@ pub mod tests {
         } else {
             panic!("scenario should not return Ok if chain IDs don't match");
         }
+    }
+
+    #[tokio::test]
+    async fn gas_price_override_skips_gas_price_adder() -> Result<()> {
+        let anvil = spawn_anvil();
+
+        // Set a fixed gas price override of 5 gwei
+        let override_gas_price = U256::from(5 * GWEI_TO_WEI);
+        let mut scenario = get_test_scenario(&anvil, 10, None, Some(override_gas_price)).await?;
+
+        // Add a significant gas_price_adder (10 gwei) - this should be ignored when override is set
+        scenario.ctx.add_to_gas_price(GWEI_TO_WEI as i128 * 10);
+
+        let spam_txs = scenario
+            .load_txs(PlanType::Spam(10, |_tx| Ok(None)))
+            .await?;
+
+        let prepared_txs = scenario.prepare_spam(&spam_txs).await?;
+
+        // Verify that all transactions use the override gas price, not network price + adder
+        for payload in prepared_txs {
+            if let crate::spammer::ExecutionPayload::SignedTx(_, tx_req) = payload {
+                let max_fee = tx_req.tx.max_fee_per_gas.unwrap_or(0);
+
+                // max_fee_per_gas = gas_price + (gas_price / 5) based on complete_tx_request
+                let expected_max_fee =
+                    override_gas_price.to::<u128>() + (override_gas_price.to::<u128>() / 5);
+
+                assert_eq!(
+                    max_fee, expected_max_fee,
+                    "Gas price should use override ({}), not be affected by gas_price_adder. Got: {}",
+                    expected_max_fee, max_fee
+                );
+            }
+        }
+
+        Ok(())
     }
 }
