@@ -214,6 +214,7 @@ where
             redeploy: self.redeploy,
             sync_nonces_after_batch: self.sync_nonces_after_batch,
             rpc_batch_size: self.rpc_batch_size,
+            gas_price: None,
         };
 
         TestScenario::new(

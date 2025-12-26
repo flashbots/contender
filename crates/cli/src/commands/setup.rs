@@ -119,6 +119,7 @@ pub async fn setup(
         redeploy: true,
         sync_nonces_after_batch: true,
         rpc_batch_size: 0,
+        gas_price: None,
     };
     let mut scenario = TestScenario::new(
         testconfig.to_owned(),

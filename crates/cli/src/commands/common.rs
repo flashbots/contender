@@ -120,6 +120,14 @@ Requires --auth-rpc-url and --jwt-secret to be set.",
         long_help = "Override senders to send all transactions from one account."
     )]
     pub override_senders: bool,
+
+    /// The gas price to use for the spammer.
+    #[arg(
+        long,
+        long_help = "The gas price to use for the spammer, with units, defaults to Wei.",
+        value_parser = parse_value,
+    )]
+    pub gas_price: Option<U256>,
 }
 
 impl SendTxsCliArgsInner {
