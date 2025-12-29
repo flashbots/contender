@@ -111,15 +111,15 @@ pub fn complete_tx_request(
 ) {
     match tx_type {
         TxType::Legacy => {
-            tx_req.gas_price = Some(gas_price + 4_200_000_000);
+            tx_req.gas_price = Some(gas_price);
         }
         TxType::Eip1559 => {
-            tx_req.max_fee_per_gas = Some(gas_price + (gas_price / 5));
+            tx_req.max_fee_per_gas = Some(gas_price);
             tx_req.max_priority_fee_per_gas = Some(priority_fee);
             tx_req.chain_id = Some(chain_id);
         }
         TxType::Eip4844 => {
-            tx_req.max_fee_per_blob_gas = Some(blob_gas_price + (blob_gas_price / 5));
+            tx_req.max_fee_per_blob_gas = Some(blob_gas_price);
             // recurse with eip1559 to get gas params
             complete_tx_request(
                 tx_req,
