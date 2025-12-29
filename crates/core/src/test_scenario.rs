@@ -803,6 +803,10 @@ where
             None => {
                 let gas_price = self.rpc_client.get_gas_price().await?;
                 let blob_gas_price = get_blob_fee_maybe(&self.rpc_client).await;
+                // add 5% to chain's base fees
+                let gas_price = gas_price + (gas_price / 20);
+                let blob_gas_price = blob_gas_price + (blob_gas_price / 20);
+
                 let adjusted_gas_price = |price: u128| {
                     if self.ctx.gas_price_adder < 0 {
                         price - self.ctx.gas_price_adder.unsigned_abs()
@@ -2379,10 +2383,7 @@ pub mod tests {
         for payload in prepared_txs {
             if let crate::spammer::ExecutionPayload::SignedTx(_, tx_req) = payload {
                 let max_fee = tx_req.tx.max_fee_per_gas.unwrap_or(0);
-
-                // max_fee_per_gas = gas_price + (gas_price / 5) based on complete_tx_request
-                let expected_max_fee =
-                    override_gas_price.to::<u128>() + (override_gas_price.to::<u128>() / 5);
+                let expected_max_fee = override_gas_price.to::<u128>();
 
                 assert_eq!(
                     max_fee, expected_max_fee,
