@@ -313,6 +313,7 @@ pub mod tests {
                 redeploy: false,
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
+                gas_price: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -365,6 +366,7 @@ pub mod tests {
                 redeploy: false,
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
+                gas_price: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -387,6 +389,7 @@ pub mod tests {
                 redeploy: false,
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
+                gas_price: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -484,6 +487,7 @@ value = \"1eth\"
             redeploy: false,
             sync_nonces_after_batch: true,
             rpc_batch_size: 0,
+            gas_price: None,
         }
     }
 
