@@ -152,7 +152,6 @@ pub struct SpamRunContext<'a, F: SpamCallback + 'static> {
 #[derive(Clone, Debug)]
 pub struct ExecutionContext {
     /// Adds this amount of wei per gas to the gas price given to each transaction. May be negative to subtract gas.
-    /// This is not the same as the `gas_price_percent_add`, which is a percentage of the gas price provided by the user.
     gas_price_adder: i128,
     /// The amount of time between blocks on the target chain.
     pub block_time_secs: u64,
@@ -803,10 +802,6 @@ where
             None => {
                 let gas_price = self.rpc_client.get_gas_price().await?;
                 let blob_gas_price = get_blob_fee_maybe(&self.rpc_client).await;
-                // add 5% to chain's base fees
-                let gas_price = gas_price + (gas_price / 20);
-                let blob_gas_price = blob_gas_price + (blob_gas_price / 20);
-
                 let adjusted_gas_price = |price: u128| {
                     if self.ctx.gas_price_adder < 0 {
                         price - self.ctx.gas_price_adder.unsigned_abs()
