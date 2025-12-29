@@ -461,7 +461,7 @@ pub mod tests {
         assert_eq!(placeholder_map.len(), 3);
     }
 
-    const CONFIG_FILE_WITH_PLACEHOLDERS: &'static str = "
+    const CONFIG_FILE_WITH_PLACEHOLDERS: &str = "
 [env]
 mySender = \"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\"
 [[spam]]
@@ -492,7 +492,7 @@ value = \"1eth\"
             TestConfig::from_str(CONFIG_FILE_WITH_PLACEHOLDERS).unwrap(),
             MockDb.into(),
             RandSeed::default(),
-            default_scenario_params(&anvil),
+            default_scenario_params(anvil),
             None,
             (&PROM, &HIST).into(),
         )
