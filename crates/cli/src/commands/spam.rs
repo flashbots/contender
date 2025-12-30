@@ -658,10 +658,11 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
     let engine_params = auth_args.engine_params(call_forkchoice).await?;
 
     if run_forever && !optimistic_nonces {
-        warn!("Notice: you may experience performance degradation when running the spammer with nonce synchronization enabled.");
-        println!(
-            "Setting {} without {} may cause nonce synchronization delays between batches, potentially slowing down the spammer.",
+        warn!("Notice: some transactions may fail when running the spammer indefinitely with nonce synchronization enabled.");
+        eprintln!(
+            "Setting {} without {} is likely to cause nonce synchronization errors in latter spam batches. Enable {} to avoid this.",
             bold("--forever"),
+            bold("--optimistic-nonces"),
             bold("--optimistic-nonces")
         );
     }
