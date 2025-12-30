@@ -485,6 +485,9 @@ where
         println!("{}", SETUP_SIM_END);
         debug!("estimated setup cost: {}", format_ether(total_cost));
 
+        // Shutdown the temporary simulation scenario to stop its actors
+        scenario.shutdown().await;
+
         Ok(total_cost)
     }
 
@@ -1423,6 +1426,9 @@ where
             .max()
             .ok_or(RuntimeErrorKind::SpamTxsEmpty)?;
 
+        // Shutdown the temporary scenario to stop its actors
+        scenario.shutdown().await;
+
         // we assume the highest possible cost to minimize the chances of running out of ETH mid-test
         Ok(highest_gas_cost)
     }
@@ -1550,6 +1556,12 @@ where
 
     pub async fn shutdown(&mut self) {
         self.ctx.cancel_token.cancel();
+        // Stop all actors
+        for (name, handle) in &self.msg_handles {
+            if let Err(e) = handle.stop().await {
+                debug!("Error stopping actor '{}': {:?}", name, e);
+            }
+        }
     }
 
     pub async fn is_shutdown(&self) -> bool {
