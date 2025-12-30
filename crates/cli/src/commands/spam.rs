@@ -715,6 +715,7 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
         test_scenario.ctx.cancel_token.clone(),
     );
 
+    let pending_timeout = Duration::from_secs(block_time * pending_timeout);
     if callback.is_log() || run_context.campaign_id.is_some() {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -730,7 +731,7 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
             rpc_url: test_scenario.rpc_url.to_string(),
             txs_per_duration: txs_per_batch,
             duration: spam_duration,
-            pending_timeout: Duration::from_secs(block_time * pending_timeout),
+            pending_timeout,
         };
         run_id = Some(
             db.insert_run(&run)
@@ -747,8 +748,11 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
         }
     }
 
-    let actor_ctx = ActorContext::new(start_block, run_id.unwrap_or_default());
+    // initialize TxActor (pending tx cache processor) context
+    let actor_ctx = ActorContext::new(start_block, run_id.unwrap_or_default())
+        .with_pending_tx_timeout(pending_timeout);
     test_scenario.tx_actor().init_ctx(actor_ctx).await?;
+
     // loop spammer, break if CTRL-C is received, or run_forever is false
     loop {
         tokio::select! {
