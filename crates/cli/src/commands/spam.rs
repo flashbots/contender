@@ -753,7 +753,6 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
     loop {
         tokio::select! {
             res = {
-                // test_scenario.sync_nonces().await?;
                 spammer
                 .spam_rpc(
                     &mut test_scenario,

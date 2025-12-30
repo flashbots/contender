@@ -321,6 +321,7 @@ where
         })
     }
 
+    /// Fetch nonces for each account in `signer_map` from the RPC provider, assign the values to TestScenario's internal nonce map.
     pub async fn sync_nonces(&mut self) -> Result<()> {
         sync_nonces(
             &self.signer_map,
