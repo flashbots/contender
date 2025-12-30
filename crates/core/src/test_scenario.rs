@@ -1451,7 +1451,6 @@ where
         for msg_handle in self.msg_handles.values() {
             tokio::select! {
                 _ = self.ctx.cancel_token.cancelled() => {
-                    println!("dump_tx_cache cancelled");
                 }
                 _ = async {
                     while !self.tx_actor().done_flushing().await? {
@@ -1551,6 +1550,10 @@ where
     pub async fn shutdown(&mut self) {
         self.ctx.cancel_token.cancel();
     }
+
+    pub async fn is_shutdown(&self) -> bool {
+        self.ctx.cancel_token.is_cancelled()
+    }
 }
 
 async fn handle_tx_outcome<'a, F: SpamCallback + 'static>(
@@ -1597,7 +1600,13 @@ async fn handle_tx_outcome<'a, F: SpamCallback + 'static>(
                 );
             }
         }
-        warn!("error from tx {tx_hash}: {msg}");
+        if !(msg.contains("nonce too low")
+            || msg.contains("replacement transaction underpriced")
+            || msg.contains("transaction already imported"))
+        {
+            warn!("error from tx {tx_hash}: {msg}");
+        }
+        debug!("error from tx ${tx_hash}: {msg}");
         extra = extra.with_error(msg.to_string());
     } else {
         // success path

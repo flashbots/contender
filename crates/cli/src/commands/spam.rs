@@ -16,6 +16,7 @@ use crate::{
 use alloy::{
     consensus::TxType,
     primitives::{utils::format_ether, U256},
+    providers::Provider,
     transports::http::reqwest::Url,
 };
 use contender_core::{
@@ -28,7 +29,9 @@ use contender_core::{
         types::{AnyProvider, SpamRequest},
         PlanConfig, RandSeed,
     },
-    spammer::{BlockwiseSpammer, LogCallback, NilCallback, Spammer, TimedSpammer},
+    spammer::{
+        tx_actor::ActorContext, BlockwiseSpammer, LogCallback, NilCallback, Spammer, TimedSpammer,
+    },
     test_scenario::{TestScenario, TestScenarioParams},
     util::get_block_time,
 };
@@ -143,7 +146,7 @@ pub struct SpamCliArgs {
     )]
     pub rpc_batch_size: u64,
 }
-
+#[derive(Clone)]
 pub enum SpamScenario {
     Testfile(String),
     Builtin(BuiltinScenario),
@@ -164,6 +167,7 @@ impl SpamScenario {
     }
 }
 
+#[derive(Clone)]
 pub struct SpamCommandArgs {
     pub scenario: SpamScenario,
     pub spam_args: SpamCliArgs,
@@ -624,6 +628,9 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
     run_context: SpamCampaignContext,
 ) -> Result<Option<u64>> {
     let mut test_scenario = args.init_scenario(db).await?;
+    let start_block = test_scenario.rpc_client.get_block_number().await?;
+    let run_forever = args.spam_args.spam_args.run_forever;
+
     let SpamCommandArgs {
         scenario,
         spam_args,
@@ -740,16 +747,22 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
         }
     }
 
+    let actor_ctx = ActorContext::new(start_block, run_id.unwrap_or_default());
+    test_scenario.tx_actor().init_ctx(actor_ctx).await?;
+    // loop spammer, break if CTRL-C is received, or run_forever is false
     loop {
         tokio::select! {
-            res = spammer
-            .spam_rpc(
-                &mut test_scenario,
-                txs_per_batch,
-                duration,
-                run_id,
-                callback.clone(),
-            ) => {
+            res = {
+                // test_scenario.sync_nonces().await?;
+                spammer
+                .spam_rpc(
+                    &mut test_scenario,
+                    txs_per_batch,
+                    duration,
+                    run_id,
+                    callback.clone(),
+                )
+            } => {
                 res.map_err(err_parse)?;
             }
 
@@ -759,8 +772,19 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
             }
         }
 
-        if !args.spam_args.spam_args.run_forever || test_scenario.ctx.cancel_token.is_cancelled() {
+        if !run_forever || test_scenario.is_shutdown().await {
             break;
+        }
+    }
+
+    // wait for tx results, or break for CTRL-C
+    tokio::select! {
+        _ = test_scenario.dump_tx_cache(run_id.unwrap_or_default()) => {
+        }
+
+        _ = tokio::signal::ctrl_c() => {
+            info!("CTRL-C received, stopping result collection.");
+            test_scenario.shutdown().await;
         }
     }
 
