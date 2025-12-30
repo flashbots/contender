@@ -629,7 +629,6 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
 ) -> Result<Option<u64>> {
     let mut test_scenario = args.init_scenario(db).await?;
     let start_block = test_scenario.rpc_client.get_block_number().await?;
-    let run_forever = args.spam_args.spam_args.run_forever;
 
     let SpamCommandArgs {
         scenario,
@@ -640,6 +639,7 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
         eth_json_rpc_args,
         spam_args,
         ignore_receipts,
+        optimistic_nonces,
         ..
     } = spam_args.to_owned();
     let SendSpamCliArgs {
@@ -647,6 +647,7 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
         txs_per_block,
         duration,
         pending_timeout,
+        run_forever,
         ..
     } = spam_args;
     let SendTxsCliArgsInner {
@@ -655,6 +656,15 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
         ..
     } = eth_json_rpc_args.rpc_args;
     let engine_params = auth_args.engine_params(call_forkchoice).await?;
+
+    if run_forever && !optimistic_nonces {
+        warn!("Notice: you may experience performance degradation when running the spammer with nonce synchronization enabled.");
+        println!(
+            "Setting {} without {} may cause nonce synchronization delays between batches, potentially slowing down the spammer.",
+            bold("--forever"),
+            bold("--optimistic-nonces")
+        );
+    }
 
     let mut run_id = None;
     let base_scenario_name = match scenario {
