@@ -25,7 +25,6 @@ use error::CliError;
 use std::{str::FromStr, sync::LazyLock};
 use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
-use tracing_subscriber::EnvFilter;
 use util::{data_dir, db_file, init_reports_dir};
 
 static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
@@ -209,27 +208,21 @@ fn init_db(command: &ContenderSubcommand) -> Result<(), CliError> {
 }
 
 fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env().ok(); // fallback if RUST_LOG is unset
-    #[cfg(feature = "async-tracing")]
-    {
-        use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Layer};
-        let tokio_layer = console_subscriber::ConsoleLayer::builder()
-            .with_default_env()
-            .spawn();
-        let fmt_layer = fmt::layer()
-            .with_ansi(true)
-            .with_target(true)
-            .with_line_number(true)
-            .with_filter(filter);
+    use tracing_subscriber::{
+        fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
+    };
 
-        tracing_subscriber::Registry::default()
-            .with(fmt_layer)
-            .with(tokio_layer)
-            .init();
-    }
+    let rust_log = std::env::var("RUST_LOG").unwrap_or_default().to_lowercase();
+    let debug_mode = rust_log.contains("=debug");
 
-    #[cfg(not(feature = "async-tracing"))]
-    {
-        contender_core::util::init_core_tracing(filter);
-    }
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
+    let fmt_layer = fmt::layer()
+        .with_ansi(true)
+        .with_target(debug_mode)
+        .with_line_number(debug_mode)
+        .with_file(debug_mode)
+        .with_filter(filter);
+
+    tracing_subscriber::registry().with(fmt_layer).init();
 }
