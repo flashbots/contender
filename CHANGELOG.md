@@ -5,6 +5,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Note: this file did not exist until after `v0.5.6`.
 
+## Unreleased
+
+- CLI logs are now less verbose ([#406](https://github.com/flashbots/contender/pull/406))
+
 ---
 
 ## [0.6.0](https://github.com/flashbots/contender/releases/tag/v0.6.0) - 2025-11-25
