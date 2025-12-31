@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - we no longer require two-phase cancellation (CTRL-C once to stop spamming, CTRL-C again to stop result collection)
     - result collection happens async, so when the user cancels, most results will have already been collected
     - stopping quickly is a better UX than two-phase
+- logging: show source file locations only when running in debug mode (`RUST_LOG=*=debug`) ([#403](https://github.com/flashbots/contender/issues/403))
+- tests: add scoped environment variable tests for debug mode detection using `temp-env`
 
 ### Breaking changes
 

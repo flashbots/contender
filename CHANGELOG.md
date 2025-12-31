@@ -5,6 +5,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Note: this file did not exist until after `v0.5.6`.
 
+## Unreleased
+
+### CLI
+- Logging: show source file locations only when running in debug mode (`RUST_LOG=*=debug`) ([#403](https://github.com/flashbots/contender/issues/403))
+- Tests: add scoped environment variable tests for debug mode detection using `temp-env`
+
+
 ---
 
 ## [0.6.0](https://github.com/flashbots/contender/releases/tag/v0.6.0) - 2025-11-25
