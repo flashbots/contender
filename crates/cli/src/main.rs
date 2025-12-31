@@ -22,6 +22,7 @@ use contender_core::{db::DbOps, util::TracingOptions};
 use contender_sqlite::{SqliteDb, DB_VERSION};
 use default_scenarios::{fill_block::FillBlockCliArgs, BuiltinScenarioCli};
 use error::CliError;
+use regex::Regex;
 use std::{str::FromStr, sync::LazyLock};
 use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
@@ -213,7 +214,17 @@ fn init_tracing() {
 
     let mut opts = TracingOptions::default();
     let rustlog = std::env::var("RUST_LOG").unwrap_or_default().to_lowercase();
-    if &rustlog == "debug" || rustlog.contains("=debug") {
+
+    // interpret log levels from words matching `=[a-zA-Z]+`
+    let level_regex = Regex::new(r"=[a-zA-Z]+").unwrap();
+    let matches: Vec<tracing::Level> = level_regex
+        .find_iter(&rustlog)
+        .map(|m| m.as_str().trim_start_matches('='))
+        .map(|m| tracing::Level::from_str(m).unwrap_or(tracing::Level::INFO))
+        .collect();
+
+    // if user provides any log level > info, print line num & source file in logs
+    if matches.iter().any(|lvl| *lvl > tracing::Level::INFO) {
         opts = opts.with_line_number(true).with_target(true);
     }
 
