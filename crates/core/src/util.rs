@@ -77,9 +77,9 @@ pub fn default_signers() -> Vec<PrivateKeySigner> {
 
 #[derive(Debug)]
 pub struct TracingOptions {
-    ansi: bool,
-    target: bool,
-    line_number: bool,
+    pub ansi: bool,
+    pub target: bool,
+    pub line_number: bool,
 }
 
 impl Default for TracingOptions {
