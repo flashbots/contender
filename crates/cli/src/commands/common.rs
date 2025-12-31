@@ -282,7 +282,7 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
     #[arg(
         short,
         long,
-        default_value_t = 1,
+        default_value_t = 10,
         long_help = "Duration of the spamming run in seconds or blocks, depending on whether --txs-per-second or --txs-per-block is set."
     )]
     pub duration: u64, // TODO: make a new enum to represent seconds or blocks

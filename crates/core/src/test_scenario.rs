@@ -321,6 +321,7 @@ where
         })
     }
 
+    /// Fetch nonces for each account in `signer_map` from the RPC provider, assign the values to TestScenario's internal nonce map.
     pub async fn sync_nonces(&mut self) -> Result<()> {
         sync_nonces(
             &self.signer_map,
@@ -483,6 +484,9 @@ where
 
         println!("{}", SETUP_SIM_END);
         debug!("estimated setup cost: {}", format_ether(total_cost));
+
+        // Shutdown the temporary simulation scenario to stop its actors
+        scenario.shutdown().await;
 
         Ok(total_cost)
     }
@@ -1422,6 +1426,9 @@ where
             .max()
             .ok_or(RuntimeErrorKind::SpamTxsEmpty)?;
 
+        // Shutdown the temporary scenario to stop its actors
+        scenario.shutdown().await;
+
         // we assume the highest possible cost to minimize the chances of running out of ETH mid-test
         Ok(highest_gas_cost)
     }
@@ -1451,7 +1458,6 @@ where
         for msg_handle in self.msg_handles.values() {
             tokio::select! {
                 _ = self.ctx.cancel_token.cancelled() => {
-                    println!("dump_tx_cache cancelled");
                 }
                 _ = async {
                     while !self.tx_actor().done_flushing().await? {
@@ -1550,6 +1556,16 @@ where
 
     pub async fn shutdown(&mut self) {
         self.ctx.cancel_token.cancel();
+        // Stop all actors
+        for (name, handle) in &self.msg_handles {
+            if let Err(e) = handle.stop().await {
+                debug!("Error stopping actor '{}': {:?}", name, e);
+            }
+        }
+    }
+
+    pub async fn is_shutdown(&self) -> bool {
+        self.ctx.cancel_token.is_cancelled()
     }
 }
 
@@ -1597,7 +1613,13 @@ async fn handle_tx_outcome<'a, F: SpamCallback + 'static>(
                 );
             }
         }
-        warn!("error from tx {tx_hash}: {msg}");
+        if !(msg.contains("nonce too low")
+            || msg.contains("replacement transaction underpriced")
+            || msg.contains("transaction already imported"))
+        {
+            warn!("error from tx {tx_hash}: {msg}");
+        }
+        debug!("error from tx ${tx_hash}: {msg}");
         extra = extra.with_error(msg.to_string());
     } else {
         // success path
