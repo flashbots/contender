@@ -51,6 +51,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.15.0"
+temp-env = "0.3"
 
 [features]
 default = []

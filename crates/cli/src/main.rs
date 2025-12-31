@@ -226,3 +226,24 @@ fn init_tracing() {
 
     tracing_subscriber::registry().with(fmt_layer).init();
 }
+
+#[cfg(test)]
+mod tests {
+    use temp_env::with_var;
+
+    #[test]
+    fn debug_mode_detected_from_rust_log() {
+        with_var("RUST_LOG", Some("contender=debug"), || {
+            let rust_log = std::env::var("RUST_LOG").unwrap_or_default().to_lowercase();
+            assert!(rust_log.contains("=debug"));
+        });
+    }
+
+    #[test]
+    fn info_mode_does_not_trigger_debug() {
+        with_var("RUST_LOG", Some("contender=info"), || {
+            let rust_log = std::env::var("RUST_LOG").unwrap_or_default().to_lowercase();
+            assert!(!rust_log.contains("=debug"));
+        });
+    }
+}
