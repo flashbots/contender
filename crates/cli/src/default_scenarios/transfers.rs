@@ -59,11 +59,6 @@ impl ToTestConfig for TransferStressArgs {
             .map(Box::new)
             .map(SpamRequest::Tx)
             .collect::<Vec<_>>();
-        contender_testfile::TestConfig {
-            env: None,
-            create: None,
-            setup: None,
-            spam: Some(txs),
-        }
+        contender_testfile::TestConfig::new().with_spam(txs)
     }
 }
