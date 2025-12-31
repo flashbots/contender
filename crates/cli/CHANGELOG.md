@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - we no longer require two-phase cancellation (CTRL-C once to stop spamming, CTRL-C again to stop result collection)
     - result collection happens async, so when the user cancels, most results will have already been collected
     - stopping quickly is a better UX than two-phase
+- logs now only show source file paths and line numbers when `debug` (or higher) is used in RUST_LOG
 
 ### Breaking changes
 
