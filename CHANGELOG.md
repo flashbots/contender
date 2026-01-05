@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - spam gas price can now be locked manually with `--gas-price` ([#400](https://github.com/flashbots/contender/pull/400))
 - CLI logs are now less verbose ([#406](https://github.com/flashbots/contender/pull/406))
 
+*Potentially breaking:*
+
+- `--loops [num]` has been replaced with `--forever` (bool)
+
 ---
 
 ## [0.6.0](https://github.com/flashbots/contender/releases/tag/v0.6.0) - 2025-11-25
