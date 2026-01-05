@@ -5,9 +5,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Note: this file did not exist until after `v0.5.6`.
 
-## Unreleased
+## [0.7.0](https://github.com/flashbots/contender/releases/tag/v0.7.0) - 2026-01-05
 
+- setup txs are now sent asynchronously ([#390](https://github.com/flashbots/contender/pull/390))
+- added campaigns: meta-scenario config files ([#389](https://github.com/flashbots/contender/pull/389))
+- scenario files now support units in `value` field ([#388](https://github.com/flashbots/contender/pull/388))
+- tx cache is now processed async & independent of spammer ([#396](https://github.com/flashbots/contender/pull/396))
+- spam gas price can now be locked manually with `--gas-price` ([#400](https://github.com/flashbots/contender/pull/400))
 - CLI logs are now less verbose ([#406](https://github.com/flashbots/contender/pull/406))
+
+*Potentially breaking:*
+
+- `--loops [num]` has been replaced with `--forever` (bool)
 
 ---
 
