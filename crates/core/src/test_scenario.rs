@@ -1466,13 +1466,7 @@ where
                             break;
                         }
                     }
-                    let failed_txs = msg_handle.dump_cache(run_id).await?;
-                    if !failed_txs.is_empty() {
-                        warn!(
-                            "Failed to collect receipts for {} txs. Any valid txs sent may still land.",
-                            failed_txs.len()
-                        );
-                    }
+                    msg_handle.dump_cache(run_id).await?;
                     Ok::<_, Error>(())
                 } => {}
             }
