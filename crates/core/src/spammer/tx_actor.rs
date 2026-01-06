@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use alloy::{network::ReceiptResponse, primitives::TxHash, providers::Provider};
 use tokio::sync::{mpsc, oneshot};
@@ -75,6 +78,7 @@ impl PendingRunTx {
 pub struct ActorContext {
     pub run_id: u64,
     pub target_block: u64,
+    pub pending_tx_timeout: Duration,
 }
 
 impl ActorContext {
@@ -82,7 +86,13 @@ impl ActorContext {
         Self {
             run_id,
             target_block,
+            pending_tx_timeout: Duration::from_secs(30),
         }
+    }
+
+    pub fn with_pending_tx_timeout(mut self, timeout: Duration) -> Self {
+        self.pending_tx_timeout = timeout;
+        self
     }
 }
 
@@ -131,8 +141,15 @@ where
         on_flush: oneshot::Sender<Vec<PendingRunTx>>, // returns the number of txs remaining in cache
         target_block_num: u64,
     ) -> Result<()> {
-        let Self { cache, rpc, db, .. } = self;
+        let Self {
+            cache,
+            rpc,
+            db,
+            ctx,
+            ..
+        } = self;
         info!("unconfirmed txs: {}", cache.len());
+        let ctx = ctx.as_ref().ok_or(CallbackError::UpdateRequiresCtx)?;
 
         if cache.is_empty() {
             on_flush
@@ -176,12 +193,17 @@ where
             .map(|tx| tx.to_owned())
             .collect::<Vec<_>>();
 
-        // refill cache with any txs that were not included in confirmed_txs
+        // filter cache
         let new_txs = cache
             .iter()
+            // collect txs that were not included in confirmed_txs
             .filter(|tx| !confirmed_txs.contains(tx))
+            // remove txs that have been sitting around for too long
+            .filter(|tx| !is_tx_timed_out(ctx, tx))
             .map(|tx| tx.to_owned())
             .collect::<Vec<_>>();
+
+        // update cache
         *cache = new_txs.to_vec();
 
         // ready to go to the DB
@@ -321,6 +343,7 @@ where
                 // periodically flush cache in background while spammer runs
                 _ = interval.tick() => {
                     if let Some(ctx) = self.ctx.to_owned() {
+                        debug!("TxActor ctx initialized, flushing cache for target block {}", ctx.target_block);
                         let new_block = provider.get_block_number().await?;
                         for bn in ctx.target_block..new_block {
                             let (on_flush, _receiver) = oneshot::channel();
@@ -346,6 +369,25 @@ where
 
     pub fn is_shutting_down(&self) -> bool {
         self.status == ActorStatus::ShuttingDown
+    }
+}
+
+fn is_tx_timed_out(ctx: &ActorContext, tx: &PendingRunTx) -> bool {
+    let duration_since_epoch = Duration::from_millis(tx.start_timestamp_ms as u64);
+    let timestamp = std::time::UNIX_EPOCH + duration_since_epoch;
+    let elapsed = SystemTime::now().duration_since(timestamp);
+    match elapsed {
+        Ok(elapsed) => {
+            let is_timed_out = elapsed > ctx.pending_tx_timeout;
+            if is_timed_out {
+                debug!(
+                    "tx timed out after {:?}: {:?}",
+                    ctx.pending_tx_timeout, tx.tx_hash
+                );
+            }
+            is_timed_out
+        }
+        Err(_) => true,
     }
 }
 

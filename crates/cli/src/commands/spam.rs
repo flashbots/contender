@@ -8,7 +8,7 @@ use crate::{
     default_scenarios::BuiltinScenario,
     error::CliError,
     util::{
-        bold, check_private_keys, fund_accounts, load_seedfile, load_testconfig, parse_duration,
+        bold, check_private_keys, fund_accounts, load_seedfile, load_testconfig,
         provider::AuthClient,
     },
     LATENCY_HIST as HIST, PROM,
@@ -16,6 +16,7 @@ use crate::{
 use alloy::{
     consensus::TxType,
     primitives::{utils::format_ether, U256},
+    providers::Provider,
     transports::http::reqwest::Url,
 };
 use contender_core::{
@@ -28,7 +29,9 @@ use contender_core::{
         types::{AnyProvider, SpamRequest},
         PlanConfig, RandSeed,
     },
-    spammer::{BlockwiseSpammer, LogCallback, NilCallback, Spammer, TimedSpammer},
+    spammer::{
+        tx_actor::ActorContext, BlockwiseSpammer, LogCallback, NilCallback, Spammer, TimedSpammer,
+    },
     test_scenario::{TestScenario, TestScenarioParams},
     util::get_block_time,
 };
@@ -104,14 +107,6 @@ pub struct SpamCliArgs {
     )]
     pub gen_report: bool,
 
-    #[arg(
-        long = "timeout",
-        long_help = "The time to wait for spammer to recover from failure before stopping contender.",
-        value_parser = parse_duration,
-        default_value = "5min"
-    )]
-    pub spam_timeout: Duration,
-
     /// Re-deploy contracts in builtin scenarios.
     #[arg(
         long,
@@ -143,7 +138,7 @@ pub struct SpamCliArgs {
     )]
     pub rpc_batch_size: u64,
 }
-
+#[derive(Clone)]
 pub enum SpamScenario {
     Testfile(String),
     Builtin(BuiltinScenario),
@@ -164,6 +159,7 @@ impl SpamScenario {
     }
 }
 
+#[derive(Clone)]
 pub struct SpamCommandArgs {
     pub scenario: SpamScenario,
     pub spam_args: SpamCliArgs,
@@ -624,6 +620,8 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
     run_context: SpamCampaignContext,
 ) -> Result<Option<u64>> {
     let mut test_scenario = args.init_scenario(db).await?;
+    let start_block = test_scenario.rpc_client.get_block_number().await?;
+
     let SpamCommandArgs {
         scenario,
         spam_args,
@@ -633,6 +631,7 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
         eth_json_rpc_args,
         spam_args,
         ignore_receipts,
+        optimistic_nonces,
         ..
     } = spam_args.to_owned();
     let SendSpamCliArgs {
@@ -640,6 +639,7 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
         txs_per_block,
         duration,
         pending_timeout,
+        run_forever,
         ..
     } = spam_args;
     let SendTxsCliArgsInner {
@@ -648,6 +648,16 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
         ..
     } = eth_json_rpc_args.rpc_args;
     let engine_params = auth_args.engine_params(call_forkchoice).await?;
+
+    if run_forever && !optimistic_nonces {
+        warn!("Notice: some transactions may fail when running the spammer indefinitely with nonce synchronization enabled.");
+        eprintln!(
+            "Setting {} without {} is likely to cause nonce synchronization errors in latter spam batches. Enable {} to avoid this.",
+            bold("--forever"),
+            bold("--optimistic-nonces"),
+            bold("--optimistic-nonces")
+        );
+    }
 
     let mut run_id = None;
     let base_scenario_name = match scenario {
@@ -708,6 +718,7 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
         test_scenario.ctx.cancel_token.clone(),
     );
 
+    let pending_timeout = Duration::from_secs(block_time * pending_timeout);
     if callback.is_log() || run_context.campaign_id.is_some() {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -723,7 +734,7 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
             rpc_url: test_scenario.rpc_url.to_string(),
             txs_per_duration: txs_per_batch,
             duration: spam_duration,
-            pending_timeout: Duration::from_secs(block_time * pending_timeout),
+            pending_timeout,
         };
         run_id = Some(
             db.insert_run(&run)
@@ -740,16 +751,24 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
         }
     }
 
+    // initialize TxActor (pending tx cache processor) context
+    let actor_ctx = ActorContext::new(start_block, run_id.unwrap_or_default())
+        .with_pending_tx_timeout(pending_timeout);
+    test_scenario.tx_actor().init_ctx(actor_ctx).await?;
+
+    // loop spammer, break if CTRL-C is received, or run_forever is false
     loop {
         tokio::select! {
-            res = spammer
-            .spam_rpc(
-                &mut test_scenario,
-                txs_per_batch,
-                duration,
-                run_id,
-                callback.clone(),
-            ) => {
+            res = {
+                spammer
+                .spam_rpc(
+                    &mut test_scenario,
+                    txs_per_batch,
+                    duration,
+                    run_id,
+                    callback.clone(),
+                )
+            } => {
                 res.map_err(err_parse)?;
             }
 
@@ -759,8 +778,19 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
             }
         }
 
-        if !args.spam_args.spam_args.run_forever || test_scenario.ctx.cancel_token.is_cancelled() {
+        if !run_forever || test_scenario.is_shutdown().await {
             break;
+        }
+    }
+
+    // wait for tx results, or break for CTRL-C
+    tokio::select! {
+        _ = test_scenario.dump_tx_cache(run_id.unwrap_or_default()) => {
+        }
+
+        _ = tokio::signal::ctrl_c() => {
+            info!("CTRL-C received, stopping result collection.");
+            test_scenario.shutdown().await;
         }
     }
 

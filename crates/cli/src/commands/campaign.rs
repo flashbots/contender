@@ -314,7 +314,6 @@ fn create_spam_cli_args(
         ignore_receipts: args.ignore_receipts,
         optimistic_nonces: args.optimistic_nonces,
         gen_report: false,
-        spam_timeout: args.spam_timeout,
         redeploy: args.redeploy,
         skip_setup: true,
         rpc_batch_size: args.rpc_batch_size,
