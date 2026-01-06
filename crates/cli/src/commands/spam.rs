@@ -8,7 +8,7 @@ use crate::{
     default_scenarios::BuiltinScenario,
     error::CliError,
     util::{
-        bold, check_private_keys, fund_accounts, load_seedfile, load_testconfig, parse_duration,
+        bold, check_private_keys, fund_accounts, load_seedfile, load_testconfig,
         provider::AuthClient,
     },
     LATENCY_HIST as HIST, PROM,
@@ -106,14 +106,6 @@ pub struct SpamCliArgs {
         visible_aliases = ["report"]
     )]
     pub gen_report: bool,
-
-    #[arg(
-        long = "timeout",
-        long_help = "The time to wait for spammer to recover from failure before stopping contender.",
-        value_parser = parse_duration,
-        default_value = "5min"
-    )]
-    pub spam_timeout: Duration,
 
     /// Re-deploy contracts in builtin scenarios.
     #[arg(
