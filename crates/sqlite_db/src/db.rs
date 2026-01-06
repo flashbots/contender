@@ -1,7 +1,7 @@
 use crate::{Error, Result};
 use alloy::{
     hex::{FromHex, ToHexExt},
-    primitives::{Address, FixedBytes, TxHash},
+    primitives::{keccak256, Address, FixedBytes, TxHash},
 };
 use contender_core::{
     buckets::Bucket,
@@ -279,7 +279,7 @@ impl DbOps for SqliteDb {
                 gas_used INTEGER NOT NULL
             )",
             "CREATE TABLE setup_progress (
-                scenario_hash TEXT PRIMARY KEY,
+                scenario_id TEXT PRIMARY KEY,
                 last_step_index INTEGER NOT NULL
             )",
         ];
@@ -473,10 +473,15 @@ impl DbOps for SqliteDb {
         Ok(res)
     }
 
-    fn get_setup_progress(&self, scenario_hash: &str) -> Result<Option<u64>> {
+    fn get_setup_progress(
+        &self,
+        scenario_hash: FixedBytes<32>,
+        genesis_hash: FixedBytes<32>,
+    ) -> Result<Option<u64>> {
+        let scenario_id = keccak256([scenario_hash.as_slice(), genesis_hash.as_slice()].concat());
         self.query_row(
-            "SELECT last_step_index FROM setup_progress WHERE scenario_hash = ?1",
-            params![scenario_hash],
+            "SELECT last_step_index FROM setup_progress WHERE scenario_id = ?1",
+            params![scenario_id.to_string()],
             |row| row.get(0),
         )
         .ok()
@@ -484,10 +489,16 @@ impl DbOps for SqliteDb {
         .unwrap_or(Ok(None))
     }
 
-    fn update_setup_progress(&self, scenario_hash: &str, step_index: u64) -> Result<()> {
+    fn update_setup_progress(
+        &self,
+        scenario_hash: FixedBytes<32>,
+        genesis_hash: FixedBytes<32>,
+        step_index: u64,
+    ) -> Result<()> {
+        let scenario_id = keccak256([scenario_hash.as_slice(), genesis_hash.as_slice()].concat());
         self.execute(
-            "INSERT INTO setup_progress (scenario_hash, last_step_index) VALUES (?1, ?2) ON CONFLICT(scenario_hash) DO UPDATE SET last_step_index = ?2",
-            params![scenario_hash, step_index],
+            "INSERT INTO setup_progress (scenario_id, last_step_index) VALUES (?1, ?2) ON CONFLICT(scenario_id) DO UPDATE SET last_step_index = ?2",
+            params![scenario_id.to_string(), step_index],
         )
     }
 
@@ -851,16 +862,19 @@ mod tests {
         assert_eq!(txs[0].name, name);
 
         // 2. Test setup_progress
-        let scenario_hash = "abc123hash";
-        let progress = db.get_setup_progress(scenario_hash).unwrap();
+        let scenario_hash = FixedBytes::<32>::from_slice(&[1u8; 32]);
+        let genesis_hash = FixedBytes::<32>::from_slice(&[2u8; 32]);
+        let progress = db.get_setup_progress(scenario_hash, genesis_hash).unwrap();
         assert!(progress.is_none());
 
-        db.update_setup_progress(scenario_hash, 5).unwrap();
-        let progress = db.get_setup_progress(scenario_hash).unwrap();
+        db.update_setup_progress(scenario_hash, genesis_hash, 5)
+            .unwrap();
+        let progress = db.get_setup_progress(scenario_hash, genesis_hash).unwrap();
         assert_eq!(progress, Some(5));
 
-        db.update_setup_progress(scenario_hash, 6).unwrap();
-        let progress = db.get_setup_progress(scenario_hash).unwrap();
+        db.update_setup_progress(scenario_hash, genesis_hash, 6)
+            .unwrap();
+        let progress = db.get_setup_progress(scenario_hash, genesis_hash).unwrap();
         assert_eq!(progress, Some(6));
     }
 }

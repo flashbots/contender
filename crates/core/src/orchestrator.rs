@@ -57,6 +57,7 @@ where
     pub redeploy: bool,
     pub sync_nonces_after_batch: bool,
     pub rpc_batch_size: u64,
+    pub is_simulation: bool,
 }
 
 impl<P> ContenderCtx<MockDb, RandSeed, P>
@@ -122,6 +123,7 @@ where
             redeploy: false,
             sync_nonces_after_batch: true,
             rpc_batch_size: 0,
+            is_simulation: false,
         }
     }
 }
@@ -197,6 +199,7 @@ where
             redeploy: false,
             sync_nonces_after_batch: true,
             rpc_batch_size: 0,
+            is_simulation: false,
         }
     }
 
@@ -215,6 +218,7 @@ where
             sync_nonces_after_batch: self.sync_nonces_after_batch,
             rpc_batch_size: self.rpc_batch_size,
             gas_price: None,
+            is_simulation: self.is_simulation,
         };
 
         TestScenario::new(
@@ -254,6 +258,7 @@ where
     redeploy: bool,
     sync_nonces_after_batch: bool,
     rpc_batch_size: u64,
+    is_simulation: bool,
 }
 
 impl<D, S, P> ContenderCtxBuilder<D, S, P>
@@ -310,6 +315,10 @@ where
         self.redeploy = r;
         self
     }
+    pub fn is_simulation(mut self, s: bool) -> Self {
+        self.is_simulation = s;
+        self
+    }
 
     pub fn build(self) -> ContenderCtx<D, S, P> {
         // always try to create tables before building, so user doesn't have to think about it later.
@@ -334,6 +343,7 @@ where
             redeploy: self.redeploy,
             sync_nonces_after_batch: self.sync_nonces_after_batch,
             rpc_batch_size: self.rpc_batch_size,
+            is_simulation: self.is_simulation,
         }
     }
 }

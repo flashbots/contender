@@ -123,13 +123,18 @@ impl DbOps for MockDb {
         Ok(vec![])
     }
 
-    fn get_setup_progress(&self, _scenario_hash: &str) -> Result<Option<u64>, Self::Error> {
+    fn get_setup_progress(
+        &self,
+        _scenario_hash: FixedBytes<32>,
+        _genesis_hash: FixedBytes<32>,
+    ) -> Result<Option<u64>, Self::Error> {
         Ok(None)
     }
 
     fn update_setup_progress(
         &self,
-        _scenario_hash: &str,
+        _scenario_hash: FixedBytes<32>,
+        _genesis_hash: FixedBytes<32>,
         _step_index: u64,
     ) -> Result<(), Self::Error> {
         Ok(())

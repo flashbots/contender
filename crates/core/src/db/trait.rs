@@ -28,11 +28,16 @@ pub trait DbOps {
         genesis_hash: FixedBytes<32>,
     ) -> Result<Vec<NamedTx>, Self::Error>;
 
-    fn get_setup_progress(&self, scenario_hash: &str) -> Result<Option<u64>, Self::Error>;
+    fn get_setup_progress(
+        &self,
+        scenario_hash: FixedBytes<32>,
+        genesis_hash: FixedBytes<32>,
+    ) -> Result<Option<u64>, Self::Error>;
 
     fn update_setup_progress(
         &self,
-        scenario_hash: &str,
+        scenario_hash: FixedBytes<32>,
+        genesis_hash: FixedBytes<32>,
         step_index: u64,
     ) -> Result<(), Self::Error>;
 
