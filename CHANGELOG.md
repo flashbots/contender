@@ -5,6 +5,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Note: this file did not exist until after `v0.5.6`.
 
+## Unreleased
+
+### Breaking Changes
+
+- `--timeout` flag removed from `contender spam`, which will break CI instances that use the flag
+
 ## [0.7.0](https://github.com/flashbots/contender/releases/tag/v0.7.0) - 2026-01-05
 
 - setup txs are now sent asynchronously ([#390](https://github.com/flashbots/contender/pull/390))
