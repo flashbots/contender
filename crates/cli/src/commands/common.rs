@@ -43,7 +43,7 @@ pub struct SendTxsCliArgsInner {
         default_value = "http://localhost:8545",
         visible_aliases = ["el-rpc", "el-rpc-url"]
     )]
-    pub rpc_url: String,
+    pub rpc_url: Url,
 
     /// The seed to use for generating spam transactions.
     #[arg(
@@ -131,16 +131,12 @@ Requires --auth-rpc-url and --jwt-secret to be set.",
 }
 
 impl SendTxsCliArgsInner {
-    pub fn rpc_url(&self) -> Result<Url, ArgsError> {
-        Ok(Url::parse(self.rpc_url.as_ref())?)
-    }
-
     pub fn new_rpc_provider(&self) -> Result<DynProvider<AnyNetwork>, ArgsError> {
         info!("connecting to {}", self.rpc_url);
         Ok(DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
-                .connect_http(self.rpc_url()?),
+                .connect_http(self.rpc_url.clone()),
         ))
     }
 
@@ -180,7 +176,7 @@ pub struct AuthCliArgs {
         long_help = "Provide this URL to enable use of engine_ calls.",
         visible_aliases = ["auth", "auth-rpc", "auth-url"]
     )]
-    pub auth_rpc_url: Option<String>,
+    pub auth_rpc_url: Option<Url>,
 
     /// Path to file containing JWT secret
     #[arg(
@@ -260,7 +256,7 @@ pub struct SendSpamCliArgs {
         long_help = "HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`)",
         visible_aliases = ["builder", "builder-rpc-url", "builder-rpc"]
     )]
-    pub builder_url: Option<String>,
+    pub builder_url: Option<Url>,
 
     /// The number of txs to send per second using the timed spammer.
     /// May not be set if `txs_per_block` is set.

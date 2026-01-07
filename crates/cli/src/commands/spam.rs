@@ -46,7 +46,7 @@ use tracing::{info, warn};
 
 #[derive(Debug)]
 pub struct EngineArgs {
-    pub auth_rpc_url: String,
+    pub auth_rpc_url: Url,
     pub jwt_secret: PathBuf,
     pub use_op: bool,
     pub message_version: EngineApiMessageVersion,
@@ -380,10 +380,8 @@ impl SpamCommandArgs {
         let all_signer_addrs = agents.all_signer_addresses();
 
         let params = TestScenarioParams {
-            rpc_url: self.spam_args.eth_json_rpc_args.rpc_args.rpc_url()?,
-            builder_rpc_url: builder_url
-                .to_owned()
-                .map(|url| Url::parse(&url).expect("Invalid builder URL")),
+            rpc_url: self.spam_args.eth_json_rpc_args.rpc_args.rpc_url.clone(),
+            builder_rpc_url: builder_url.to_owned(),
             signers: user_signers.to_owned(),
             agent_store: agents.to_owned(),
             tx_type,

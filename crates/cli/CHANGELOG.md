@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 - removed flag: `spam --timeout` ([#410](https://github.com/flashbots/contender/pull/410/files))
+- add `admin contract-address` subcommand ([#412](https://github.com/flashbots/contender/pull/412/files))
 
 ### Breaking changes
 
