@@ -401,7 +401,7 @@ async fn handle_contract_address(contract_name: String, rpc_url: Url, db: &Sqlit
 
     let address = named_tx
         .address
-        .ok_or_else(|| AdminError::ContractAddressMissing(contract_name))?;
+        .ok_or(AdminError::ContractAddressMissing(contract_name))?;
     println!("{address}");
     Ok(())
 }
