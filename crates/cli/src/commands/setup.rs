@@ -108,7 +108,7 @@ pub async fn setup(
     }
 
     let params = TestScenarioParams {
-        rpc_url: args.eth_json_rpc_args.rpc_url()?,
+        rpc_url: args.eth_json_rpc_args.rpc_url,
         builder_rpc_url: None,
         signers: user_signers_with_defaults,
         agent_store: agents,

@@ -35,4 +35,7 @@ contender admin seed
 
 # last run id
 contender admin latest-run-id
+
+# lookup a deployed contract address by name
+contender admin contract-address --rpc-url http://localhost:8545 MyContract
 ```

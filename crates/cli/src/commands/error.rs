@@ -4,6 +4,7 @@ use alloy::{
 };
 use std::path::PathBuf;
 use thiserror::Error;
+use url::Url;
 
 use crate::{
     commands::common::TxTypeCli,
@@ -28,7 +29,7 @@ pub enum ArgsError {
         }).reduce(|a, e| format!("{a}, {e}")).unwrap_or_default()
     )]
     EngineArgsRequired {
-        auth_rpc_url: Option<String>,
+        auth_rpc_url: Option<Url>,
         jwt_secret: Option<PathBuf>,
     },
 
@@ -106,7 +107,7 @@ pub enum SetupError {
 }
 
 impl ArgsError {
-    pub fn engine_args_required(auth_rpc_url: Option<String>, jwt_secret: Option<PathBuf>) -> Self {
+    pub fn engine_args_required(auth_rpc_url: Option<Url>, jwt_secret: Option<PathBuf>) -> Self {
         Self::EngineArgsRequired {
             auth_rpc_url,
             jwt_secret,
