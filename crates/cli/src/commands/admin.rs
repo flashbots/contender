@@ -18,6 +18,7 @@ use contender_testfile::TestConfig;
 use std::path::Path;
 use thiserror::Error;
 use tracing::{info, warn};
+use url::Url;
 
 #[derive(Debug, Error)]
 pub enum AdminError {
@@ -112,7 +113,7 @@ pub enum AdminCommand {
             short = 'r',
             default_value = "http://localhost:8545"
         )]
-        rpc_url: String,
+        rpc_url: Url,
 
         /// Contract name to look up
         contract_name: String,
@@ -386,21 +387,16 @@ async fn handle_reclaim_eth(
     Ok(())
 }
 
-async fn handle_contract_address(
-    contract_name: String,
-    rpc_url: String,
-    db: &SqliteDb,
-) -> Result<()> {
-    let provider =
-        ProviderBuilder::new().connect_http(rpc_url.parse().map_err(ArgsError::UrlParse)?);
+async fn handle_contract_address(contract_name: String, rpc_url: Url, db: &SqliteDb) -> Result<()> {
+    let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
     let genesis_block = provider.get_block(BlockId::earliest()).await?;
     if genesis_block.is_none() {
-        return Err(AdminError::GenesisBlockMissing(rpc_url).into());
+        return Err(AdminError::GenesisBlockMissing(rpc_url.to_string()).into());
     }
     let genesis_hash = genesis_block.expect("genesis block").header.hash;
 
     let named_tx = db
-        .get_named_tx(&contract_name, &rpc_url, genesis_hash)?
+        .get_named_tx(&contract_name, rpc_url.as_str(), genesis_hash)?
         .ok_or_else(|| AdminError::ContractNotFound(contract_name.clone()))?;
 
     let address = named_tx

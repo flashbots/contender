@@ -48,7 +48,7 @@ where
     pub inner: RootProvider<Net>,
     genesis_block: Net::HeaderResponse,
     pub message_version: EngineApiMessageVersion,
-    pub rpc_url: String,
+    pub rpc_url: Url,
 }
 
 pub trait NetworkAttributes {
@@ -75,12 +75,12 @@ where
     /// Create a new AuthProvider instance.
     /// This will create a new authenticated transport connected to `auth_rpc_url` using `jwt_secret`.
     pub async fn new(
-        auth_rpc_url: &str,
+        auth_rpc_url: &Url,
         jwt_secret: JwtSecret,
         message_version: EngineApiMessageVersion,
     ) -> AuthResult<Self> {
-        let auth_url = Url::parse(auth_rpc_url).expect("Invalid auth RPC URL");
-        let auth_transport = AuthenticatedTransportConnect::new(auth_url, jwt_secret);
+        let auth_transport =
+            AuthenticatedTransportConnect::new(auth_rpc_url.to_owned(), jwt_secret);
         let client = ClientBuilder::default()
             .connect_with(auth_transport)
             .await
@@ -104,7 +104,7 @@ where
     /// Create a new AuthProvider instance from a JWT secret file.
     /// The JWT secret is hex encoded and will be decoded after reading the file.
     pub async fn from_jwt_file(
-        auth_rpc_url: &str,
+        auth_rpc_url: &Url,
         jwt_secret_file: &PathBuf,
         message_version: EngineApiMessageVersion,
     ) -> AuthResult<Self> {
@@ -587,7 +587,7 @@ impl<N: Network + NetworkAttributes> RpcId for AuthProvider<N> {
     }
 
     fn rpc_url(&self) -> String {
-        self.rpc_url.clone()
+        self.rpc_url.to_string()
     }
 }
 
