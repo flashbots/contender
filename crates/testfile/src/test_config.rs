@@ -153,6 +153,7 @@ impl TestConfig {
 impl FromStr for TestConfig {
     type Err = Error;
 
+    /// Interprets a string as the contents of a TOML file and returns a `TestConfig`.
     fn from_str(s: &str) -> Result<Self> {
         let test_file: TestConfig = toml::from_str(s)?;
         Ok(test_file)
