@@ -7,11 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-- cli is now solely responsible for intercepting CTRL-C signals
+- removed flag: `spam --timeout` ([#410](https://github.com/flashbots/contender/pull/410/files))
+
+### Breaking changes
+
+- `--timeout` has been removed, which will break CI instances that use the flag
+
+## [0.7.0](https://github.com/flashbots/contender/releases/tag/v0.7.0) - 2026-01-05
+
+- cli is now solely responsible for intercepting CTRL-C signals ([#404](https://github.com/flashbots/contender/pull/404/files))
   - to shutdown background tasks, we rely on [`CancellationToken`s](https://docs.rs/tokio-util/latest/tokio_util/sync/struct.CancellationToken.html)
   - we no longer require two-phase cancellation (CTRL-C once to stop spamming, CTRL-C again to stop result collection)
     - result collection happens async, so when the user cancels, most results will have already been collected
     - stopping quickly is a better UX than two-phase
+- reduced verbosity of logs ([#406](https://github.com/flashbots/contender/pull/406/files))
+  - logs now only show source file paths and line numbers when `debug` (or higher) is used in RUST_LOG
+- new spam flag `--gas-price` manually sets gas price & disables basefee tracking ([#400](https://github.com/flashbots/contender/pull/400/files))
 
 ### Breaking changes
 
