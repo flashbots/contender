@@ -611,13 +611,17 @@ impl TypedSpammer {
     }
 }
 
-/// Runs spammer and returns run ID.
-pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
+pub async fn spam_inner<D, S, P>(
     db: &D,
+    test_scenario: &mut TestScenario<D, S, P>,
     args: &SpamCommandArgs,
     run_context: SpamCampaignContext,
-) -> Result<Option<u64>> {
-    let mut test_scenario = args.init_scenario(db).await?;
+) -> Result<Option<u64>>
+where
+    D: DbOps + Clone + Send + Sync + 'static,
+    S: Seeder + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+{
     let start_block = test_scenario.rpc_client.get_block_number().await?;
 
     let SpamCommandArgs {
@@ -760,7 +764,7 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
             res = {
                 spammer
                 .spam_rpc(
-                    &mut test_scenario,
+                    test_scenario,
                     txs_per_batch,
                     duration,
                     run_id,
@@ -793,4 +797,14 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
     }
 
     Ok(run_id)
+}
+
+/// Runs spammer and returns run ID.
+pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
+    db: &D,
+    args: &SpamCommandArgs,
+    run_context: SpamCampaignContext,
+) -> Result<Option<u64>> {
+    let mut test_scenario = args.init_scenario(db).await?;
+    spam_inner(db, &mut test_scenario, args, run_context).await
 }
