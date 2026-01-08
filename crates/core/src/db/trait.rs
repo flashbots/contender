@@ -32,7 +32,7 @@ pub trait DbOps {
         &self,
         scenario_hash: FixedBytes<32>,
         genesis_hash: FixedBytes<32>,
-    ) -> Result<Option<u64>, Self::Error>;
+    ) -> Result<u64, Self::Error>;
 
     fn update_setup_progress(
         &self,

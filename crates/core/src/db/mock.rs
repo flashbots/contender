@@ -127,8 +127,8 @@ impl DbOps for MockDb {
         &self,
         _scenario_hash: FixedBytes<32>,
         _genesis_hash: FixedBytes<32>,
-    ) -> Result<Option<u64>, Self::Error> {
-        Ok(None)
+    ) -> Result<u64, Self::Error> {
+        Ok(0)
     }
 
     fn update_setup_progress(

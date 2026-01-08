@@ -123,7 +123,6 @@ where
     pub rpc_batch_size: u64,
     pub num_rpc_batches_sent: u64,
     pub gas_price: Option<U256>,
-    pub is_simulation: bool,
 }
 
 pub struct TestScenarioParams {
@@ -139,7 +138,6 @@ pub struct TestScenarioParams {
     pub sync_nonces_after_batch: bool,
     pub rpc_batch_size: u64,
     pub gas_price: Option<U256>,
-    pub is_simulation: bool,
 }
 
 pub struct SpamRunContext<'a, F: SpamCallback + 'static> {
@@ -209,7 +207,6 @@ where
             sync_nonces_after_batch,
             rpc_batch_size,
             gas_price,
-            is_simulation,
         } = params;
 
         let (setcode_signer, _) = generate_setcode_signer(&rand_seed);
@@ -321,7 +318,6 @@ where
             rpc_batch_size,
             num_rpc_batches_sent: 0,
             gas_price,
-            is_simulation,
         })
     }
 
@@ -440,7 +436,6 @@ where
                 sync_nonces_after_batch: self.should_sync_nonces,
                 rpc_batch_size: self.rpc_batch_size,
                 gas_price: self.gas_price,
-                is_simulation: true,
             },
             None,
             (&PROM, &HIST).into(),
@@ -693,8 +688,7 @@ where
             .db
             .get_setup_progress(scenario_hash, genesis_hash)
             .map_err(|e| crate::error::Error::Db(e.into()))?;
-        let last_step_index = progress.map(|p| p as isize).unwrap_or(-1);
-        let is_simulation = self.is_simulation;
+        let last_step_index = progress as isize - 1;
 
         let current_step_idx = Arc::new(std::sync::Mutex::new(0isize));
 
@@ -729,8 +723,6 @@ where
             let db = self.db.clone();
             let rpc_url = self.rpc_url.clone();
             let tx_type = self.tx_type;
-            let scenario_hash_clone = scenario_hash.clone();
-
             let handle = tokio::task::spawn(async move {
                 let wallet = ProviderBuilder::new()
                     .wallet(signer)
@@ -804,10 +796,8 @@ where
 
                 // Update progress after successful step
                 if receipt.status() {
-                    if !is_simulation {
-                        db.update_setup_progress(scenario_hash_clone, genesis_hash, idx as u64)
-                            .map_err(|e| crate::error::Error::Db(e.into()))?;
-                    }
+                    db.update_setup_progress(scenario_hash, genesis_hash, idx as u64 + 1)
+                        .map_err(|e| crate::error::Error::Db(e.into()))?;
                 } else {
                     warn!(
                         "Setup step {} failed (reverted). Progress not updated.",
@@ -1450,7 +1440,6 @@ where
                 sync_nonces_after_batch: self.should_sync_nonces,
                 rpc_batch_size: self.rpc_batch_size,
                 gas_price: self.gas_price,
-                is_simulation: true,
             },
             None,
             (&PROM, &HIST).into(),
@@ -2066,7 +2055,6 @@ pub mod tests {
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
                 gas_price,
-                is_simulation: false,
             },
             None,
             (&PROM, &HIST).into(),

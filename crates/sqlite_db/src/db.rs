@@ -477,16 +477,17 @@ impl DbOps for SqliteDb {
         &self,
         scenario_hash: FixedBytes<32>,
         genesis_hash: FixedBytes<32>,
-    ) -> Result<Option<u64>> {
+    ) -> Result<u64> {
         let scenario_id = keccak256([scenario_hash.as_slice(), genesis_hash.as_slice()].concat());
-        self.query_row(
+        match self.query_row(
             "SELECT last_step_index FROM setup_progress WHERE scenario_id = ?1",
             params![scenario_id.to_string()],
             |row| row.get(0),
-        )
-        .ok()
-        .map(|res| Ok(Some(res)))
-        .unwrap_or(Ok(None))
+        ) {
+            Ok(idx) => Ok(idx),
+            Err(Error::ExecuteQuery(rusqlite::Error::QueryReturnedNoRows)) => Ok(0),
+            Err(e) => Err(e),
+        }
     }
 
     fn update_setup_progress(
@@ -865,16 +866,16 @@ mod tests {
         let scenario_hash = FixedBytes::<32>::from_slice(&[1u8; 32]);
         let genesis_hash = FixedBytes::<32>::from_slice(&[2u8; 32]);
         let progress = db.get_setup_progress(scenario_hash, genesis_hash).unwrap();
-        assert!(progress.is_none());
+        assert_eq!(progress, 0);
 
         db.update_setup_progress(scenario_hash, genesis_hash, 5)
             .unwrap();
         let progress = db.get_setup_progress(scenario_hash, genesis_hash).unwrap();
-        assert_eq!(progress, Some(5));
+        assert_eq!(progress, 5);
 
         db.update_setup_progress(scenario_hash, genesis_hash, 6)
             .unwrap();
         let progress = db.get_setup_progress(scenario_hash, genesis_hash).unwrap();
-        assert_eq!(progress, Some(6));
+        assert_eq!(progress, 6);
     }
 }
