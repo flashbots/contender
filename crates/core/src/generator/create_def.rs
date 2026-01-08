@@ -1,6 +1,6 @@
 use alloy::{hex::ToHexExt, primitives::Address};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tracing::debug;
 
@@ -68,15 +68,13 @@ impl MiniJq {
 }
 
 impl ContractFileType {
-    fn read_file(
-        scenario_path: &PathBuf,
-        relative_path: &PathBuf,
-    ) -> Result<String, ContractError> {
+    fn read_file(scenario_path: &Path, relative_path: &Path) -> Result<String, ContractError> {
+        println!("relative_path: {relative_path:?}");
         std::fs::read_to_string(scenario_path.join(relative_path))
             .map_err(|e| ContractError::ReadFile(e, relative_path.to_owned()))
     }
 
-    pub fn bytecode(&self, scenario_path: &PathBuf) -> Result<String, ContractError> {
+    pub fn bytecode(&self, scenario_path: &Path) -> Result<String, ContractError> {
         use ContractFileType::*;
 
         match self {
@@ -84,15 +82,18 @@ impl ContractFileType {
                 path,
                 bytecode_filter,
             } => {
+                println!("wtf: {path:?}");
                 // read file
                 let file_contents = Self::read_file(scenario_path, path)?;
                 // extract bytecode string from json
-                MiniJq::new(&file_contents)
-                    .map_err(ContractError::JsonParse)?
+                MiniJq::new(&file_contents)?
                     .value(&bytecode_filter)
                     .map_err(|_| ContractError::InvalidJsonFilter(bytecode_filter.to_owned()))
             }
-            Hex { path } => Self::read_file(scenario_path, path),
+            Hex { path } => {
+                println!("wtf2: {path:?}");
+                Self::read_file(scenario_path, path)
+            }
         }
     }
 }
@@ -128,7 +129,7 @@ pub struct ContractFile {
 impl ContractFile {
     pub fn identify(&self) -> Result<ContractFileType, ContractError> {
         use ContractError::*;
-        let path = self.path.to_lowercase();
+        let path = self.path.to_owned();
         if path.ends_with(".hex") {
             return Ok(ContractFileType::Hex { path: path.into() });
         }
