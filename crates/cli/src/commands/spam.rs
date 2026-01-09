@@ -377,24 +377,8 @@ impl SpamCommandArgs {
             );
         }
 
-        let all_signer_addrs = agents.all_signer_addresses();
-
-        let params = TestScenarioParams {
-            rpc_url: self.spam_args.eth_json_rpc_args.rpc_args.rpc_url.clone(),
-            builder_rpc_url: builder_url.to_owned(),
-            signers: user_signers.to_owned(),
-            agent_store: agents.to_owned(),
-            tx_type,
-            bundle_type: bundle_type.into(),
-            pending_tx_timeout_secs: pending_timeout * block_time,
-            extra_msg_handles: None,
-            redeploy: self.spam_args.redeploy,
-            sync_nonces_after_batch: !self.spam_args.optimistic_nonces,
-            rpc_batch_size,
-            gas_price: self.spam_args.eth_json_rpc_args.rpc_args.gas_price,
-        };
-
         if !override_senders {
+            let all_signer_addrs = agents.all_signer_addresses();
             fund_accounts(
                 &all_signer_addrs,
                 &user_signers[0],
@@ -426,6 +410,20 @@ impl SpamCommandArgs {
             None
         };
 
+        let params = TestScenarioParams {
+            rpc_url: self.spam_args.eth_json_rpc_args.rpc_args.rpc_url.clone(),
+            builder_rpc_url: builder_url.to_owned(),
+            signers: user_signers.to_owned(),
+            agent_store: agents.to_owned(),
+            tx_type,
+            bundle_type: bundle_type.into(),
+            pending_tx_timeout_secs: pending_timeout * block_time,
+            extra_msg_handles: None,
+            redeploy: self.spam_args.redeploy,
+            sync_nonces_after_batch: !self.spam_args.optimistic_nonces,
+            rpc_batch_size,
+            gas_price: self.spam_args.eth_json_rpc_args.rpc_args.gas_price,
+        };
         let mut test_scenario = TestScenario::new(
             testconfig,
             db.clone().into(),
@@ -435,6 +433,16 @@ impl SpamCommandArgs {
             (&PROM, &HIST).into(),
         )
         .await?;
+
+        let total_cost =
+            U256::from(duration) * test_scenario.get_max_spam_cost(&user_signers).await?;
+        if min_balance < U256::from(total_cost) {
+            return Err(ArgsError::MinBalanceInsufficient {
+                min_balance,
+                required_balance: total_cost,
+            }
+            .into());
+        }
 
         // Builtin/default behavior: best-effort (skip redeploy if code exists); allow CLI override
         tracing::trace!(
@@ -481,16 +489,6 @@ impl SpamCommandArgs {
             }?;
         }
         done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
-
-        let total_cost =
-            U256::from(duration) * test_scenario.get_max_spam_cost(&user_signers).await?;
-        if min_balance < U256::from(total_cost) {
-            return Err(ArgsError::MinBalanceInsufficient {
-                min_balance,
-                required_balance: total_cost,
-            }
-            .into());
-        }
 
         let duration_unit = if txs_per_second.is_some() {
             "second"
@@ -611,13 +609,18 @@ impl TypedSpammer {
     }
 }
 
-/// Runs spammer and returns run ID.
-pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
+/// Spams given `test_scenario` and returns run ID, or None if using NilCallback & not part of a campaign.
+pub async fn spam_inner<D, S, P>(
     db: &D,
+    test_scenario: &mut TestScenario<D, S, P>,
     args: &SpamCommandArgs,
     run_context: SpamCampaignContext,
-) -> Result<Option<u64>> {
-    let mut test_scenario = args.init_scenario(db).await?;
+) -> Result<Option<u64>>
+where
+    D: DbOps + Clone + Send + Sync + 'static,
+    S: Seeder + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+{
     let start_block = test_scenario.rpc_client.get_block_number().await?;
 
     let SpamCommandArgs {
@@ -760,7 +763,7 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
             res = {
                 spammer
                 .spam_rpc(
-                    &mut test_scenario,
+                    test_scenario,
                     txs_per_batch,
                     duration,
                     run_id,
@@ -793,4 +796,14 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
     }
 
     Ok(run_id)
+}
+
+/// Runs spammer and returns run ID.
+pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
+    db: &D,
+    args: &SpamCommandArgs,
+    run_context: SpamCampaignContext,
+) -> Result<Option<u64>> {
+    let mut test_scenario = args.init_scenario(db).await?;
+    spam_inner(db, &mut test_scenario, args, run_context).await
 }

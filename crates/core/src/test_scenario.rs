@@ -1220,7 +1220,7 @@ where
                 tokio::select! {
                     res = task => {
                         if let Err(e) = res {
-                            warn!("spam task failed: {e:?}");
+                            tracing::trace!("spam task abandoned: {e:?}");
                             num_tasks -= 1;
                         }
                     },
