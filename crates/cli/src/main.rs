@@ -164,7 +164,14 @@ async fn run() -> Result<(), CliError> {
         }
 
         ContenderSubcommand::Campaign { args } => {
-            commands::campaign::run_campaign(&db, *args).await?;
+            tokio::select! {
+                res = commands::campaign::run_campaign(&db, *args) => {
+                    res?;
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    warn!("CTRL-C received, campaign terminated.");
+                }
+            }
         }
     };
 

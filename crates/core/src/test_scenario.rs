@@ -1216,11 +1216,12 @@ where
             let mut num_tasks = spam_tasks.len();
 
             // wait for spam txs to finish sending
+
             for task in spam_tasks {
                 tokio::select! {
                     res = task => {
                         if let Err(e) = res {
-                            warn!("spam task failed: {e:?}");
+                            tracing::trace!("spam task abandoned: {e:?}");
                             num_tasks -= 1;
                         }
                     },
