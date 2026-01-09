@@ -1216,7 +1216,6 @@ where
             let mut num_tasks = spam_tasks.len();
 
             // wait for spam txs to finish sending
-
             for task in spam_tasks {
                 tokio::select! {
                     res = task => {
