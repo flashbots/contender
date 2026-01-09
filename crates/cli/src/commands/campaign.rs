@@ -19,6 +19,7 @@ use contender_core::error::RuntimeParamErrorKind;
 use contender_testfile::{CampaignConfig, CampaignMode, ResolvedStage};
 use std::time::Duration;
 use tracing::{debug, info, warn};
+use url::Url;
 use uuid::Uuid;
 
 #[derive(Clone, Debug, Args)]
@@ -38,7 +39,7 @@ pub struct CampaignCliArgs {
         long_help = "HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`)",
         visible_aliases = ["builder", "builder-rpc-url", "builder-rpc"]
     )]
-    pub builder_url: Option<String>,
+    pub builder_url: Option<Url>,
 
     /// The time to wait for pending transactions to land, in blocks.
     #[arg(
@@ -397,11 +398,13 @@ async fn execute_stage(
             duration,
             "Starting campaign scenario spammer",
         );
+        let mut test_scenario = spam_args.init_scenario(&db).await?;
+
         let handle = tokio::spawn(async move {
             // Wait for all parallel scenarios to be ready before starting
             barrier_clone.wait().await;
 
-            let run_res = commands::spam(&db, &spam_args, ctx).await;
+            let run_res = commands::spam_inner(&db, &mut test_scenario, &spam_args, ctx).await;
             match run_res {
                 Ok(Some(run_id)) => {
                     info!(
