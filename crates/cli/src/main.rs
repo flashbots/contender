@@ -8,7 +8,6 @@ use alloy::{
     network::AnyNetwork,
     providers::{DynProvider, ProviderBuilder},
     rpc::client::ClientBuilder,
-    transports::http::reqwest::Url,
 };
 use commands::{
     admin::handle_admin_command,
@@ -90,8 +89,7 @@ async fn run() -> Result<(), CliError> {
                 ..
             } = *args.to_owned();
 
-            let client = ClientBuilder::default()
-                .http(Url::from_str(&rpc_args.rpc_url).map_err(ArgsError::UrlParse)?);
+            let client = ClientBuilder::default().http(rpc_args.rpc_url.clone());
             let provider = DynProvider::new(
                 ProviderBuilder::new()
                     .network::<AnyNetwork>()
@@ -166,7 +164,14 @@ async fn run() -> Result<(), CliError> {
         }
 
         ContenderSubcommand::Campaign { args } => {
-            commands::campaign::run_campaign(&db, *args).await?;
+            tokio::select! {
+                res = commands::campaign::run_campaign(&db, *args) => {
+                    res?;
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    warn!("CTRL-C received, campaign terminated.");
+                }
+            }
         }
     };
 

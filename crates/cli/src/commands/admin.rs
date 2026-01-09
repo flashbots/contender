@@ -6,6 +6,7 @@ use alloy::hex::{self, ToHexExt};
 use alloy::network::{EthereumWallet, TransactionBuilder};
 use alloy::primitives::{Address, U256};
 use alloy::providers::{Provider, ProviderBuilder};
+use alloy::rpc::types::BlockId;
 use clap::Subcommand;
 use contender_core::{
     agent_controller::SignerStore,
@@ -17,6 +18,7 @@ use contender_testfile::TestConfig;
 use std::path::Path;
 use thiserror::Error;
 use tracing::{info, warn};
+use url::Url;
 
 #[derive(Debug, Error)]
 pub enum AdminError {
@@ -31,6 +33,15 @@ pub enum AdminError {
 
     #[error("failed to read input from stdin")]
     Readline(std::io::Error),
+
+    #[error("genesis block not found for rpc url: {0}")]
+    GenesisBlockMissing(String),
+
+    #[error("contract '{0}' not found for the provided rpc url")]
+    ContractNotFound(String),
+
+    #[error("contract '{0}' has no stored address")]
+    ContractAddressMissing(String),
 }
 
 #[derive(Debug, Subcommand)]
@@ -88,6 +99,24 @@ pub enum AdminCommand {
 
         /// Scenario file to derive agents and RPC URL from
         scenario_file: Option<String>,
+    },
+
+    #[command(
+        name = "contract-address",
+        about = "Lookup a deployed contract address by name and RPC URL"
+    )]
+    ContractAddress {
+        /// RPC URL (defaults to http://localhost:8545)
+        #[arg(
+            env = "RPC_URL",
+            long,
+            short = 'r',
+            default_value = "http://localhost:8545"
+        )]
+        rpc_url: Url,
+
+        /// Contract name to look up
+        contract_name: String,
     },
 }
 
@@ -358,6 +387,25 @@ async fn handle_reclaim_eth(
     Ok(())
 }
 
+async fn handle_contract_address(contract_name: String, rpc_url: Url, db: &SqliteDb) -> Result<()> {
+    let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
+    let genesis_block = provider.get_block(BlockId::earliest()).await?;
+    if genesis_block.is_none() {
+        return Err(AdminError::GenesisBlockMissing(rpc_url.to_string()).into());
+    }
+    let genesis_hash = genesis_block.expect("genesis block").header.hash;
+
+    let named_tx = db
+        .get_named_tx(&contract_name, rpc_url.as_str(), genesis_hash)?
+        .ok_or_else(|| AdminError::ContractNotFound(contract_name.clone()))?;
+
+    let address = named_tx
+        .address
+        .ok_or(AdminError::ContractAddressMissing(contract_name))?;
+    println!("{address}");
+    Ok(())
+}
+
 pub async fn handle_admin_command(command: AdminCommand, db: SqliteDb) -> Result<()> {
     match command {
         AdminCommand::Accounts {
@@ -379,5 +427,9 @@ pub async fn handle_admin_command(command: AdminCommand, db: SqliteDb) -> Result
             num_signers,
             scenario_file,
         } => handle_reclaim_eth(to, rpc, from_pool, num_signers, scenario_file, &db).await,
+        AdminCommand::ContractAddress {
+            contract_name,
+            rpc_url,
+        } => handle_contract_address(contract_name, rpc_url, &db).await,
     }
 }

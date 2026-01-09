@@ -108,7 +108,7 @@ pub async fn setup(
     }
 
     let params = TestScenarioParams {
-        rpc_url: args.eth_json_rpc_args.rpc_url()?,
+        rpc_url: args.eth_json_rpc_args.rpc_url,
         builder_rpc_url: None,
         signers: user_signers_with_defaults,
         agent_store: agents,
@@ -185,15 +185,6 @@ pub async fn setup(
         })
     };
 
-    let cancel_task = {
-        tokio::task::spawn(async move {
-            tokio::signal::ctrl_c()
-                .await
-                .expect("failed to listen for ctrl-c");
-            warn!("CTRL-C received, stopping setup...");
-        })
-    };
-
     tokio::select! {
         task_res = setup_task => {
             task_res??;
@@ -211,7 +202,7 @@ pub async fn setup(
             fcu_res?
         }
 
-        _ = cancel_task => {
+        _ = tokio::signal::ctrl_c() => {
             warn!("Setup cancelled.");
             is_done.store(true, Ordering::SeqCst);
         },
