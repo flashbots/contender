@@ -682,10 +682,13 @@ where
 
         let setup_steps = self.config.get_setup_steps().unwrap_or_default();
         let setup_steps_vec = serde_json::to_vec(&setup_steps).map_err(|e| {
-            Error::Runtime(RuntimeParamErrorKind::InvalidArgs(format!(
-                "failed to serialize setup steps: {}",
-                e
-            )).into())
+            Error::Runtime(
+                RuntimeParamErrorKind::InvalidArgs(format!(
+                    "failed to serialize setup steps: {}",
+                    e
+                ))
+                .into(),
+            )
         })?;
         let scenario_hash = keccak256(setup_steps_vec);
         let progress = self
