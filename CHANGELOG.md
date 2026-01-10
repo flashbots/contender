@@ -5,11 +5,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Note: this file did not exist until after `v0.5.6`.
 
-## Unreleased
+## [0.7.1](https://github.com/flashbots/contender/releases/tag/v0.7.1) - 2026-01-09
 
-### Breaking Changes
-
-- `--timeout` flag removed from `contender spam`, which will break CI instances that use the flag
+- `--timeout` flag from `contender spam` is deprecated, will be removed in a future release
+- added `contender admin contract-address` command ([#412](https://github.com/flashbots/contender/pull/412))
+- fixed funding-tx collision bug triggered by campaigns ([#413](https://github.com/flashbots/contender/pull/413))
 
 ## [0.7.0](https://github.com/flashbots/contender/releases/tag/v0.7.0) - 2026-01-05
 
