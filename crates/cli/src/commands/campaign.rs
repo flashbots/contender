@@ -318,6 +318,7 @@ fn create_spam_cli_args(
         redeploy: args.redeploy,
         skip_setup: true,
         rpc_batch_size: args.rpc_batch_size,
+        spam_timeout: args.spam_timeout,
     }
 }
 
