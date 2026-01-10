@@ -8,7 +8,7 @@ use crate::{
     default_scenarios::BuiltinScenario,
     error::CliError,
     util::{
-        bold, check_private_keys, fund_accounts, load_seedfile, load_testconfig,
+        bold, check_private_keys, fund_accounts, load_seedfile, load_testconfig, parse_duration,
         provider::AuthClient,
     },
     LATENCY_HIST as HIST, PROM,
@@ -137,6 +137,14 @@ pub struct SpamCliArgs {
                      0 (default) disables batching and sends one eth_sendRawTransaction per tx."
     )]
     pub rpc_batch_size: u64,
+
+    #[arg(
+        long = "timeout",
+        long_help = "The time to wait for spammer to recover from failure before stopping contender. NOTE: this flag is deprecated and currently does nothing. It will be removed in a future release.",
+        value_parser = parse_duration,
+        default_value = "5min"
+    )]
+    pub spam_timeout: Duration,
 }
 #[derive(Clone)]
 pub enum SpamScenario {
