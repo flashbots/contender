@@ -1,4 +1,4 @@
-# this workflow is modified from reth:
+# this workflow is adapted from reth:
 # https://github.com/paradigmxyz/reth/blob/main/.github/workflows/release.yml
 
 name: release
@@ -58,6 +58,7 @@ jobs:
     name: build release
     runs-on: ${{ matrix.configs.os }}
     needs: extract-version
+    continue-on-error: ${{ matrix.configs.allow_fail }}
     strategy:
       fail-fast: true
       matrix:
@@ -70,6 +71,14 @@ jobs:
             os: ubuntu-24.04
             profile: release
             allow_fail: false
+          - target: x86_64-apple-darwin
+            os: macos-14
+            profile: release
+            allow_fail: false
+          - target: aarch64-apple-darwin
+            os: macos-14
+            profile: release
+            allow_fail: false
         build:
           - command: build
             binary: contender
@@ -79,6 +88,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: ${{ matrix.configs.target }}
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install cross main
+        id: cross_main
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Apple M-series setup
+        if: matrix.configs.target == 'aarch64-apple-darwin'
+        run: |
+          echo "SDKROOT=$(xcrun -sdk macosx --show-sdk-path)" >> $GITHUB_ENV
+          echo "MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx --show-sdk-platform-version)" >> $GITHUB_ENV
+
       - name: Build contender
         run: cargo build --verbose --workspace --release
       - name: Move binary
