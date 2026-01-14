@@ -3,7 +3,13 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use alloy::{network::ReceiptResponse, primitives::TxHash, providers::Provider};
+use alloy::{
+    network::{AnyReceiptEnvelope, ReceiptResponse},
+    primitives::TxHash,
+    providers::Provider,
+    rpc::types::TransactionReceipt,
+    serde::WithOtherFields,
+};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, warn};
 
@@ -208,7 +214,7 @@ where
 
         // ready to go to the DB
         let run_txs = confirmed_txs
-            .into_iter()
+            .iter()
             .map(|pending_tx| {
                 let receipt = receipts
                     .iter()
@@ -233,8 +239,8 @@ where
                     end_timestamp_secs: Some(target_block.header.timestamp),
                     block_number: Some(target_block.header.number),
                     gas_used: Some(receipt.gas_used),
-                    kind: pending_tx.kind,
-                    error: get_tx_error(receipt.status(), pending_tx.error),
+                    kind: pending_tx.kind.clone(),
+                    error: get_tx_error(receipt, pending_tx),
                 }
             })
             .collect::<Vec<_>>();
@@ -372,9 +378,13 @@ where
     }
 }
 
-fn get_tx_error(receipt_status: bool, pending_error: Option<String>) -> Option<String> {
-    if receipt_status {
-        pending_error
+/// Return tx error based on receipt status.
+fn get_tx_error(
+    receipt: &WithOtherFields<TransactionReceipt<AnyReceiptEnvelope<alloy::rpc::types::Log>>>,
+    pending_tx: &PendingRunTx,
+) -> Option<String> {
+    if receipt.status() {
+        pending_tx.error.clone()
     } else {
         Some("execution reverted".to_string())
     }
