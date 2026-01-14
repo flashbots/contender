@@ -32,7 +32,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Extract version
-        run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+        # extract version from github ref (tag if official release, branch if dry run)
+        # sanitizes ref by replacing `/` with `-`, to avoid errors downstream
+        run: |
+          vv="${GITHUB_REF_NAME}"
+          vv="${vv//\//-}"
+          echo "VERSION=$vv" >> $GITHUB_OUTPUT
         id: extract_version
     outputs:
       VERSION: ${{ steps.extract_version.outputs.VERSION }}
