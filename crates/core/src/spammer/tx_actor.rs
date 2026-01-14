@@ -234,7 +234,7 @@ where
                     block_number: Some(target_block.header.number),
                     gas_used: Some(receipt.gas_used),
                     kind: pending_tx.kind,
-                    error: pending_tx.error,
+                    error: get_tx_error(receipt.status(), pending_tx.error),
                 }
             })
             .collect::<Vec<_>>();
@@ -369,6 +369,14 @@ where
 
     pub fn is_shutting_down(&self) -> bool {
         self.status == ActorStatus::ShuttingDown
+    }
+}
+
+fn get_tx_error(receipt_status: bool, pending_error: Option<String>) -> Option<String> {
+    if receipt_status {
+        pending_error
+    } else {
+        Some("execution reverted".to_string())
     }
 }
 
