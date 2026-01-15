@@ -417,7 +417,7 @@ impl NameAndArgs {
 impl ToTestConfig for CustomContractArgs {
     fn to_testconfig(&self) -> contender_testfile::TestConfig {
         TestConfig::new()
-            .with_create(vec![CreateDefinition::new(&self.contract)])
+            .with_create(vec![CreateDefinition::new(&self.contract.clone().into())])
             .with_setup(self.setup.to_owned())
             .with_spam(self.spam.iter().map(SpamRequest::new_tx).collect())
     }

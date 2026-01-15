@@ -81,17 +81,14 @@ impl ToTestConfig for FillBlockArgs {
             })
             .collect::<Vec<_>>();
 
-        TestConfig {
-            env: None,
-            create: Some(vec![CreateDefinition {
+        TestConfig::new()
+            .with_create(vec![CreateDefinition {
                 contract: contracts::SPAM_ME.into(),
                 signature: None,
                 args: None,
                 from: None,
                 from_pool: Some("admin".to_owned()),
-            }]),
-            setup: None,
-            spam: Some(spam_txs),
-        }
+            }])
+            .with_spam(spam_txs)
     }
 }
