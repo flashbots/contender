@@ -442,16 +442,6 @@ impl SpamCommandArgs {
         )
         .await?;
 
-        let total_cost =
-            U256::from(duration) * test_scenario.get_max_spam_cost(&user_signers).await?;
-        if min_balance < U256::from(total_cost) {
-            return Err(ArgsError::MinBalanceInsufficient {
-                min_balance,
-                required_balance: total_cost,
-            }
-            .into());
-        }
-
         // Builtin/default behavior: best-effort (skip redeploy if code exists); allow CLI override
         tracing::trace!(
             "spam mode: redeploy={} ({} ) [--redeploy flag set? {}]",
@@ -497,6 +487,18 @@ impl SpamCommandArgs {
             }?;
         }
         done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
+
+        // estimate spam cost. contracts must be deployed at this point,
+        // otherwise you'll get "contract not found" errors
+        let total_cost =
+            U256::from(duration) * test_scenario.get_max_spam_cost(&user_signers).await?;
+        if min_balance < U256::from(total_cost) {
+            return Err(ArgsError::MinBalanceInsufficient {
+                min_balance,
+                required_balance: total_cost,
+            }
+            .into());
+        }
 
         let duration_unit = if txs_per_second.is_some() {
             "second"
