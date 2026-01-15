@@ -150,29 +150,29 @@ pub async fn run_campaign(
         .or_else(|| campaign.spam.seed.map(|s| s.to_string()))
         .unwrap_or(load_seedfile()?);
 
-    // Setup phase. Skip builtin scenarios since they do their own setup at spam time.
-    let provider = args.eth_json_rpc_args.new_rpc_provider()?;
+    // Setup phase: run setup for each (stage, mix) with the same derived seed that spam will use.
+    // This ensures setup creates accounts matching what spam expects.
+    // Skip builtin scenarios since they do their own setup at spam time.
     if !args.skip_setup {
-        for scenario_label in campaign.setup_scenarios() {
-            let scenario = match parse_builtin_reference(&scenario_label) {
-                Some(builtin) => SpamScenario::Builtin(
-                    builtin
-                        .to_builtin_scenario(
-                            &provider,
-                            &create_spam_cli_args(None, &args, CampaignMode::Tps, 1, 1),
-                            /* TODO: KLUDGE:
-                               - I don't think a `BuiltinScenarioCli` *needs* `rate` or `duration` -- that's for the spammer.
-                               - we should use a different interface for `to_builtin_scenario` (replace `SpamCliArgs`)
-                            */
-                        )
-                        .await?,
-                ),
-                None => SpamScenario::Testfile(scenario_label.to_owned()),
-            };
-            let mut setup_args = args.eth_json_rpc_args.clone();
-            setup_args.seed = Some(base_seed.clone());
-            let setup_cmd = SetupCommandArgs::new(scenario, setup_args)?;
-            commands::setup(db, setup_cmd).await?;
+        for stage in &stages {
+            let stage_seed = bump_seed(&base_seed, &stage.name);
+            for (mix_idx, mix) in stage.mix.iter().enumerate() {
+                if mix.rate == 0 {
+                    continue;
+                }
+                // Skip builtins - they do their own setup during spam
+                if parse_builtin_reference(&mix.scenario).is_some() {
+                    continue;
+                }
+
+                let scenario_seed = bump_seed(&stage_seed, &mix_idx.to_string());
+                let scenario = SpamScenario::Testfile(mix.scenario.clone());
+
+                let mut setup_args = args.eth_json_rpc_args.clone();
+                setup_args.seed = Some(scenario_seed);
+                let setup_cmd = SetupCommandArgs::new(scenario, setup_args)?;
+                commands::setup(db, setup_cmd).await?;
+            }
         }
     }
 
