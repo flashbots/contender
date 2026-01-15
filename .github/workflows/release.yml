@@ -94,10 +94,6 @@ jobs:
         with:
           target: ${{ matrix.configs.target }}
       - uses: mozilla-actions/sccache-action@v0.0.9
-      - name: Install cross main
-        id: cross_main
-        run: |
-          cargo install cross --git https://github.com/cross-rs/cross
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
@@ -109,11 +105,12 @@ jobs:
           echo "MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx --show-sdk-platform-version)" >> $GITHUB_ENV
 
       - name: Build contender
-        run: cargo build --verbose --workspace --release
+        run: cargo build --verbose --workspace --release --target ${{ matrix.configs.target }}
+
       - name: Move binary
         run: |
           mkdir artifacts
-          mv "target/${{ matrix.configs.profile }}/${{ matrix.build.binary }}" ./artifacts
+          mv "target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/${{ matrix.build.binary }}" ./artifacts
 
       - name: Configure GPG and create artifacts
         env:
