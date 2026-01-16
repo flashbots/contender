@@ -81,12 +81,13 @@ pub async fn setup(
     // If override_senders is true, we don't need to create agents for pools
     // since all transactions will use the primary signer
     if !override_senders {
+        let accounts_per_agent = args.accounts_per_agent.unwrap_or(1) as usize;
         for from_pool in &from_pool_declarations {
             if agents.has_agent(from_pool) {
                 continue;
             }
 
-            let agent = SignerStore::new(1, &args.seed, from_pool);
+            let agent = SignerStore::new(accounts_per_agent, &args.seed, from_pool);
             agents.add_agent(from_pool, agent);
         }
     }
@@ -215,6 +216,8 @@ pub struct SetupCommandArgs {
     pub scenario: SpamScenario,
     pub eth_json_rpc_args: SendTxsCliArgsInner,
     pub seed: RandSeed,
+    /// Number of accounts to create per agent pool. If None, defaults to 1.
+    pub accounts_per_agent: Option<u64>,
 }
 
 impl SetupCommandArgs {
@@ -224,7 +227,13 @@ impl SetupCommandArgs {
             scenario,
             eth_json_rpc_args: cli_args.clone(),
             seed,
+            accounts_per_agent: None,
         })
+    }
+
+    pub fn with_accounts_per_agent(mut self, accounts_per_agent: u64) -> Self {
+        self.accounts_per_agent = Some(accounts_per_agent);
+        self
     }
 
     async fn engine_params(&self) -> Result<EngineParams, CliError> {

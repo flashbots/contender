@@ -32,6 +32,10 @@ pub struct FunctionCallDefinition {
     pub blob_data: Option<String>,
     /// Optional setCode data; tx type must be set to EIP7702 by spammer
     pub authorization_address: Option<String>,
+    /// If true and `from_pool` is set, run this setup transaction for all accounts in the pool.
+    /// Defaults to false (only runs for the first account).
+    #[serde(default)]
+    pub for_all_accounts: bool,
 }
 
 /// User-facing definition of a function call to be executed.
@@ -55,6 +59,7 @@ impl FunctionCallDefinition {
             gas_limit: None,
             blob_data: None,
             authorization_address: None,
+            for_all_accounts: false,
         }
     }
 
@@ -103,6 +108,10 @@ impl FunctionCallDefinition {
         self.authorization_address = Some(auth_addr.as_ref().to_owned());
         self
     }
+    pub fn with_for_all_accounts(mut self, for_all_accounts: bool) -> Self {
+        self.for_all_accounts = for_all_accounts;
+        self
+    }
 
     pub fn sidecar_data(&self) -> Result<Option<BlobTransactionSidecar>, GeneratorError> {
         let sidecar_data = if let Some(data) = self.blob_data.as_ref() {
@@ -149,4 +158,57 @@ pub struct FuzzParam {
     pub min: Option<U256>,
     /// Maximum value fuzzer will use.
     pub max: Option<U256>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn for_all_accounts_defaults_to_false() {
+        let toml = r#"
+            to = "0x1234567890123456789012345678901234567890"
+            from_pool = "test_pool"
+            signature = "test()"
+        "#;
+        let def: FunctionCallDefinition = toml::from_str(toml).unwrap();
+        assert!(!def.for_all_accounts);
+    }
+
+    #[test]
+    fn for_all_accounts_parses_true() {
+        let toml = r#"
+            to = "0x1234567890123456789012345678901234567890"
+            from_pool = "test_pool"
+            signature = "test()"
+            for_all_accounts = true
+        "#;
+        let def: FunctionCallDefinition = toml::from_str(toml).unwrap();
+        assert!(def.for_all_accounts);
+    }
+
+    #[test]
+    fn for_all_accounts_parses_false() {
+        let toml = r#"
+            to = "0x1234567890123456789012345678901234567890"
+            from_pool = "test_pool"
+            signature = "test()"
+            for_all_accounts = false
+        "#;
+        let def: FunctionCallDefinition = toml::from_str(toml).unwrap();
+        assert!(!def.for_all_accounts);
+    }
+
+    #[test]
+    fn with_for_all_accounts_builder() {
+        let def = FunctionCallDefinition::new("0x1234")
+            .with_from_pool("test_pool")
+            .with_for_all_accounts(true);
+        assert!(def.for_all_accounts);
+
+        let def = FunctionCallDefinition::new("0x1234")
+            .with_from_pool("test_pool")
+            .with_for_all_accounts(false);
+        assert!(!def.for_all_accounts);
+    }
 }

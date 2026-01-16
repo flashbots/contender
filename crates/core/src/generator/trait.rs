@@ -393,33 +393,60 @@ where
                         self.get_genesis_hash(),
                     )?;
 
-                    // setup tx with template values
-                    let mut tx = NamedTxRequest::new(
-                        templater.template_function_call(
-                            &self.make_strict_call(step, 0)?, // 'from' address injected here
-                            &placeholder_map,
-                        )?,
-                        None,
-                        step.kind.to_owned(),
-                    );
+                    // Determine which account indices to use for this setup step
+                    let account_indices: Vec<usize> = if step.for_all_accounts {
+                        if let Some(ref from_pool) = step.from_pool {
+                            // Get all account indices for this pool
+                            let agents = self.get_agent_store();
+                            if let Some(agent) = agents.get_agent(from_pool) {
+                                (0..agent.signers.len()).collect()
+                            } else {
+                                return Err(crate::Error::Generator(
+                                    GeneratorError::from_pool_not_found(from_pool),
+                                ));
+                            }
+                        } else {
+                            // for_all_accounts requires from_pool to be set
+                            return Err(crate::Error::Generator(
+                                GeneratorError::ForAllAccountsRequiresFromPool,
+                            ));
+                        }
+                    } else {
+                        // Default behavior: only use first account (idx 0)
+                        vec![0]
+                    };
 
-                    // assign a unique nonce to each tx (tracker per sender)
-                    // - we need to block on the future to ensure it's correct before sending the tx)
-                    let from = tx.tx.from.expect("from address");
-                    if let std::collections::hash_map::Entry::Vacant(e) = next_nonce.entry(from) {
-                        let nonce = self.get_rpc_provider().get_transaction_count(from).await?;
-                        e.insert(nonce);
-                    }
-                    let nonce = next_nonce.get_mut(&from).expect("nonce");
-                    tx.tx.nonce = Some(*nonce);
-                    *nonce += 1;
+                    // Generate a setup transaction for each account index
+                    for account_idx in account_indices {
+                        // setup tx with template values
+                        let mut tx = NamedTxRequest::new(
+                            templater.template_function_call(
+                                &self.make_strict_call(step, account_idx)?, // 'from' address injected here
+                                &placeholder_map,
+                            )?,
+                            None,
+                            step.kind.to_owned(),
+                        );
 
-                    // spawn and store handle (will await all txs later)
-                    let handle = on_setup_step(tx.to_owned())?;
-                    if let Some(handle) = handle {
-                        handles.push(handle);
+                        // assign a unique nonce to each tx (tracker per sender)
+                        // - we need to block on the future to ensure it's correct before sending the tx)
+                        let from = tx.tx.from.expect("from address");
+                        if let std::collections::hash_map::Entry::Vacant(e) = next_nonce.entry(from)
+                        {
+                            let nonce = self.get_rpc_provider().get_transaction_count(from).await?;
+                            e.insert(nonce);
+                        }
+                        let nonce = next_nonce.get_mut(&from).expect("nonce");
+                        tx.tx.nonce = Some(*nonce);
+                        *nonce += 1;
+
+                        // spawn and store handle (will await all txs later)
+                        let handle = on_setup_step(tx.to_owned())?;
+                        if let Some(handle) = handle {
+                            handles.push(handle);
+                        }
+                        txs.push(tx.into());
                     }
-                    txs.push(tx.into());
                 }
 
                 for handle in handles {
