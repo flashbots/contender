@@ -124,7 +124,6 @@ pub struct CampaignCliArgs {
         global = true,
         default_value_t = false,
         long = "forever",
-        long_help = "Run spammer indefinitely.",
         visible_aliases = ["indefinite", "indefinitely", "infinite"]
     )]
     pub run_forever: bool,
