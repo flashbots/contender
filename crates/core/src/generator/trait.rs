@@ -431,7 +431,8 @@ where
                         // assign a unique nonce to each tx (tracker per sender)
                         // - we need to block on the future to ensure it's correct before sending the tx)
                         let from = tx.tx.from.expect("from address");
-                        if let std::collections::hash_map::Entry::Vacant(e) = next_nonce.entry(from) {
+                        if let std::collections::hash_map::Entry::Vacant(e) = next_nonce.entry(from)
+                        {
                             let nonce = self.get_rpc_provider().get_transaction_count(from).await?;
                             e.insert(nonce);
                         }
