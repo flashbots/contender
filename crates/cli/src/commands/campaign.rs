@@ -118,6 +118,16 @@ pub struct CampaignCliArgs {
         default_value = "5min"
     )]
     pub spam_timeout: Duration,
+
+    /// Run campaign in a loop, indefinitely.
+    #[arg(
+        global = true,
+        default_value_t = false,
+        long = "forever",
+        long_help = "Run spammer indefinitely.",
+        visible_aliases = ["indefinite", "indefinitely", "infinite"]
+    )]
+    pub run_forever: bool,
 }
 
 fn bump_seed(base_seed: &str, stage_name: &str) -> String {
@@ -178,53 +188,72 @@ pub async fn run_campaign(
 
     let mut run_ids = vec![];
 
-    for (stage_idx, stage) in stages.iter().enumerate() {
-        info!(
-            campaign_id = %campaign_id,
-            campaign_name = %campaign.name,
-            "Starting campaign stage {}: {} ({}={})",
-            stage_idx + 1,
-            stage.name,
-            match campaign.spam.mode {
-                CampaignMode::Tps => "tps",
-                CampaignMode::Tpb => "tpb",
-            },
-            stage.rate
-        );
+    loop {
+        tokio::select! {
+            _ = async {
+                //
+                for (stage_idx, stage) in stages.iter().enumerate() {
+                    info!(
+                        campaign_id = %campaign_id,
+                        campaign_name = %campaign.name,
+                        "Starting campaign stage {}: {} ({}={})",
+                        stage_idx + 1,
+                        stage.name,
+                        match campaign.spam.mode {
+                            CampaignMode::Tps => "tps",
+                            CampaignMode::Tpb => "tpb",
+                        },
+                        stage.rate
+                    );
 
-        // Avoid nonce conflicts: override_senders would share a single EOA across mixes.
-        if args.eth_json_rpc_args.override_senders && stage.mix.len() > 1 {
-            return Err(RuntimeParamErrorKind::InvalidArgs(
-                "override-senders cannot be used when a stage has multiple mix entries; it would share one sender across mixes and cause nonce conflicts".into(),
-            )
-            .into());
-        }
+                    // Avoid nonce conflicts: override_senders would share a single EOA across mixes.
+                    if args.eth_json_rpc_args.override_senders && stage.mix.len() > 1 {
+                        return Err(RuntimeParamErrorKind::InvalidArgs(
+                            "override-senders cannot be used when a stage has multiple mix entries; it would share one sender across mixes and cause nonce conflicts".into(),
+                        )
+                        .into());
+                    }
 
-        let stage_seed = bump_seed(&base_seed, &stage.name);
+                    let stage_seed = bump_seed(&base_seed, &stage.name);
 
-        // Execute stage with optional timeout
-        let stage_run_ids = if let Some(timeout_secs) = stage.stage_timeout {
-            let timeout_duration = std::time::Duration::from_secs(timeout_secs);
-            match tokio::time::timeout(
-                timeout_duration,
-                execute_stage(db, &campaign, stage, &args, &campaign_id, &stage_seed),
-            )
-            .await
-            {
-                Ok(result) => result?,
-                Err(_) => {
-                    return Err(RuntimeParamErrorKind::InvalidArgs(format!(
-                        "Stage '{}' exceeded timeout of {} seconds",
-                        stage.name, timeout_secs
-                    ))
-                    .into());
+                    // Execute stage with optional timeout
+                    let stage_run_ids = if let Some(timeout_secs) = stage.stage_timeout {
+                        let timeout_duration = std::time::Duration::from_secs(timeout_secs);
+                        match tokio::time::timeout(
+                            timeout_duration,
+                            execute_stage(db, &campaign, stage, &args, &campaign_id, &stage_seed),
+                        )
+                        .await
+                        {
+                            Ok(result) => result?,
+                            Err(_) => {
+                                return Err(RuntimeParamErrorKind::InvalidArgs(format!(
+                                    "Stage '{}' exceeded timeout of {} seconds",
+                                    stage.name, timeout_secs
+                                ))
+                                .into());
+                            }
+                        }
+                    } else {
+                        execute_stage(db, &campaign, stage, &args, &campaign_id, &stage_seed).await?
+                    };
+
+                    run_ids.extend(stage_run_ids);
                 }
+                Ok::<_, CliError>(())
+            } => {
+                if args.run_forever {
+                    info!("Campaign {campaign_id} completed. Running again due to --forever flag.");
+                    continue;
+                }
+                info!("Campaign {campaign_id} completed.");
+                break;
+            },
+            _ = tokio::signal::ctrl_c() => {
+                info!("Received Ctrl-C, stopping campaign {campaign_id}.");
+                break;
             }
-        } else {
-            execute_stage(db, &campaign, stage, &args, &campaign_id, &stage_seed).await?
-        };
-
-        run_ids.extend(stage_run_ids);
+        }
     }
 
     if args.gen_report {

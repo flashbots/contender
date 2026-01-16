@@ -293,13 +293,10 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
     )]
     pub pending_timeout: u64,
 
-    /// The number of times to repeat the spam run.
-    /// If set with a value, the spam run will be repeated this many times.
-    /// If set without a value, the spam run will be repeated indefinitely.
-    /// If not set, the spam run will be executed once.
+    /// Run spammer indefinitely.
     #[arg(
         global = true,
-        default_value_t = false, // pretty sure this line is unnecessary but it makes me feel safe
+        default_value_t = false,
         long = "forever",
         long_help = "Run spammer indefinitely.",
         visible_aliases = ["indefinite", "indefinitely", "infinite"]
