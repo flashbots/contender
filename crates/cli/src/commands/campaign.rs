@@ -290,6 +290,8 @@ fn create_spam_cli_args(
     spam_mode: CampaignMode,
     spam_rate: u64,
     spam_duration: u64,
+    skip_setup: bool,
+    redeploy: bool,
 ) -> SpamCliArgs {
     SpamCliArgs {
         eth_json_rpc_args: ScenarioSendTxsCliArgs {
@@ -316,8 +318,8 @@ fn create_spam_cli_args(
         ignore_receipts: args.ignore_receipts,
         optimistic_nonces: args.optimistic_nonces,
         gen_report: false,
-        redeploy: args.redeploy,
-        skip_setup: true,
+        redeploy,
+        skip_setup,
         rpc_batch_size: args.rpc_batch_size,
         spam_timeout: args.spam_timeout,
     }
@@ -357,12 +359,21 @@ async fn execute_stage(
         args.eth_json_rpc_args.seed = Some(scenario_seed.clone());
         debug!("mix {mix_idx} seed: {}", scenario_seed);
 
+        // Check if this is a builtin scenario to determine skip_setup/redeploy behavior:
+        // - Builtins: respect campaign's flags (they do their own setup during spam)
+        // - Toml scenarios: always skip setup (ran in Phase 1), redeploy not applicable
+        let is_builtin = parse_builtin_reference(&mix.scenario).is_some();
+        let skip_setup = if is_builtin { args.skip_setup } else { true };
+        let redeploy = if is_builtin { args.redeploy } else { false };
+
         let spam_cli_args = create_spam_cli_args(
             Some(mix.scenario.clone()),
             &args,
             campaign.spam.mode,
             mix.rate,
             stage.duration,
+            skip_setup,
+            redeploy,
         );
 
         let spam_scenario = if let Some(builtin_cli) = parse_builtin_reference(&mix.scenario) {
