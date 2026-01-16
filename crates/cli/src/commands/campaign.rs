@@ -170,7 +170,8 @@ pub async fn run_campaign(
 
                 let mut setup_args = args.eth_json_rpc_args.clone();
                 setup_args.seed = Some(scenario_seed);
-                let setup_cmd = SetupCommandArgs::new(scenario, setup_args)?;
+                let setup_cmd = SetupCommandArgs::new(scenario, setup_args)?
+                    .with_accounts_per_agent(args.accounts_per_agent);
                 commands::setup(db, setup_cmd).await?;
             }
         }
