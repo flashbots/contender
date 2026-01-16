@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 - transactions that revert onchain now store error as "execution reverted" DB, rather than NULL ([#418](https://github.com/flashbots/contender/pull/418))
+- added `--infinite` flag to campaigns; loops campaigns indefinitely ([#420](https://github.com/flashbots/contender/pull/420))
 
 ## [0.7.2](https://github.com/flashbots/contender/releases/tag/v0.7.2) - 2026-01-14
 
