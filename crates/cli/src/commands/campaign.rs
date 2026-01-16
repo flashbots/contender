@@ -191,7 +191,6 @@ pub async fn run_campaign(
     loop {
         tokio::select! {
             _ = async {
-                //
                 for (stage_idx, stage) in stages.iter().enumerate() {
                     info!(
                         campaign_id = %campaign_id,
