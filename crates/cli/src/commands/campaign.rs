@@ -51,15 +51,6 @@ pub struct CampaignCliArgs {
     )]
     pub pending_timeout: u64,
 
-    /// The number of accounts to generate for each agent (`from_pool` in scenario files)
-    #[arg(
-        short,
-        long,
-        visible_aliases = ["na", "accounts"],
-        default_value_t = 10
-    )]
-    pub accounts_per_agent: u64,
-
     /// Max number of txs to send in a single json-rpc batch request.
     #[arg(
         long = "rpc-batch-size",
@@ -179,8 +170,11 @@ pub async fn run_campaign(
 
                 let mut setup_args = args.eth_json_rpc_args.clone();
                 setup_args.seed = Some(scenario_seed);
-                let setup_cmd = SetupCommandArgs::new(scenario, setup_args)?
-                    .with_accounts_per_agent(args.accounts_per_agent);
+                // Ensure accounts_per_agent uses campaign default (10) if not explicitly set
+                if setup_args.accounts_per_agent.is_none() {
+                    setup_args.accounts_per_agent = Some(10);
+                }
+                let setup_cmd = SetupCommandArgs::new(scenario, setup_args)?;
                 commands::setup(db, setup_cmd).await?;
             }
         }
@@ -340,7 +334,6 @@ fn create_spam_cli_args(
             duration: spam_duration,
             pending_timeout: args.pending_timeout,
             run_forever: false,
-            accounts_per_agent: args.accounts_per_agent,
         },
         ignore_receipts: args.ignore_receipts,
         optimistic_nonces: args.optimistic_nonces,
