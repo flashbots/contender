@@ -37,6 +37,9 @@ pub enum GeneratorError {
     #[error("fuzz invalid")]
     FuzzInvalid,
 
+    #[error("for_all_accounts requires from_pool to be set")]
+    ForAllAccountsRequiresFromPool,
+
     #[error("must specify from or from_pool in scenario config")]
     InvalidSender,
 

@@ -219,7 +219,6 @@ impl SpamCommandArgs {
             duration,
             pending_timeout,
             run_forever,
-            accounts_per_agent,
         } = self.spam_args.spam_args.clone();
         let SendTxsCliArgsInner {
             min_balance,
@@ -227,8 +226,10 @@ impl SpamCommandArgs {
             bundle_type,
             env,
             override_senders,
+            accounts_per_agent,
             ..
         } = self.spam_args.eth_json_rpc_args.rpc_args.clone();
+        let accounts_per_agent = accounts_per_agent.unwrap_or(10);
 
         let mut testconfig = self.testconfig().await?;
         let spam_len = testconfig.spam.as_ref().map(|s| s.len()).unwrap_or(0);

@@ -128,9 +128,23 @@ Requires --auth-rpc-url and --jwt-secret to be set.",
         value_parser = parse_value,
     )]
     pub gas_price: Option<U256>,
+
+    /// The number of accounts to generate for each agent (`from_pool` in scenario files).
+    /// Defaults to 1 for standalone setup, 10 for spam and campaign.
+    #[arg(
+        short = 'a',
+        long,
+        visible_aliases = ["na", "accounts"],
+    )]
+    pub accounts_per_agent: Option<u64>,
 }
 
 impl SendTxsCliArgsInner {
+    /// Returns the accounts_per_agent value, or the provided default if not set.
+    pub fn accounts_per_agent_or(&self, default: u64) -> u64 {
+        self.accounts_per_agent.unwrap_or(default)
+    }
+
     pub fn new_rpc_provider(&self) -> Result<DynProvider<AnyNetwork>, ArgsError> {
         info!("connecting to {}", self.rpc_url);
         Ok(DynProvider::new(
@@ -301,15 +315,6 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         visible_aliases = ["indefinite", "indefinitely", "infinite"]
     )]
     pub run_forever: bool,
-
-    /// The number of accounts to generate for each agent (`from_pool` in scenario files)
-    #[arg(
-        short,
-        long,
-        visible_aliases = ["na", "accounts"],
-        default_value_t = 10
-    )]
-    pub accounts_per_agent: u64,
 }
 
 #[derive(Copy, Debug, Clone, clap::ValueEnum)]

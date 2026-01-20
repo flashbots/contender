@@ -98,7 +98,10 @@ impl BuiltinScenarioCli {
                 let mut agents = AgentStore::new();
                 agents.init(
                     &["spammers"],
-                    spam_args.spam_args.accounts_per_agent as usize,
+                    spam_args
+                        .eth_json_rpc_args
+                        .rpc_args
+                        .accounts_per_agent_or(10) as usize,
                     &seed,
                 );
                 let spammers = agents

@@ -36,8 +36,10 @@ pub async fn setup(
         env,
         bundle_type,
         override_senders,
+        accounts_per_agent,
         ..
     } = args.eth_json_rpc_args.clone();
+    let accounts_per_agent = accounts_per_agent.unwrap_or(1) as usize;
     let engine_params = args.engine_params().await?;
     let rpc_client = args.eth_json_rpc_args.new_rpc_provider()?;
     let user_signers_with_defaults = args.eth_json_rpc_args.user_signers_with_defaults();
@@ -86,7 +88,7 @@ pub async fn setup(
                 continue;
             }
 
-            let agent = SignerStore::new(1, &args.seed, from_pool);
+            let agent = SignerStore::new(accounts_per_agent, &args.seed, from_pool);
             agents.add_agent(from_pool, agent);
         }
     }
