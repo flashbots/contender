@@ -37,8 +37,9 @@ pub enum ArgsError {
     EngineProviderUninitialized(String),
 
     #[error(
-        "Insufficient minimum balance: {} ETH. Set --min-balance to {} or higher.",
+        "Insufficient minimum balance: {} ETH. Set {} to \"{} eth\" or higher.",
         format_ether(*min_balance),
+        bold("--min-balance"),
         format_ether(*required_balance)
     )]
     MinBalanceInsufficient {
