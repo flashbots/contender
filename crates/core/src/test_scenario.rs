@@ -960,7 +960,7 @@ where
                 let error_sender = error_sender.clone();
 
                 // Wait to space transactions out evenly across a second
-                std::thread::sleep(Duration::from_micros(micros_per_task));
+                tokio::time::sleep(Duration::from_micros(micros_per_task)).await;
                 tasks.push(tokio::task::spawn(async move {
                 let extra = RuntimeTxInfo::default();
                 let handles = match payload {
@@ -1123,7 +1123,7 @@ where
                 })
                 .collect();
 
-            std::thread::sleep(Duration::from_micros(micros_per_batch));
+            tokio::time::sleep(Duration::from_micros(micros_per_batch)).await;
             tasks.push(tokio::task::spawn(async move {
                 // Build json-rpc batch payload with multiple eth_sendRawTransaction requests
                 let mut requests = Vec::with_capacity(signed_chunk.len());
@@ -1626,21 +1626,13 @@ async fn handle_tx_outcome<'a, F: SpamCallback + 'static>(
         }
     }
 
-    let maybe_handle = ctx.callback_handler.on_tx_sent(
+    // Fire-and-forget - the callback task runs concurrently and has its own cancel token handling
+    let _ = ctx.callback_handler.on_tx_sent(
         PendingTransactionConfig::new(tx_hash),
         req,
         extra,
         Some(ctx.tx_handlers.clone()),
     );
-
-    if let Some(handle) = maybe_handle {
-        tokio::select! {
-            _ = ctx.cancel_token.cancelled() => {
-                debug!("cancelled spammer task");
-            }
-            _ = handle => { /* wait for callback */ }
-        }
-    }
 }
 
 async fn sync_nonces(
