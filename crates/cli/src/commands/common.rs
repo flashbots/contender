@@ -203,11 +203,11 @@ Required if --auth-rpc-url is set.",
         value_enum,
         default_value_t = EngineMessageVersion::V4
     )]
-    message_version: EngineMessageVersion,
+    pub message_version: EngineMessageVersion,
 }
 
 #[derive(Copy, Debug, Clone, clap::ValueEnum)]
-enum EngineMessageVersion {
+pub enum EngineMessageVersion {
     V1,
     V2,
     V3,

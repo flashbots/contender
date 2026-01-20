@@ -163,12 +163,16 @@ pub async fn run_campaign(
     let provider = args.eth_json_rpc_args.new_rpc_provider()?;
     if !args.skip_setup {
         for scenario_label in campaign.setup_scenarios() {
+            // Use base_seed for setup phase so addresses match spam phase
+            let mut setup_rpc_args = args.clone();
+            setup_rpc_args.eth_json_rpc_args.seed = Some(base_seed.clone());
+
             let scenario = match parse_builtin_reference(&scenario_label) {
                 Some(builtin) => SpamScenario::Builtin(
                     builtin
                         .to_builtin_scenario(
                             &provider,
-                            &create_spam_cli_args(None, &args, CampaignMode::Tps, 1, 1),
+                            &create_spam_cli_args(None, &setup_rpc_args, CampaignMode::Tps, 1, 1),
                             /* TODO: KLUDGE:
                                - I don't think a `BuiltinScenarioCli` *needs* `rate` or `duration` -- that's for the spammer.
                                - we should use a different interface for `to_builtin_scenario` (replace `SpamCliArgs`)
@@ -189,7 +193,7 @@ pub async fn run_campaign(
 
     loop {
         tokio::select! {
-            _ = async {
+            result = async {
                 for (stage_idx, stage) in stages.iter().enumerate() {
                     info!(
                         campaign_id = %campaign_id,
@@ -219,7 +223,7 @@ pub async fn run_campaign(
                         let timeout_duration = std::time::Duration::from_secs(timeout_secs);
                         match tokio::time::timeout(
                             timeout_duration,
-                            execute_stage(db, &campaign, stage, &args, &campaign_id, &stage_seed),
+                            execute_stage(db, &campaign, stage, &args, &campaign_id, &stage_seed, &base_seed),
                         )
                         .await
                         {
@@ -233,13 +237,15 @@ pub async fn run_campaign(
                             }
                         }
                     } else {
-                        execute_stage(db, &campaign, stage, &args, &campaign_id, &stage_seed).await?
+                        execute_stage(db, &campaign, stage, &args, &campaign_id, &stage_seed, &base_seed).await?
                     };
 
                     run_ids.extend(stage_run_ids);
                 }
                 Ok::<_, CliError>(())
             } => {
+                // Check for errors from the stage execution
+                result?;
                 if args.run_forever {
                     info!("Campaign {campaign_id} completed. Running again due to --forever flag.");
                     continue;
@@ -342,7 +348,9 @@ fn create_spam_cli_args(
         ignore_receipts: args.ignore_receipts,
         optimistic_nonces: args.optimistic_nonces,
         gen_report: false,
-        redeploy: args.redeploy,
+        // In campaign mode, redeploy is handled by the setup phase, not the spam phase.
+        // Setting both redeploy and skip_setup would trigger a validation error.
+        redeploy: false,
         skip_setup: true,
         rpc_batch_size: args.rpc_batch_size,
         spam_timeout: args.spam_timeout,
@@ -356,6 +364,7 @@ async fn execute_stage(
     args: &CampaignCliArgs,
     campaign_id: &str,
     stage_seed: &str,
+    base_seed: &str,
 ) -> Result<Vec<u64>, CliError> {
     let mut handles = vec![];
     let mut run_ids = vec![];
@@ -378,10 +387,22 @@ async fn execute_stage(
             continue;
         }
         let mix = mix.clone();
-        let scenario_seed = bump_seed(stage_seed, &mix_idx.to_string());
+        let is_builtin = parse_builtin_reference(&mix.scenario).is_some();
+
+        // For builtin scenarios, use base_seed to match setup phase.
+        // Setup phase funds addresses derived from base_seed, so spam must use the same.
+        // For testfile scenarios, bump the seed to avoid nonce conflicts between parallel mixes.
+        let scenario_seed = if is_builtin {
+            base_seed.to_owned()
+        } else {
+            bump_seed(stage_seed, &mix_idx.to_string())
+        };
         let mut args = args.to_owned();
         args.eth_json_rpc_args.seed = Some(scenario_seed.clone());
-        debug!("mix {mix_idx} seed: {}", scenario_seed);
+        debug!(
+            "mix {mix_idx} seed: {} (builtin: {})",
+            scenario_seed, is_builtin
+        );
 
         let spam_cli_args = create_spam_cli_args(
             Some(mix.scenario.clone()),
@@ -490,7 +511,10 @@ fn parse_builtin_reference(name: &str) -> Option<BuiltinScenarioCli> {
 
 #[cfg(test)]
 mod tests {
-    use contender_testfile::{ResolvedMixEntry, ResolvedStage};
+    use super::*;
+    use crate::commands::common::{AuthCliArgs, BundleTypeCli, EngineMessageVersion, TxTypeCli};
+    use alloy::primitives::U256;
+    use contender_testfile::{CampaignMode, ResolvedMixEntry, ResolvedStage};
     use std::sync::Arc;
     use tokio::sync::{Barrier, Mutex};
     use tokio::time::{sleep, Duration};
@@ -573,5 +597,83 @@ mod tests {
         assert_eq!(st.len(), 2);
         assert!(st.contains(&"s1".to_string()));
         assert!(st.contains(&"s2".to_string()));
+    }
+
+    fn test_campaign_cli_args(redeploy: bool) -> CampaignCliArgs {
+        CampaignCliArgs {
+            campaign: "test.toml".to_string(),
+            eth_json_rpc_args: SendTxsCliArgsInner {
+                rpc_url: "http://localhost:8545".parse().unwrap(),
+                seed: None,
+                private_keys: None,
+                min_balance: U256::from(1000000000000000000u64),
+                tx_type: TxTypeCli::Eip1559,
+                bundle_type: BundleTypeCli::default(),
+                auth_args: AuthCliArgs {
+                    auth_rpc_url: None,
+                    jwt_secret: None,
+                    use_op: false,
+                    message_version: EngineMessageVersion::V4,
+                },
+                call_forkchoice: false,
+                env: None,
+                override_senders: false,
+                gas_price: None,
+            },
+            builder_url: None,
+            pending_timeout: 12,
+            accounts_per_agent: 10,
+            rpc_batch_size: 0,
+            ignore_receipts: false,
+            optimistic_nonces: false,
+            gen_report: false,
+            redeploy,
+            skip_setup: false,
+            spam_timeout: Duration::from_secs(300),
+            run_forever: false,
+        }
+    }
+
+    #[test]
+    fn create_spam_cli_args_sets_skip_setup_and_no_redeploy() {
+        // Even when campaign args have redeploy=true, the spam phase should have
+        // redeploy=false because setup phase already handles redeployment.
+        // skip_setup should always be true in spam phase.
+        let args_with_redeploy = test_campaign_cli_args(true);
+        let spam_args = create_spam_cli_args(
+            Some("test.toml".to_string()),
+            &args_with_redeploy,
+            CampaignMode::Tps,
+            1000,
+            60,
+        );
+
+        assert!(
+            !spam_args.redeploy,
+            "redeploy should be false in spam phase"
+        );
+        assert!(
+            spam_args.skip_setup,
+            "skip_setup should be true in spam phase"
+        );
+
+        // Also verify with redeploy=false in campaign args
+        let args_no_redeploy = test_campaign_cli_args(false);
+        let spam_args = create_spam_cli_args(
+            Some("test.toml".to_string()),
+            &args_no_redeploy,
+            CampaignMode::Tps,
+            1000,
+            60,
+        );
+
+        assert!(
+            !spam_args.redeploy,
+            "redeploy should be false in spam phase"
+        );
+        assert!(
+            spam_args.skip_setup,
+            "skip_setup should be true in spam phase"
+        );
     }
 }
