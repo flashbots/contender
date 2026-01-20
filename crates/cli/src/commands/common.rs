@@ -315,6 +315,17 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         visible_aliases = ["indefinite", "indefinitely", "infinite"]
     )]
     pub run_forever: bool,
+
+    /// Defer receipt collection until after spam completes (more reliable).
+    #[arg(
+        long,
+        default_value_t = false,
+        long_help = "Defer receipt collection until after spam completes. \
+                     Uses sequential block-by-block processing instead of concurrent. \
+                     More reliable tx counting but slower overall.",
+        visible_aliases = ["batch-receipts", "sequential-receipts"]
+    )]
+    pub defer_receipts: bool,
 }
 
 #[derive(Copy, Debug, Clone, clap::ValueEnum)]

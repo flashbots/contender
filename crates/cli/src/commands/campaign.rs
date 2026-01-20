@@ -118,6 +118,17 @@ pub struct CampaignCliArgs {
         visible_aliases = ["indefinite", "indefinitely", "infinite"]
     )]
     pub run_forever: bool,
+
+    /// Defer receipt collection until after spam completes (more reliable).
+    #[arg(
+        long,
+        default_value_t = false,
+        long_help = "Defer receipt collection until after spam completes. \
+                     Uses sequential block-by-block processing instead of concurrent. \
+                     More reliable tx counting but slower overall.",
+        visible_aliases = ["batch-receipts", "sequential-receipts"]
+    )]
+    pub defer_receipts: bool,
 }
 
 fn bump_seed(base_seed: &str, stage_name: &str) -> String {
@@ -334,6 +345,7 @@ fn create_spam_cli_args(
             duration: spam_duration,
             pending_timeout: args.pending_timeout,
             run_forever: false,
+            defer_receipts: args.defer_receipts,
         },
         ignore_receipts: args.ignore_receipts,
         optimistic_nonces: args.optimistic_nonces,

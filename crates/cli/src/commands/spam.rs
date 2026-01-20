@@ -219,6 +219,7 @@ impl SpamCommandArgs {
             duration,
             pending_timeout,
             run_forever,
+            ..
         } = self.spam_args.spam_args.clone();
         let SendTxsCliArgsInner {
             min_balance,
@@ -652,6 +653,7 @@ where
         duration,
         pending_timeout,
         run_forever,
+        defer_receipts,
         ..
     } = spam_args;
     let SendTxsCliArgsInner {
@@ -765,7 +767,8 @@ where
 
     // initialize TxActor (pending tx cache processor) context
     let actor_ctx = ActorContext::new(start_block, run_id.unwrap_or_default())
-        .with_pending_tx_timeout(pending_timeout);
+        .with_pending_tx_timeout(pending_timeout)
+        .with_skip_interval_flush(defer_receipts);
     test_scenario.tx_actor().init_ctx(actor_ctx).await?;
 
     // loop spammer, break if CTRL-C is received, or run_forever is false
@@ -796,6 +799,22 @@ where
     }
 
     // wait for tx results, or break for CTRL-C
+    if defer_receipts {
+        // Use sequential post-spam receipt fetching (more reliable)
+        tokio::select! {
+            res = test_scenario.flush_tx_cache(start_block, run_id.unwrap_or_default()) => {
+                if let Err(e) = res {
+                    warn!("Error during flush_tx_cache: {:?}", e);
+                }
+            }
+            _ = tokio::signal::ctrl_c() => {
+                info!("CTRL-C received, stopping result collection.");
+                test_scenario.shutdown().await;
+            }
+        }
+    }
+
+    // Dump any remaining txs in cache (both modes need this)
     tokio::select! {
         _ = test_scenario.dump_tx_cache(run_id.unwrap_or_default()) => {
         }

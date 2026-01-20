@@ -39,6 +39,11 @@ pub enum TxActorMessage {
         run_id: u64,
         on_dump_cache: oneshot::Sender<Vec<RunTx>>,
     },
+    FlushCache {
+        run_id: u64,
+        on_flush: oneshot::Sender<Vec<PendingRunTx>>,
+        target_block_num: u64,
+    },
     Stop {
         on_stop: oneshot::Sender<()>,
     },
@@ -85,6 +90,7 @@ pub struct ActorContext {
     pub run_id: u64,
     pub target_block: u64,
     pub pending_tx_timeout: Duration,
+    pub skip_interval_flush: bool,
 }
 
 impl ActorContext {
@@ -93,11 +99,17 @@ impl ActorContext {
             run_id,
             target_block,
             pending_tx_timeout: Duration::from_secs(30),
+            skip_interval_flush: false,
         }
     }
 
     pub fn with_pending_tx_timeout(mut self, timeout: Duration) -> Self {
         self.pending_tx_timeout = timeout;
+        self
+    }
+
+    pub fn with_skip_interval_flush(mut self, skip: bool) -> Self {
+        self.skip_interval_flush = skip;
         self
     }
 }
@@ -205,7 +217,8 @@ where
             // collect txs that were not included in confirmed_txs
             .filter(|tx| !confirmed_txs.contains(tx))
             // remove txs that have been sitting around for too long
-            .filter(|tx| !is_tx_timed_out(ctx, tx))
+            // (skip timeout filter when using deferred receipt mode, as stall detection handles it)
+            .filter(|tx| ctx.skip_interval_flush || !is_tx_timed_out(ctx, tx))
             .map(|tx| tx.to_owned())
             .collect::<Vec<_>>();
 
@@ -329,6 +342,13 @@ where
                 let res = self.dump_cache(run_id).await?;
                 on_dump_cache.send(res).map_err(CallbackError::DumpCache)?;
             }
+            TxActorMessage::FlushCache {
+                run_id,
+                on_flush,
+                target_block_num,
+            } => {
+                self.flush_cache(run_id, on_flush, target_block_num).await?;
+            }
         }
 
         Ok(())
@@ -349,6 +369,10 @@ where
                 // periodically flush cache in background while spammer runs
                 _ = interval.tick() => {
                     if let Some(ctx) = self.ctx.to_owned() {
+                        // Skip interval-based flushing if defer_receipts is enabled
+                        if ctx.skip_interval_flush {
+                            continue;
+                        }
                         debug!("TxActor ctx initialized, flushing cache for target block {}", ctx.target_block);
                         let new_block = provider.get_block_number().await?;
                         for bn in ctx.target_block..new_block {
@@ -467,6 +491,25 @@ impl TxActorHandle {
             .send(TxActorMessage::DumpCache {
                 on_dump_cache: sender,
                 run_id,
+            })
+            .await
+            .map_err(Box::new)
+            .map_err(CallbackError::from)?;
+        Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
+    }
+
+    /// Removes txs included onchain from the cache, saves them to the DB, and returns the txs remaining in the cache.
+    pub async fn flush_cache(
+        &self,
+        run_id: u64,
+        target_block_num: u64,
+    ) -> Result<Vec<PendingRunTx>> {
+        let (sender, receiver) = oneshot::channel();
+        self.sender
+            .send(TxActorMessage::FlushCache {
+                run_id,
+                on_flush: sender,
+                target_block_num,
             })
             .await
             .map_err(Box::new)
