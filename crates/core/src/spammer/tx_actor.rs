@@ -11,7 +11,7 @@ use alloy::{
     serde::WithOtherFields,
 };
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     db::{DbOps, RunTx},
@@ -20,6 +20,7 @@ use crate::{
     Result,
 };
 
+/// External messages from API callers
 #[derive(Debug)]
 pub enum TxActorMessage {
     InitCtx(ActorContext),
@@ -44,14 +45,30 @@ pub enum TxActorMessage {
     },
 }
 
+/// Internal messages from flush task to message handler
+enum FlushRequest {
+    /// Request a snapshot of the current cache
+    GetSnapshot {
+        reply: oneshot::Sender<(Vec<PendingRunTx>, Option<ActorContext>)>,
+    },
+    /// Remove confirmed txs and update target block
+    RemoveConfirmed {
+        confirmed_tx_hashes: Vec<TxHash>,
+        new_target_block: u64,
+        pending_tx_timeout: Duration,
+    },
+}
+
 struct TxActor<D>
 where
     D: DbOps,
 {
+    /// External message receiver
     receiver: mpsc::Receiver<TxActorMessage>,
+    /// Internal flush request receiver
+    flush_receiver: mpsc::Receiver<FlushRequest>,
     db: Arc<D>,
     cache: Vec<PendingRunTx>,
-    rpc: Arc<AnyProvider>,
     ctx: Option<ActorContext>,
     status: ActorStatus,
 }
@@ -115,145 +132,22 @@ where
 {
     pub fn new(
         receiver: mpsc::Receiver<TxActorMessage>,
+        flush_receiver: mpsc::Receiver<FlushRequest>,
         db: Arc<D>,
-        rpc: Arc<AnyProvider>,
     ) -> Self {
         Self {
             receiver,
+            flush_receiver,
             db,
             cache: Vec::new(),
-            rpc,
             ctx: None,
             status: ActorStatus::default(),
         }
     }
 
-    pub fn update_ctx_target_block(&mut self, target_block_num: u64) -> Result<()> {
-        if let Some(ctx) = self.ctx.as_mut() {
-            ctx.target_block = target_block_num;
-        } else {
-            return Err(CallbackError::UpdateRequiresCtx.into());
-        }
-
-        Ok(())
-    }
-
-    /// Waits for target block to appear onchain,
-    /// gets block receipts for the target block,
-    /// removes txs that were included in the block from cache, and saves them to the DB.
-    async fn flush_cache(
-        &mut self,
-        run_id: u64,
-        on_flush: oneshot::Sender<Vec<PendingRunTx>>, // returns the number of txs remaining in cache
-        target_block_num: u64,
-    ) -> Result<()> {
-        let Self {
-            cache,
-            rpc,
-            db,
-            ctx,
-            ..
-        } = self;
-        info!("unconfirmed txs: {}", cache.len());
-        let ctx = ctx.as_ref().ok_or(CallbackError::UpdateRequiresCtx)?;
-
-        if cache.is_empty() {
-            on_flush
-                .send(cache.to_owned())
-                .map_err(CallbackError::FlushCache)?;
-            return Ok(());
-        }
-
-        let mut maybe_block;
-        // TODO: replace this garbage mutator thing with a while loop
-        loop {
-            maybe_block = rpc.get_block_by_number(target_block_num.into()).await;
-            if let Ok(maybe_block) = &maybe_block {
-                if maybe_block.is_some() {
-                    break;
-                }
-            }
-            info!("waiting for block {target_block_num}");
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-        let target_block = maybe_block
-            .expect("this should never happen")
-            .expect("this should never happen");
-        let receipts = rpc
-            .get_block_receipts(target_block_num.into())
-            .await?
-            .unwrap_or_default();
-        info!(
-            "found {} receipts for block {}",
-            receipts.len(),
-            target_block_num
-        );
-        // filter for txs that were included in the block
-        let receipt_tx_hashes = receipts
-            .iter()
-            .map(|r| r.transaction_hash)
-            .collect::<Vec<_>>();
-        let confirmed_txs = cache
-            .iter()
-            .filter(|tx| receipt_tx_hashes.contains(&tx.tx_hash))
-            .map(|tx| tx.to_owned())
-            .collect::<Vec<_>>();
-
-        // filter cache
-        let new_txs = cache
-            .iter()
-            // collect txs that were not included in confirmed_txs
-            .filter(|tx| !confirmed_txs.contains(tx))
-            // remove txs that have been sitting around for too long
-            .filter(|tx| !is_tx_timed_out(ctx, tx))
-            .map(|tx| tx.to_owned())
-            .collect::<Vec<_>>();
-
-        // update cache
-        *cache = new_txs.to_vec();
-
-        // ready to go to the DB
-        let run_txs = confirmed_txs
-            .iter()
-            .map(|pending_tx| {
-                let receipt = receipts
-                    .iter()
-                    .find(|r| r.transaction_hash == pending_tx.tx_hash)
-                    .expect("this should never happen");
-                if !receipt.status() {
-                    warn!("tx failed: {:?}", pending_tx.tx_hash);
-                } else {
-                    debug!(
-                        "tx landed. hash: {}, gas_used: {}, block_num: {}",
-                        pending_tx.tx_hash,
-                        receipt.gas_used,
-                        receipt
-                            .block_number
-                            .map(|n| n.to_string())
-                            .unwrap_or("N/A".to_owned())
-                    );
-                }
-                RunTx {
-                    tx_hash: pending_tx.tx_hash,
-                    start_timestamp_secs: (pending_tx.start_timestamp_ms / 1000) as u64,
-                    end_timestamp_secs: Some(target_block.header.timestamp),
-                    block_number: Some(target_block.header.number),
-                    gas_used: Some(receipt.gas_used),
-                    kind: pending_tx.kind.clone(),
-                    error: get_tx_error(receipt, pending_tx),
-                }
-            })
-            .collect::<Vec<_>>();
-        db.insert_run_txs(run_id, &run_txs).map_err(|e| e.into())?;
-        on_flush
-            .send(new_txs.to_owned())
-            .map_err(CallbackError::FlushCache)?;
-        Ok(())
-    }
-
     /// Dumps all cached txs into the DB. Does not assign `end_timestamp`, `block_number`, or `gas_used`.
-    async fn dump_cache(&mut self, run_id: u64) -> Result<Vec<RunTx>> {
-        let run_txs = self
+    fn dump_cache(&mut self, run_id: u64) -> Result<Vec<RunTx>> {
+        let run_txs: Vec<_> = self
             .cache
             .iter()
             .map(|pending_tx| RunTx {
@@ -265,7 +159,7 @@ where
                 kind: pending_tx.kind.to_owned(),
                 error: pending_tx.error.to_owned(),
             })
-            .collect::<Vec<_>>();
+            .collect();
         self.db
             .insert_run_txs(run_id, &run_txs)
             .map_err(|e| e.into())?;
@@ -273,7 +167,7 @@ where
         Ok(run_txs)
     }
 
-    async fn remove_cached_tx(&mut self, old_tx_hash: TxHash) -> Result<()> {
+    fn remove_cached_tx(&mut self, old_tx_hash: TxHash) -> Result<()> {
         let old_tx = self
             .cache
             .iter()
@@ -283,8 +177,8 @@ where
         Ok(())
     }
 
-    /// Parse message and execute appropriate methods.
-    async fn handle_message(&mut self, message: TxActorMessage) -> Result<()> {
+    /// Handle external API message
+    fn handle_message(&mut self, message: TxActorMessage) -> Result<()> {
         match message {
             TxActorMessage::GetCacheLen(on_len) => {
                 on_len
@@ -311,13 +205,13 @@ where
                     kind,
                     error,
                 };
-                self.cache.push(run_tx.to_owned());
+                self.cache.push(run_tx);
                 on_receive
                     .send(())
                     .map_err(|e| CallbackError::OneshotSend(format!("SentRunTx: {:?}", e)))?;
             }
             TxActorMessage::RemovedRunTx { tx_hash, on_remove } => {
-                self.remove_cached_tx(tx_hash).await?;
+                self.remove_cached_tx(tx_hash)?;
                 on_remove
                     .send(())
                     .map_err(|e| CallbackError::OneshotSend(format!("RemovedRunTx: {:?}", e)))?;
@@ -326,56 +220,236 @@ where
                 on_dump_cache,
                 run_id,
             } => {
-                let res = self.dump_cache(run_id).await?;
+                let res = self.dump_cache(run_id)?;
                 on_dump_cache.send(res).map_err(CallbackError::DumpCache)?;
             }
         }
-
         Ok(())
     }
 
-    /// Receive & handle messages.
-    pub async fn run(&mut self) -> Result<()> {
-        let mut interval =
-            tokio::time::interval(/* self.cfg.poll_interval */ Duration::from_secs(1));
-        let provider = self.rpc.clone();
+    /// Handle internal flush request
+    fn handle_flush_request(&mut self, request: FlushRequest) {
+        match request {
+            FlushRequest::GetSnapshot { reply } => {
+                // Send snapshot of cache and context
+                let _ = reply.send((self.cache.clone(), self.ctx.clone()));
+            }
+            FlushRequest::RemoveConfirmed {
+                confirmed_tx_hashes,
+                new_target_block,
+                pending_tx_timeout,
+            } => {
+                // Remove confirmed txs and timed-out txs
+                self.cache.retain(|tx| {
+                    let is_confirmed = confirmed_tx_hashes.contains(&tx.tx_hash);
+                    let is_timed_out =
+                        is_tx_timed_out_ms(tx.start_timestamp_ms, pending_tx_timeout);
+                    if is_timed_out && !is_confirmed {
+                        debug!(
+                            "tx timed out after {:?}: {:?}",
+                            pending_tx_timeout, tx.tx_hash
+                        );
+                    }
+                    !is_confirmed && !is_timed_out
+                });
+                // Update target block
+                if let Some(ref mut ctx) = self.ctx {
+                    if new_target_block > ctx.target_block {
+                        ctx.target_block = new_target_block;
+                    }
+                }
+            }
+        }
+    }
 
+    /// Main loop: handles both external messages and internal flush requests
+    pub async fn run(&mut self) -> Result<()> {
         loop {
-            if self.is_shutting_down() {
+            if self.status == ActorStatus::ShuttingDown {
                 break;
             }
 
             tokio::select! {
-                // periodically flush cache in background while spammer runs
-                _ = interval.tick() => {
-                    if let Some(ctx) = self.ctx.to_owned() {
-                        debug!("TxActor ctx initialized, flushing cache for target block {}", ctx.target_block);
-                        let new_block = provider.get_block_number().await?;
-                        for bn in ctx.target_block..new_block {
-                            let (on_flush, _receiver) = oneshot::channel();
-                            self.flush_cache(ctx.run_id, on_flush, bn).await?;
-                        }
-                        self.update_ctx_target_block(new_block)?;
-                    } else {
-                        debug!("TxActor context not initialized.");
+                // External messages have priority (biased)
+                biased;
+
+                msg = self.receiver.recv() => {
+                    if let Some(msg) = msg {
+                        self.handle_message(msg)?;
                     }
                 }
 
-                // handle messages (sent by test_scenario)
-                msg = self.receiver.recv() => {
-                    if let Some(msg) = msg {
-                        self.handle_message(msg).await?;
+                req = self.flush_receiver.recv() => {
+                    if let Some(req) = req {
+                        self.handle_flush_request(req);
                     }
                 }
             }
         }
-
         Ok(())
     }
+}
 
-    pub fn is_shutting_down(&self) -> bool {
-        self.status == ActorStatus::ShuttingDown
+/// Check if tx is timed out based on start timestamp
+fn is_tx_timed_out_ms(start_timestamp_ms: u128, timeout: Duration) -> bool {
+    let duration_since_epoch = Duration::from_millis(start_timestamp_ms as u64);
+    let timestamp = std::time::UNIX_EPOCH + duration_since_epoch;
+    match SystemTime::now().duration_since(timestamp) {
+        Ok(elapsed) => elapsed > timeout,
+        Err(_) => true,
     }
+}
+
+/// Standalone flush task - communicates with message handler via channels
+async fn flush_loop<D: DbOps + Send + Sync + 'static>(
+    flush_sender: mpsc::Sender<FlushRequest>,
+    db: Arc<D>,
+    rpc: Arc<AnyProvider>,
+) {
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+
+    loop {
+        interval.tick().await;
+
+        // Request snapshot from message handler
+        let (reply_tx, reply_rx) = oneshot::channel();
+        if flush_sender
+            .send(FlushRequest::GetSnapshot { reply: reply_tx })
+            .await
+            .is_err()
+        {
+            // Message handler shut down
+            break;
+        }
+
+        let (cache_snapshot, ctx) = match reply_rx.await {
+            Ok(data) => data,
+            Err(_) => continue,
+        };
+
+        let Some(ctx) = ctx else {
+            debug!("TxActor context not initialized.");
+            continue;
+        };
+
+        // Get current block number
+        let new_block = match rpc.get_block_number().await {
+            Ok(n) => n,
+            Err(e) => {
+                warn!("Failed to get block number: {:?}", e);
+                continue;
+            }
+        };
+
+        if ctx.target_block >= new_block {
+            continue;
+        }
+
+        // Process all pending blocks
+        let mut all_confirmed_hashes = Vec::new();
+        for bn in ctx.target_block..new_block {
+            match process_block_receipts(&cache_snapshot, &db, &rpc, ctx.run_id, bn).await {
+                Ok(confirmed) => all_confirmed_hashes.extend(confirmed),
+                Err(e) => warn!("flush_cache error for block {}: {:?}", bn, e),
+            }
+        }
+
+        // Send removal request back to message handler
+        let _ = flush_sender
+            .send(FlushRequest::RemoveConfirmed {
+                confirmed_tx_hashes: all_confirmed_hashes,
+                new_target_block: new_block,
+                pending_tx_timeout: ctx.pending_tx_timeout,
+            })
+            .await;
+    }
+}
+
+/// Process receipts for a single block, return confirmed tx hashes
+async fn process_block_receipts<D: DbOps + Send + Sync + 'static>(
+    cache_snapshot: &[PendingRunTx],
+    db: &Arc<D>,
+    rpc: &Arc<AnyProvider>,
+    run_id: u64,
+    target_block_num: u64,
+) -> Result<Vec<TxHash>> {
+    info!("unconfirmed txs: {}", cache_snapshot.len());
+
+    if cache_snapshot.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Wait for block to appear
+    let target_block = loop {
+        match rpc.get_block_by_number(target_block_num.into()).await {
+            Ok(Some(block)) => break block,
+            Ok(None) => {
+                info!("waiting for block {target_block_num}");
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            Err(e) => {
+                warn!("Error fetching block {}: {:?}", target_block_num, e);
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    };
+
+    // Get receipts
+    let receipts = rpc
+        .get_block_receipts(target_block_num.into())
+        .await?
+        .unwrap_or_default();
+    info!(
+        "found {} receipts for block {}",
+        receipts.len(),
+        target_block_num
+    );
+
+    // Find confirmed txs by matching with receipts
+    let confirmed: Vec<_> = cache_snapshot
+        .iter()
+        .filter_map(|pending_tx| {
+            receipts
+                .iter()
+                .find(|r| r.transaction_hash == pending_tx.tx_hash)
+                .map(|receipt| (pending_tx, receipt))
+        })
+        .collect();
+
+    // Build RunTx records and insert to DB
+    let run_txs: Vec<_> = confirmed
+        .iter()
+        .map(|(pending_tx, receipt)| {
+            if !receipt.status() {
+                warn!("tx failed: {:?}", pending_tx.tx_hash);
+            } else {
+                debug!(
+                    "tx landed. hash: {}, gas_used: {}, block_num: {}",
+                    pending_tx.tx_hash,
+                    receipt.gas_used,
+                    receipt
+                        .block_number
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| "N/A".to_owned())
+                );
+            }
+            RunTx {
+                tx_hash: pending_tx.tx_hash,
+                start_timestamp_secs: (pending_tx.start_timestamp_ms / 1000) as u64,
+                end_timestamp_secs: Some(target_block.header.timestamp),
+                block_number: Some(target_block.header.number),
+                gas_used: Some(receipt.gas_used),
+                kind: pending_tx.kind.clone(),
+                error: get_tx_error(receipt, pending_tx),
+            }
+        })
+        .collect();
+
+    if !run_txs.is_empty() {
+        db.insert_run_txs(run_id, &run_txs).map_err(|e| e.into())?;
+    }
+
+    Ok(confirmed.iter().map(|(tx, _)| tx.tx_hash).collect())
 }
 
 /// Return tx error based on receipt status.
@@ -387,25 +461,6 @@ fn get_tx_error(
         pending_tx.error.clone()
     } else {
         Some("execution reverted".to_string())
-    }
-}
-
-fn is_tx_timed_out(ctx: &ActorContext, tx: &PendingRunTx) -> bool {
-    let duration_since_epoch = Duration::from_millis(tx.start_timestamp_ms as u64);
-    let timestamp = std::time::UNIX_EPOCH + duration_since_epoch;
-    let elapsed = SystemTime::now().duration_since(timestamp);
-    match elapsed {
-        Ok(elapsed) => {
-            let is_timed_out = elapsed > ctx.pending_tx_timeout;
-            if is_timed_out {
-                debug!(
-                    "tx timed out after {:?}: {:?}",
-                    ctx.pending_tx_timeout, tx.tx_hash
-                );
-            }
-            is_timed_out
-        }
-        Err(_) => true,
     }
 }
 
@@ -429,11 +484,24 @@ impl TxActorHandle {
         rpc: Arc<AnyProvider>,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(bufsize);
-        let mut actor = TxActor::new(receiver, db, rpc);
+        // Channel for flush task to communicate with message handler
+        // Small buffer since flush requests are infrequent
+        let (flush_sender, flush_receiver) = mpsc::channel(16);
+
+        let mut actor = TxActor::new(receiver, flush_receiver, db.clone());
+
+        // Spawn the message handler task (owns the cache)
         tokio::task::spawn(async move {
-            actor.run().await?;
-            Ok::<_, crate::Error>(())
+            if let Err(e) = actor.run().await {
+                error!("TxActor message handler terminated with error: {:?}", e);
+            }
         });
+
+        // Spawn the independent flush task (communicates via channels)
+        tokio::task::spawn(async move {
+            flush_loop(flush_sender, db, rpc).await;
+        });
+
         Self { sender }
     }
 
