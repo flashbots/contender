@@ -13,6 +13,9 @@ pub enum UtilError {
     #[error("io error")]
     Io(#[from] std::io::Error),
 
+    #[error("invalid scenario path: {0}")]
+    InvalidScenarioPath(String),
+
     #[error("failed to parse duration")]
     ParseDuration(#[from] ParseDurationError),
 

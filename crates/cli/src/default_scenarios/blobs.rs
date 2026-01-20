@@ -37,11 +37,6 @@ fn blob_txs(blob_data: impl AsRef<str>, recipient: Option<String>) -> Vec<SpamRe
 
 impl ToTestConfig for BlobsCliArgs {
     fn to_testconfig(&self) -> contender_testfile::TestConfig {
-        TestConfig {
-            env: None,
-            create: None,
-            setup: None,
-            spam: Some(blob_txs(&self.blob_data, self.recipient.to_owned())),
-        }
+        TestConfig::new().with_spam(blob_txs(&self.blob_data, self.recipient.to_owned()))
     }
 }

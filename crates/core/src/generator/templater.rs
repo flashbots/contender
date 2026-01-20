@@ -4,7 +4,7 @@ use crate::{
         constants::{SENDER_KEY, SETCODE_KEY},
         function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict},
         util::{encode_calldata, UtilError},
-        CreateDefinition,
+        ContractError, CreateDefinition,
     },
 };
 use alloy::{
@@ -12,7 +12,7 @@ use alloy::{
     primitives::{Address, Bytes, FixedBytes, TxKind, U256},
     rpc::types::TransactionRequest,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 use thiserror::Error;
 
 use super::CreateDefinitionStrict;
@@ -21,6 +21,9 @@ pub type Result<T> = std::result::Result<T, TemplaterError>;
 
 #[derive(Debug, Error)]
 pub enum TemplaterError {
+    #[error("error from contract creation")]
+    CreateError(#[from] ContractError),
+
     #[error("failed to find placeholder key '{0}'")]
     KeyNotFound(String),
 
@@ -48,6 +51,7 @@ where
     fn copy_end(&self, input: &str, last_end: usize) -> String;
     fn num_placeholders(&self, input: &str) -> usize;
     fn find_key(&self, input: &str) -> Option<(K, usize)>;
+    fn scenario_parent_directory(&self) -> PathBuf;
 
     /// Looks for {placeholders} in `arg` and updates `env` with the values found by querying the DB.
     fn find_placeholder_values(
@@ -145,8 +149,11 @@ where
             self.find_placeholder_values(from, placeholder_map, db, rpc_url, genesis_hash)?;
         }
         // also scan bytecode for placeholders
+        let compiled_contract = createdef
+            .contract
+            .to_compiled_contract(self.scenario_parent_directory())?;
         self.find_placeholder_values(
-            &createdef.contract.bytecode,
+            &compiled_contract.bytecode,
             placeholder_map,
             db,
             rpc_url,

@@ -206,17 +206,14 @@ impl ToTestConfig for StressCliArgs {
             .flat_map(|config| config.spam.unwrap_or_default())
             .collect::<Vec<_>>();
 
-        TestConfig {
-            env: None,
-            create: Some(vec![CreateDefinition {
+        TestConfig::new()
+            .with_create(vec![CreateDefinition {
                 contract: contracts::SPAM_ME.into(),
                 signature: None,
                 args: None,
                 from: None,
                 from_pool: Some("admin".to_owned()),
-            }]),
-            setup: None,
-            spam: Some(txs),
-        }
+            }])
+            .with_spam(txs)
     }
 }
