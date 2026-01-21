@@ -220,6 +220,17 @@ Required if --auth-rpc-url is set.",
     message_version: EngineMessageVersion,
 }
 
+impl Default for AuthCliArgs {
+    fn default() -> Self {
+        Self {
+            auth_rpc_url: None,
+            jwt_secret: None,
+            use_op: false,
+            message_version: EngineMessageVersion::V4,
+        }
+    }
+}
+
 #[derive(Copy, Debug, Clone, clap::ValueEnum)]
 enum EngineMessageVersion {
     V1,
