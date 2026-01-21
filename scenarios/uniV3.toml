@@ -110,6 +110,7 @@ args = [
     "100000000000000000000",
     "100000000000000000000",
 ]
+gas_limit = 1000000
 
 ### Spam Steps
 ### (sends trades via UnicheatV3 contract so senders don't have to manage their own token balances)

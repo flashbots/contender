@@ -836,8 +836,14 @@ mod tests {
         db: &SqliteDb,
         rand_seed: &RandSeed,
     ) -> Result<()> {
-        let scenario = SpamScenario::Testfile(sf.to_str().unwrap().to_owned());
+        // initialize a logger
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("contender_core=debug,info") // or "info", "trace", etc.
+            .with_test_writer() // captures output properly in tests
+            .try_init(); // try_init() won't panic if already initialized
 
+        // initialize scenario
+        let scenario = SpamScenario::Testfile(sf.to_str().unwrap().to_owned());
         let send_args = ScenarioSendTxsCliArgs {
             testfile: Some(sf.to_str().unwrap().to_owned()),
             rpc_args: SendTxsCliArgsInner {
@@ -855,6 +861,8 @@ mod tests {
                 accounts_per_agent: None,
             },
         };
+
+        // run setup
         crate::commands::setup(
             db,
             SetupCommandArgs {
@@ -865,6 +873,7 @@ mod tests {
         )
         .await?;
 
+        // do a quick spam run
         let res = spam(
             db,
             &SpamCommandArgs {
@@ -904,7 +913,7 @@ mod tests {
 
     /// Spin up a fresh anvil instance, DB, & seed, then run the scenario file given at `path`.
     async fn run_scenario_file(path: &Path) -> Result<()> {
-        let anvil = Anvil::new().spawn();
+        let anvil = Anvil::new().block_time(1).spawn();
         let db = SqliteDb::new_memory();
         db.create_tables()?;
         let rand_seed = RandSeed::new();
