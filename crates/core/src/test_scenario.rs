@@ -610,7 +610,9 @@ where
 
         let res = wallet_client
             .send_transaction(WithOtherFields::new(tx))
-            .await?;
+            .await?
+            .with_timeout(Some(Duration::from_secs(30)));
+
         // watch pending transaction
         let receipt = res.get_receipt().await.expect("failed to get receipt");
         debug!(
@@ -664,6 +666,7 @@ where
                     .wallet(signer)
                     .network::<AnyNetwork>()
                     .connect_http(rpc_url.to_owned());
+                debug!("connecting wallet to rpc at {}", rpc_url);
 
                 let tx_label = tx_req
                     .name
@@ -698,8 +701,12 @@ where
                 );
 
                 // wallet will assign nonce before sending
-                let res = wallet.send_transaction(tx.into()).await?;
+                let res = wallet
+                    .send_transaction(tx.into())
+                    .await?
+                    .with_timeout(Some(Duration::from_secs(30)));
 
+                debug!("sent setup tx {:?}: {}", tx_req.kind, res.tx_hash());
                 // get receipt using provider (not wallet) to allow any receipt type (support non-eth chains)
                 let receipt = res.get_receipt().await?;
                 debug!(
@@ -1315,7 +1322,7 @@ where
         });
 
         format!(
-            "running setup: from={} to={} {}",
+            "running setup: from={} to={} gas={:?} {}",
             tx_req
                 .tx
                 .from
@@ -1327,6 +1334,7 @@ where
             } else {
                 to_address.map(|a| a.encode_hex()).unwrap_or_default()
             },
+            tx_req.tx.gas,
             if let Some(kind) = &tx_req.kind {
                 format!("kind={kind}")
             } else {
