@@ -955,7 +955,8 @@ mod tests {
         run_scenario(path, &anvil, &db, &rand_seed).await
     }
 
-    /// Generates individual tests for all scenario files found (recursively) under `relative_path`.
+    /// Generates individual spam test for each scenario given in the macro input.
+    /// NOTE: paths are relative to the project root. See `build.rs` for usage.
     macro_rules! scenario_tests {
         ($($name:ident => $relative_path:expr),* $(,)?) => {
             $(
