@@ -832,7 +832,7 @@ mod tests {
         path::{Path, PathBuf},
     };
 
-    fn create_send_args(sf: &PathBuf, anvil: &AnvilInstance) -> ScenarioSendTxsCliArgs {
+    fn create_send_args(sf: &Path, anvil: &AnvilInstance) -> ScenarioSendTxsCliArgs {
         // map scenario files to custom tx types if needed
         // this might be replaced with a more robust solution in the future
         // e.g. mapping the entire ScenarioSendTxsCliArgs structure instead of just tx types
@@ -875,7 +875,7 @@ mod tests {
     }
 
     async fn run_scenario(
-        sf: &PathBuf,
+        sf: &Path,
         anvil: &AnvilInstance,
         db: &SqliteDb,
         rand_seed: &RandSeed,
@@ -952,7 +952,7 @@ mod tests {
         db.create_tables()?;
         let rand_seed = RandSeed::new();
 
-        run_scenario(&path.to_path_buf(), &anvil, &db, &rand_seed).await
+        run_scenario(path, &anvil, &db, &rand_seed).await
     }
 
     /// Generates individual tests for all scenario files found (recursively) under `relative_path`.
