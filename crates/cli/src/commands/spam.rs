@@ -827,31 +827,43 @@ mod tests {
     use super::*;
     use alloy::node_bindings::{Anvil, AnvilInstance, WEI_IN_ETHER};
     use contender_sqlite::SqliteDb;
-    use std::path::{Path, PathBuf};
+    use std::{
+        collections::HashMap,
+        path::{Path, PathBuf},
+    };
     use tokio;
 
-    async fn run_scenario(
-        sf: &PathBuf,
-        anvil: &AnvilInstance,
-        db: &SqliteDb,
-        rand_seed: &RandSeed,
-    ) -> Result<()> {
-        // initialize a logger
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter("contender_core=debug,info") // or "info", "trace", etc.
-            .with_test_writer() // captures output properly in tests
-            .try_init(); // try_init() won't panic if already initialized
+    fn create_send_args(sf: &PathBuf, anvil: &AnvilInstance) -> ScenarioSendTxsCliArgs {
+        // map scenario files to custom tx types if needed
+        // this might be replaced with a more robust solution in the future
+        // e.g. mapping the entire ScenarioSendTxsCliArgs structure instead of just tx types
+        let custom_tx_types = HashMap::<&str, TxTypeCli>::from_iter([
+            ("blobs.toml", TxTypeCli::Eip4844),
+            ("setCode.toml", TxTypeCli::Eip7702),
+        ]);
 
-        // initialize scenario
-        let scenario = SpamScenario::Testfile(sf.to_str().unwrap().to_owned());
-        let send_args = ScenarioSendTxsCliArgs {
+        // use last components of the path after "scenarios/" as a scenario ID
+        // this supports nested directories under "scenarios/"
+        let relative_path = sf
+            .components()
+            .rev()
+            .take_while(|component| component.as_os_str() != "scenarios")
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<PathBuf>();
+
+        ScenarioSendTxsCliArgs {
             testfile: Some(sf.to_str().unwrap().to_owned()),
             rpc_args: SendTxsCliArgsInner {
                 rpc_url: anvil.endpoint_url(),
                 seed: None,
                 private_keys: None,
                 min_balance: WEI_IN_ETHER * U256::from(10),
-                tx_type: TxTypeCli::Eip1559,
+                tx_type: custom_tx_types
+                    .get(relative_path.as_os_str().to_str().unwrap())
+                    .cloned()
+                    .unwrap_or(TxTypeCli::Eip1559),
                 bundle_type: crate::commands::common::BundleTypeCli::L1,
                 auth_args: AuthCliArgs::default(),
                 call_forkchoice: false,
@@ -860,7 +872,30 @@ mod tests {
                 gas_price: None,
                 accounts_per_agent: None,
             },
-        };
+        }
+    }
+
+    async fn run_scenario(
+        sf: &PathBuf,
+        anvil: &AnvilInstance,
+        db: &SqliteDb,
+        rand_seed: &RandSeed,
+    ) -> Result<()> {
+        // special case: skip bundle scenario (anvil doesn't support it)
+        if sf.ends_with("bundles.toml") {
+            println!("Skipping bundle scenario (anvil doesn't support bundles)");
+            return Ok(());
+        }
+
+        // initialize a logger
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("contender_core=debug,info")
+            .with_test_writer() // captures output properly in tests
+            .try_init(); // try_init() won't panic if already initialized
+
+        // initialize scenario
+        let scenario = SpamScenario::Testfile(sf.to_str().unwrap().to_owned());
+        let send_args = create_send_args(sf, anvil);
 
         // run setup
         crate::commands::setup(
