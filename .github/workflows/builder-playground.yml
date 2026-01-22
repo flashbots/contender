@@ -12,6 +12,13 @@ jobs:
   e2e-builder-playground:
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - 00_erc20_smoke
+          # TODO: add more scenarios here (and equally in e2e-tests/)
+
     steps:
       - name: Checkout contender
         uses: actions/checkout@v4
@@ -31,6 +38,11 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: builder-playground/go.mod
+
+      - name: Build contender (release) & export bin path to GITHUB_ENV
+        run: |
+          cargo build --release --bin contender
+          echo "CONTENDER_BIN=$PWD/target/release/contender" >> $GITHUB_ENV
 
       - name: Start builder-playground L1 (detached)
         working-directory: builder-playground
@@ -58,9 +70,8 @@ jobs:
         env:
           CONTENDER_RPC_URL: http://127.0.0.1:8545
         run: |
-          # Replace this with whatever command actually drives your tests
-          # (e.g. a specific test target, scenario, or binary)
-          cargo run -- spam --tps 50 erc20
+          chmod +x e2e-tests/${{ matrix.scenario }}.sh
+          e2e-tests/${{ matrix.scenario }}.sh
 
       - name: Stop builder-playground (cleanup)
         if: always()
