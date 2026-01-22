@@ -22,6 +22,11 @@ jobs:
           repository: flashbots/builder-playground
           path: builder-playground
 
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
       - name: Set up Go (matches builder-playground/go.mod)
         uses: actions/setup-go@v5
         with:
