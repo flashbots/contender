@@ -16,7 +16,7 @@ use alloy::primitives::{keccak256, U256};
 use clap::Args;
 use contender_core::db::DbOps;
 use contender_core::error::RuntimeParamErrorKind;
-use contender_testfile::{CampaignConfig, CampaignMode, ResolvedStage};
+use contender_testfile::{CampaignConfig, CampaignMode, ResolvedMixEntry, ResolvedStage};
 use std::time::Duration;
 use tracing::{debug, info, warn};
 use url::Url;
@@ -347,6 +347,124 @@ fn create_spam_cli_args(
     }
 }
 
+/// Metadata for logging scenario execution
+struct ScenarioMeta {
+    campaign_id: String,
+    campaign_name: String,
+    stage_name: String,
+    scenario_label: String,
+    mode: CampaignMode,
+    rate: u64,
+    duration: u64,
+}
+
+impl ScenarioMeta {
+    fn to_context(&self) -> SpamCampaignContext {
+        SpamCampaignContext {
+            campaign_id: Some(self.campaign_id.clone()),
+            campaign_name: Some(self.campaign_name.clone()),
+            stage_name: Some(self.stage_name.clone()),
+            scenario_name: Some(self.scenario_label.clone()),
+        }
+    }
+
+    fn log_start(&self, is_fast_path: bool) {
+        let msg = if is_fast_path {
+            "Starting campaign scenario spammer (fast path)"
+        } else {
+            "Starting campaign scenario spammer"
+        };
+        info!(
+            campaign_id = %self.campaign_id,
+            campaign_name = %self.campaign_name,
+            stage = %self.stage_name,
+            scenario = %self.scenario_label,
+            mode = ?self.mode,
+            rate = self.rate,
+            duration = self.duration,
+            "{msg}",
+        );
+    }
+
+    fn log_finished(&self, run_id: u64) {
+        info!(
+            campaign_id = %self.campaign_id,
+            campaign_name = %self.campaign_name,
+            stage = %self.stage_name,
+            scenario = %self.scenario_label,
+            run_id,
+            "Finished campaign scenario spammer"
+        );
+    }
+
+    fn log_no_run_id(&self) {
+        warn!(
+            campaign_id = %self.campaign_id,
+            campaign_name = %self.campaign_name,
+            stage = %self.stage_name,
+            scenario = %self.scenario_label,
+            "Campaign scenario finished without recording a run_id"
+        );
+    }
+}
+
+/// Prepares a scenario for execution, returning the spam args and metadata
+async fn prepare_scenario(
+    args: &CampaignCliArgs,
+    campaign: &CampaignConfig,
+    stage: &ResolvedStage,
+    campaign_id: &str,
+    stage_seed: &str,
+    mix_idx: usize,
+    mix: &ResolvedMixEntry,
+) -> Result<(SpamCommandArgs, ScenarioMeta), CliError> {
+    let scenario_seed = bump_seed(stage_seed, &mix_idx.to_string());
+    let mut args = args.to_owned();
+    args.eth_json_rpc_args.seed = Some(scenario_seed.clone());
+    debug!("mix {mix_idx} seed: {}", scenario_seed);
+
+    // Check if this is a builtin scenario to determine skip_setup/redeploy behavior:
+    // - Builtins: respect campaign's flags (they do their own setup during spam)
+    // - Toml scenarios: always skip setup (ran in Phase 1), redeploy not applicable
+    let is_builtin = parse_builtin_reference(&mix.scenario).is_some();
+    let skip_setup = if is_builtin { args.skip_setup } else { true };
+    let redeploy = if is_builtin { args.redeploy } else { false };
+
+    let spam_cli_args = create_spam_cli_args(
+        Some(mix.scenario.clone()),
+        &args,
+        campaign.spam.mode,
+        mix.rate,
+        stage.duration,
+        skip_setup,
+        redeploy,
+    );
+
+    let spam_scenario = if let Some(builtin_cli) = parse_builtin_reference(&mix.scenario) {
+        let provider = args.eth_json_rpc_args.new_rpc_provider()?;
+        let builtin = builtin_cli
+            .to_builtin_scenario(&provider, &spam_cli_args)
+            .await?;
+        SpamScenario::Builtin(builtin)
+    } else {
+        SpamScenario::Testfile(mix.scenario.clone())
+    };
+
+    let spam_args = SpamCommandArgs::new(spam_scenario, spam_cli_args)?;
+
+    let meta = ScenarioMeta {
+        campaign_id: campaign_id.to_owned(),
+        campaign_name: campaign.name.clone(),
+        stage_name: stage.name.clone(),
+        scenario_label: mix.scenario.clone(),
+        mode: campaign.spam.mode,
+        rate: mix.rate,
+        duration: stage.duration,
+    };
+
+    Ok((spam_args, meta))
+}
+
 async fn execute_stage(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     campaign: &CampaignConfig,
@@ -355,11 +473,16 @@ async fn execute_stage(
     campaign_id: &str,
     stage_seed: &str,
 ) -> Result<Vec<u64>, CliError> {
-    let mut handles = vec![];
-    let mut run_ids = vec![];
+    // Collect active scenarios (non-zero rate) with their indices
+    let active_scenarios: Vec<_> = stage
+        .mix
+        .iter()
+        .enumerate()
+        .filter(|(_, mix)| mix.rate > 0)
+        .collect();
 
     // Validate that at least one scenario has non-zero rate
-    if stage.mix.iter().all(|mix| mix.rate == 0) {
+    if active_scenarios.is_empty() {
         return Err(RuntimeParamErrorKind::InvalidArgs(format!(
             "Stage '{}' has no scenarios with non-zero rate after resolution",
             stage.name
@@ -367,72 +490,46 @@ async fn execute_stage(
         .into());
     }
 
-    // Create a barrier to synchronize parallel task starts
-    let active_scenario_count = stage.mix.iter().filter(|mix| mix.rate > 0).count();
-    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(active_scenario_count));
+    // FAST PATH: Single mix scenario - call spam_inner directly (same as spam mode)
+    // This avoids barrier synchronization and tokio::spawn overhead
+    if active_scenarios.len() == 1 {
+        let (mix_idx, mix) = active_scenarios[0];
+        let (spam_args, meta) =
+            prepare_scenario(args, campaign, stage, campaign_id, stage_seed, mix_idx, mix).await?;
 
-    for (mix_idx, mix) in stage.mix.iter().enumerate() {
-        if mix.rate == 0 {
-            continue;
-        }
-        let mix = mix.clone();
-        let scenario_seed = bump_seed(stage_seed, &mix_idx.to_string());
-        let mut args = args.to_owned();
-        args.eth_json_rpc_args.seed = Some(scenario_seed.clone());
-        debug!("mix {mix_idx} seed: {}", scenario_seed);
+        meta.log_start(true);
 
-        // Check if this is a builtin scenario to determine skip_setup/redeploy behavior:
-        // - Builtins: respect campaign's flags (they do their own setup during spam)
-        // - Toml scenarios: always skip setup (ran in Phase 1), redeploy not applicable
-        let is_builtin = parse_builtin_reference(&mix.scenario).is_some();
-        let skip_setup = if is_builtin { args.skip_setup } else { true };
-        let redeploy = if is_builtin { args.redeploy } else { false };
-
-        let spam_cli_args = create_spam_cli_args(
-            Some(mix.scenario.clone()),
-            &args,
-            campaign.spam.mode,
-            mix.rate,
-            stage.duration,
-            skip_setup,
-            redeploy,
-        );
-
-        let spam_scenario = if let Some(builtin_cli) = parse_builtin_reference(&mix.scenario) {
-            let provider = args.eth_json_rpc_args.new_rpc_provider()?;
-            let builtin = builtin_cli
-                .to_builtin_scenario(&provider, &spam_cli_args)
-                .await?;
-            SpamScenario::Builtin(builtin)
-        } else {
-            SpamScenario::Testfile(mix.scenario.clone())
-        };
-
-        let spam_args = SpamCommandArgs::new(spam_scenario, spam_cli_args)?;
-        let duration = stage.duration;
         let db = db.clone();
-        let campaign_id_owned = campaign_id.to_owned();
-        let campaign_name = campaign.name.clone();
-        let stage_name = stage.name.clone();
-        let scenario_label = mix.scenario.clone();
-        let ctx = SpamCampaignContext {
-            campaign_id: Some(campaign_id_owned.clone()),
-            campaign_name: Some(campaign_name.clone()),
-            stage_name: Some(stage.name.clone()),
-            scenario_name: Some(mix.scenario.clone()),
+        let ctx = meta.to_context();
+        let mut test_scenario = spam_args.init_scenario(&db).await?;
+        let run_res = commands::spam_inner(&db, &mut test_scenario, &spam_args, ctx).await;
+
+        return match run_res {
+            Ok(Some(run_id)) => {
+                meta.log_finished(run_id);
+                Ok(vec![run_id])
+            }
+            Ok(None) => {
+                meta.log_no_run_id();
+                Ok(vec![])
+            }
+            Err(e) => Err(e),
         };
-        let rate = mix.rate;
+    }
+
+    // MULTI-MIX PATH: Use barrier + spawn for parallel execution
+    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(active_scenarios.len()));
+    let mut handles = vec![];
+
+    for (mix_idx, mix) in active_scenarios {
+        let (spam_args, meta) =
+            prepare_scenario(args, campaign, stage, campaign_id, stage_seed, mix_idx, mix).await?;
+
+        meta.log_start(false);
+
+        let db = db.clone();
+        let ctx = meta.to_context();
         let barrier_clone = barrier.clone();
-        info!(
-            campaign_id = %campaign_id_owned,
-            campaign_name = %campaign_name,
-            stage = %stage_name,
-            scenario = %scenario_label,
-            mode = ?campaign.spam.mode,
-            rate,
-            duration,
-            "Starting campaign scenario spammer",
-        );
         let mut test_scenario = spam_args.init_scenario(&db).await?;
 
         let handle = tokio::spawn(async move {
@@ -442,24 +539,11 @@ async fn execute_stage(
             let run_res = commands::spam_inner(&db, &mut test_scenario, &spam_args, ctx).await;
             match run_res {
                 Ok(Some(run_id)) => {
-                    info!(
-                        campaign_id = %campaign_id_owned,
-                        campaign_name = %campaign_name,
-                        stage = %stage_name,
-                        scenario = %scenario_label,
-                        run_id,
-                        "Finished campaign scenario spammer"
-                    );
+                    meta.log_finished(run_id);
                     Ok(Some(run_id))
                 }
                 Ok(None) => {
-                    warn!(
-                        campaign_id = %campaign_id_owned,
-                        campaign_name = %campaign_name,
-                        stage = %stage_name,
-                        scenario = %scenario_label,
-                        "Campaign scenario finished without recording a run_id"
-                    );
+                    meta.log_no_run_id();
                     Ok(None)
                 }
                 Err(e) => Err(e),
@@ -468,6 +552,7 @@ async fn execute_stage(
         handles.push(handle);
     }
 
+    let mut run_ids = vec![];
     for handle in handles {
         if let Some(run_id) = handle.await?? {
             run_ids.push(run_id);
