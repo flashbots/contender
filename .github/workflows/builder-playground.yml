@@ -2,9 +2,9 @@ name: e2e-builder-playground
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
-  pull_request:
+  # push:
+  #   branches: [ main ]
+  # pull_request:
 
 jobs:
   e2e-builder-playground:
