@@ -818,3 +818,167 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
     let mut test_scenario = args.init_scenario(db).await?;
     spam_inner(db, &mut test_scenario, args, run_context).await
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::commands::common::AuthCliArgs;
+    use crate::commands::SetupCommandArgs;
+
+    use super::*;
+    use alloy::node_bindings::{Anvil, AnvilInstance, WEI_IN_ETHER};
+    use contender_sqlite::SqliteDb;
+    use std::{
+        collections::HashMap,
+        path::{Path, PathBuf},
+    };
+
+    fn create_send_args(sf: &Path, anvil: &AnvilInstance) -> ScenarioSendTxsCliArgs {
+        // map scenario files to custom tx types if needed
+        // this might be replaced with a more robust solution in the future
+        // e.g. mapping the entire ScenarioSendTxsCliArgs structure instead of just tx types
+        let custom_tx_types = HashMap::<&str, TxTypeCli>::from_iter([
+            ("blobs.toml", TxTypeCli::Eip4844),
+            ("setCode.toml", TxTypeCli::Eip7702),
+        ]);
+
+        // use last components of the path after "scenarios/" as a scenario ID
+        // this supports nested directories under "scenarios/"
+        let relative_path = sf
+            .components()
+            .rev()
+            .take_while(|component| component.as_os_str() != "scenarios")
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<PathBuf>();
+
+        ScenarioSendTxsCliArgs {
+            testfile: Some(sf.to_str().unwrap().to_owned()),
+            rpc_args: SendTxsCliArgsInner {
+                rpc_url: anvil.endpoint_url(),
+                seed: None,
+                private_keys: None,
+                min_balance: WEI_IN_ETHER * U256::from(10),
+                tx_type: custom_tx_types
+                    .get(relative_path.as_os_str().to_str().unwrap())
+                    .cloned()
+                    .unwrap_or(TxTypeCli::Eip1559),
+                bundle_type: crate::commands::common::BundleTypeCli::L1,
+                auth_args: AuthCliArgs::default(),
+                call_forkchoice: false,
+                env: None,
+                override_senders: false,
+                gas_price: None,
+                accounts_per_agent: None,
+            },
+        }
+    }
+
+    async fn run_scenario(
+        sf: &Path,
+        anvil: &AnvilInstance,
+        db: &SqliteDb,
+        rand_seed: &RandSeed,
+    ) -> Result<()> {
+        // special case: skip bundle scenario (anvil doesn't support it)
+        if sf.ends_with("bundles.toml") {
+            println!("Skipping bundle scenario (anvil doesn't support bundles)");
+            return Ok(());
+        }
+
+        // initialize a logger
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("contender_core=debug,info")
+            .with_test_writer() // captures output properly in tests
+            .try_init(); // try_init() won't panic if already initialized
+
+        // initialize scenario
+        let scenario = SpamScenario::Testfile(sf.to_str().unwrap().to_owned());
+        let send_args = create_send_args(sf, anvil);
+
+        // run setup
+        crate::commands::setup(
+            db,
+            SetupCommandArgs {
+                scenario: scenario.clone(),
+                eth_json_rpc_args: send_args.rpc_args.clone(),
+                seed: rand_seed.clone(),
+            },
+        )
+        .await?;
+
+        // do a quick spam run
+        let res = spam(
+            db,
+            &SpamCommandArgs {
+                scenario,
+                spam_args: SpamCliArgs {
+                    eth_json_rpc_args: send_args,
+                    spam_args: SendSpamCliArgs {
+                        builder_url: None,
+                        txs_per_second: Some(50),
+                        txs_per_block: None,
+                        duration: 4,
+                        pending_timeout: 10,
+                        run_forever: false,
+                    },
+                    ignore_receipts: false,
+                    optimistic_nonces: true,
+                    gen_report: false,
+                    redeploy: true,
+                    skip_setup: false,
+                    rpc_batch_size: 0,
+                    spam_timeout: Duration::from_secs(5),
+                },
+                seed: rand_seed.clone(),
+            },
+            SpamCampaignContext {
+                campaign_id: None,
+                campaign_name: None,
+                stage_name: None,
+                scenario_name: None,
+            },
+        )
+        .await?;
+
+        println!("spam run successful. run id: {:?}", res);
+        Ok(())
+    }
+
+    /// Spin up a fresh anvil instance, DB, & seed, then run the scenario file given at `path`.
+    async fn run_scenario_file(path: &Path) -> Result<()> {
+        let anvil = Anvil::new().block_time(1).spawn();
+        let db = SqliteDb::new_memory();
+        db.create_tables()?;
+        let rand_seed = RandSeed::new();
+
+        run_scenario(path, &anvil, &db, &rand_seed).await
+    }
+
+    /// Generates individual spam test for each scenario given in the macro input.
+    /// NOTE: paths are relative to the project root. See `build.rs` for usage.
+    macro_rules! scenario_tests {
+        ($($name:ident => $relative_path:expr),* $(,)?) => {
+            $(
+                #[tokio::test]
+                async fn $name() -> std::result::Result<(), CliError> {
+                    let project_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .parent()
+                        .unwrap()
+                        .parent()
+                        .unwrap();
+                    let path: PathBuf = project_root.join($relative_path);
+                    run_scenario_file(&path).await?;
+                    Ok(())
+                }
+            )*
+        };
+    }
+
+    #[allow(non_snake_case)]
+    mod generated_scenario_tests {
+        use super::*;
+        // Generate tests for all scenario files identified by build.rs
+        include!(concat!(env!("OUT_DIR"), "/generated_scenario_tests.rs"));
+    }
+}
