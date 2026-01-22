@@ -1,0 +1,62 @@
+name: e2e-builder-playground
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  e2e-builder-playground:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout contender
+        uses: actions/checkout@v4
+
+      - name: Checkout builder-playground
+        uses: actions/checkout@v4
+        with:
+          repository: flashbots/builder-playground
+          path: builder-playground
+
+      - name: Set up Go (matches builder-playground/go.mod)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: builder-playground/go.mod
+
+      - name: Start builder-playground L1 (detached)
+        working-directory: builder-playground
+        run: |
+          go run ./main.go start l1 \
+            --detached \
+            --output /tmp/playground \
+            --log-level info
+
+      - name: Wait for EL RPC on 8545
+        run: |
+          echo "Waiting for Reth RPC on 127.0.0.1:8545..."
+          for i in {1..60}; do
+            if bash -c 'echo > /dev/tcp/127.0.0.1/8545' 2>/dev/null; then
+              echo "RPC is up"
+              exit 0
+            fi
+            echo "Still waiting ($i/60)..."
+            sleep 5
+          done
+          echo "Timed out waiting for RPC on 8545"
+          exit 1
+
+      - name: Run Contender tests against builder-playground
+        env:
+          CONTENDER_RPC_URL: http://127.0.0.1:8545
+        run: |
+          # Replace this with whatever command actually drives your tests
+          # (e.g. a specific test target, scenario, or binary)
+          cargo run -- spam --tps 50 erc20
+
+      - name: Stop builder-playground (cleanup)
+        if: always()
+        working-directory: builder-playground
+        run: |
+          # Stop all playground sessions; this tears down Docker resources
+          go run ./main.go stop all || echo "stop all failed (maybe already stopped)"
