@@ -13,7 +13,18 @@ fn main() {
     let scenarios_dir = project_root.join("scenarios");
 
     let mut files = Vec::new();
-    collect_files(&scenarios_dir, &mut files);
+    let mut dirs = Vec::new();
+    collect_files(&scenarios_dir, &mut files, &mut dirs);
+
+    // Tell Cargo to rerun build.rs if scenarios/ directory or any subdirectory changes
+    // (this detects new/deleted files)
+    for dir in &dirs {
+        println!("cargo:rerun-if-changed={}", dir.display());
+    }
+    // Also watch each individual file (detects modifications)
+    for path in &files {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
 
     let mut out = String::from("scenario_tests! {\n");
 
@@ -38,12 +49,13 @@ fn main() {
     fs::write(out_dir.join("generated_scenario_tests.rs"), out).unwrap();
 }
 
-fn collect_files(dir: &Path, acc: &mut Vec<PathBuf>) {
+fn collect_files(dir: &Path, acc: &mut Vec<PathBuf>, dirs: &mut Vec<PathBuf>) {
+    dirs.push(dir.to_path_buf());
     for entry in fs::read_dir(dir).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
         if path.is_dir() {
-            collect_files(&path, acc);
+            collect_files(&path, acc, dirs);
         } else {
             acc.push(path);
         }
