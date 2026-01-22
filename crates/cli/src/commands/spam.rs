@@ -831,7 +831,7 @@ mod tests {
         collections::HashMap,
         path::{Path, PathBuf},
     };
-    use tokio;
+    
 
     fn create_send_args(sf: &PathBuf, anvil: &AnvilInstance) -> ScenarioSendTxsCliArgs {
         // map scenario files to custom tx types if needed

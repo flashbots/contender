@@ -31,7 +31,7 @@ fn main() {
     for path in files {
         // Store paths relative to project_root so runtime resolution is identical
         // to your current helper.
-        let rel = path.strip_prefix(&project_root).unwrap();
+        let rel = path.strip_prefix(project_root).unwrap();
         let rel_str = rel.to_string_lossy();
 
         // Turn "scenarios/foo/bar.toml" into a legal test name
