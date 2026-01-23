@@ -47,6 +47,10 @@ jobs:
           mkdir -p ../bin
           go build -o ../bin/builder-playground ./main.go
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
       - name: Build contender (release)
         run: cargo build --release --bin contender
 
