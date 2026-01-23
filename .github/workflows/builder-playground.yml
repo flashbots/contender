@@ -35,6 +35,7 @@ jobs:
           cache-on-failure: true
 
       - name: Install builder-playground
+        working-directory: builder-playground
         run: |
           curl -L -o builder-playground_${{env.BUILDER_PLAYGROUND_VERSION}}_linux_amd64.zip https://github.com/flashbots/builder-playground/releases/download/${{env.BUILDER_PLAYGROUND_VERSION}}/builder-playground_${{env.BUILDER_PLAYGROUND_VERSION}}_linux_amd64.zip
           unzip builder-playground_${{env.BUILDER_PLAYGROUND_VERSION}}_linux_amd64.zip
