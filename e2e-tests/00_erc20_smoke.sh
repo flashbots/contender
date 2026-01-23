@@ -9,8 +9,8 @@ echo "[00_erc20_smoke] Starting..."
 "$CONTENDER_BIN" \
   spam \
   --rpc-url "$CONTENDER_RPC_URL" \
+  --duration 10 \
   --tps 50 \
-  erc20 \
-  --duration 10s
+  erc20
 
 echo "[00_erc20_smoke] OK"
