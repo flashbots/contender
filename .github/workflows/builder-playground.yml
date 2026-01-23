@@ -11,6 +11,8 @@ on:
 jobs:
   e2e-builder-playground:
     runs-on: ubuntu-latest
+    env:
+      BUILDER_PLAYGROUND_VERSION: "v0.2.1"
 
     strategy:
       fail-fast: false
@@ -23,33 +25,21 @@ jobs:
       - name: Checkout contender
         uses: actions/checkout@v4
 
-      - name: Checkout builder-playground
-        uses: actions/checkout@v4
-        with:
-          repository: flashbots/builder-playground
-          path: builder-playground
-
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: nightly
 
-      - name: Set up Go (matches builder-playground/go.mod)
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: builder-playground/go.mod
-          cache: true
-          cache-dependency-path: builder-playground/go.sum
-
-      - name: Build builder-playground binary
-        working-directory: builder-playground
-        run: |
-          mkdir -p ./bin
-          go build -o ./bin/builder-playground ./main.go
-
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
+
+      - name: Install builder-playground
+        run: |
+          curl -L -o builder-playground_${{env.BUILDER_PLAYGROUND_VERSION}}_linux_amd64.zip https://github.com/flashbots/builder-playground/releases/download/${{env.BUILDER_PLAYGROUND_VERSION}}/builder-playground_${{env.BUILDER_PLAYGROUND_VERSION}}_linux_amd64.zip
+          unzip builder-playground_${{env.BUILDER_PLAYGROUND_VERSION}}_linux_amd64.zip
+          mkdir -p bin
+          mv builder-playground bin/
 
       - name: Build contender (release)
         run: cargo build --release --bin contender
