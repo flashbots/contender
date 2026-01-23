@@ -44,8 +44,8 @@ jobs:
       - name: Build builder-playground binary
         working-directory: builder-playground
         run: |
-          mkdir -p ../bin
-          go build -o ../bin/builder-playground ./main.go
+          mkdir -p ./bin
+          go build -o ./bin/builder-playground ./main.go
 
       - uses: Swatinem/rust-cache@v2
         with:
