@@ -35,7 +35,6 @@ jobs:
           cache-on-failure: true
 
       - name: Install builder-playground
-        working-directory: builder-playground
         run: |
           curl -L -o builder-playground_${{env.BUILDER_PLAYGROUND_VERSION}}_linux_amd64.zip https://github.com/flashbots/builder-playground/releases/download/${{env.BUILDER_PLAYGROUND_VERSION}}/builder-playground_${{env.BUILDER_PLAYGROUND_VERSION}}_linux_amd64.zip
           unzip builder-playground_${{env.BUILDER_PLAYGROUND_VERSION}}_linux_amd64.zip
@@ -49,7 +48,6 @@ jobs:
         run: echo "CONTENDER_BIN=$PWD/target/release/contender" >> $GITHUB_ENV
 
       - name: Start builder-playground L1 (detached)
-        working-directory: builder-playground
         run: |
           ./bin/builder-playground start l1 \
             --detached \
@@ -79,7 +77,6 @@ jobs:
 
       - name: Stop builder-playground (cleanup)
         if: always()
-        working-directory: builder-playground
         run: |
           # Stop all playground sessions; this tears down Docker resources
           go run ./main.go stop all || echo "stop all failed (maybe already stopped)"
