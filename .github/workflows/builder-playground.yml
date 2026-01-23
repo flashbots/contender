@@ -38,6 +38,14 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: builder-playground/go.mod
+          cache: true
+          cache-dependency-path: builder-playground/go.sum
+
+      - name: Build builder-playground binary
+        working-directory: builder-playground
+        run: |
+          mkdir -p ../bin
+          go build -o ../bin/builder-playground ./main.go
 
       - name: Build contender (release)
         run: cargo build --release --bin contender
@@ -48,7 +56,7 @@ jobs:
       - name: Start builder-playground L1 (detached)
         working-directory: builder-playground
         run: |
-          go run ./main.go start l1 \
+          ./bin/builder-playground start l1 \
             --detached \
             --output /tmp/playground \
             --log-level info
