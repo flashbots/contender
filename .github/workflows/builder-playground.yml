@@ -39,10 +39,11 @@ jobs:
         with:
           go-version-file: builder-playground/go.mod
 
-      - name: Build contender (release) & export bin path to GITHUB_ENV
-        run: |
-          cargo build --release --bin contender
-          echo "CONTENDER_BIN=$PWD/target/release/contender" >> $GITHUB_ENV
+      - name: Build contender (release)
+        run: cargo build --release --bin contender
+
+      - name: export bin path to GITHUB_ENV
+        run: echo "CONTENDER_BIN=$PWD/target/release/contender" >> $GITHUB_ENV
 
       - name: Start builder-playground L1 (detached)
         working-directory: builder-playground
