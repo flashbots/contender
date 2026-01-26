@@ -12,7 +12,7 @@ jobs:
   e2e-builder-playground:
     runs-on: ubuntu-latest
     env:
-      BUILDER_PLAYGROUND_VERSION: "v0.2.1"
+      BUILDER_PLAYGROUND_VERSION: "v0.3.1"
 
     strategy:
       fail-fast: false
