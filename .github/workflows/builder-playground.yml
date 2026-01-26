@@ -6,7 +6,7 @@ on:
     branches:
       - main
       - feat/builder-playground-ci
-  # pull_request:
+  pull_request:
 
 jobs:
   e2e-builder-playground:
@@ -73,7 +73,9 @@ jobs:
           CONTENDER_RPC_URL: http://127.0.0.1:8545
         run: |
           chmod +x e2e-tests/${{ matrix.scenario }}.sh
+          echo "[${{ matrix.scenario }}] Starting..."
           e2e-tests/${{ matrix.scenario }}.sh
+          echo "[${{ matrix.scenario }}] OK"
 
       - name: Stop builder-playground (cleanup)
         if: always()

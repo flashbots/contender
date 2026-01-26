@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
+
 set -euo pipefail
-
-: "${CONTENDER_RPC_URL:?CONTENDER_RPC_URL is required}"
-: "${CONTENDER_BIN:?CONTENDER_BIN is required}"
-
-echo "[00_erc20_smoke] Starting..."
+"$(dirname "$0")/check_vars.sh"
 
 "$CONTENDER_BIN" \
   spam \
@@ -12,5 +9,3 @@ echo "[00_erc20_smoke] Starting..."
   --duration 10 \
   --tps 50 \
   erc20
-
-echo "[00_erc20_smoke] OK"
