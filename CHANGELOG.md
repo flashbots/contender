@@ -5,6 +5,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Note: this file did not exist until after `v0.5.6`.
 
+## [0.7.4](https://github.com/flashbots/contender/releases/tag/v0.7.4) - 2026-01-27
+
+- revised campaign spammer ([#427](https://github.com/flashbots/contender/pull/427))
+
 ## [0.7.3](https://github.com/flashbots/contender/releases/tag/v0.7.3) - 2026-01-20
 
 - transactions that revert onchain now store error as "execution reverted" DB, rather than NULL ([#418](https://github.com/flashbots/contender/pull/418))
