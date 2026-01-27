@@ -8,11 +8,36 @@ on:
       - feat/builder-playground-ci
   pull_request:
 
+env:
+  BUILDER_PLAYGROUND_VERSION: "v0.3.1"
+
 jobs:
-  e2e-builder-playground:
+  build:
+    name: Build contender
     runs-on: ubuntu-latest
-    env:
-      BUILDER_PLAYGROUND_VERSION: "v0.3.1"
+    steps:
+      - name: Checkout contender
+        uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build contender (release)
+        run: cargo build --release --bin contender
+
+      - name: Upload contender binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: contender-binary
+          path: target/release/contender
+          retention-days: 1
+
+  e2e-builder-playground:
+    name: e2e-builder-playground (${{ matrix.scenario }})
+    needs: build
+    runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
@@ -30,10 +55,6 @@ jobs:
         with:
           version: nightly
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-
       - name: Install builder-playground
         run: |
           curl -L -o builder-playground_${{env.BUILDER_PLAYGROUND_VERSION}}_linux_amd64.zip https://github.com/flashbots/builder-playground/releases/download/${{env.BUILDER_PLAYGROUND_VERSION}}/builder-playground_${{env.BUILDER_PLAYGROUND_VERSION}}_linux_amd64.zip
@@ -41,11 +62,17 @@ jobs:
           mkdir -p bin
           mv builder-playground bin/
 
-      - name: Build contender (release)
-        run: cargo build --release --bin contender
+      - name: Download contender binary
+        uses: actions/download-artifact@v4
+        with:
+          name: contender-binary
+          path: bin
+
+      - name: Make contender executable
+        run: chmod +x bin/contender
 
       - name: export bin path to GITHUB_ENV
-        run: echo "CONTENDER_BIN=$PWD/target/release/contender" >> $GITHUB_ENV
+        run: echo "CONTENDER_BIN=$PWD/bin/contender" >> $GITHUB_ENV
 
       - name: Start builder-playground L1 (detached)
         run: |
