@@ -68,7 +68,7 @@ jobs:
           echo "Timed out waiting for RPC on 8545"
           exit 1
 
-      - name: Run Contender tests against builder-playground
+      - name: Run contender tests against builder-playground
         env:
           CONTENDER_RPC_URL: http://127.0.0.1:8545
         run: |

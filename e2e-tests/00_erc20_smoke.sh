@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
-"$(dirname "$0")/check_vars.sh"
+: "${CONTENDER_RPC_URL:?CONTENDER_RPC_URL is required}"
+: "${CONTENDER_BIN:?CONTENDER_BIN is required}"
 
 "$CONTENDER_BIN" \
   spam \
