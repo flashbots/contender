@@ -87,6 +87,9 @@ pub enum RuntimeErrorKind {
 
     #[error("invalid runtime params")]
     InvalidParams(#[from] RuntimeParamErrorKind),
+
+    #[error("setup step {0} failed")]
+    SetupStepFailed(u64),
 }
 
 impl From<alloy::node_bindings::NodeError> for Error {

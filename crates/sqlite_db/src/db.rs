@@ -1,7 +1,7 @@
 use crate::{Error, Result};
 use alloy::{
     hex::{FromHex, ToHexExt},
-    primitives::{Address, FixedBytes, TxHash},
+    primitives::{keccak256, Address, FixedBytes, TxHash},
 };
 use contender_core::{
     buckets::Bucket,
@@ -278,6 +278,10 @@ impl DbOps for SqliteDb {
                 gas_per_second INTEGER NOT NULL,
                 gas_used INTEGER NOT NULL
             )",
+            "CREATE TABLE setup_progress (
+                scenario_id TEXT PRIMARY KEY,
+                last_step_index INTEGER NOT NULL
+            )",
         ];
 
         for query in queries {
@@ -442,6 +446,61 @@ impl DbOps for SqliteDb {
         )?;
         let res = row.last().transpose()?.map(|r| r.into());
         Ok(res)
+    }
+
+    fn get_named_txs(
+        &self,
+        name: &str,
+        rpc_url: &str,
+        genesis_hash: FixedBytes<32>,
+    ) -> Result<Vec<NamedTx>> {
+        let pool = self.get_pool()?;
+        let mut stmt = pool
+            .prepare(
+                "SELECT name, tx_hash, contract_address, rpc_url_id FROM named_txs WHERE name = ?1 AND rpc_url_id = (
+                    SELECT id FROM rpc_urls WHERE url = ?2 AND genesis_hash = ?3
+                ) ORDER BY id ASC",
+            )?;
+
+        let rows = stmt.query_map(
+            params![name, rpc_url, genesis_hash.to_string().to_lowercase()],
+            NamedTxRow::from_row,
+        )?;
+        let res = rows
+            .map(|r| r.map(|r| r.into()))
+            .map(|r| r.map_err(|e| e.into()))
+            .collect::<Result<Vec<NamedTx>>>()?;
+        Ok(res)
+    }
+
+    fn get_setup_progress(
+        &self,
+        scenario_hash: FixedBytes<32>,
+        genesis_hash: FixedBytes<32>,
+    ) -> Result<u64> {
+        let scenario_id = keccak256([scenario_hash.as_slice(), genesis_hash.as_slice()].concat());
+        match self.query_row(
+            "SELECT last_step_index FROM setup_progress WHERE scenario_id = ?1",
+            params![scenario_id.to_string()],
+            |row| row.get(0),
+        ) {
+            Ok(idx) => Ok(idx),
+            Err(Error::ExecuteQuery(rusqlite::Error::QueryReturnedNoRows)) => Ok(0),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn update_setup_progress(
+        &self,
+        scenario_hash: FixedBytes<32>,
+        genesis_hash: FixedBytes<32>,
+        step_index: u64,
+    ) -> Result<()> {
+        let scenario_id = keccak256([scenario_hash.as_slice(), genesis_hash.as_slice()].concat());
+        self.execute(
+            "INSERT INTO setup_progress (scenario_id, last_step_index) VALUES (?1, ?2) ON CONFLICT(scenario_id) DO UPDATE SET last_step_index = ?2",
+            params![scenario_id.to_string(), step_index],
+        )
     }
 
     fn get_named_tx_by_address(&self, address: &Address) -> Result<Option<NamedTx>> {
@@ -773,5 +832,50 @@ mod tests {
         assert_eq!(fetched_report.gas_per_second(), req.gas_per_second);
         assert_eq!(fetched_report.gas_used(), req.gas_used);
         assert_eq!(fetched_report.rpc_url_id(), req.rpc_url_id);
+    }
+
+    #[test]
+    fn verifies_resumable_methods() {
+        let db = SqliteDb::new_memory();
+        db.create_tables().unwrap();
+
+        // 1. Test get_named_txs ordering
+        let tx_hash = TxHash::from_slice(&[0u8; 32]);
+        let contract_address = Some(Address::from_slice(&[1u8; 20]));
+        let name = "multi_tx";
+        let rpc_url = "http://resumable:8545";
+
+        let tx1 = NamedTx::new(name.to_owned(), tx_hash, contract_address);
+        let tx2 = NamedTx::new(name.to_owned(), tx_hash, contract_address);
+
+        db.insert_named_txs(&[tx1], rpc_url, FixedBytes::default())
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(10)); // Ensure ID order if relying on time, but mostly ID is auto-inc
+        db.insert_named_txs(&[tx2], rpc_url, FixedBytes::default())
+            .unwrap();
+
+        let txs = db
+            .get_named_txs(name, rpc_url, FixedBytes::default())
+            .unwrap();
+        assert_eq!(txs.len(), 2);
+        // IDs should be increasing. The returned struct doesn't have ID, but the order is ASC.
+        // If we assumed 1st inserted is 1st returned.
+        assert_eq!(txs[0].name, name);
+
+        // 2. Test setup_progress
+        let scenario_hash = FixedBytes::<32>::from_slice(&[1u8; 32]);
+        let genesis_hash = FixedBytes::<32>::from_slice(&[2u8; 32]);
+        let progress = db.get_setup_progress(scenario_hash, genesis_hash).unwrap();
+        assert_eq!(progress, 0);
+
+        db.update_setup_progress(scenario_hash, genesis_hash, 5)
+            .unwrap();
+        let progress = db.get_setup_progress(scenario_hash, genesis_hash).unwrap();
+        assert_eq!(progress, 5);
+
+        db.update_setup_progress(scenario_hash, genesis_hash, 6)
+            .unwrap();
+        let progress = db.get_setup_progress(scenario_hash, genesis_hash).unwrap();
+        assert_eq!(progress, 6);
     }
 }

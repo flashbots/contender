@@ -4,4 +4,10 @@ cargotest.toml
 !test_fixtures/*.db
 report.csv
 
+
 .DS_Store
+
+# Local Foundry binaries
+foundry_bin
+foundry
+foundry.zip

@@ -114,6 +114,32 @@ impl DbOps for MockDb {
         )))
     }
 
+    fn get_named_txs(
+        &self,
+        _name: &str,
+        _rpc_url: &str,
+        _genesis_hash: FixedBytes<32>,
+    ) -> Result<Vec<NamedTx>, Self::Error> {
+        Ok(vec![])
+    }
+
+    fn get_setup_progress(
+        &self,
+        _scenario_hash: FixedBytes<32>,
+        _genesis_hash: FixedBytes<32>,
+    ) -> Result<u64, Self::Error> {
+        Ok(0)
+    }
+
+    fn update_setup_progress(
+        &self,
+        _scenario_hash: FixedBytes<32>,
+        _genesis_hash: FixedBytes<32>,
+        _step_index: u64,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
     fn get_named_tx_by_address(&self, address: &Address) -> Result<Option<NamedTx>, Self::Error> {
         Ok(Some(NamedTx::new(
             String::default(),
