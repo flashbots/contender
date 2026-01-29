@@ -4,9 +4,10 @@ use std::time::Duration;
 use futures::Stream;
 use futures::StreamExt;
 
+use crate::generator::seeder::rand_seed::SeedGenerator;
 use crate::{
     db::DbOps,
-    generator::{seeder::Seeder, templater::Templater, PlanConfig},
+    generator::{templater::Templater, PlanConfig},
     test_scenario::TestScenario,
 };
 
@@ -32,7 +33,7 @@ impl<F, D, S, P> Spammer<F, D, S, P> for TimedSpammer
 where
     F: OnTxSent + OnBatchSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
-    S: Seeder + Send + Sync + Clone,
+    S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
     fn on_spam(

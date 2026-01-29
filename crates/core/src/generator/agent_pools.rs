@@ -9,7 +9,7 @@ pub trait AgentPools {
 
 /// Defines the number of accounts to generate for each category of agent: creators, setter-uppers, and spammers.
 /// "Agents" in contender are referred to by name (defined by `from_pool` in scenario specs) and may hold many accounts.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct AgentSpec {
     /// number of accounts to generate per `create` agent
     create_accounts: usize,

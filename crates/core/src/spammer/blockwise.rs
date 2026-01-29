@@ -7,7 +7,7 @@ use tracing::info;
 use crate::{
     db::DbOps,
     error::Error,
-    generator::{seeder::Seeder, templater::Templater, PlanConfig},
+    generator::{seeder::rand_seed::SeedGenerator, templater::Templater, PlanConfig},
     test_scenario::TestScenario,
 };
 
@@ -32,7 +32,7 @@ impl<F, D, S, P> Spammer<F, D, S, P> for BlockwiseSpammer
 where
     F: OnTxSent + OnBatchSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
-    S: Seeder + Send + Sync + Clone,
+    S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
     async fn on_spam(
@@ -75,9 +75,11 @@ mod tests {
     use tokio::sync::OnceCell;
 
     use crate::{
-        agent_controller::{AgentStore, SignerStore},
         db::MockDb,
-        generator::util::test::spawn_anvil,
+        generator::{
+            agent_pools::{AgentPools, AgentSpec},
+            util::test::spawn_anvil,
+        },
         spammer::util::test::{get_test_signers, MockCallback},
         test_scenario::{tests::MockConfig, TestScenarioParams},
     };
@@ -100,13 +102,10 @@ mod tests {
         ));
         println!("anvil url: {}", anvil.endpoint_url());
         let seed = crate::generator::RandSeed::seed_from_str("444444444444");
-        let mut agents = AgentStore::new();
         let txs_per_period = 10u64;
         let periods = 3u64;
         let tx_type = alloy::consensus::TxType::Legacy;
-        let num_signers = (txs_per_period / periods) as usize;
-        agents.add_agent("pool1", SignerStore::new(num_signers, &seed, "eeeeeeee"));
-        agents.add_agent("pool2", SignerStore::new(num_signers, &seed, "11111111"));
+        let agents = MockConfig.build_agent_store(&seed, AgentSpec::default());
 
         let user_signers = get_test_signers();
 
@@ -125,7 +124,7 @@ mod tests {
                 rpc_url: anvil.endpoint_url(),
                 builder_rpc_url: None,
                 signers: user_signers,
-                agent_store: agents,
+                agent_spec: AgentSpec::default(),
                 tx_type,
                 bundle_type: BundleType::default(),
                 pending_tx_timeout_secs: 12,
