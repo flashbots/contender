@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 - added timeout for send_transaction calls ([#430](https://github.com/flashbots/contender/pull/430/files))
+- track nonces internally for create & setup transactions ([#438](https://github.com/flashbots/contender/pull/438/changes))
+
+### Breaking changes
+
+- `TestScenario::load_txs` return type changed to support nonce tracking ([#438](https://github.com/flashbots/contender/pull/438/changes))
 
 ## [0.7.3](https://github.com/flashbots/contender/releases/tag/v0.7.3) - 2026-01-20
 
