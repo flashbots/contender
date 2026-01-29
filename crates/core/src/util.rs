@@ -1,7 +1,7 @@
 use crate::{generator::types::AnyProvider, Result};
 use alloy::{providers::Provider, signers::local::PrivateKeySigner};
 use std::str::FromStr;
-use tracing::{debug, warn};
+use tracing::debug;
 use tracing_subscriber::EnvFilter;
 
 /// Derive the block time from the first two blocks after genesis.
@@ -33,7 +33,7 @@ pub async fn get_block_time(rpc_client: &AnyProvider) -> Result<u64> {
 pub async fn get_blob_fee_maybe(rpc_client: &AnyProvider) -> u128 {
     let res = rpc_client.get_blob_base_fee().await;
     if res.is_err() {
-        warn!("failed to get blob base fee; defaulting to 0");
+        debug!("failed to get blob base fee; defaulting to 0");
     }
     res.unwrap_or(0)
 }
