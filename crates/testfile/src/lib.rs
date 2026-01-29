@@ -321,7 +321,7 @@ pub mod tests {
         .await
         .unwrap();
         // this seed can be used to recreate the same test tx(s)
-        let spam_txs = test_gen
+        let (spam_txs, _nonces) = test_gen
             .load_txs(PlanType::Spam(10, |_tx_req| {
                 println!(
                     "spam tx\n\tfrom={:?}\n\tto={:?}\n\tinput={:?}",
@@ -398,11 +398,11 @@ pub mod tests {
         .unwrap();
 
         let num_txs = 13;
-        let spam_txs_1 = scenario1
+        let (spam_txs_1, _nonces) = scenario1
             .load_txs(PlanType::Spam(num_txs, |_| Ok(None)))
             .await
             .unwrap();
-        let spam_txs_2 = scenario2
+        let (spam_txs_2, _nonces) = scenario2
             .load_txs(PlanType::Spam(num_txs, |_| Ok(None)))
             .await
             .unwrap();
