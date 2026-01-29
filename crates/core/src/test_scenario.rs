@@ -610,8 +610,7 @@ where
         let res = wallet_client
             .send_transaction(WithOtherFields::new(tx))
             .await?
-            .with_timeout(Some(Duration::from_secs(30)))
-            .with_required_confirmations(1);
+            .with_timeout(Some(Duration::from_secs(30)));
 
         // watch pending transaction
         let receipt = res.get_receipt().await.expect("failed to get receipt");
@@ -706,8 +705,7 @@ where
                     let res = wallet
                         .send_transaction(tx.into())
                         .await?
-                        .with_timeout(Some(Duration::from_secs(30)))
-                        .with_required_confirmations(1);
+                        .with_timeout(Some(Duration::from_secs(30)));
 
                     debug!("sent setup tx {:?}: {}", tx_req.kind, res.tx_hash());
                     // get receipt using provider (not wallet) to allow any receipt type (support non-eth chains)
