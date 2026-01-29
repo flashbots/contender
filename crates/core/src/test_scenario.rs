@@ -638,6 +638,8 @@ where
     pub async fn run_setup(&mut self) -> Result<()> {
         let chain_id = self.chain_id;
         let genesis_hash = self.ctx.genesis_hash;
+        let blob_base_fee = get_blob_fee_maybe(&self.rpc_client).await;
+
         let (_txs, updated_nonces) = self
             .load_txs(PlanType::Setup(|tx_req| {
                 /* callback */
@@ -675,8 +677,6 @@ where
                         .unwrap_or("")
                         .to_string();
                     let gas_price = wallet.get_gas_price().await?;
-                    let blob_gas_price =
-                        get_blob_fee_maybe(&DynProvider::new(wallet.to_owned())).await;
                     let gas_limit = if let Some(gas) = tx_req.tx.gas {
                         gas
                     } else {
@@ -698,7 +698,7 @@ where
                         gas_price / 10,
                         gas_limit,
                         chain_id,
-                        blob_gas_price,
+                        blob_base_fee,
                     );
 
                     // wallet will assign nonce before sending
