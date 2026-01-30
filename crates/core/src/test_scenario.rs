@@ -176,7 +176,6 @@ struct DeployContractParams<'a, D: DbOps> {
     tx_type: TxType,
     rpc_url: &'a Url,
     signer: &'a PrivateKeySigner,
-    redeploy: bool,
     genesis_hash: FixedBytes<32>,
 }
 
@@ -469,6 +468,7 @@ where
 
         debug!("deploying sim contracts...");
         scenario.deploy_contracts().await?;
+        scenario.sync_nonces().await?;
         debug!("sim contracts deployed, running setup...");
         scenario.run_setup().await?;
 
@@ -499,7 +499,6 @@ where
 
         // we do everything in the callback so no need to actually capture the returned txs
         // we have to do this to populate the database with new named transaction after each deployment
-        let redeploy = self.redeploy;
         let genesis_hash = self.ctx.genesis_hash;
         let (_txs, updated_nonces) = self
             .load_txs(PlanType::Create(|tx_req| {
@@ -527,7 +526,6 @@ where
                         tx_type,
                         rpc_url: &rpc_url,
                         signer: &wallet,
-                        redeploy,
                         genesis_hash,
                     })
                     .await
@@ -553,7 +551,6 @@ where
             tx_type,
             rpc_url,
             signer,
-            redeploy,
             genesis_hash,
         } = params;
         let wallet = EthereumWallet::from(signer.to_owned());
@@ -561,28 +558,6 @@ where
             .wallet(&wallet)
             .network::<AnyNetwork>()
             .connect_http(rpc_url.to_owned());
-
-        if let Some(name) = tx_req.name.as_ref() {
-            if let Some(existing) = db
-                .get_named_tx(name, rpc_url.as_str(), genesis_hash)
-                .map_err(|e| e.into())?
-            {
-                if let Some(addr) = existing.address {
-                    let code: Bytes = wallet_client
-                        .client()
-                        .request("eth_getCode", (addr, "latest"))
-                        .await?;
-                    if !code.as_ref().is_empty() && !redeploy {
-                        info!(
-                            contract = %name,
-                            address = %addr,
-                            "skipping deploy; on-chain code already present"
-                        );
-                        return Ok(());
-                    }
-                }
-            }
-        }
 
         let ExtraTxParams {
             gas_price,
@@ -2017,6 +1992,8 @@ pub mod tests {
                 .unwrap();
         }
 
+        scenario.sync_nonces().await.unwrap();
+
         // Only apply default gas_price_adder when no override is set
         if gas_price.is_none() {
             scenario.ctx.add_to_gas_price(GWEI_TO_WEI as i128 * 10);
@@ -2237,11 +2214,10 @@ pub mod tests {
         let anvil = spawn_anvil();
         let mut scenario = get_test_scenario(&anvil, 10, None, None).await.unwrap();
         scenario.deploy_contracts().await.unwrap();
-        let (setup_steps, _nonces) = scenario
+        let (setup_steps, _updated_nonces) = scenario
             .load_txs(PlanType::Setup(|_| Ok(None)))
             .await
             .unwrap();
-        scenario.run_setup().await.unwrap();
         let mut used_agent_keys = 0;
         for step in setup_steps {
             let tx = match step {
