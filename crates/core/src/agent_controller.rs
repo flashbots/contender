@@ -1,8 +1,5 @@
 use crate::{
-    generator::{
-        agent_pools::AgentSpec,
-        seeder::{rand_seed::SeedGenerator, SeedValue},
-    },
+    generator::seeder::{rand_seed::SeedGenerator, SeedValue},
     Result,
 };
 use alloy::{
@@ -99,31 +96,6 @@ impl AgentStore {
 
     pub fn all_signer_addresses(&self) -> Vec<Address> {
         self.all_signers().iter().map(|s| s.address()).collect()
-    }
-
-    pub fn spec(&self) -> AgentSpec {
-        AgentSpec::default()
-            .create_accounts(
-                self.agents
-                    .values()
-                    .map(|s| s.signers.len())
-                    .max()
-                    .unwrap_or(0),
-            )
-            .setup_accounts(
-                self.agents
-                    .values()
-                    .map(|s| s.signers.len())
-                    .max()
-                    .unwrap_or(0),
-            )
-            .spam_accounts(
-                self.agents
-                    .values()
-                    .map(|s| s.signers.len())
-                    .max()
-                    .unwrap_or(0),
-            )
     }
 }
 
