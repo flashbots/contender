@@ -107,14 +107,6 @@ pub struct SpamCliArgs {
     )]
     pub gen_report: bool,
 
-    /// Re-deploy contracts in builtin scenarios.
-    #[arg(
-        long,
-        global = true,
-        long_help = "If set, re-deploy contracts that have already been deployed. Only builtin scenarios are affected."
-    )]
-    pub redeploy: bool,
-
     /// Skip setup steps when running builtin scenarios.
     #[arg(
         long,
@@ -254,15 +246,6 @@ impl SpamCommandArgs {
                 );
                 rpc_batch_size = txs_per_duration;
             }
-        }
-
-        if self.spam_args.redeploy && self.spam_args.skip_setup {
-            return Err(RuntimeParamErrorKind::InvalidArgs(format!(
-                "{} and {} cannot be passed together",
-                bold("--redeploy"),
-                bold("--skip-setup")
-            ))
-            .into());
         }
 
         // check if txs_per_duration is enough to cover the spam requests
@@ -418,7 +401,6 @@ impl SpamCommandArgs {
             bundle_type: bundle_type.into(),
             pending_tx_timeout_secs: pending_timeout * block_time,
             extra_msg_handles: None,
-            redeploy: self.spam_args.redeploy,
             sync_nonces_after_batch: !self.spam_args.optimistic_nonces,
             rpc_batch_size,
             gas_price: self.spam_args.eth_json_rpc_args.rpc_args.gas_price,
@@ -432,18 +414,6 @@ impl SpamCommandArgs {
             (&PROM, &HIST).into(),
         )
         .await?;
-
-        // Builtin/default behavior: best-effort (skip redeploy if code exists); allow CLI override
-        tracing::trace!(
-            "spam mode: redeploy={} ({} ) [--redeploy flag set? {}]",
-            self.spam_args.redeploy,
-            if self.spam_args.redeploy {
-                "will redeploy and run all setup"
-            } else {
-                "will skip redeploy when possible"
-            },
-            self.spam_args.redeploy
-        );
 
         // run deployments & setup for builtin scenarios
         if self.scenario.is_builtin() && !self.spam_args.skip_setup {
@@ -915,7 +885,6 @@ mod tests {
                     ignore_receipts: false,
                     optimistic_nonces: true,
                     gen_report: false,
-                    redeploy: true,
                     skip_setup: false,
                     rpc_batch_size: 0,
                     spam_timeout: Duration::from_secs(5),

@@ -5,6 +5,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Note: this file did not exist until after `v0.5.6`.
 
+## Unreleased
+
+- track nonces internally for create & setup transactions ([#438](https://github.com/flashbots/contender/pull/438))
+- bugfix: tolerate failure of `get_block_receipts` ([#438](https://github.com/flashbots/contender/pull/438))
+
+### Breaking changes
+
+- removed `--redeploy`, no longer skips contract deployments if previously deployed ([#438](https://github.com/flashbots/contender/pull/438))
+
 ## [0.7.4](https://github.com/flashbots/contender/releases/tag/v0.7.4) - 2026-01-27
 
 - revised campaign spammer ([#427](https://github.com/flashbots/contender/pull/427))

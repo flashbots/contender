@@ -123,7 +123,6 @@ where
     pub ctx: ExecutionContext,
     prometheus: PrometheusCollector,
     setcode_signer: PrivateKeySigner,
-    pub redeploy: bool,
     /// Determines whether scenario.sync_nonces is called automatically after each spam run batch.
     pub should_sync_nonces: bool,
     /// Max num of eth_sendRawTransaction calls per json-rpc batch; 0 disables batching.
@@ -141,7 +140,6 @@ pub struct TestScenarioParams {
     pub pending_tx_timeout_secs: u64,
     pub bundle_type: BundleType,
     pub extra_msg_handles: Option<HashMap<String, Arc<TxActorHandle>>>,
-    pub redeploy: bool,
     pub sync_nonces_after_batch: bool,
     pub rpc_batch_size: u64,
     pub gas_price: Option<U256>,
@@ -183,7 +181,6 @@ struct DeployContractParams<'a, D: DbOps> {
     tx_type: TxType,
     rpc_url: &'a Url,
     signer: &'a PrivateKeySigner,
-    redeploy: bool,
     genesis_hash: FixedBytes<32>,
 }
 
@@ -210,7 +207,6 @@ where
             pending_tx_timeout_secs,
             bundle_type,
             extra_msg_handles,
-            redeploy,
             sync_nonces_after_batch,
             rpc_batch_size,
             gas_price,
@@ -322,7 +318,6 @@ where
             auth_provider,
             prometheus,
             setcode_signer,
-            redeploy,
             should_sync_nonces: sync_nonces_after_batch,
             rpc_batch_size,
             num_rpc_batches_sent: 0,
@@ -442,7 +437,6 @@ where
                 bundle_type: self.bundle_type,
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
                 extra_msg_handles: None,
-                redeploy: self.redeploy,
                 sync_nonces_after_batch: self.should_sync_nonces,
                 rpc_batch_size: self.rpc_batch_size,
                 gas_price: self.gas_price,
@@ -478,6 +472,7 @@ where
 
         debug!("deploying sim contracts...");
         scenario.deploy_contracts().await?;
+        scenario.sync_nonces().await?;
         debug!("sim contracts deployed, running setup...");
         scenario.run_setup().await?;
 
@@ -508,7 +503,6 @@ where
 
         // we do everything in the callback so no need to actually capture the returned txs
         // we have to do this to populate the database with new named transaction after each deployment
-        let redeploy = self.redeploy;
         let genesis_hash = self.ctx.genesis_hash;
         let (_txs, updated_nonces) = self
             .load_txs(PlanType::Create(|tx_req| {
@@ -536,7 +530,6 @@ where
                         tx_type,
                         rpc_url: &rpc_url,
                         signer: &wallet,
-                        redeploy,
                         genesis_hash,
                     })
                     .await
@@ -562,7 +555,6 @@ where
             tx_type,
             rpc_url,
             signer,
-            redeploy,
             genesis_hash,
         } = params;
         let wallet = EthereumWallet::from(signer.to_owned());
@@ -570,28 +562,6 @@ where
             .wallet(&wallet)
             .network::<AnyNetwork>()
             .connect_http(rpc_url.to_owned());
-
-        if let Some(name) = tx_req.name.as_ref() {
-            if let Some(existing) = db
-                .get_named_tx(name, rpc_url.as_str(), genesis_hash)
-                .map_err(|e| e.into())?
-            {
-                if let Some(addr) = existing.address {
-                    let code: Bytes = wallet_client
-                        .client()
-                        .request("eth_getCode", (addr, "latest"))
-                        .await?;
-                    if !code.as_ref().is_empty() && !redeploy {
-                        info!(
-                            contract = %name,
-                            address = %addr,
-                            "skipping deploy; on-chain code already present"
-                        );
-                        return Ok(());
-                    }
-                }
-            }
-        }
 
         let ExtraTxParams {
             gas_price,
@@ -1375,7 +1345,6 @@ where
                 bundle_type: self.bundle_type,
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
                 extra_msg_handles: None,
-                redeploy: false,
                 sync_nonces_after_batch: self.should_sync_nonces,
                 rpc_batch_size: self.rpc_batch_size,
                 gas_price: self.gas_price,
@@ -1982,7 +1951,6 @@ pub mod tests {
                 bundle_type,
                 pending_tx_timeout_secs: 12,
                 extra_msg_handles: None,
-                redeploy: true,
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
                 gas_price,
@@ -2013,6 +1981,8 @@ pub mod tests {
                 .await
                 .unwrap();
         }
+
+        scenario.sync_nonces().await.unwrap();
 
         // Only apply default gas_price_adder when no override is set
         if gas_price.is_none() {
@@ -2234,11 +2204,10 @@ pub mod tests {
         let anvil = spawn_anvil();
         let mut scenario = get_test_scenario(&anvil, None, None).await.unwrap();
         scenario.deploy_contracts().await.unwrap();
-        let (setup_steps, _nonces) = scenario
+        let (setup_steps, _updated_nonces) = scenario
             .load_txs(PlanType::Setup(|_| Ok(None)))
             .await
             .unwrap();
-        scenario.run_setup().await.unwrap();
         let mut used_agent_keys = 0;
         for step in setup_steps {
             let tx = match step {
