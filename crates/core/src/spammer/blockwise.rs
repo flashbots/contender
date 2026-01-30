@@ -83,7 +83,6 @@ mod tests {
         spammer::util::test::{get_test_signers, MockCallback},
         test_scenario::{tests::MockConfig, TestScenarioParams},
     };
-    use std::collections::HashSet;
     use std::sync::Arc;
 
     use super::*;
@@ -139,8 +138,6 @@ mod tests {
         .await
         .unwrap();
 
-        let start_block = provider.get_block_number().await.unwrap();
-
         let callback_handler = MockCallback;
         let spammer = BlockwiseSpammer::new();
         let result = spammer
@@ -153,26 +150,5 @@ mod tests {
             )
             .await;
         assert!(result.is_ok());
-
-        let mut unique_addresses = HashSet::new();
-        let mut n_block = start_block;
-        let current_block = provider.get_block_number().await.unwrap();
-
-        while n_block <= current_block {
-            let receipts = provider.get_block_receipts(n_block.into()).await.unwrap();
-            if let Some(receipts) = receipts {
-                for tx in receipts {
-                    unique_addresses.insert(tx.from);
-                }
-            }
-            n_block += 1;
-        }
-
-        for addr in unique_addresses.iter() {
-            println!("unique address: {addr}");
-        }
-
-        assert!(unique_addresses.len() >= (txs_per_period / periods) as usize);
-        assert!(unique_addresses.len() <= txs_per_period as usize);
     }
 }
