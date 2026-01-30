@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - added timeout for send_transaction calls ([#430](https://github.com/flashbots/contender/pull/430/files))
 - track nonces internally for create & setup transactions ([#438](https://github.com/flashbots/contender/pull/438/changes))
+  - removed contract deployment detection from builtin scenario spam setup
+  - also removed `redeploy`
 
 ### Breaking changes
 
