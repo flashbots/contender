@@ -77,7 +77,7 @@ pub async fn setup(
 
     // create agents for each from_pool declaration in setup and create pools
     let agent_spec = AgentSpec::default()
-        .create_accounts(1)
+        .create_accounts(accounts_per_agent)
         .setup_accounts(accounts_per_agent)
         .spam_accounts(0);
     let agents = testconfig.build_agent_store(&args.seed, agent_spec.clone());
