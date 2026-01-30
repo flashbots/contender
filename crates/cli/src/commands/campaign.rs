@@ -1,17 +1,14 @@
 use super::{setup::SetupCommandArgs, spam::SpamCommandArgs, SpamScenario};
 use crate::commands::spam::SpamCampaignContext;
+use crate::commands::{
+    self,
+    common::{ScenarioSendTxsCliArgs, SendTxsCliArgsInner},
+    SpamCliArgs,
+};
 use crate::error::CliError;
 use crate::util::load_testconfig;
 use crate::util::{data_dir, load_seedfile, parse_duration};
 use crate::BuiltinScenarioCli;
-use crate::{
-    commands::{
-        self,
-        common::{ScenarioSendTxsCliArgs, SendTxsCliArgsInner},
-        SpamCliArgs,
-    },
-    util::bold,
-};
 use alloy::primitives::{keccak256, U256};
 use clap::Args;
 use contender_core::db::DbOps;
@@ -85,14 +82,6 @@ pub struct CampaignCliArgs {
     )]
     pub gen_report: bool,
 
-    /// Re-deploy contracts in builtin scenarios.
-    #[arg(
-        long,
-        global = true,
-        long_help = "If set, re-deploy contracts that have already been deployed. Only builtin scenarios are affected."
-    )]
-    pub redeploy: bool,
-
     /// Skip setup steps when running builtin scenarios.
     #[arg(
         long,
@@ -133,15 +122,6 @@ pub async fn run_campaign(
     let stages = campaign.resolve()?;
     validate_stage_rates(&stages, &args).await?;
     let campaign_id = Uuid::new_v4().to_string();
-
-    if args.redeploy && args.skip_setup {
-        return Err(RuntimeParamErrorKind::InvalidArgs(format!(
-            "{} and {} cannot be passed together",
-            bold("--redeploy"),
-            bold("--skip-setup")
-        ))
-        .into());
-    }
 
     let base_seed = args
         .eth_json_rpc_args
@@ -314,7 +294,6 @@ fn create_spam_cli_args(
     spam_rate: u64,
     spam_duration: u64,
     skip_setup: bool,
-    redeploy: bool,
 ) -> SpamCliArgs {
     SpamCliArgs {
         eth_json_rpc_args: ScenarioSendTxsCliArgs {
@@ -340,7 +319,6 @@ fn create_spam_cli_args(
         ignore_receipts: args.ignore_receipts,
         optimistic_nonces: args.optimistic_nonces,
         gen_report: false,
-        redeploy,
         skip_setup,
         rpc_batch_size: args.rpc_batch_size,
         spam_timeout: args.spam_timeout,
@@ -423,12 +401,11 @@ async fn prepare_scenario(
     args.eth_json_rpc_args.seed = Some(scenario_seed.clone());
     debug!("mix {mix_idx} seed: {}", scenario_seed);
 
-    // Check if this is a builtin scenario to determine skip_setup/redeploy behavior:
+    // Check if this is a builtin scenario to determine skip_setup behavior:
     // - Builtins: respect campaign's flags (they do their own setup during spam)
-    // - Toml scenarios: always skip setup (ran in Phase 1), redeploy not applicable
+    // - Toml scenarios: always skip setup (ran in Phase 1)
     let is_builtin = parse_builtin_reference(&mix.scenario).is_some();
     let skip_setup = if is_builtin { args.skip_setup } else { true };
-    let redeploy = if is_builtin { args.redeploy } else { false };
 
     let spam_cli_args = create_spam_cli_args(
         Some(mix.scenario.clone()),
@@ -437,7 +414,6 @@ async fn prepare_scenario(
         mix.rate,
         stage.duration,
         skip_setup,
-        redeploy,
     );
 
     let spam_scenario = if let Some(builtin_cli) = parse_builtin_reference(&mix.scenario) {
