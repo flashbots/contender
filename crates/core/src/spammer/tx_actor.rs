@@ -395,10 +395,22 @@ async fn process_block_receipts<D: DbOps + Send + Sync + 'static>(
     };
 
     // Get receipts
-    let receipts = rpc
-        .get_block_receipts(target_block_num.into())
-        .await?
-        .unwrap_or_default();
+    let receipts = match rpc.get_block_receipts(target_block_num.into()).await {
+        Ok(Some(r)) => r,
+        Ok(None) | Err(_) => {
+            // Fallback: fetch receipts individually in parallel
+            let receipt_futures: Vec<_> = target_block
+                .transactions
+                .hashes()
+                .map(|tx_hash| rpc.get_transaction_receipt(tx_hash))
+                .collect();
+            let results = futures::future::join_all(receipt_futures).await;
+            results
+                .into_iter()
+                .filter_map(|r| r.ok().flatten())
+                .collect()
+        }
+    };
     info!(
         "found {} receipts for block {}",
         receipts.len(),

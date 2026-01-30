@@ -118,7 +118,6 @@ pub async fn setup(
         bundle_type: bundle_type.into(),
         pending_tx_timeout_secs: 12,
         extra_msg_handles: None,
-        redeploy: true,
         sync_nonces_after_batch: true,
         rpc_batch_size: 0,
         gas_price: None,

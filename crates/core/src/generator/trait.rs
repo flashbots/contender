@@ -328,11 +328,14 @@ where
         })
     }
 
-    /// Loads transactions from the plan configuration and returns execution requests.
+    /// Loads transactions from the plan configuration and returns execution requests
+    /// along with the updated nonce map. The caller should use the returned nonce map
+    /// to update their internal state, especially when the RPC provider is slow to
+    /// update nonces after transactions are mined.
     async fn load_txs<F: Send + Sync + Fn(NamedTxRequest) -> AsyncCallbackResult>(
         &self,
         plan_type: PlanType<F>,
-    ) -> std::result::Result<Vec<ExecutionRequest>, crate::Error> {
+    ) -> std::result::Result<(Vec<ExecutionRequest>, HashMap<Address, u64>), crate::Error> {
         let conf = self.get_plan_conf();
         let env = conf.get_env().unwrap_or_default();
         let db = self.get_db();
@@ -344,6 +347,11 @@ where
         }
 
         let mut txs: Vec<ExecutionRequest> = vec![];
+
+        // Track nonces locally to avoid relying on the RPC provider's nonce state,
+        // which may be slow to update after a transaction is mined.
+        // Initialize from existing tracked nonces to preserve state across calls.
+        let mut next_nonce: HashMap<Address, u64> = self.get_nonce_map().clone();
 
         match plan_type {
             PlanType::Create(on_create_step) => {
@@ -363,11 +371,23 @@ where
                     let step = self.make_strict_create(step, 0)?;
 
                     // create tx with template values
-                    let tx = NamedTxRequestBuilder::new(
+                    let mut tx = NamedTxRequestBuilder::new(
                         templater.template_contract_deploy(&step, &placeholder_map)?,
                     )
                     .with_name(&step.name)
                     .build();
+
+                    // assign a unique nonce to each tx (tracker per sender)
+                    // - fetch once from RPC then track locally to avoid "replacement transaction underpriced"
+                    //   errors when the RPC provider is slow to update the nonce after a tx is mined
+                    let from = tx.tx.from.expect("from address");
+                    if let std::collections::hash_map::Entry::Vacant(e) = next_nonce.entry(from) {
+                        let nonce = self.get_rpc_provider().get_transaction_count(from).await?;
+                        e.insert(nonce);
+                    }
+                    let nonce = next_nonce.get_mut(&from).expect("nonce");
+                    tx.tx.nonce = Some(*nonce);
+                    *nonce += 1;
 
                     let handle = on_create_step(tx.to_owned())?;
                     if let Some(handle) = handle {
@@ -381,7 +401,6 @@ where
                 let rpc_url = self.get_rpc_url();
 
                 let mut handles = Vec::new();
-                let mut next_nonce: HashMap<Address, u64> = HashMap::new();
 
                 for step in setup_steps.iter() {
                     // lookup placeholders in DB & update map before templating
@@ -583,7 +602,7 @@ where
             }
         }
 
-        Ok(txs)
+        Ok((txs, next_nonce))
     }
 }
 

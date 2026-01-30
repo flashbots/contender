@@ -310,7 +310,6 @@ pub mod tests {
                 bundle_type: Default::default(),
                 pending_tx_timeout_secs: 12,
                 extra_msg_handles: None,
-                redeploy: false,
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
                 gas_price: None,
@@ -321,7 +320,7 @@ pub mod tests {
         .await
         .unwrap();
         // this seed can be used to recreate the same test tx(s)
-        let spam_txs = test_gen
+        let (spam_txs, _nonces) = test_gen
             .load_txs(PlanType::Spam(10, |_tx_req| {
                 println!(
                     "spam tx\n\tfrom={:?}\n\tto={:?}\n\tinput={:?}",
@@ -363,7 +362,6 @@ pub mod tests {
                 bundle_type: Default::default(),
                 pending_tx_timeout_secs: 12,
                 extra_msg_handles: None,
-                redeploy: false,
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
                 gas_price: None,
@@ -386,7 +384,6 @@ pub mod tests {
                 bundle_type: Default::default(),
                 pending_tx_timeout_secs: 12,
                 extra_msg_handles: None,
-                redeploy: false,
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
                 gas_price: None,
@@ -398,11 +395,11 @@ pub mod tests {
         .unwrap();
 
         let num_txs = 13;
-        let spam_txs_1 = scenario1
+        let (spam_txs_1, _nonces) = scenario1
             .load_txs(PlanType::Spam(num_txs, |_| Ok(None)))
             .await
             .unwrap();
-        let spam_txs_2 = scenario2
+        let (spam_txs_2, _nonces) = scenario2
             .load_txs(PlanType::Spam(num_txs, |_| Ok(None)))
             .await
             .unwrap();
@@ -484,7 +481,6 @@ value = \"1eth\"
             bundle_type: Default::default(),
             pending_tx_timeout_secs: 12,
             extra_msg_handles: None,
-            redeploy: false,
             sync_nonces_after_batch: true,
             rpc_batch_size: 0,
             gas_price: None,

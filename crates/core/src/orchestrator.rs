@@ -53,8 +53,6 @@ where
     pub prometheus: PrometheusCollector,
     /// The amount of ether each agent account gets.
     pub funding: U256,
-    /// Redeploys contracts that have already been deployed.
-    pub redeploy: bool,
     pub sync_nonces_after_batch: bool,
     pub rpc_batch_size: u64,
 }
@@ -119,7 +117,6 @@ where
             auth_provider: None,
             prometheus: PrometheusCollector::default(),
             funding: *SMOL_AMOUNT,
-            redeploy: false,
             sync_nonces_after_batch: true,
             rpc_batch_size: 0,
         }
@@ -194,7 +191,6 @@ where
             auth_provider: None,
             prometheus: PrometheusCollector::default(),
             funding: *SMOL_AMOUNT,
-            redeploy: false,
             sync_nonces_after_batch: true,
             rpc_batch_size: 0,
         }
@@ -211,7 +207,6 @@ where
             pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             bundle_type: self.bundle_type,
             extra_msg_handles: self.extra_msg_handles.clone(),
-            redeploy: self.redeploy,
             sync_nonces_after_batch: self.sync_nonces_after_batch,
             rpc_batch_size: self.rpc_batch_size,
             gas_price: None,
@@ -251,7 +246,6 @@ where
     auth_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
     prometheus: PrometheusCollector,
     funding: U256,
-    redeploy: bool,
     sync_nonces_after_batch: bool,
     rpc_batch_size: u64,
 }
@@ -306,10 +300,6 @@ where
         self.seeder = s;
         self
     }
-    pub fn redeploy(mut self, r: bool) -> Self {
-        self.redeploy = r;
-        self
-    }
 
     pub fn build(self) -> ContenderCtx<D, S, P> {
         // always try to create tables before building, so user doesn't have to think about it later.
@@ -331,7 +321,6 @@ where
             auth_provider: self.auth_provider,
             prometheus: self.prometheus,
             funding: self.funding,
-            redeploy: self.redeploy,
             sync_nonces_after_batch: self.sync_nonces_after_batch,
             rpc_batch_size: self.rpc_batch_size,
         }

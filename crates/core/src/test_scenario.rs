@@ -116,7 +116,6 @@ where
     pub ctx: ExecutionContext,
     prometheus: PrometheusCollector,
     setcode_signer: PrivateKeySigner,
-    pub redeploy: bool,
     /// Determines whether scenario.sync_nonces is called automatically after each spam run batch.
     pub should_sync_nonces: bool,
     /// Max num of eth_sendRawTransaction calls per json-rpc batch; 0 disables batching.
@@ -134,7 +133,6 @@ pub struct TestScenarioParams {
     pub pending_tx_timeout_secs: u64,
     pub bundle_type: BundleType,
     pub extra_msg_handles: Option<HashMap<String, Arc<TxActorHandle>>>,
-    pub redeploy: bool,
     pub sync_nonces_after_batch: bool,
     pub rpc_batch_size: u64,
     pub gas_price: Option<U256>,
@@ -176,7 +174,6 @@ struct DeployContractParams<'a, D: DbOps> {
     tx_type: TxType,
     rpc_url: &'a Url,
     signer: &'a PrivateKeySigner,
-    redeploy: bool,
     genesis_hash: FixedBytes<32>,
 }
 
@@ -203,7 +200,6 @@ where
             pending_tx_timeout_secs,
             bundle_type,
             extra_msg_handles,
-            redeploy,
             sync_nonces_after_batch,
             rpc_batch_size,
             gas_price,
@@ -313,7 +309,6 @@ where
             auth_provider,
             prometheus,
             setcode_signer,
-            redeploy,
             should_sync_nonces: sync_nonces_after_batch,
             rpc_batch_size,
             num_rpc_batches_sent: 0,
@@ -433,7 +428,6 @@ where
                 bundle_type: self.bundle_type,
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
                 extra_msg_handles: None,
-                redeploy: self.redeploy,
                 sync_nonces_after_batch: self.should_sync_nonces,
                 rpc_batch_size: self.rpc_batch_size,
                 gas_price: self.gas_price,
@@ -469,6 +463,7 @@ where
 
         debug!("deploying sim contracts...");
         scenario.deploy_contracts().await?;
+        scenario.sync_nonces().await?;
         debug!("sim contracts deployed, running setup...");
         scenario.run_setup().await?;
 
@@ -499,49 +494,46 @@ where
 
         // we do everything in the callback so no need to actually capture the returned txs
         // we have to do this to populate the database with new named transaction after each deployment
-        let redeploy = self.redeploy;
         let genesis_hash = self.ctx.genesis_hash;
-        self.load_txs(PlanType::Create(|tx_req| {
-            let from =
-                tx_req
-                    .tx
-                    .from
-                    .to_owned()
-                    .ok_or(RuntimeErrorKind::NamedTxMissingFromAddress(Box::new(
-                        tx_req.to_owned(),
-                    )))?;
-            info!(
-                "deploying contract: {:?}",
-                tx_req.name.as_ref().unwrap_or(&"".to_string())
-            );
-            let rpc_url = self.rpc_url.to_owned();
-            let tx_type = self.tx_type;
-            let wallet = self
-                .signer_map
-                .get(&from)
-                .unwrap_or_else(|| panic!("couldn't find wallet for 'from' address {from}"))
-                .to_owned();
-            let db = self.db.clone();
+        let (_txs, updated_nonces) = self
+            .load_txs(PlanType::Create(|tx_req| {
+                let from = tx_req.tx.from.to_owned().ok_or(
+                    RuntimeErrorKind::NamedTxMissingFromAddress(Box::new(tx_req.to_owned())),
+                )?;
+                info!(
+                    "deploying contract: {:?}",
+                    tx_req.name.as_ref().unwrap_or(&"".to_string())
+                );
+                let rpc_url = self.rpc_url.to_owned();
+                let tx_type = self.tx_type;
+                let wallet = self
+                    .signer_map
+                    .get(&from)
+                    .unwrap_or_else(|| panic!("couldn't find wallet for 'from' address {from}"))
+                    .to_owned();
+                let db = self.db.clone();
 
-            let handle = tokio::task::spawn(async move {
-                Self::deploy_contract(DeployContractParams {
-                    db: &db,
-                    tx_req: &tx_req,
-                    extra_tx_params: (gas_price, blob_gas_price, chain_id).into(),
-                    tx_type,
-                    rpc_url: &rpc_url,
-                    signer: &wallet,
-                    redeploy,
-                    genesis_hash,
-                })
-                .await
-            });
+                let handle = tokio::task::spawn(async move {
+                    Self::deploy_contract(DeployContractParams {
+                        db: &db,
+                        tx_req: &tx_req,
+                        extra_tx_params: (gas_price, blob_gas_price, chain_id).into(),
+                        tx_type,
+                        rpc_url: &rpc_url,
+                        signer: &wallet,
+                        genesis_hash,
+                    })
+                    .await
+                });
 
-            Ok(Some(handle))
-        }))
-        .await?;
+                Ok(Some(handle))
+            }))
+            .await?;
 
-        self.sync_nonces().await?;
+        // Update internal nonce map with the tracked nonces from load_txs.
+        // This avoids relying on sync_nonces() which queries the RPC and may return
+        // stale data if the RPC is slow to update after transactions are mined.
+        self.nonces = updated_nonces;
 
         Ok(())
     }
@@ -554,7 +546,6 @@ where
             tx_type,
             rpc_url,
             signer,
-            redeploy,
             genesis_hash,
         } = params;
         let wallet = EthereumWallet::from(signer.to_owned());
@@ -562,28 +553,6 @@ where
             .wallet(&wallet)
             .network::<AnyNetwork>()
             .connect_http(rpc_url.to_owned());
-
-        if let Some(name) = tx_req.name.as_ref() {
-            if let Some(existing) = db
-                .get_named_tx(name, rpc_url.as_str(), genesis_hash)
-                .map_err(|e| e.into())?
-            {
-                if let Some(addr) = existing.address {
-                    let code: Bytes = wallet_client
-                        .client()
-                        .request("eth_getCode", (addr, "latest"))
-                        .await?;
-                    if !code.as_ref().is_empty() && !redeploy {
-                        info!(
-                            contract = %name,
-                            address = %addr,
-                            "skipping deploy; on-chain code already present"
-                        );
-                        return Ok(());
-                    }
-                }
-            }
-        }
 
         let ExtraTxParams {
             gas_price,
@@ -639,107 +608,112 @@ where
     pub async fn run_setup(&mut self) -> Result<()> {
         let chain_id = self.chain_id;
         let genesis_hash = self.ctx.genesis_hash;
-        self.load_txs(PlanType::Setup(|tx_req| {
-            /* callback */
-            info!("{}", self.format_setup_log(&tx_req));
+        let blob_base_fee = get_blob_fee_maybe(&self.rpc_client).await;
 
-            // copy data/refs from self before spawning the task
-            let from =
-                tx_req
-                    .tx
-                    .from
-                    .as_ref()
-                    .ok_or(RuntimeErrorKind::NamedTxMissingFromAddress(Box::new(
-                        tx_req.to_owned(),
-                    )))?;
-            let signer = self
-                .signer_map
-                .get(from)
-                .ok_or(RuntimeErrorKind::PrivateKeyMissing(*from))?
-                .to_owned();
-            let db = self.db.clone();
-            let rpc_url = self.rpc_url.clone();
-            let tx_type = self.tx_type;
+        let (_txs, updated_nonces) = self
+            .load_txs(PlanType::Setup(|tx_req| {
+                /* callback */
+                info!("{}", self.format_setup_log(&tx_req));
 
-            let handle = tokio::task::spawn(async move {
-                let wallet = ProviderBuilder::new()
-                    .wallet(signer)
-                    .network::<AnyNetwork>()
-                    .connect_http(rpc_url.to_owned());
-                debug!("connecting wallet to rpc at {}", rpc_url);
+                // copy data/refs from self before spawning the task
+                let from =
+                    tx_req
+                        .tx
+                        .from
+                        .as_ref()
+                        .ok_or(RuntimeErrorKind::NamedTxMissingFromAddress(Box::new(
+                            tx_req.to_owned(),
+                        )))?;
+                let signer = self
+                    .signer_map
+                    .get(from)
+                    .ok_or(RuntimeErrorKind::PrivateKeyMissing(*from))?
+                    .to_owned();
+                let db = self.db.clone();
+                let rpc_url = self.rpc_url.clone();
+                let tx_type = self.tx_type;
 
-                let tx_label = tx_req
-                    .name
-                    .as_deref()
-                    .or(tx_req.kind.as_deref())
-                    .unwrap_or("")
-                    .to_string();
-                let gas_price = wallet.get_gas_price().await?;
-                let blob_gas_price = get_blob_fee_maybe(&DynProvider::new(wallet.to_owned())).await;
-                let gas_limit = if let Some(gas) = tx_req.tx.gas {
-                    gas
-                } else {
-                    let res = wallet.estimate_gas(tx_req.tx.to_owned().into()).await;
-                    if let Ok(res) = res {
-                        res
+                let handle = tokio::task::spawn(async move {
+                    let wallet = ProviderBuilder::new()
+                        .wallet(signer)
+                        .network::<AnyNetwork>()
+                        .connect_http(rpc_url.to_owned());
+                    debug!("connecting wallet to rpc at {}", rpc_url);
+
+                    let tx_label = tx_req
+                        .name
+                        .as_deref()
+                        .or(tx_req.kind.as_deref())
+                        .unwrap_or("")
+                        .to_string();
+                    let gas_price = wallet.get_gas_price().await?;
+                    let gas_limit = if let Some(gas) = tx_req.tx.gas {
+                        gas
                     } else {
-                        warn!(
+                        let res = wallet.estimate_gas(tx_req.tx.to_owned().into()).await;
+                        if let Ok(res) = res {
+                            res
+                        } else {
+                            warn!(
                             "failed to estimate gas for setup step '{tx_label}', skipping step..."
                         );
-                        return Ok(());
+                            return Ok(());
+                        }
+                    };
+                    let mut tx = tx_req.tx;
+                    complete_tx_request(
+                        &mut tx,
+                        tx_type,
+                        gas_price,
+                        gas_price / 10,
+                        gas_limit,
+                        chain_id,
+                        blob_base_fee,
+                    );
+
+                    // wallet will assign nonce before sending
+                    let res = wallet
+                        .send_transaction(tx.into())
+                        .await?
+                        .with_timeout(Some(Duration::from_secs(30)));
+
+                    debug!("sent setup tx {:?}: {}", tx_req.kind, res.tx_hash());
+                    // get receipt using provider (not wallet) to allow any receipt type (support non-eth chains)
+                    let receipt = res.get_receipt().await?;
+                    debug!(
+                        "got receipt for {:?}: ({}) {}",
+                        tx_req.kind,
+                        if receipt.status() {
+                            "LANDED"
+                        } else {
+                            "REVERTED"
+                        },
+                        receipt.transaction_hash
+                    );
+
+                    if let Some(name) = tx_req.name {
+                        db.insert_named_txs(
+                            &[NamedTx::new(
+                                name,
+                                receipt.transaction_hash,
+                                receipt.contract_address,
+                            )],
+                            rpc_url.as_str(),
+                            genesis_hash,
+                        )
+                        .map_err(|e| e.into())?;
                     }
-                };
-                let mut tx = tx_req.tx;
-                complete_tx_request(
-                    &mut tx,
-                    tx_type,
-                    gas_price,
-                    gas_price / 10,
-                    gas_limit,
-                    chain_id,
-                    blob_gas_price,
-                );
 
-                // wallet will assign nonce before sending
-                let res = wallet
-                    .send_transaction(tx.into())
-                    .await?
-                    .with_timeout(Some(Duration::from_secs(30)));
+                    Ok(())
+                });
+                Ok(Some(handle))
+            }))
+            .await?;
 
-                debug!("sent setup tx {:?}: {}", tx_req.kind, res.tx_hash());
-                // get receipt using provider (not wallet) to allow any receipt type (support non-eth chains)
-                let receipt = res.get_receipt().await?;
-                debug!(
-                    "got receipt for {:?}: ({}) {}",
-                    tx_req.kind,
-                    if receipt.status() {
-                        "LANDED"
-                    } else {
-                        "REVERTED"
-                    },
-                    receipt.transaction_hash
-                );
-
-                if let Some(name) = tx_req.name {
-                    db.insert_named_txs(
-                        &[NamedTx::new(
-                            name,
-                            receipt.transaction_hash,
-                            receipt.contract_address,
-                        )],
-                        rpc_url.as_str(),
-                        genesis_hash,
-                    )
-                    .map_err(|e| e.into())?;
-                }
-
-                Ok(())
-            });
-            Ok(Some(handle))
-        }))
-        .await?;
-
-        self.sync_nonces().await?;
+        // Update internal nonce map with the tracked nonces from load_txs.
+        // This avoids relying on sync_nonces() which queries the RPC and may return
+        // stale data if the RPC is slow to update after transactions are mined.
+        self.nonces = updated_nonces;
 
         Ok(())
     }
@@ -1362,7 +1336,6 @@ where
                 bundle_type: self.bundle_type,
                 pending_tx_timeout_secs: self.pending_tx_timeout_secs,
                 extra_msg_handles: None,
-                redeploy: false,
                 sync_nonces_after_batch: self.should_sync_nonces,
                 rpc_batch_size: self.rpc_batch_size,
                 gas_price: self.gas_price,
@@ -1373,7 +1346,7 @@ where
         .await?;
 
         // load a sample of each spam tx from the scenario
-        let txs = scenario
+        let (txs, _nonces) = scenario
             .load_txs(PlanType::Spam(
                 scenario
                     .config
@@ -1446,7 +1419,7 @@ where
         txs_per_period: u64,
         num_periods: u64,
     ) -> Result<Vec<Vec<ExecutionRequest>>> {
-        let tx_requests = self
+        let (tx_requests, _nonces) = self
             .load_txs(crate::generator::PlanType::Spam(
                 txs_per_period * num_periods,
                 |_named_req| Ok(None), // we can look at the named request here if needed
@@ -1981,7 +1954,6 @@ pub mod tests {
                 bundle_type,
                 pending_tx_timeout_secs: 12,
                 extra_msg_handles: None,
-                redeploy: true,
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
                 gas_price,
@@ -2013,6 +1985,8 @@ pub mod tests {
                 .unwrap();
         }
 
+        scenario.sync_nonces().await.unwrap();
+
         // Only apply default gas_price_adder when no override is set
         if gas_price.is_none() {
             scenario.ctx.add_to_gas_price(GWEI_TO_WEI as i128 * 10);
@@ -2026,7 +2000,7 @@ pub mod tests {
         let anvil = spawn_anvil();
         let scenario = get_test_scenario(&anvil, 10, None, None).await?;
 
-        let create_txs = scenario
+        let (create_txs, _nonces) = scenario
             .load_txs(PlanType::Create(|tx| {
                 println!("create tx callback triggered! name: {:?}\n", tx.name);
                 Ok(None)
@@ -2034,7 +2008,7 @@ pub mod tests {
             .await?;
         assert_eq!(create_txs.len(), 2);
 
-        let setup_txs = scenario
+        let (setup_txs, _nonces) = scenario
             .load_txs(PlanType::Setup(|tx| {
                 println!("setup tx callback triggered! name: {:?}\n", tx.name);
                 Ok(None)
@@ -2042,7 +2016,7 @@ pub mod tests {
             .await?;
         assert_eq!(setup_txs.len(), 3);
 
-        let spam_txs = scenario
+        let (spam_txs, _nonces) = scenario
             .load_txs(PlanType::Spam(20, |tx| {
                 println!("spam tx callback triggered! name: {:?}\n", tx.name);
                 Ok(None)
@@ -2058,7 +2032,7 @@ pub mod tests {
     async fn gas_limit_override_works() {
         let anvil = spawn_anvil();
         let scenario = get_test_scenario(&anvil, 10, None, None).await.unwrap();
-        let spam_txs = scenario
+        let (spam_txs, _nonces) = scenario
             .load_txs(PlanType::Spam(20, |tx| {
                 println!("spam tx callback triggered! {tx:?}\n");
                 Ok(None)
@@ -2144,7 +2118,7 @@ pub mod tests {
         let anvil = spawn_anvil();
         let scenario = get_test_scenario(&anvil, 10, None, None).await.unwrap();
 
-        let spam_txs = scenario
+        let (spam_txs, _nonces) = scenario
             .load_txs(PlanType::Spam(10, |tx| {
                 println!("spam tx callback triggered! {tx:?}\n");
                 Ok(None)
@@ -2168,7 +2142,7 @@ pub mod tests {
         let anvil = spawn_anvil();
         let scenario = get_test_scenario(&anvil, 10, None, None).await.unwrap();
 
-        let txs = scenario
+        let (txs, _nonces) = scenario
             .load_txs(PlanType::Create(|tx| {
                 println!("create tx callback triggered! {tx:?}\n");
                 Ok(None)
@@ -2196,7 +2170,7 @@ pub mod tests {
         scenario.deploy_contracts().await.unwrap();
 
         // assert that the agent store has the correct number of signers
-        let create_steps = scenario
+        let (create_steps, _nonces) = scenario
             .load_txs(PlanType::Create(|_| Ok(None)))
             .await
             .unwrap();
@@ -2233,11 +2207,10 @@ pub mod tests {
         let anvil = spawn_anvil();
         let mut scenario = get_test_scenario(&anvil, 10, None, None).await.unwrap();
         scenario.deploy_contracts().await.unwrap();
-        let setup_steps = scenario
+        let (setup_steps, _updated_nonces) = scenario
             .load_txs(PlanType::Setup(|_| Ok(None)))
             .await
             .unwrap();
-        scenario.run_setup().await.unwrap();
         let mut used_agent_keys = 0;
         for step in setup_steps {
             let tx = match step {
@@ -2384,7 +2357,7 @@ pub mod tests {
         // Add a significant gas_price_adder (10 gwei) - this should be ignored when override is set
         scenario.ctx.add_to_gas_price(GWEI_TO_WEI as i128 * 10);
 
-        let spam_txs = scenario
+        let (spam_txs, _nonces) = scenario
             .load_txs(PlanType::Spam(10, |_tx| Ok(None)))
             .await?;
 
