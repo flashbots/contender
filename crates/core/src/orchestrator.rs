@@ -4,10 +4,9 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use crate::{
-    agent_controller::AgentStore,
     db::{DbOps, MockDb, SpamDuration, SpamRunRequest},
     generator::{
-        agent_pools::AgentPools,
+        agent_pools::AgentSpec,
         seeder::{rand_seed::SeedGenerator, Seeder},
         templater::Templater,
         PlanConfig, RandSeed,
@@ -43,7 +42,7 @@ where
 
     // Optional extras (all defaulted):
     pub builder_rpc_url: Option<Url>,
-    pub agent_store: AgentStore,
+    pub agent_spec: AgentSpec,
     pub user_signers: Vec<PrivateKeySigner>,
     pub tx_type: TxType,
     pub bundle_type: BundleType,
@@ -100,7 +99,6 @@ where
 
         let seed = RandSeed::new();
         let db = MockDb;
-        let agents = config.build_agent_store(&seed, Default::default());
         let rpc_url = Url::from_str(rpc_url.as_ref()).expect("invalid RPC URL");
         ContenderCtxBuilder {
             config,
@@ -108,7 +106,7 @@ where
             seeder: seed,
             rpc_url,
             builder_rpc_url: None,
-            agent_store: agents,
+            agent_spec: AgentSpec::default(),
             user_signers: default_signers(),
             tx_type: TxType::Eip1559,
             bundle_type: BundleType::default(),
@@ -174,12 +172,11 @@ where
         seeder: S,
         rpc_url: impl AsRef<str>,
     ) -> ContenderCtxBuilder<D, S, P> {
-        let agents = config.build_agent_store(&seeder, Default::default());
         let url = Url::from_str(rpc_url.as_ref()).expect("invalid RPC URL");
         ContenderCtxBuilder {
             config,
             db: db.into(),
-            agent_store: agents,
+            agent_spec: AgentSpec::default(),
             seeder,
             rpc_url: url,
             builder_rpc_url: None,
@@ -202,7 +199,7 @@ where
             rpc_url: self.rpc_url.clone(),
             builder_rpc_url: self.builder_rpc_url.clone(),
             signers: self.user_signers.clone(),
-            agent_store: self.agent_store.clone(),
+            agent_spec: self.agent_spec.clone(),
             tx_type: self.tx_type,
             pending_tx_timeout_secs: self.pending_tx_timeout_secs,
             bundle_type: self.bundle_type,
@@ -237,7 +234,7 @@ where
     rpc_url: Url,
 
     builder_rpc_url: Option<Url>,
-    agent_store: AgentStore,
+    agent_spec: AgentSpec,
     user_signers: Vec<PrivateKeySigner>,
     tx_type: TxType,
     bundle_type: BundleType,
@@ -260,8 +257,8 @@ where
         self.builder_rpc_url = Some(url);
         self
     }
-    pub fn agent_store(mut self, store: AgentStore) -> Self {
-        self.agent_store = store;
+    pub fn agent_spec(mut self, spec: AgentSpec) -> Self {
+        self.agent_spec = spec;
         self
     }
     pub fn user_signers(mut self, signers: Vec<PrivateKeySigner>) -> Self {
@@ -312,7 +309,7 @@ where
             seeder: self.seeder,
             rpc_url: self.rpc_url,
             builder_rpc_url: self.builder_rpc_url,
-            agent_store: self.agent_store,
+            agent_spec: self.agent_spec,
             user_signers: self.user_signers,
             tx_type: self.tx_type,
             bundle_type: self.bundle_type,

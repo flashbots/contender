@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Breaking changes
 
 - `TestScenario::load_txs` return type changed to support nonce tracking ([#438](https://github.com/flashbots/contender/pull/438/changes))
+- trait bounds `S: Seeder` have been changed to `S: SeedGenerator` (`Seeder + SeedValue`) to support internal agent creation ([#439](https://github.com/flashbots/contender/pull/439/changes))
 
 ## [0.7.3](https://github.com/flashbots/contender/releases/tag/v0.7.3) - 2026-01-20
 

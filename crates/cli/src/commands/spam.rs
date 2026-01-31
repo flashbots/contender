@@ -20,11 +20,11 @@ use alloy::{
     transports::http::reqwest::Url,
 };
 use contender_core::{
-    agent_controller::AgentStore,
     db::{DbOps, SpamDuration, SpamRunRequest},
     error::{RuntimeErrorKind, RuntimeParamErrorKind},
     generator::{
-        seeder::Seeder,
+        agent_pools::{AgentPools, AgentSpec},
+        seeder::rand_seed::SeedGenerator,
         templater::Templater,
         types::{AnyProvider, SpamRequest},
         PlanConfig, RandSeed,
@@ -319,23 +319,11 @@ impl SpamCommandArgs {
             .rpc_args
             .user_signers_with_defaults();
 
-        // distill all from_pool arguments from the spam requests
-        let from_pool_declarations = testconfig.get_spam_pools();
-
-        let mut agents = AgentStore::new();
-        agents.init(
-            &from_pool_declarations,
-            accounts_per_agent as usize,
-            &self.seed,
-        );
-
-        if self.scenario.is_builtin() {
-            agents.init(
-                &[testconfig.get_create_pools(), testconfig.get_setup_pools()].concat(),
-                1,
-                &self.seed,
-            );
-        }
+        let num_setup_create_agents: usize = if self.scenario.is_builtin() { 1 } else { 0 };
+        let agent_spec = AgentSpec::default()
+            .create_accounts(num_setup_create_agents)
+            .setup_accounts(num_setup_create_agents)
+            .spam_accounts(accounts_per_agent as usize);
 
         let tx_type = match &self.scenario {
             SpamScenario::Builtin(builtin) => {
@@ -368,6 +356,8 @@ impl SpamCommandArgs {
                 bold("--txs-per-second (--tps)")
             );
         }
+
+        let agents = testconfig.build_agent_store(&self.seed, agent_spec.clone());
 
         if !override_senders {
             let all_signer_addrs = agents.all_signer_addresses();
@@ -406,7 +396,7 @@ impl SpamCommandArgs {
             rpc_url: self.spam_args.eth_json_rpc_args.rpc_args.rpc_url.clone(),
             builder_rpc_url: builder_url.to_owned(),
             signers: user_signers.to_owned(),
-            agent_store: agents.to_owned(),
+            agent_spec,
             tx_type,
             bundle_type: bundle_type.into(),
             pending_tx_timeout_secs: pending_timeout * block_time,
@@ -552,7 +542,7 @@ impl TypedSpammer {
     ) -> Result<()>
     where
         D: DbOps + Clone + Send + Sync + 'static,
-        S: Seeder + Send + Sync + Clone,
+        S: SeedGenerator + Send + Sync + Clone,
         P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
     {
         macro_rules! spammit {
@@ -599,7 +589,7 @@ pub async fn spam_inner<D, S, P>(
 ) -> Result<Option<u64>>
 where
     D: DbOps + Clone + Send + Sync + 'static,
-    S: Seeder + Send + Sync + Clone,
+    S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
     let start_block = test_scenario.rpc_client.get_block_number().await?;

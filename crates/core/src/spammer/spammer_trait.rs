@@ -14,7 +14,7 @@ use crate::db::SpamDuration;
 use crate::spammer::CallbackError;
 use crate::{
     db::DbOps,
-    generator::{seeder::Seeder, templater::Templater, PlanConfig},
+    generator::{seeder::rand_seed::SeedGenerator, templater::Templater, PlanConfig},
     test_scenario::TestScenario,
     Result,
 };
@@ -44,7 +44,7 @@ pub trait Spammer<F, D, S, P>
 where
     F: OnTxSent + OnBatchSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
-    S: Seeder + Send + Sync + Clone,
+    S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
     fn context(&self) -> &SpamRunContext;
