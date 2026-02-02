@@ -2132,7 +2132,7 @@ dependencies = [
 
 [[package]]
 name = "contender_bundle_provider"
-version = "0.7.4"
+version = "0.8.0"
 dependencies = [
  "alloy",
  "serde",
@@ -2142,7 +2142,7 @@ dependencies = [
 
 [[package]]
 name = "contender_cli"
-version = "0.7.4"
+version = "0.8.0"
 dependencies = [
  "alloy",
  "async-trait",
@@ -2177,7 +2177,7 @@ dependencies = [
 
 [[package]]
 name = "contender_core"
-version = "0.7.4"
+version = "0.8.0"
 dependencies = [
  "alloy",
  "ark-bn254",
@@ -2203,7 +2203,7 @@ dependencies = [
 
 [[package]]
 name = "contender_engine_provider"
-version = "0.7.4"
+version = "0.8.0"
 dependencies = [
  "alloy",
  "alloy-json-rpc",
@@ -2226,7 +2226,7 @@ dependencies = [
 
 [[package]]
 name = "contender_report"
-version = "0.7.4"
+version = "0.8.0"
 dependencies = [
  "alloy",
  "chrono",
@@ -2245,7 +2245,7 @@ dependencies = [
 
 [[package]]
 name = "contender_sqlite"
-version = "0.7.4"
+version = "0.8.0"
 dependencies = [
  "alloy",
  "contender_core",
@@ -2259,7 +2259,7 @@ dependencies = [
 
 [[package]]
 name = "contender_testfile"
-version = "0.7.4"
+version = "0.8.0"
 dependencies = [
  "alloy",
  "contender_core",
