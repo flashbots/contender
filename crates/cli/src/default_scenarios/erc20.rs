@@ -7,13 +7,16 @@ use std::str::FromStr;
 
 use crate::default_scenarios::{builtin::ToTestConfig, contracts::test_token};
 
+pub static DEFAULT_TOKENS_SENT: &str = "0.00001 ether";
+pub static DEFAULT_TOKENS_FUNDED: &str = "1000000 ether";
+
 #[derive(Clone, Debug, clap::Parser)]
 pub struct Erc20CliArgs {
     #[arg(
         short,
         long,
         long_help = "The amount to send in each spam tx.",
-        default_value = "0.00001 ether",
+        default_value = DEFAULT_TOKENS_SENT,
         value_parser = parse_value,
     )]
     pub send_amount: U256,
@@ -22,7 +25,7 @@ pub struct Erc20CliArgs {
         short,
         long,
         long_help = "The amount of tokens to give each spammer account before spamming starts.",
-        default_value = "1000000 ether",
+        default_value = DEFAULT_TOKENS_FUNDED,
         value_parser = parse_value,
     )]
     pub fund_amount: U256,
@@ -38,10 +41,8 @@ pub struct Erc20CliArgs {
 impl Default for Erc20CliArgs {
     fn default() -> Self {
         Self {
-            // Match clap default_value: "0.00001 ether"
-            send_amount: parse_value("0.00001 ether").expect("valid default send_amount"),
-            // Match clap default_value: "1000000 ether"
-            fund_amount: parse_value("1000000 ether").expect("valid default fund_amount"),
+            send_amount: parse_value(DEFAULT_TOKENS_SENT).expect("valid default send_amount"),
+            fund_amount: parse_value(DEFAULT_TOKENS_FUNDED).expect("valid default fund_amount"),
             token_recipient: None,
         }
     }
