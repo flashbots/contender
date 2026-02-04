@@ -100,7 +100,7 @@ impl HeatMapChart {
 
         // Condense blocks if there are too many
         let (blocks, block_bucket_size) = if all_blocks.len() > MAX_BLOCKS {
-            let bucket_size = (all_blocks.len() + MAX_BLOCKS - 1) / MAX_BLOCKS;
+            let bucket_size = all_blocks.len().div_ceil(MAX_BLOCKS);
             let condensed: Vec<u64> = all_blocks
                 .chunks(bucket_size)
                 .map(|chunk| chunk[0]) // Use first block number as label
@@ -126,7 +126,7 @@ impl HeatMapChart {
                 .collect();
 
             // Sort by access count descending and take top MAX_SLOTS
-            slot_counts.sort_by(|a, b| b.1.cmp(&a.1));
+            slot_counts.sort_by_key(|a| a.1);
             slot_counts.truncate(MAX_SLOTS);
 
             // Sort back by slot value for consistent ordering
@@ -141,10 +141,7 @@ impl HeatMapChart {
         let mut matrix = vec![];
         let mut max_accesses = 0;
 
-        for (i, block_start_idx) in (0..all_blocks.len())
-            .step_by(block_bucket_size)
-            .enumerate()
-        {
+        for (i, block_start_idx) in (0..all_blocks.len()).step_by(block_bucket_size).enumerate() {
             let block_end_idx = (block_start_idx + block_bucket_size).min(all_blocks.len());
             let bucket_blocks = &all_blocks[block_start_idx..block_end_idx];
 
