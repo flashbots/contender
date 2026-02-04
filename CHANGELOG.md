@@ -5,6 +5,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Note: this file did not exist until after `v0.5.6`.
 
+## Unreleased
+
+- bugfix: fixed internal default erc20 args, made `TimedSpammer` output more regular ([#443](https://github.com/flashbots/contender/pull/443))
+
 ## [0.8.0](https://github.com/flashbots/contender/releases/tag/v0.8.0) - 2026-02-02
 
 - track nonces internally for create & setup transactions ([#438](https://github.com/flashbots/contender/pull/438))
