@@ -7,7 +7,7 @@ use std::str::FromStr;
 
 use crate::default_scenarios::{builtin::ToTestConfig, contracts::test_token};
 
-#[derive(Clone, Default, Debug, clap::Parser)]
+#[derive(Clone, Debug, clap::Parser)]
 pub struct Erc20CliArgs {
     #[arg(
         short,
@@ -33,6 +33,18 @@ pub struct Erc20CliArgs {
         long_help = "The address to receive tokens sent by spam txs. By default, address(0) receives the tokens."
     )]
     pub token_recipient: Option<Address>,
+}
+
+impl Default for Erc20CliArgs {
+    fn default() -> Self {
+        Self {
+            // Match clap default_value: "0.00001 ether"
+            send_amount: parse_value("0.00001 ether").expect("valid default send_amount"),
+            // Match clap default_value: "1000000 ether"
+            fund_amount: parse_value("1000000 ether").expect("valid default fund_amount"),
+            token_recipient: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
