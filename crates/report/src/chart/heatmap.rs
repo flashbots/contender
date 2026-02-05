@@ -6,6 +6,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use tracing::warn;
 
+/// Maximum number of cells to render in the heatmap for performance.
+/// With 100 blocks × 100 slots = 10,000 cells max.
+const MAX_BLOCKS: usize = 100;
+const MAX_SLOTS: usize = 100;
+
 pub struct HeatMapChart {
     updates_per_slot_per_block: BTreeMap<u64, BTreeMap<FixedBytes<32>, u64>>,
 }
@@ -90,23 +95,75 @@ impl HeatMapChart {
     }
 
     pub fn echart_data(&self) -> HeatmapData {
-        let blocks = self.get_block_numbers();
-        let slots = self.get_hex_slots();
+        let all_blocks = self.get_block_numbers();
+        let all_slots = self.get_hex_slots();
+
+        // Condense blocks if there are too many
+        let (blocks, block_bucket_size) = if all_blocks.len() > MAX_BLOCKS {
+            let bucket_size = all_blocks.len().div_ceil(MAX_BLOCKS);
+            let condensed: Vec<u64> = all_blocks
+                .chunks(bucket_size)
+                .map(|chunk| chunk[0]) // Use first block number as label
+                .collect();
+            (condensed, bucket_size)
+        } else {
+            (all_blocks.clone(), 1)
+        };
+
+        // Condense slots if there are too many - keep the most active ones
+        let slots: Vec<FixedBytes<32>> = if all_slots.len() > MAX_SLOTS {
+            // Calculate total access count for each slot across all blocks
+            let mut slot_counts: Vec<(FixedBytes<32>, u64)> = all_slots
+                .iter()
+                .map(|slot| {
+                    let total: u64 = self
+                        .updates_per_slot_per_block
+                        .values()
+                        .filter_map(|slot_map| slot_map.get(slot))
+                        .sum();
+                    (*slot, total)
+                })
+                .collect();
+
+            // Sort by access count descending and take top MAX_SLOTS
+            slot_counts.sort_by_key(|a| std::cmp::Reverse(a.1));
+            slot_counts.truncate(MAX_SLOTS);
+
+            // Sort back by slot value for consistent ordering
+            let mut top_slots: Vec<FixedBytes<32>> =
+                slot_counts.into_iter().map(|(slot, _)| slot).collect();
+            top_slots.sort();
+            top_slots
+        } else {
+            all_slots
+        };
+
         let mut matrix = vec![];
         let mut max_accesses = 0;
-        for (i, block) in blocks.iter().enumerate() {
+
+        for (i, block_start_idx) in (0..all_blocks.len()).step_by(block_bucket_size).enumerate() {
+            let block_end_idx = (block_start_idx + block_bucket_size).min(all_blocks.len());
+            let bucket_blocks = &all_blocks[block_start_idx..block_end_idx];
+
             for (j, slot) in slots.iter().enumerate() {
-                let count = self
-                    .get_slot_map(*block)
-                    .and_then(|slot_map| slot_map.get(slot))
-                    .cloned()
-                    .unwrap_or(0);
+                // Sum accesses across all blocks in this bucket
+                let count: u64 = bucket_blocks
+                    .iter()
+                    .filter_map(|block| {
+                        self.get_slot_map(*block)
+                            .and_then(|slot_map| slot_map.get(slot))
+                    })
+                    .sum();
+
                 if count > max_accesses {
                     max_accesses = count;
                 }
-                matrix.push([i as u64, j as u64, count]);
+                if count > 0 {
+                    matrix.push([i as u64, j as u64, count]);
+                }
             }
         }
+
         HeatmapData {
             blocks,
             slots: slots.iter().map(|h| h.encode_hex()).collect(),
@@ -128,5 +185,93 @@ impl HeatMapChart {
             .collect::<Vec<_>>();
         slots.sort();
         slots
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_echart_data_keeps_highest_occurrence_slots() {
+        // Create a HeatMapChart with more than MAX_SLOTS (100) slots
+        // and verify that only the top 100 by access count are retained
+        let mut updates_per_slot_per_block: BTreeMap<u64, BTreeMap<FixedBytes<32>, u64>> =
+            BTreeMap::new();
+
+        // Create 150 slots (more than MAX_SLOTS = 100)
+        // Give them varying access counts: slot i has access count (i + 1)
+        // So slot 149 has count 150, slot 148 has count 149, etc.
+        let num_slots = 150;
+        let mut slot_map: BTreeMap<FixedBytes<32>, u64> = BTreeMap::new();
+
+        for i in 0..num_slots {
+            let mut slot_bytes = [0u8; 32];
+            slot_bytes[31] = i as u8; // Use last byte to differentiate slots
+            if i >= 100 {
+                slot_bytes[30] = 1; // Handle overflow for slots >= 100
+            }
+            let slot = FixedBytes::from(slot_bytes);
+            // Access count = i + 1, so higher slot numbers have higher counts
+            slot_map.insert(slot, (i + 1) as u64);
+        }
+
+        updates_per_slot_per_block.insert(1, slot_map);
+
+        let chart = HeatMapChart {
+            updates_per_slot_per_block,
+        };
+
+        let heatmap_data = chart.echart_data();
+
+        // Should only have MAX_SLOTS (100) slots
+        assert_eq!(
+            heatmap_data.slots.len(),
+            MAX_SLOTS,
+            "Should have exactly MAX_SLOTS slots"
+        );
+
+        // The slots with lowest access counts (1-50) should be excluded
+        // The slots with highest access counts (51-150) should be included
+        // Verify by checking that none of the low-count slots are present
+
+        // Build the set of slots that should be EXCLUDED (lowest 50 counts: 1-50)
+        let mut excluded_slots: Vec<String> = Vec::new();
+        for i in 0..50 {
+            let mut slot_bytes = [0u8; 32];
+            slot_bytes[31] = i as u8;
+            let slot = FixedBytes::<32>::from(slot_bytes);
+            excluded_slots.push(slot.encode_hex());
+        }
+
+        // Verify none of the excluded slots are in the result
+        for excluded in &excluded_slots {
+            assert!(
+                !heatmap_data.slots.contains(excluded),
+                "Slot {} with low access count should not be in result",
+                excluded
+            );
+        }
+
+        // Build the set of slots that should be INCLUDED (highest 100 counts: 51-150)
+        let mut included_slots: Vec<String> = Vec::new();
+        for i in 50..150 {
+            let mut slot_bytes = [0u8; 32];
+            slot_bytes[31] = i as u8;
+            if i >= 100 {
+                slot_bytes[30] = 1;
+            }
+            let slot = FixedBytes::<32>::from(slot_bytes);
+            included_slots.push(slot.encode_hex());
+        }
+
+        // Verify all of the included slots are in the result
+        for included in &included_slots {
+            assert!(
+                heatmap_data.slots.contains(included),
+                "Slot {} with high access count should be in result",
+                included
+            );
+        }
     }
 }

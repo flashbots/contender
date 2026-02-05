@@ -1182,6 +1182,7 @@ where
         let mut tick = 0;
         while let Some(trigger) = cursor.next().await {
             let trigger = trigger.to_owned();
+
             // assign from addrs, nonces, and gas prices for this chunk of tx requests
             let payloads = self
                 .prepare_spam(&tx_req_chunks[tick % tx_req_chunks.len().max(1)])
