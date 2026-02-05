@@ -71,6 +71,9 @@ args = [
     "3000",         # 0.3% fee tier
 ]
 
+# Token approvals for position manager are not needed, because we're using
+# tokens that auto-approve on `transferFrom`
+
 ## Initialize pools
 
 [[setup]]
@@ -78,9 +81,7 @@ kind = "unicheat_init_pool_token1_token2"
 to = "{unicheatV3}"
 signature = "function initPool(address tokenA, address tokenB, uint24 fee)"
 args = ["{testToken}", "{testToken2}", "3000"]
-
-# Token approvals for position manager are not needed, because we're using
-# tokens that auto-approve on `transferFrom`
+gas_limit = 1000000
 
 ## Send all tokens to Unicheat
 
@@ -109,6 +110,7 @@ args = [
     "100000000000000000000",
     "100000000000000000000",
 ]
+gas_limit = 1000000
 
 ### Spam Steps
 ### (sends trades via UnicheatV3 contract so senders don't have to manage their own token balances)

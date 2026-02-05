@@ -2,30 +2,27 @@ use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use std::{pin::Pin, sync::Arc};
 
-use alloy::providers::Provider;
 use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use futures::Stream;
 use futures::StreamExt;
-use tracing::{info, warn};
+use tracing::info;
 
+use super::tx_callback::OnBatchSent;
+use super::OnTxSent;
+use super::SpamTrigger;
 use crate::db::SpamDuration;
 use crate::spammer::CallbackError;
 use crate::{
     db::DbOps,
-    generator::{seeder::Seeder, templater::Templater, types::AnyProvider, PlanConfig},
+    generator::{seeder::rand_seed::SeedGenerator, templater::Templater, PlanConfig},
     test_scenario::TestScenario,
     Result,
 };
-
-use super::tx_callback::OnBatchSent;
-use super::SpamTrigger;
-use super::{tx_actor::TxActorHandle, OnTxSent};
 
 #[derive(Clone)]
 pub struct SpamRunContext {
     done_sending: Arc<AtomicBool>,
     done_fcu: Arc<AtomicBool>,
-    do_quit: tokio_util::sync::CancellationToken,
 }
 
 impl SpamRunContext {
@@ -39,7 +36,6 @@ impl Default for SpamRunContext {
         Self {
             done_sending: Arc::new(AtomicBool::new(false)),
             done_fcu: Arc::new(AtomicBool::new(false)),
-            do_quit: tokio_util::sync::CancellationToken::new(),
         }
     }
 }
@@ -48,13 +44,9 @@ pub trait Spammer<F, D, S, P>
 where
     F: OnTxSent + OnBatchSent + Send + Sync + 'static,
     D: DbOps + Send + Sync + 'static,
-    S: Seeder + Send + Sync + Clone,
+    S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
-    fn get_msg_handler(&self, db: Arc<D>, rpc_client: Arc<AnyProvider>) -> TxActorHandle {
-        TxActorHandle::new(12, db.clone(), rpc_client.clone())
-    }
-
     fn context(&self) -> &SpamRunContext;
 
     fn on_spam(
@@ -77,8 +69,8 @@ where
             let is_fcu_done = self.context().done_fcu.clone();
             let is_sending_done = self.context().done_sending.clone();
             let auth_provider = scenario.auth_provider.clone();
-            // run loop in background to call fcu when spamming is done
 
+            // run loop in background to call fcu when spamming is done
             let fcu_handle: tokio::task::JoinHandle<Result<()>> = tokio::task::spawn(async move {
                 if let Some(auth_client) = &auth_provider {
                     loop {
@@ -108,81 +100,16 @@ where
             let tx_req_chunks = scenario
                 .get_spam_tx_chunks(txs_per_period, num_periods)
                 .await?;
-            let start_block = scenario.rpc_client.get_block_number().await.map_err(|e| {
-                CallbackError::ProviderCall(format!("failed to get block number: {e}"))
-            })?;
             let mut cursor = self.on_spam(scenario).await?.take(num_periods as usize);
 
-            if scenario.should_sync_nonces {
-                scenario.sync_nonces().await?;
-            }
-
-            // calling cancel() on cancel_token should stop all running tasks
-            // (as long as each task checks for it)
-            let cancel_token = self.context().do_quit.clone();
-
-            // run spammer within tokio::select! to allow for graceful shutdown
-            let spam_finished: bool = tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
-                    warn!("CTRL-C received, stopping spamming...");
-                    cancel_token.cancel();
-
-                    false
-                },
-                res = scenario.execute_spammer(&mut cursor, &tx_req_chunks, sent_tx_callback) => {
-                    if res.as_ref().is_err() {
-                        return res;
-                    }
-                    true
-                }
-            };
-            if !spam_finished {
-                warn!("Spammer terminated. Press CTRL-C again to stop result collection...");
-            }
+            scenario
+                .execute_spammer(&mut cursor, &tx_req_chunks, sent_tx_callback)
+                .await?;
             self.context()
                 .done_sending
                 .store(true, std::sync::atomic::Ordering::SeqCst);
 
-            // collect results from cached pending txs
-            let flush_finished: bool = tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
-                    warn!("CTRL-C received, stopping result collection...");
-                    for msg_handle in scenario.msg_handles.values() {
-                        let _ = msg_handle.stop().await;
-                    }
-                    cancel_token.cancel();
-                    self.context().done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
-                    false
-                },
-                _ = scenario.flush_tx_cache(start_block, run_id) => {
-                    true
-                }
-            };
-            if !flush_finished {
-                warn!("Result collection terminated. Some pending txs may not have been saved to the database.");
-            } else {
-                self.context()
-                    .done_fcu
-                    .store(true, std::sync::atomic::Ordering::SeqCst);
-            }
-
             fcu_handle.await.map_err(CallbackError::Join)??;
-
-            // clear out unconfirmed txs from the cache
-            let dump_finished: bool = tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
-                    warn!("CTRL-C received, stopping tx cache dump...");
-                    cancel_token.cancel();
-                    false
-                },
-                _ = scenario.dump_tx_cache(run_id) => {
-                    true
-                }
-            };
-            if !dump_finished {
-                warn!("Tx cache dump terminated. Some unconfirmed txs may not have been saved to the database.");
-            }
-
             self.context()
                 .done_fcu
                 .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -192,6 +119,10 @@ where
                 .db
                 .insert_latency_metrics(run_id, &latency_metrics)
                 .map_err(|e| e.into())?;
+
+            if scenario.should_sync_nonces {
+                scenario.sync_nonces().await?;
+            }
 
             info!("done. run_id: {run_id}");
             Ok(())

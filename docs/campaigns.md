@@ -89,7 +89,7 @@ contender campaign ./campaigns/composite.toml \
 Flags mirror `spam` where they make sense:
 - Connection/auth: `--rpc-url`, `--priv-key/-p`, `--builder-url`, JWT/auth flags via `ScenarioSendTxs` options.
 - Funding/runtime: `--pending-timeout`, `--accounts-per-agent`, `--rpc-batch-size`, `--ignore-receipts`, `--optimistic-nonces`, `--timeout`, `--report`.
-- Setup controls: `--redeploy`, `--skip-setup` (mutually exclusive).
+- Setup controls: `--skip-setup`
 
 ## Reporting
 

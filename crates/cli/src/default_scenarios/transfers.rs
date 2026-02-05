@@ -1,7 +1,7 @@
-use crate::{commands::common::parse_amount, default_scenarios::builtin::ToTestConfig};
+use crate::default_scenarios::builtin::ToTestConfig;
 use alloy::primitives::{Address, U256};
 use clap::Parser;
-use contender_core::generator::{types::SpamRequest, FunctionCallDefinition};
+use contender_core::generator::{types::SpamRequest, util::parse_value, FunctionCallDefinition};
 
 #[derive(Parser, Clone, Debug)]
 pub struct TransferStressCliArgs {
@@ -10,7 +10,7 @@ pub struct TransferStressCliArgs {
         long = "transfer.amount",
         visible_aliases = ["ta", "amount"],
         default_value = "0.001 eth",
-        value_parser = parse_amount,
+        value_parser = parse_value,
         help = "Amount of tokens to transfer in each transaction."
     )]
     pub amount: U256,
@@ -27,7 +27,7 @@ pub struct TransferStressCliArgs {
 impl Default for TransferStressCliArgs {
     fn default() -> Self {
         Self {
-            amount: parse_amount("0.001 eth").expect("valid default amount"),
+            amount: parse_value("0.001 eth").expect("valid default amount"),
             recipient: None,
         }
     }

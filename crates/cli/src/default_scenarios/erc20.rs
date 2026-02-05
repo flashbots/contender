@@ -1,23 +1,23 @@
 use alloy::primitives::{Address, U256};
 use contender_core::generator::{
-    types::SpamRequest, CreateDefinition, FunctionCallDefinition, FuzzParam,
+    types::SpamRequest, util::parse_value, CreateDefinition, FunctionCallDefinition, FuzzParam,
 };
 use contender_testfile::TestConfig;
 use std::str::FromStr;
 
-use crate::{
-    commands::common::parse_amount,
-    default_scenarios::{builtin::ToTestConfig, contracts::test_token},
-};
+use crate::default_scenarios::{builtin::ToTestConfig, contracts::test_token};
 
-#[derive(Clone, Default, Debug, clap::Parser)]
+pub static DEFAULT_TOKENS_SENT: &str = "0.00001 ether";
+pub static DEFAULT_TOKENS_FUNDED: &str = "1000000 ether";
+
+#[derive(Clone, Debug, clap::Parser)]
 pub struct Erc20CliArgs {
     #[arg(
         short,
         long,
         long_help = "The amount to send in each spam tx.",
-        default_value = "0.00001 ether",
-        value_parser = parse_amount,
+        default_value = DEFAULT_TOKENS_SENT,
+        value_parser = parse_value,
     )]
     pub send_amount: U256,
 
@@ -25,8 +25,8 @@ pub struct Erc20CliArgs {
         short,
         long,
         long_help = "The amount of tokens to give each spammer account before spamming starts.",
-        default_value = "1000000 ether",
-        value_parser = parse_amount,
+        default_value = DEFAULT_TOKENS_FUNDED,
+        value_parser = parse_value,
     )]
     pub fund_amount: U256,
 
@@ -36,6 +36,16 @@ pub struct Erc20CliArgs {
         long_help = "The address to receive tokens sent by spam txs. By default, address(0) receives the tokens."
     )]
     pub token_recipient: Option<Address>,
+}
+
+impl Default for Erc20CliArgs {
+    fn default() -> Self {
+        Self {
+            send_amount: parse_value(DEFAULT_TOKENS_SENT).expect("valid default send_amount"),
+            fund_amount: parse_value(DEFAULT_TOKENS_FUNDED).expect("valid default fund_amount"),
+            token_recipient: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

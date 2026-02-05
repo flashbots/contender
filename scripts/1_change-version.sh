@@ -11,7 +11,7 @@ version="$1"
 echo "version: $version"
 
 # update workspace.package.version in Cargo.toml
-sed -i '' "s/^version = \".*\"/version = \"$version\"/" Cargo.toml
+sed -i "s/^version = \".*\"/version = \"$version\"/" Cargo.toml
 
 echo "finished."
 git status

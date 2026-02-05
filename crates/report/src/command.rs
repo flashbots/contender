@@ -255,7 +255,7 @@ pub async fn report(
 
     // compile report
     let mut blocks = cache_data.blocks;
-    blocks.sort_by(|a, b| a.header.number.cmp(&b.header.number));
+    blocks.sort_by_key(|a| a.header.number);
     let report_path = build_html_report(
         ReportMetadata {
             scenario_name: scenario_title,

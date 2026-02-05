@@ -114,7 +114,7 @@ jobs:
             type=sha
             type=pep440,pattern={{version}}
             type=pep440,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ !contains(env.RELEASE_VERSION, '-') }}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
@@ -141,6 +141,13 @@ jobs:
           regctl image copy \
             ${{ env.REGISTRY_IMAGE }}:${{ steps.meta.outputs.version }} \
             ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.version }}
+
+      - name: Push latest tag to GHCR
+        if: ${{ !contains(github.ref_name, '-') }}
+        run: |
+          regctl image copy \
+            ${{ env.REGISTRY_IMAGE }}:latest \
+            ghcr.io/${{ github.repository }}:latest
 
       - name: Inspect image
         run: |

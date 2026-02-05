@@ -1,9 +1,10 @@
-use crate::{
-    commands::common::parse_amount, default_scenarios::setcode::SetCodeCliArgs, error::CliError,
-};
+use crate::{default_scenarios::setcode::SetCodeCliArgs, error::CliError};
 use alloy::{hex::ToHexExt, primitives::U256};
 use clap::Parser;
-use contender_core::generator::{error::GeneratorError, util::encode_calldata};
+use contender_core::generator::{
+    error::GeneratorError,
+    util::{encode_calldata, parse_value},
+};
 
 pub const DEFAULT_SIG: &str = "execute((address,uint256,bytes)[])";
 pub const DEFAULT_ARGS: &str = "[(0x{Counter},0,0xd09de08a)]";
@@ -48,7 +49,7 @@ Examples:
 Note: you must manually fund your setCode signer's account to use this feature. Use `contender admin setcode-signer` to get this account's details.
 Example:
 --value \"0.01 eth\"",
-        value_parser = parse_amount
+        value_parser = parse_value
     )]
     pub value: Option<U256>,
 }

@@ -9,17 +9,29 @@ use crate::{
     error::CliError,
     util::{
         bold, check_private_keys, fund_accounts, load_seedfile, load_testconfig, parse_duration,
-        provider::AuthClient, spam_callback_default, TypedSpamCallback,
+        provider::AuthClient,
     },
     LATENCY_HIST as HIST, PROM,
 };
-use alloy::{consensus::TxType, primitives::U256, transports::http::reqwest::Url};
+use alloy::{
+    consensus::TxType,
+    primitives::{utils::format_ether, U256},
+    providers::Provider,
+    transports::http::reqwest::Url,
+};
 use contender_core::{
-    agent_controller::AgentStore,
     db::{DbOps, SpamDuration, SpamRunRequest},
     error::{RuntimeErrorKind, RuntimeParamErrorKind},
-    generator::{seeder::Seeder, templater::Templater, types::SpamRequest, PlanConfig, RandSeed},
-    spammer::{BlockwiseSpammer, Spammer, TimedSpammer},
+    generator::{
+        agent_pools::{AgentPools, AgentSpec},
+        seeder::rand_seed::SeedGenerator,
+        templater::Templater,
+        types::{AnyProvider, SpamRequest},
+        PlanConfig, RandSeed,
+    },
+    spammer::{
+        tx_actor::ActorContext, BlockwiseSpammer, LogCallback, NilCallback, Spammer, TimedSpammer,
+    },
     test_scenario::{TestScenario, TestScenarioParams},
     util::get_block_time,
 };
@@ -34,7 +46,7 @@ use tracing::{info, warn};
 
 #[derive(Debug)]
 pub struct EngineArgs {
-    pub auth_rpc_url: String,
+    pub auth_rpc_url: Url,
     pub jwt_secret: PathBuf,
     pub use_op: bool,
     pub message_version: EngineApiMessageVersion,
@@ -95,22 +107,6 @@ pub struct SpamCliArgs {
     )]
     pub gen_report: bool,
 
-    #[arg(
-        long = "timeout",
-        long_help = "The time to wait for spammer to recover from failure before stopping contender.",
-        value_parser = parse_duration,
-        default_value = "5min"
-    )]
-    pub spam_timeout: Duration,
-
-    /// Re-deploy contracts in builtin scenarios.
-    #[arg(
-        long,
-        global = true,
-        long_help = "If set, re-deploy contracts that have already been deployed. Only builtin scenarios are affected."
-    )]
-    pub redeploy: bool,
-
     /// Skip setup steps when running builtin scenarios.
     #[arg(
         long,
@@ -133,8 +129,16 @@ pub struct SpamCliArgs {
                      0 (default) disables batching and sends one eth_sendRawTransaction per tx."
     )]
     pub rpc_batch_size: u64,
-}
 
+    #[arg(
+        long = "timeout",
+        long_help = "The time to wait for spammer to recover from failure before stopping contender. NOTE: this flag is deprecated and currently does nothing. It will be removed in a future release.",
+        value_parser = parse_duration,
+        default_value = "5min"
+    )]
+    pub spam_timeout: Duration,
+}
+#[derive(Clone)]
 pub enum SpamScenario {
     Testfile(String),
     Builtin(BuiltinScenario),
@@ -155,6 +159,7 @@ impl SpamScenario {
     }
 }
 
+#[derive(Clone)]
 pub struct SpamCommandArgs {
     pub scenario: SpamScenario,
     pub spam_args: SpamCliArgs,
@@ -205,8 +210,7 @@ impl SpamCommandArgs {
             txs_per_block,
             duration,
             pending_timeout,
-            loops,
-            accounts_per_agent,
+            run_forever,
         } = self.spam_args.spam_args.clone();
         let SendTxsCliArgsInner {
             min_balance,
@@ -214,8 +218,10 @@ impl SpamCommandArgs {
             bundle_type,
             env,
             override_senders,
+            accounts_per_agent,
             ..
         } = self.spam_args.eth_json_rpc_args.rpc_args.clone();
+        let accounts_per_agent = accounts_per_agent.unwrap_or(10);
 
         let mut testconfig = self.testconfig().await?;
         let spam_len = testconfig.spam.as_ref().map(|s| s.len()).unwrap_or(0);
@@ -240,15 +246,6 @@ impl SpamCommandArgs {
                 );
                 rpc_batch_size = txs_per_duration;
             }
-        }
-
-        if self.spam_args.redeploy && self.spam_args.skip_setup {
-            return Err(RuntimeParamErrorKind::InvalidArgs(format!(
-                "{} and {} cannot be passed together",
-                bold("--redeploy"),
-                bold("--skip-setup")
-            ))
-            .into());
         }
 
         // check if txs_per_duration is enough to cover the spam requests
@@ -322,23 +319,11 @@ impl SpamCommandArgs {
             .rpc_args
             .user_signers_with_defaults();
 
-        // distill all from_pool arguments from the spam requests
-        let from_pool_declarations = testconfig.get_spam_pools();
-
-        let mut agents = AgentStore::new();
-        agents.init(
-            &from_pool_declarations,
-            accounts_per_agent as usize,
-            &self.seed,
-        );
-
-        if self.scenario.is_builtin() {
-            agents.init(
-                &[testconfig.get_create_pools(), testconfig.get_setup_pools()].concat(),
-                1,
-                &self.seed,
-            );
-        }
+        let num_setup_create_agents: usize = if self.scenario.is_builtin() { 1 } else { 0 };
+        let agent_spec = AgentSpec::default()
+            .create_accounts(num_setup_create_agents)
+            .setup_accounts(num_setup_create_agents)
+            .spam_accounts(accounts_per_agent as usize);
 
         let tx_type = match &self.scenario {
             SpamScenario::Builtin(builtin) => {
@@ -372,25 +357,10 @@ impl SpamCommandArgs {
             );
         }
 
-        let all_signer_addrs = agents.all_signer_addresses();
-
-        let params = TestScenarioParams {
-            rpc_url: self.spam_args.eth_json_rpc_args.rpc_args.rpc_url()?,
-            builder_rpc_url: builder_url
-                .to_owned()
-                .map(|url| Url::parse(&url).expect("Invalid builder URL")),
-            signers: user_signers.to_owned(),
-            agent_store: agents.to_owned(),
-            tx_type,
-            bundle_type: bundle_type.into(),
-            pending_tx_timeout_secs: pending_timeout * block_time,
-            extra_msg_handles: None,
-            redeploy: self.spam_args.redeploy,
-            sync_nonces_after_batch: !self.spam_args.optimistic_nonces,
-            rpc_batch_size,
-        };
+        let agents = testconfig.build_agent_store(&self.seed, agent_spec.clone());
 
         if !override_senders {
+            let all_signer_addrs = agents.all_signer_addresses();
             fund_accounts(
                 &all_signer_addrs,
                 &user_signers[0],
@@ -422,6 +392,19 @@ impl SpamCommandArgs {
             None
         };
 
+        let params = TestScenarioParams {
+            rpc_url: self.spam_args.eth_json_rpc_args.rpc_args.rpc_url.clone(),
+            builder_rpc_url: builder_url.to_owned(),
+            signers: user_signers.to_owned(),
+            agent_spec,
+            tx_type,
+            bundle_type: bundle_type.into(),
+            pending_tx_timeout_secs: pending_timeout * block_time,
+            extra_msg_handles: None,
+            sync_nonces_after_batch: !self.spam_args.optimistic_nonces,
+            rpc_batch_size,
+            gas_price: self.spam_args.eth_json_rpc_args.rpc_args.gas_price,
+        };
         let mut test_scenario = TestScenario::new(
             testconfig,
             db.clone().into(),
@@ -431,18 +414,6 @@ impl SpamCommandArgs {
             (&PROM, &HIST).into(),
         )
         .await?;
-
-        // Builtin/default behavior: best-effort (skip redeploy if code exists); allow CLI override
-        tracing::trace!(
-            "spam mode: redeploy={} ({} ) [--redeploy flag set? {}]",
-            self.spam_args.redeploy,
-            if self.spam_args.redeploy {
-                "will redeploy and run all setup"
-            } else {
-                "will skip redeploy when possible"
-            },
-            self.spam_args.redeploy
-        );
 
         // run deployments & setup for builtin scenarios
         if self.scenario.is_builtin() && !self.spam_args.skip_setup {
@@ -478,23 +449,36 @@ impl SpamCommandArgs {
         }
         done_fcu.store(true, std::sync::atomic::Ordering::SeqCst);
 
-        if loops.is_some_and(|inner_loops| inner_loops.is_none()) {
-            warn!("Spammer agents will eventually run out of funds.");
-            println!(
-                "Make sure you add plenty of funds with {} (set your pre-funded account with {}).",
-                bold("spam --min-balance"),
-                bold("spam -p"),
-            );
-        }
-
-        let total_cost = U256::from(duration * loops.flatten().unwrap_or(1))
-            * test_scenario.get_max_spam_cost(&user_signers).await?;
+        // estimate spam cost. contracts must be deployed at this point,
+        // otherwise you'll get "contract not found" errors
+        let total_cost =
+            U256::from(duration) * test_scenario.get_max_spam_cost(&user_signers).await?;
         if min_balance < U256::from(total_cost) {
             return Err(ArgsError::MinBalanceInsufficient {
                 min_balance,
                 required_balance: total_cost,
             }
             .into());
+        }
+
+        let duration_unit = if txs_per_second.is_some() {
+            "second"
+        } else {
+            "block"
+        };
+        let duration_units = if duration > 1 {
+            format!("{duration_unit}s")
+        } else {
+            duration_unit.to_owned()
+        };
+        if run_forever {
+            warn!("Spammer agents will eventually run out of funds. Each batch of spam (sent over {duration} {duration_units}) will cost {} ETH.", format_ether(total_cost));
+            // we use println! after warn! because warn! doesn't properly format bold strings
+            println!(
+                "Make sure you add plenty of funds with {} (set your pre-funded account with {}).",
+                bold("spam --min-balance"),
+                bold("spam -p"),
+            );
         }
 
         Ok(test_scenario)
@@ -506,6 +490,39 @@ impl SpamCommandArgs {
             .rpc_args
             .testconfig(&self.scenario)
             .await
+    }
+}
+
+pub fn spam_callback_default(
+    log_txs: bool,
+    send_fcu: bool,
+    rpc_client: Option<Arc<AnyProvider>>,
+    auth_client: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
+    cancel_token: tokio_util::sync::CancellationToken,
+) -> TypedSpamCallback {
+    if let Some(rpc_client) = rpc_client {
+        if log_txs {
+            let log_callback = LogCallback {
+                rpc_provider: rpc_client.clone(),
+                auth_provider: auth_client,
+                send_fcu,
+                cancel_token,
+            };
+            return TypedSpamCallback::Log(log_callback);
+        }
+    }
+    TypedSpamCallback::Nil(NilCallback)
+}
+
+#[derive(Clone)]
+pub enum TypedSpamCallback {
+    Log(LogCallback),
+    Nil(NilCallback),
+}
+
+impl TypedSpamCallback {
+    pub fn is_log(&self) -> bool {
+        matches!(self, TypedSpamCallback::Log(_))
     }
 }
 
@@ -525,7 +542,7 @@ impl TypedSpammer {
     ) -> Result<()>
     where
         D: DbOps + Clone + Send + Sync + 'static,
-        S: Seeder + Send + Sync + Clone,
+        S: SeedGenerator + Send + Sync + Clone,
         P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
     {
         macro_rules! spammit {
@@ -563,17 +580,20 @@ impl TypedSpammer {
     }
 }
 
-/// Runs spammer and returns run ID.
-pub async fn spam<
-    D: DbOps + Clone + Send + Sync + 'static,
-    S: Seeder + Send + Sync + Clone,
-    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
->(
+/// Spams given `test_scenario` and returns run ID, or None if using NilCallback & not part of a campaign.
+pub async fn spam_inner<D, S, P>(
     db: &D,
-    args: &SpamCommandArgs,
     test_scenario: &mut TestScenario<D, S, P>,
+    args: &SpamCommandArgs,
     run_context: SpamCampaignContext,
-) -> Result<Option<u64>> {
+) -> Result<Option<u64>>
+where
+    D: DbOps + Clone + Send + Sync + 'static,
+    S: SeedGenerator + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+{
+    let start_block = test_scenario.rpc_client.get_block_number().await?;
+
     let SpamCommandArgs {
         scenario,
         spam_args,
@@ -583,6 +603,7 @@ pub async fn spam<
         eth_json_rpc_args,
         spam_args,
         ignore_receipts,
+        optimistic_nonces,
         ..
     } = spam_args.to_owned();
     let SendSpamCliArgs {
@@ -590,6 +611,7 @@ pub async fn spam<
         txs_per_block,
         duration,
         pending_timeout,
+        run_forever,
         ..
     } = spam_args;
     let SendTxsCliArgsInner {
@@ -598,6 +620,16 @@ pub async fn spam<
         ..
     } = eth_json_rpc_args.rpc_args;
     let engine_params = auth_args.engine_params(call_forkchoice).await?;
+
+    if run_forever && !optimistic_nonces {
+        warn!("Notice: some transactions may fail when running the spammer indefinitely with nonce synchronization enabled.");
+        eprintln!(
+            "Setting {} without {} is likely to cause nonce synchronization errors in latter spam batches. Enable {} to avoid this.",
+            bold("--forever"),
+            bold("--optimistic-nonces"),
+            bold("--optimistic-nonces")
+        );
+    }
 
     let mut run_id = None;
     let base_scenario_name = match scenario {
@@ -658,6 +690,7 @@ pub async fn spam<
         test_scenario.ctx.cancel_token.clone(),
     );
 
+    let pending_timeout = Duration::from_secs(block_time * pending_timeout);
     if callback.is_log() || run_context.campaign_id.is_some() {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -673,7 +706,7 @@ pub async fn spam<
             rpc_url: test_scenario.rpc_url.to_string(),
             txs_per_duration: txs_per_batch,
             duration: spam_duration,
-            pending_timeout: Duration::from_secs(block_time * pending_timeout),
+            pending_timeout,
         };
         run_id = Some(
             db.insert_run(&run)
@@ -690,10 +723,221 @@ pub async fn spam<
         }
     }
 
-    spammer
-        .spam_rpc(test_scenario, txs_per_batch, duration, run_id, callback)
-        .await
-        .map_err(err_parse)?;
+    // initialize TxActor (pending tx cache processor) context
+    let actor_ctx = ActorContext::new(start_block, run_id.unwrap_or_default())
+        .with_pending_tx_timeout(pending_timeout);
+    test_scenario.tx_actor().init_ctx(actor_ctx).await?;
+
+    // loop spammer, break if CTRL-C is received, or run_forever is false
+    loop {
+        tokio::select! {
+            res = {
+                spammer
+                .spam_rpc(
+                    test_scenario,
+                    txs_per_batch,
+                    duration,
+                    run_id,
+                    callback.clone(),
+                )
+            } => {
+                res.map_err(err_parse)?;
+            }
+
+            _ = tokio::signal::ctrl_c() => {
+                println!("\nCTRL-C received, shutting down spam run.");
+                test_scenario.shutdown().await;
+            }
+        }
+
+        if !run_forever || test_scenario.is_shutdown().await {
+            break;
+        }
+    }
+
+    // wait for tx results, or break for CTRL-C
+    tokio::select! {
+        _ = test_scenario.dump_tx_cache(run_id.unwrap_or_default()) => {
+        }
+
+        _ = tokio::signal::ctrl_c() => {
+            info!("CTRL-C received, stopping result collection.");
+            test_scenario.shutdown().await;
+        }
+    }
 
     Ok(run_id)
+}
+
+/// Runs spammer and returns run ID.
+pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
+    db: &D,
+    args: &SpamCommandArgs,
+    run_context: SpamCampaignContext,
+) -> Result<Option<u64>> {
+    let mut test_scenario = args.init_scenario(db).await?;
+    spam_inner(db, &mut test_scenario, args, run_context).await
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::commands::common::AuthCliArgs;
+    use crate::commands::SetupCommandArgs;
+
+    use super::*;
+    use alloy::node_bindings::{Anvil, AnvilInstance, WEI_IN_ETHER};
+    use contender_sqlite::SqliteDb;
+    use std::{
+        collections::HashMap,
+        path::{Path, PathBuf},
+    };
+
+    fn create_send_args(sf: &Path, anvil: &AnvilInstance) -> ScenarioSendTxsCliArgs {
+        // map scenario files to custom tx types if needed
+        // this might be replaced with a more robust solution in the future
+        // e.g. mapping the entire ScenarioSendTxsCliArgs structure instead of just tx types
+        let custom_tx_types = HashMap::<&str, TxTypeCli>::from_iter([
+            ("blobs.toml", TxTypeCli::Eip4844),
+            ("setCode.toml", TxTypeCli::Eip7702),
+        ]);
+
+        // use last components of the path after "scenarios/" as a scenario ID
+        // this supports nested directories under "scenarios/"
+        let relative_path = sf
+            .components()
+            .rev()
+            .take_while(|component| component.as_os_str() != "scenarios")
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<PathBuf>();
+
+        ScenarioSendTxsCliArgs {
+            testfile: Some(sf.to_str().unwrap().to_owned()),
+            rpc_args: SendTxsCliArgsInner {
+                rpc_url: anvil.endpoint_url(),
+                seed: None,
+                private_keys: None,
+                min_balance: WEI_IN_ETHER * U256::from(10),
+                tx_type: custom_tx_types
+                    .get(relative_path.as_os_str().to_str().unwrap())
+                    .cloned()
+                    .unwrap_or(TxTypeCli::Eip1559),
+                bundle_type: crate::commands::common::BundleTypeCli::L1,
+                auth_args: AuthCliArgs::default(),
+                call_forkchoice: false,
+                env: None,
+                override_senders: false,
+                gas_price: None,
+                accounts_per_agent: None,
+            },
+        }
+    }
+
+    async fn run_scenario(
+        sf: &Path,
+        anvil: &AnvilInstance,
+        db: &SqliteDb,
+        rand_seed: &RandSeed,
+    ) -> Result<()> {
+        // special case: skip bundle scenario (anvil doesn't support it)
+        if sf.ends_with("bundles.toml") {
+            println!("Skipping bundle scenario (anvil doesn't support bundles)");
+            return Ok(());
+        }
+
+        // initialize a logger
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("contender_core=debug,info")
+            .with_test_writer() // captures output properly in tests
+            .try_init(); // try_init() won't panic if already initialized
+
+        // initialize scenario
+        let scenario = SpamScenario::Testfile(sf.to_str().unwrap().to_owned());
+        let send_args = create_send_args(sf, anvil);
+
+        // run setup
+        crate::commands::setup(
+            db,
+            SetupCommandArgs {
+                scenario: scenario.clone(),
+                eth_json_rpc_args: send_args.rpc_args.clone(),
+                seed: rand_seed.clone(),
+            },
+        )
+        .await?;
+
+        // do a quick spam run
+        let res = spam(
+            db,
+            &SpamCommandArgs {
+                scenario,
+                spam_args: SpamCliArgs {
+                    eth_json_rpc_args: send_args,
+                    spam_args: SendSpamCliArgs {
+                        builder_url: None,
+                        txs_per_second: Some(50),
+                        txs_per_block: None,
+                        duration: 4,
+                        pending_timeout: 10,
+                        run_forever: false,
+                    },
+                    ignore_receipts: false,
+                    optimistic_nonces: true,
+                    gen_report: false,
+                    skip_setup: false,
+                    rpc_batch_size: 0,
+                    spam_timeout: Duration::from_secs(5),
+                },
+                seed: rand_seed.clone(),
+            },
+            SpamCampaignContext {
+                campaign_id: None,
+                campaign_name: None,
+                stage_name: None,
+                scenario_name: None,
+            },
+        )
+        .await?;
+
+        println!("spam run successful. run id: {:?}", res);
+        Ok(())
+    }
+
+    /// Spin up a fresh anvil instance, DB, & seed, then run the scenario file given at `path`.
+    async fn run_scenario_file(path: &Path) -> Result<()> {
+        let anvil = Anvil::new().block_time(1).spawn();
+        let db = SqliteDb::new_memory();
+        db.create_tables()?;
+        let rand_seed = RandSeed::new();
+
+        run_scenario(path, &anvil, &db, &rand_seed).await
+    }
+
+    /// Generates individual spam test for each scenario given in the macro input.
+    /// NOTE: paths are relative to the project root. See `build.rs` for usage.
+    macro_rules! scenario_tests {
+        ($($name:ident => $relative_path:expr),* $(,)?) => {
+            $(
+                #[tokio::test]
+                async fn $name() -> std::result::Result<(), CliError> {
+                    let project_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .parent()
+                        .unwrap()
+                        .parent()
+                        .unwrap();
+                    let path: PathBuf = project_root.join($relative_path);
+                    run_scenario_file(&path).await?;
+                    Ok(())
+                }
+            )*
+        };
+    }
+
+    #[allow(non_snake_case)]
+    mod generated_scenario_tests {
+        use super::*;
+        // Generate tests for all scenario files identified by build.rs
+        include!(concat!(env!("OUT_DIR"), "/generated_scenario_tests.rs"));
+    }
 }

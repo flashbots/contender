@@ -6,10 +6,10 @@ use crate::commands::SpamScenario;
 use crate::error::CliError;
 use crate::util::get_signers_with_defaults;
 use alloy::consensus::TxType;
-use alloy::primitives::utils::parse_units;
 use alloy::primitives::U256;
 use alloy::providers::{DynProvider, ProviderBuilder};
 use alloy::signers::local::PrivateKeySigner;
+use contender_core::generator::util::parse_value;
 use contender_core::test_scenario::Url;
 use contender_core::BundleType;
 use contender_engine_provider::reth_node_api::EngineApiMessageVersion;
@@ -43,7 +43,7 @@ pub struct SendTxsCliArgsInner {
         default_value = "http://localhost:8545",
         visible_aliases = ["el-rpc", "el-rpc-url"]
     )]
-    pub rpc_url: String,
+    pub rpc_url: Url,
 
     /// The seed to use for generating spam transactions.
     #[arg(
@@ -69,7 +69,7 @@ Flag may be specified multiple times."
         long,
         long_help = "The minimum balance to keep in each spammer EOA, with units.",
         default_value = "0.01 ether",
-        value_parser = parse_amount,
+        value_parser = parse_value,
     )]
     pub min_balance: U256,
 
@@ -120,11 +120,29 @@ Requires --auth-rpc-url and --jwt-secret to be set.",
         long_help = "Override senders to send all transactions from one account."
     )]
     pub override_senders: bool,
+
+    /// The gas price to use for the spammer.
+    #[arg(
+        long,
+        long_help = "The gas price to use for the spammer, with units, defaults to Wei.",
+        value_parser = parse_value,
+    )]
+    pub gas_price: Option<U256>,
+
+    /// The number of accounts to generate for each agent (`from_pool` in scenario files).
+    /// Defaults to 1 for standalone setup, 10 for spam and campaign.
+    #[arg(
+        short = 'a',
+        long,
+        visible_aliases = ["na", "accounts"],
+    )]
+    pub accounts_per_agent: Option<u64>,
 }
 
 impl SendTxsCliArgsInner {
-    pub fn rpc_url(&self) -> Result<Url, ArgsError> {
-        Ok(Url::parse(self.rpc_url.as_ref())?)
+    /// Returns the accounts_per_agent value, or the provided default if not set.
+    pub fn accounts_per_agent_or(&self, default: u64) -> u64 {
+        self.accounts_per_agent.unwrap_or(default)
     }
 
     pub fn new_rpc_provider(&self) -> Result<DynProvider<AnyNetwork>, ArgsError> {
@@ -132,7 +150,7 @@ impl SendTxsCliArgsInner {
         Ok(DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
-                .connect_http(self.rpc_url()?),
+                .connect_http(self.rpc_url.clone()),
         ))
     }
 
@@ -172,7 +190,7 @@ pub struct AuthCliArgs {
         long_help = "Provide this URL to enable use of engine_ calls.",
         visible_aliases = ["auth", "auth-rpc", "auth-url"]
     )]
-    pub auth_rpc_url: Option<String>,
+    pub auth_rpc_url: Option<Url>,
 
     /// Path to file containing JWT secret
     #[arg(
@@ -200,6 +218,17 @@ Required if --auth-rpc-url is set.",
         default_value_t = EngineMessageVersion::V4
     )]
     message_version: EngineMessageVersion,
+}
+
+impl Default for AuthCliArgs {
+    fn default() -> Self {
+        Self {
+            auth_rpc_url: None,
+            jwt_secret: None,
+            use_op: false,
+            message_version: EngineMessageVersion::V4,
+        }
+    }
 }
 
 #[derive(Copy, Debug, Clone, clap::ValueEnum)]
@@ -252,7 +281,7 @@ pub struct SendSpamCliArgs {
         long_help = "HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`)",
         visible_aliases = ["builder", "builder-rpc-url", "builder-rpc"]
     )]
-    pub builder_url: Option<String>,
+    pub builder_url: Option<Url>,
 
     /// The number of txs to send per second using the timed spammer.
     /// May not be set if `txs_per_block` is set.
@@ -274,7 +303,7 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
     #[arg(
         short,
         long,
-        default_value_t = 1,
+        default_value_t = 10,
         long_help = "Duration of the spamming run in seconds or blocks, depending on whether --txs-per-second or --txs-per-block is set."
     )]
     pub duration: u64, // TODO: make a new enum to represent seconds or blocks
@@ -289,26 +318,14 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
     )]
     pub pending_timeout: u64,
 
-    /// The number of times to repeat the spam run.
-    /// If set with a value, the spam run will be repeated this many times.
-    /// If set without a value, the spam run will be repeated indefinitely.
-    /// If not set, the spam run will be executed once.
+    /// Run spammer indefinitely.
     #[arg(
-        short,
-        long,
-        num_args = 0..=1,
-        long_help = "The number of times to repeat the spam run. If set with a value, the spam run will be repeated this many times. If set without a value, the spam run will be repeated indefinitely. If not set, the spam run will be repeated once."
+        global = true,
+        default_value_t = false,
+        long = "forever",
+        visible_aliases = ["indefinite", "indefinitely", "infinite"]
     )]
-    pub loops: Option<Option<u64>>,
-
-    /// The number of accounts to generate for each agent (`from_pool` in scenario files)
-    #[arg(
-        short,
-        long,
-        visible_aliases = ["na", "accounts"],
-        default_value_t = 10
-    )]
-    pub accounts_per_agent: u64,
+    pub run_forever: bool,
 }
 
 #[derive(Copy, Debug, Clone, clap::ValueEnum)]
@@ -441,23 +458,6 @@ pub fn cli_env_vars_parser(s: &str) -> Result<(String, String), String> {
         s[..equal_sign_index].to_string(),
         s[equal_sign_index + 1..].to_string(),
     ))
-}
-
-/// Parses an amount string with units (e.g., "1 ether", "100 gwei") into a U256 value.
-/// Used for inline parsing of amounts in CLI arguments.
-pub fn parse_amount(input: &str) -> Result<U256, String> {
-    let input = input.trim().to_lowercase();
-    let (num_str, unit) = input.trim().split_at(
-        input
-            .find(|c: char| !c.is_numeric() && c != '.')
-            .ok_or("Missing unit in amount")?,
-    );
-    let unit = unit.trim();
-    let value: U256 = parse_units(num_str, unit)
-        .map_err(|e| format!("Failed to parse units: {e}"))?
-        .into();
-
-    Ok(value)
 }
 
 #[cfg(test)]
