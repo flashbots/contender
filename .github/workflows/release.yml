@@ -1,4 +1,4 @@
-# this workflow is modified from reth:
+# this workflow is adapted from reth:
 # https://github.com/paradigmxyz/reth/blob/main/.github/workflows/release.yml
 
 name: release
@@ -32,7 +32,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Extract version
-        run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+        # extract version from github ref (tag if official release, branch if dry run)
+        # sanitizes ref by replacing `/` with `-`, to avoid errors downstream
+        run: |
+          vv="${GITHUB_REF_NAME}"
+          vv="${vv//\//-}"
+          echo "VERSION=$vv" >> $GITHUB_OUTPUT
         id: extract_version
     outputs:
       VERSION: ${{ steps.extract_version.outputs.VERSION }}
@@ -58,16 +63,25 @@ jobs:
     name: build release
     runs-on: ${{ matrix.configs.os }}
     needs: extract-version
+    continue-on-error: ${{ matrix.configs.allow_fail }}
     strategy:
       fail-fast: true
       matrix:
         configs:
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-24.04
+            os: ubuntu-22.04
             profile: release
             allow_fail: false
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-24.04
+            os: ubuntu-24.04-arm
+            profile: release
+            allow_fail: false
+          - target: x86_64-apple-darwin
+            os: macos-14
+            profile: release
+            allow_fail: false
+          - target: aarch64-apple-darwin
+            os: macos-14
             profile: release
             allow_fail: false
         build:
@@ -79,12 +93,24 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: ${{ matrix.configs.target }}
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Apple M-series setup
+        if: matrix.configs.target == 'aarch64-apple-darwin'
+        run: |
+          echo "SDKROOT=$(xcrun -sdk macosx --show-sdk-path)" >> $GITHUB_ENV
+          echo "MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx --show-sdk-platform-version)" >> $GITHUB_ENV
+
       - name: Build contender
-        run: cargo build --verbose --workspace --release
+        run: cargo build --verbose --workspace --release --target ${{ matrix.configs.target }}
+
       - name: Move binary
         run: |
           mkdir artifacts
-          mv "target/${{ matrix.configs.profile }}/${{ matrix.build.binary }}" ./artifacts
+          mv "target/${{ matrix.configs.target }}/${{ matrix.configs.profile }}/${{ matrix.build.binary }}" ./artifacts
 
       - name: Configure GPG and create artifacts
         env:
@@ -130,7 +156,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Download artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
       - name: Generate full changelog
         id: changelog
         run: |
@@ -186,6 +212,9 @@ jobs:
           |:---:|:---:|:---:|:---|
           | <img src="https://www.svgrepo.com/download/473700/linux.svg" width="50"/> | x86_64 | [contender-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz.asc) |
           | <img src="https://www.svgrepo.com/download/473700/linux.svg" width="50"/> | aarch64 | [contender-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz.asc) |
+          | <img src="https://www.svgrepo.com/download/511330/apple-173.svg" width="50"/> | x86_64 | [contender-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz.asc) |
+          | <img src="https://www.svgrepo.com/download/511330/apple-173.svg" width="50"/> | aarch64 | [contender-${{ env.VERSION }}-aarch64-apple-darwin.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-aarch64-apple-darwin.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/contender-${{ env.VERSION }}-aarch64-apple-darwin.tar.gz.asc) |
+
           ENDBODY
           )
           assets=()

@@ -28,7 +28,7 @@ contender --help
 - `--tps <N>` txs/second (drives agent count)
 - `--tpb <N>` txs/block
 - `-d, --duration <N>` batches to send before receipt collection
-- `-l, --loops [N]` run indefinitely or N times
+- `--forever` run spammer indefinitely
 - `--report` auto-generate a report after spam
 - `-e KEY=VALUE` override/insert `[env]` values in a scenario config
 
@@ -71,7 +71,7 @@ contender spam <SUBCOMMAND> --help
 - **stress** — a composite scenario mixing several patterns.
 
 > Tip: All built‑ins accept the same timing/loop flags as file‑based scenarios:
-> `--tps` (per‑second), `--tpb` (per‑block), `-l/--loops`, `-d/--duration`, and env overrides via `-e KEY=VALUE`.
+> `--tps` (per‑second), `--tpb` (per‑block), `--forever`, `-d/--duration`, and env overrides via `-e KEY=VALUE`.
 
 ### Usage examples
 
@@ -80,7 +80,7 @@ contender spam <SUBCOMMAND> --help
 contender spam fill-block -r $RPC_URL --tps 200 -d 5
 
 # Storage write pressure
-contender spam storage -r $RPC_URL --tpb 300 -l 50
+contender spam storage -r $RPC_URL --tpb 300 --forever
 
 # Targeted opcode/precompile stress
 contender spam eth-functions -r $RPC_URL --tps 100

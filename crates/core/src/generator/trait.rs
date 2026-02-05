@@ -9,7 +9,7 @@ use crate::{
         seeder::{SeedValue, Seeder},
         templater::Templater,
         types::{AnyProvider, AsyncCallbackResult, PlanType, SpamRequest},
-        util::UtilError,
+        util::{parse_value, UtilError},
         CreateDefinition, CreateDefinitionStrict, RandSeed,
     },
     spammer::CallbackError,
@@ -289,12 +289,37 @@ where
             None
         };
 
+        // if string is `(value, units)`, parse into U256
+        // otherwise it may be a {placeholder}, so leave as-is
+        let value = if let Some(input) = funcdef.value.to_owned() {
+            Some(match parse_value(&input) {
+                Ok(u256) => Ok(u256.to_string()),
+                Err(e) => {
+                    if self.get_templater().terminator_start(&input).is_none() {
+                        // no placeholder detected
+                        if input.chars().all(|c| c.is_numeric()) {
+                            // treat as wei
+                            Ok(input)
+                        } else {
+                            // error: not a placeholder; invalid "val+unit" string
+                            Err(e)
+                        }
+                    } else {
+                        // placeholder, leave string as-is
+                        Ok(input)
+                    }
+                }
+            }?)
+        } else {
+            None
+        };
+
         Ok(FunctionCallDefinitionStrict {
             to: to_address,
             from: from_address,
             signature: funcdef.signature.to_owned().unwrap_or_default(),
             args,
-            value: funcdef.value.to_owned(),
+            value,
             fuzz: funcdef.fuzz.to_owned().unwrap_or_default(),
             kind: funcdef.kind.to_owned(),
             gas_limit: funcdef.gas_limit.to_owned(),
@@ -303,11 +328,14 @@ where
         })
     }
 
-    /// Loads transactions from the plan configuration and returns execution requests.
+    /// Loads transactions from the plan configuration and returns execution requests
+    /// along with the updated nonce map. The caller should use the returned nonce map
+    /// to update their internal state, especially when the RPC provider is slow to
+    /// update nonces after transactions are mined.
     async fn load_txs<F: Send + Sync + Fn(NamedTxRequest) -> AsyncCallbackResult>(
         &self,
         plan_type: PlanType<F>,
-    ) -> std::result::Result<Vec<ExecutionRequest>, crate::Error> {
+    ) -> std::result::Result<(Vec<ExecutionRequest>, HashMap<Address, u64>), crate::Error> {
         let conf = self.get_plan_conf();
         let env = conf.get_env().unwrap_or_default();
         let db = self.get_db();
@@ -319,6 +347,11 @@ where
         }
 
         let mut txs: Vec<ExecutionRequest> = vec![];
+
+        // Track nonces locally to avoid relying on the RPC provider's nonce state,
+        // which may be slow to update after a transaction is mined.
+        // Initialize from existing tracked nonces to preserve state across calls.
+        let mut next_nonce: HashMap<Address, u64> = self.get_nonce_map().clone();
 
         match plan_type {
             PlanType::Create(on_create_step) => {
@@ -338,11 +371,23 @@ where
                     let step = self.make_strict_create(step, 0)?;
 
                     // create tx with template values
-                    let tx = NamedTxRequestBuilder::new(
+                    let mut tx = NamedTxRequestBuilder::new(
                         templater.template_contract_deploy(&step, &placeholder_map)?,
                     )
                     .with_name(&step.name)
                     .build();
+
+                    // assign a unique nonce to each tx (tracker per sender)
+                    // - fetch once from RPC then track locally to avoid "replacement transaction underpriced"
+                    //   errors when the RPC provider is slow to update the nonce after a tx is mined
+                    let from = tx.tx.from.expect("from address");
+                    if let std::collections::hash_map::Entry::Vacant(e) = next_nonce.entry(from) {
+                        let nonce = self.get_rpc_provider().get_transaction_count(from).await?;
+                        e.insert(nonce);
+                    }
+                    let nonce = next_nonce.get_mut(&from).expect("nonce");
+                    tx.tx.nonce = Some(*nonce);
+                    *nonce += 1;
 
                     let handle = on_create_step(tx.to_owned())?;
                     if let Some(handle) = handle {
@@ -356,7 +401,6 @@ where
                 let rpc_url = self.get_rpc_url();
 
                 let mut handles = Vec::new();
-                let mut next_nonce: HashMap<Address, u64> = HashMap::new();
 
                 for step in setup_steps.iter() {
                     // lookup placeholders in DB & update map before templating
@@ -368,33 +412,60 @@ where
                         self.get_genesis_hash(),
                     )?;
 
-                    // setup tx with template values
-                    let mut tx = NamedTxRequest::new(
-                        templater.template_function_call(
-                            &self.make_strict_call(step, 0)?, // 'from' address injected here
-                            &placeholder_map,
-                        )?,
-                        None,
-                        step.kind.to_owned(),
-                    );
+                    // Determine which account indices to use for this setup step
+                    let account_indices: Vec<usize> = if step.for_all_accounts {
+                        if let Some(ref from_pool) = step.from_pool {
+                            // Get all account indices for this pool
+                            let agents = self.get_agent_store();
+                            if let Some(agent) = agents.get_agent(from_pool) {
+                                (0..agent.signers.len()).collect()
+                            } else {
+                                return Err(crate::Error::Generator(
+                                    GeneratorError::from_pool_not_found(from_pool),
+                                ));
+                            }
+                        } else {
+                            // for_all_accounts requires from_pool to be set
+                            return Err(crate::Error::Generator(
+                                GeneratorError::ForAllAccountsRequiresFromPool,
+                            ));
+                        }
+                    } else {
+                        // Default behavior: only use first account (idx 0)
+                        vec![0]
+                    };
 
-                    // assign a unique nonce to each tx (tracker per sender)
-                    // - we need to block on the future to ensure it's correct before sending the tx)
-                    let from = tx.tx.from.expect("from address");
-                    if let std::collections::hash_map::Entry::Vacant(e) = next_nonce.entry(from) {
-                        let nonce = self.get_rpc_provider().get_transaction_count(from).await?;
-                        e.insert(nonce);
-                    }
-                    let nonce = next_nonce.get_mut(&from).expect("nonce");
-                    tx.tx.nonce = Some(*nonce);
-                    *nonce += 1;
+                    // Generate a setup transaction for each account index
+                    for account_idx in account_indices {
+                        // setup tx with template values
+                        let mut tx = NamedTxRequest::new(
+                            templater.template_function_call(
+                                &self.make_strict_call(step, account_idx)?, // 'from' address injected here
+                                &placeholder_map,
+                            )?,
+                            None,
+                            step.kind.to_owned(),
+                        );
 
-                    // spawn and store handle (will await all txs later)
-                    let handle = on_setup_step(tx.to_owned())?;
-                    if let Some(handle) = handle {
-                        handles.push(handle);
+                        // assign a unique nonce to each tx (tracker per sender)
+                        // - we need to block on the future to ensure it's correct before sending the tx)
+                        let from = tx.tx.from.expect("from address");
+                        if let std::collections::hash_map::Entry::Vacant(e) = next_nonce.entry(from)
+                        {
+                            let nonce = self.get_rpc_provider().get_transaction_count(from).await?;
+                            e.insert(nonce);
+                        }
+                        let nonce = next_nonce.get_mut(&from).expect("nonce");
+                        tx.tx.nonce = Some(*nonce);
+                        *nonce += 1;
+
+                        // spawn and store handle (will await all txs later)
+                        let handle = on_setup_step(tx.to_owned())?;
+                        if let Some(handle) = handle {
+                            handles.push(handle);
+                        }
+                        txs.push(tx.into());
                     }
-                    txs.push(tx.into());
                 }
 
                 for handle in handles {
@@ -531,7 +602,7 @@ where
             }
         }
 
-        Ok(txs)
+        Ok((txs, next_nonce))
     }
 }
 

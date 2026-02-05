@@ -1,0 +1,110 @@
+name: e2e-builder-playground
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  BUILDER_PLAYGROUND_VERSION: "v0.3.1"
+
+jobs:
+  build:
+    name: Build contender
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout contender
+        uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build contender (release)
+        run: cargo build --release --bin contender
+
+      - name: Upload contender binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: contender-binary
+          path: target/release/contender
+          retention-days: 1
+
+  e2e-builder-playground:
+    name: e2e-builder-playground (${{ matrix.scenario }})
+    needs: build
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - 00_erc20_smoke
+          # TODO: add more scenarios here (and equally in e2e-tests/)
+
+    steps:
+      - name: Checkout contender
+        uses: actions/checkout@v6
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Install builder-playground
+        run: |
+          curl -L -o builder-playground_${{env.BUILDER_PLAYGROUND_VERSION}}_linux_amd64.zip https://github.com/flashbots/builder-playground/releases/download/${{env.BUILDER_PLAYGROUND_VERSION}}/builder-playground_${{env.BUILDER_PLAYGROUND_VERSION}}_linux_amd64.zip
+          unzip builder-playground_${{env.BUILDER_PLAYGROUND_VERSION}}_linux_amd64.zip
+          mkdir -p bin
+          mv builder-playground bin/
+
+      - name: Download contender binary
+        uses: actions/download-artifact@v4
+        with:
+          name: contender-binary
+          path: bin
+
+      - name: Make contender executable
+        run: chmod +x bin/contender
+
+      - name: export bin path to GITHUB_ENV
+        run: echo "CONTENDER_BIN=$PWD/bin/contender" >> $GITHUB_ENV
+
+      - name: Start builder-playground L1 (detached)
+        run: |
+          ./bin/builder-playground start l1 \
+            --detached \
+            --output /tmp/playground \
+            --log-level info
+
+      - name: Wait for EL RPC on 8545
+        run: |
+          echo "Waiting for Reth RPC on 127.0.0.1:8545..."
+          for i in {1..60}; do
+            if bash -c 'echo > /dev/tcp/127.0.0.1/8545' 2>/dev/null; then
+              echo "RPC is up"
+              exit 0
+            fi
+            echo "Still waiting ($i/60)..."
+            sleep 5
+          done
+          echo "Timed out waiting for RPC on 8545"
+          exit 1
+
+      - name: Run contender tests against builder-playground
+        env:
+          CONTENDER_RPC_URL: http://127.0.0.1:8545
+        run: |
+          chmod +x e2e-tests/${{ matrix.scenario }}.sh
+          echo "[${{ matrix.scenario }}] Starting..."
+          e2e-tests/${{ matrix.scenario }}.sh
+          echo "[${{ matrix.scenario }}] OK"
+
+      - name: Stop builder-playground (cleanup)
+        if: always()
+        run: |
+          # Stop all playground sessions; this tears down Docker resources
+          go run ./main.go stop all || echo "stop all failed (maybe already stopped)"

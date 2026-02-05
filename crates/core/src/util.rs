@@ -1,7 +1,7 @@
 use crate::{generator::types::AnyProvider, Result};
 use alloy::{providers::Provider, signers::local::PrivateKeySigner};
 use std::str::FromStr;
-use tracing::{debug, warn};
+use tracing::debug;
 use tracing_subscriber::EnvFilter;
 
 /// Derive the block time from the first two blocks after genesis.
@@ -33,7 +33,7 @@ pub async fn get_block_time(rpc_client: &AnyProvider) -> Result<u64> {
 pub async fn get_blob_fee_maybe(rpc_client: &AnyProvider) -> u128 {
     let res = rpc_client.get_blob_base_fee().await;
     if res.is_err() {
-        warn!("failed to get blob base fee; defaulting to 0");
+        debug!("failed to get blob base fee; defaulting to 0");
     }
     res.unwrap_or(0)
 }
@@ -75,12 +75,47 @@ pub fn default_signers() -> Vec<PrivateKeySigner> {
         .collect::<Vec<PrivateKeySigner>>()
 }
 
-pub fn init_core_tracing(filter: Option<EnvFilter>) {
+#[derive(Debug)]
+pub struct TracingOptions {
+    pub ansi: bool,
+    pub target: bool,
+    pub line_number: bool,
+}
+
+impl Default for TracingOptions {
+    fn default() -> Self {
+        Self {
+            ansi: true,
+            target: false,
+            line_number: false,
+        }
+    }
+}
+
+impl TracingOptions {
+    pub fn with_ansi(mut self, ansi: bool) -> Self {
+        self.ansi = ansi;
+        self
+    }
+
+    pub fn with_target(mut self, target: bool) -> Self {
+        self.target = target;
+        self
+    }
+
+    pub fn with_line_number(mut self, line_number: bool) -> Self {
+        self.line_number = line_number;
+        self
+    }
+}
+
+pub fn init_core_tracing(filter: Option<EnvFilter>, opts: TracingOptions) {
     let filter = filter.unwrap_or(EnvFilter::new("info"));
+
     tracing_subscriber::fmt()
-        .with_ansi(true)
+        .with_ansi(opts.ansi)
         .with_env_filter(filter)
-        .with_target(true)
-        .with_line_number(true)
+        .with_target(opts.target)
+        .with_line_number(opts.line_number)
         .init();
 }

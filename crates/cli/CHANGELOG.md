@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- changed internal erc20 defaults (didn't match cli defaults) ([#443](https://github.com/flashbots/contender/pull/443/changes))
+
+## [0.8.0](https://github.com/flashbots/contender/releases/tag/v0.8.0) - 2026-02-02
+
+### Breaking changes
+
+- removed `--redeploy`, no longer skips contract deployments if previously deployed ([#438](https://github.com/flashbots/contender/pull/438))
+
+## [0.7.4](https://github.com/flashbots/contender/releases/tag/v0.7.4) - 2026-01-27
+
+- revised campaign spammer ([#427](https://github.com/flashbots/contender/pull/427/files))
+
+## [0.7.3](https://github.com/flashbots/contender/releases/tag/v0.7.3) - 2026-01-20
+
+- added `--infinite` flag to campaigns; loops campaigns indefinitely ([#420](https://github.com/flashbots/contender/pull/420/files))
+- added `--accounts-per-agent` flag to setup, fix campaign seeds ([#425](https://github.com/flashbots/contender/pull/425/files))
+- improved `--min-balance` warning log formatting ([#421](https://github.com/flashbots/contender/pull/421/files))
+
+## [0.7.2](https://github.com/flashbots/contender/releases/tag/v0.7.2) - 2026-01-14
+
+- bugfix: deploy contracts before attempting to estimate spam cost ([#416](https://github.com/flashbots/contender/pull/416/files))
+
+## [0.7.1](https://github.com/flashbots/contender/releases/tag/v0.7.1) - 2026-01-09
+
+- removed flag: `spam --timeout` ([#410](https://github.com/flashbots/contender/pull/410/files)) (but later replaced it so as to not break CI workflows using it)
+- add `admin contract-address` subcommand ([#412](https://github.com/flashbots/contender/pull/412/files))
+- `--timeout` is being deprecated, but is left intact to prevent breaking CI workflows that use contender cli
+
+## [0.7.0](https://github.com/flashbots/contender/releases/tag/v0.7.0) - 2026-01-05
+
+- cli is now solely responsible for intercepting CTRL-C signals ([#404](https://github.com/flashbots/contender/pull/404/files))
+  - to shutdown background tasks, we rely on [`CancellationToken`s](https://docs.rs/tokio-util/latest/tokio_util/sync/struct.CancellationToken.html)
+  - we no longer require two-phase cancellation (CTRL-C once to stop spamming, CTRL-C again to stop result collection)
+    - result collection happens async, so when the user cancels, most results will have already been collected
+    - stopping quickly is a better UX than two-phase
+- reduced verbosity of logs ([#406](https://github.com/flashbots/contender/pull/406/files))
+  - logs now only show source file paths and line numbers when `debug` (or higher) is used in RUST_LOG
+- new spam flag `--gas-price` manually sets gas price & disables basefee tracking ([#400](https://github.com/flashbots/contender/pull/400/files))
+
+### Breaking changes
+
+- `commands::spam::spam` removes the `&mut TestScenario` param, creates a `TestScenario` from `spam_args` instead
+- `SendSpamCliArgs` replaces `--loops [NUM_LOOPS]` (optional `usize`) with `--forever` (`bool`)
+- some functions are moved from `utils` to `commands::spam`
+- `commands::spamd` has been deleted (it was just a junk wrapper for `spam`)
+
 ## [0.6.0](https://github.com/flashbots/contender/releases/tag/v0.6.0) - 2025-11-25
 
 - support new ENV vars ([#376](https://github.com/flashbots/contender/pull/376))

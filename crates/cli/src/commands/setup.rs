@@ -8,12 +8,14 @@ use crate::{
     util::{check_private_keys, find_insufficient_balances, fund_accounts, load_seedfile},
     LATENCY_HIST as HIST, PROM,
 };
+use contender_core::util::get_block_time;
 use contender_core::{
-    agent_controller::{AgentStore, SignerStore},
-    generator::RandSeed,
+    generator::{
+        agent_pools::{AgentPools, AgentSpec},
+        RandSeed,
+    },
     test_scenario::{TestScenario, TestScenarioParams},
 };
-use contender_core::{generator::PlanConfig, util::get_block_time};
 use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use contender_testfile::TestConfig;
 use std::{
@@ -36,8 +38,10 @@ pub async fn setup(
         env,
         bundle_type,
         override_senders,
+        accounts_per_agent,
         ..
     } = args.eth_json_rpc_args.clone();
+    let accounts_per_agent = accounts_per_agent.unwrap_or(1) as usize;
     let engine_params = args.engine_params().await?;
     let rpc_client = args.eth_json_rpc_args.new_rpc_provider()?;
     let user_signers_with_defaults = args.eth_json_rpc_args.user_signers_with_defaults();
@@ -71,25 +75,12 @@ pub async fn setup(
         return Err(SetupError::insufficient_funds(broke_accounts).into());
     }
 
-    // load agents from setup and create pools
-    let from_pool_declarations =
-        [testconfig.get_setup_pools(), testconfig.get_create_pools()].concat();
-
-    // create agents for each from_pool declaration
-    let mut agents = AgentStore::new();
-
-    // If override_senders is true, we don't need to create agents for pools
-    // since all transactions will use the primary signer
-    if !override_senders {
-        for from_pool in &from_pool_declarations {
-            if agents.has_agent(from_pool) {
-                continue;
-            }
-
-            let agent = SignerStore::new(1, &args.seed, from_pool);
-            agents.add_agent(from_pool, agent);
-        }
-    }
+    // create agents for each from_pool declaration in setup and create pools
+    let agent_spec = AgentSpec::default()
+        .create_accounts(accounts_per_agent)
+        .setup_accounts(accounts_per_agent)
+        .spam_accounts(0);
+    let agents = testconfig.build_agent_store(&args.seed, agent_spec.clone());
 
     // user-provided signers must be pre-funded
     let admin_signer = args.eth_json_rpc_args.primary_signer();
@@ -108,18 +99,19 @@ pub async fn setup(
     }
 
     let params = TestScenarioParams {
-        rpc_url: args.eth_json_rpc_args.rpc_url()?,
+        rpc_url: args.eth_json_rpc_args.rpc_url,
         builder_rpc_url: None,
         signers: user_signers_with_defaults,
-        agent_store: agents,
+        agent_spec,
         tx_type: tx_type.into(),
         bundle_type: bundle_type.into(),
         pending_tx_timeout_secs: 12,
         extra_msg_handles: None,
-        redeploy: true,
         sync_nonces_after_batch: true,
         rpc_batch_size: 0,
+        gas_price: None,
     };
+
     let mut scenario = TestScenario::new(
         testconfig.to_owned(),
         db.clone().into(),
@@ -184,15 +176,6 @@ pub async fn setup(
         })
     };
 
-    let cancel_task = {
-        tokio::task::spawn(async move {
-            tokio::signal::ctrl_c()
-                .await
-                .expect("failed to listen for ctrl-c");
-            warn!("CTRL-C received, stopping setup...");
-        })
-    };
-
     tokio::select! {
         task_res = setup_task => {
             task_res??;
@@ -210,7 +193,7 @@ pub async fn setup(
             fcu_res?
         }
 
-        _ = cancel_task => {
+        _ = tokio::signal::ctrl_c() => {
             warn!("Setup cancelled.");
             is_done.store(true, Ordering::SeqCst);
         },
