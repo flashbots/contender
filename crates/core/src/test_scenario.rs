@@ -61,6 +61,10 @@ use tracing::{debug, info, trace, warn};
 
 pub use alloy::transports::http::reqwest::Url;
 
+/// Maximum number of concurrent setup tasks to run at once.
+/// Limits open HTTP connections to prevent file descriptor exhaustion.
+const SETUP_CONCURRENCY_LIMIT: usize = 25;
+
 #[derive(Clone)]
 pub struct PrometheusCollector {
     prom: &'static OnceCell<prometheus::Registry>,
@@ -622,11 +626,16 @@ where
         let genesis_hash = self.ctx.genesis_hash;
         let blob_base_fee = get_blob_fee_maybe(&self.rpc_client).await;
 
-        // Share a single HTTP client across all setup tasks to prevent file
-        // descriptor exhaustion when scenarios have many setup transactions.
-        // reqwest::Client uses an internal connection pool, so cloning is cheap
-        // (Arc) and all tasks reuse the same pool of TCP connections.
+        // Share a single HTTP client across all setup tasks so they reuse
+        // a connection pool rather than each opening a new TCP connection.
         let http_client = reqwest::Client::new();
+
+        // Limit concurrent tasks within each setup step to prevent file
+        // descriptor exhaustion (HTTP/1.1 needs one connection per concurrent
+        // request). This is safe because load_txs awaits each step's handles
+        // before moving to the next, so tasks within a step always belong to
+        // different senders and have no nonce conflicts.
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(SETUP_CONCURRENCY_LIMIT));
 
         let (_txs, updated_nonces) = self
             .load_txs(PlanType::Setup(|tx_req| {
@@ -651,8 +660,10 @@ where
                 let rpc_url = self.rpc_url.clone();
                 let tx_type = self.tx_type;
                 let http_client = http_client.clone();
+                let sem = semaphore.clone();
 
                 let handle = tokio::task::spawn(async move {
+                    let _permit = sem.acquire().await.expect("semaphore closed");
                     let transport = Http::with_client(http_client, rpc_url.to_owned());
                     let rpc_client = ClientBuilder::default().transport(transport, false);
                     let wallet = ProviderBuilder::new()
@@ -2484,6 +2495,7 @@ pub mod tests {
     /// Regression test for: https://github.com/flashbots/contender/issues/430
     #[tokio::test]
     async fn run_setup_handles_high_concurrency() {
+        use super::SETUP_CONCURRENCY_LIMIT;
 
         let anvil = spawn_anvil();
         let seed = crate::generator::RandSeed::new();
@@ -2540,13 +2552,14 @@ pub mod tests {
             .len();
         let expected_tasks = num_setup_steps * num_setup_accounts;
         assert!(
-            expected_tasks > 100,
-            "test should generate many tasks ({expected_tasks}) to exercise connection pooling"
+            expected_tasks > SETUP_CONCURRENCY_LIMIT,
+            "test should generate more tasks ({expected_tasks}) than the concurrency limit ({SETUP_CONCURRENCY_LIMIT})"
         );
 
         // This is the key assertion: run_setup() must complete without errors
-        // despite spawning 150 concurrent tasks. The shared reqwest::Client
-        // pools connections to prevent file descriptor exhaustion.
+        // despite spawning many concurrent tasks. The shared HTTP client +
+        // semaphore + per-step barrier prevent both FD exhaustion and nonce
+        // ordering deadlocks.
         let result = scenario.run_setup().await;
         assert!(
             result.is_ok(),

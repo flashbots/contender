@@ -400,8 +400,6 @@ where
                 let setup_steps = conf.get_setup_steps()?;
                 let rpc_url = self.get_rpc_url();
 
-                let mut handles = Vec::new();
-
                 for step in setup_steps.iter() {
                     // lookup placeholders in DB & update map before templating
                     templater.find_fncall_placeholders(
@@ -436,6 +434,7 @@ where
                     };
 
                     // Generate a setup transaction for each account index
+                    let mut step_handles = Vec::new();
                     for account_idx in account_indices {
                         // setup tx with template values
                         let mut tx = NamedTxRequest::new(
@@ -459,17 +458,19 @@ where
                         tx.tx.nonce = Some(*nonce);
                         *nonce += 1;
 
-                        // spawn and store handle (will await all txs later)
                         let handle = on_setup_step(tx.to_owned())?;
                         if let Some(handle) = handle {
-                            handles.push(handle);
+                            step_handles.push(handle);
                         }
                         txs.push(tx.into());
                     }
-                }
 
-                for handle in handles {
-                    handle.await.map_err(CallbackError::Join)??;
+                    // Await all handles for this step before proceeding to the next.
+                    // This ensures nonce ordering: all nonce-N txs complete before
+                    // nonce-(N+1) txs are sent for the same sender.
+                    for handle in step_handles {
+                        handle.await.map_err(CallbackError::Join)??;
+                    }
                 }
             }
             PlanType::Spam(num_txs, on_spam_setup) => {
