@@ -23,6 +23,7 @@ use contender_testfile::TestConfig;
 use nu_ansi_term::{AnsiGenericString, Style as ANSIStyle};
 use rand::Rng;
 use std::{str::FromStr, sync::Arc, time::Duration};
+use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
 
 pub const DEFAULT_PRV_KEYS: [&str; 10] = [
@@ -205,14 +206,20 @@ pub async fn fund_accounts(
             insufficient_balances.len()
         );
     }
+
+    // Limit concurrent funding tasks to avoid overwhelming the RPC with connections.
+    let semaphore = Arc::new(Semaphore::new(25));
+
     for (idx, (address, _)) in insufficient_balances.into_iter().enumerate() {
         let fund_amount = min_balance;
         let fund_with = fund_with.to_owned();
         let sender = sender_pending_tx.clone();
         let rpc_client = rpc_client.clone();
+        let sem = semaphore.clone();
 
         fund_handles.push(tokio::task::spawn(async move {
-            let res = fund_account(
+            let _permit = sem.acquire().await.expect("semaphore closed");
+            match fund_account(
                 &fund_with,
                 address,
                 fund_amount,
@@ -220,8 +227,20 @@ pub async fn fund_accounts(
                 Some(admin_nonce + idx as u64),
                 tx_type,
             )
-            .await?;
-            sender.send(res).await.expect("failed to handle pending tx");
+            .await
+            {
+                Ok(res) => {
+                    // If the receiver is already closed (e.g. an earlier task failed
+                    // and the function returned), just drop the result.
+                    let _ = sender.send(res).await;
+                }
+                // "already known" means the tx is already in the mempool (e.g. from
+                // a previous run). This is fine — the tx will still be mined.
+                Err(ref e) if e.to_string().contains("already known") => {
+                    warn!("funding tx for {address} already in mempool, skipping");
+                }
+                Err(e) => return Err(e.into()),
+            }
 
             Ok::<_, CliError>(())
         }));
