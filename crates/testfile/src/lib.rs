@@ -69,12 +69,7 @@ pub mod tests {
                 "0xdead".to_owned(),
             ]);
 
-        TestConfig {
-            env: None,
-            create: None,
-            setup: None,
-            spam: vec![SpamRequest::Tx(Box::new(fncall))].into(),
-        }
+        TestConfig::new().with_spam(vec![SpamRequest::Tx(Box::new(fncall))].into())
     }
 
     pub fn get_fuzzy_testconfig() -> TestConfig {
@@ -95,11 +90,8 @@ pub mod tests {
                     max: None,
                 }])
         };
-        TestConfig {
-            env: None,
-            create: None,
-            setup: None,
-            spam: vec![
+        TestConfig::new().with_spam(
+            vec![
                 SpamRequest::Tx(Box::new(fn_call(
                     "0xbeef",
                     "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
@@ -121,15 +113,12 @@ pub mod tests {
                 }),
             ]
             .into(),
-        }
+        )
     }
 
     pub fn get_setup_testconfig() -> TestConfig {
-        TestConfig {
-            env: None,
-            create: None,
-            spam: None,
-            setup: vec![
+        TestConfig::new().with_setup(
+            vec![
                 FunctionCallDefinition::new("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
                     .with_from("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
                     .with_value(U256::from(4096))
@@ -142,40 +131,37 @@ pub mod tests {
                     .with_args(&["1", "2", &Address::repeat_byte(0x11).encode_hex(), "0xbeef"]),
             ]
             .into(),
-        }
+        )
     }
 
     pub fn get_create_testconfig() -> TestConfig {
         let mut env = HashMap::new();
         env.insert("test1".to_owned(), "0xbeef".to_owned());
         env.insert("test2".to_owned(), "0x9001".to_owned());
-        TestConfig {
-            env: Some(env),
-            create: Some(vec![CreateDefinition {
+        TestConfig::new()
+            .with_create(vec![CreateDefinition {
                 contract: CompiledContract::new(
                     COUNTER_BYTECODE.to_string(),
                     "test_counter".to_string(),
-                ),
+                )
+                .into(),
                 signature: None,
                 args: None,
                 from: Some("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_owned()),
                 from_pool: None,
-            }]),
-            spam: None,
-            setup: None,
-        }
+            }])
+            .with_env(env)
     }
 
     pub fn get_composite_testconfig() -> TestConfig {
         let tc_fuzz = get_fuzzy_testconfig();
         let tc_setup = get_setup_testconfig();
         let tc_create = get_create_testconfig();
-        TestConfig {
-            env: tc_create.env, // TODO: add something here
-            create: tc_create.create,
-            spam: tc_fuzz.spam,
-            setup: tc_setup.setup,
-        }
+        TestConfig::new()
+            .with_create(tc_create.create.unwrap())
+            .with_env(tc_create.env.unwrap())
+            .with_setup(tc_setup.setup.unwrap())
+            .with_spam(tc_fuzz.spam.unwrap())
     }
 
     #[tokio::test]

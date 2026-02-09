@@ -82,48 +82,47 @@ impl ToTestConfig for Erc20Args {
                     .with_args(&[recipient.to_string(), self.fund_amount.to_string()])
             })
             .collect();
+        let spam_steps = vec![SpamRequest::new_tx(&{
+            let mut func_def = FunctionCallDefinition::new(token.template_name())
+                .with_from_pool("spammers") // Senders from limited pool
+                .with_signature("transfer(address guy, uint256 wad)")
+                .with_args(&[
+                    // Use token_recipient if provided (via --recipient flag),
+                    // otherwise this is a placeholder for fuzzing
+                    self.token_recipient
+                        .as_ref()
+                        .map(|addr| addr.to_string())
+                        .unwrap_or_else(|| {
+                            "0x0000000000000000000000000000000000000000".to_string()
+                        }),
+                    self.send_amount.to_string(),
+                ])
+                .with_gas_limit(55000);
 
-        TestConfig {
-            env: None,
-            create: Some(vec![CreateDefinition {
-                contract: token.to_owned(),
+            // Only add fuzzing if token_recipient is NOT provided
+            if self.token_recipient.is_none() {
+                func_def = func_def.with_fuzz(&[FuzzParam {
+                    param: Some("guy".to_string()),
+                    value: None,
+                    min: Some(U256::from(1)),
+                    max: Some(
+                        U256::from_str("0x0000000000ffffffffffffffffffffffffffffffff").unwrap(),
+                    ),
+                }]);
+            }
+
+            func_def
+        })];
+
+        TestConfig::new()
+            .with_create(vec![CreateDefinition {
+                contract: token.to_owned().into(),
                 signature: None,
                 args: None,
                 from: None,
                 from_pool: Some("admin".to_owned()),
-            }]),
-            setup: Some(setup_steps),
-            spam: Some(vec![SpamRequest::new_tx(&{
-                let mut func_def = FunctionCallDefinition::new(token.template_name())
-                    .with_from_pool("spammers") // Senders from limited pool
-                    .with_signature("transfer(address guy, uint256 wad)")
-                    .with_args(&[
-                        // Use token_recipient if provided (via --recipient flag),
-                        // otherwise this is a placeholder for fuzzing
-                        self.token_recipient
-                            .as_ref()
-                            .map(|addr| addr.to_string())
-                            .unwrap_or_else(|| {
-                                "0x0000000000000000000000000000000000000000".to_string()
-                            }),
-                        self.send_amount.to_string(),
-                    ])
-                    .with_gas_limit(55000);
-
-                // Only add fuzzing if token_recipient is NOT provided
-                if self.token_recipient.is_none() {
-                    func_def = func_def.with_fuzz(&[FuzzParam {
-                        param: Some("guy".to_string()),
-                        value: None,
-                        min: Some(U256::from(1)),
-                        max: Some(
-                            U256::from_str("0x0000000000ffffffffffffffffffffffffffffffff").unwrap(),
-                        ),
-                    }]);
-                }
-
-                func_def
-            })]),
-        }
+            }])
+            .with_setup(setup_steps)
+            .with_spam(spam_steps)
     }
 }
