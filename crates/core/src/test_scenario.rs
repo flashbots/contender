@@ -37,7 +37,10 @@ use alloy::{
     serde::WithOtherFields,
     signers::local::{LocalSigner, PrivateKeySigner},
 };
-use alloy::{network::ReceiptResponse, transports::http::reqwest};
+use alloy::{
+    network::ReceiptResponse,
+    transports::http::{reqwest, Http},
+};
 use contender_bundle_provider::{
     bundle::BundleType, bundle_provider::new_basic_bundle,
     revert_bundle::RevertProtectBundleRequest, BundleClient,
@@ -57,10 +60,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
 
 pub use alloy::transports::http::reqwest::Url;
-
-/// Maximum number of concurrent setup tasks spawned by `run_setup()`.
-/// Limits HTTP connections to prevent file descriptor exhaustion with large scenarios.
-pub const SETUP_CONCURRENCY_LIMIT: usize = 25;
 
 #[derive(Clone)]
 pub struct PrometheusCollector {
@@ -623,9 +622,11 @@ where
         let genesis_hash = self.ctx.genesis_hash;
         let blob_base_fee = get_blob_fee_maybe(&self.rpc_client).await;
 
-        // Limit concurrent setup tasks to prevent file descriptor exhaustion
-        // when scenarios have many setup transactions (e.g., 128+)
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(SETUP_CONCURRENCY_LIMIT));
+        // Share a single HTTP client across all setup tasks to prevent file
+        // descriptor exhaustion when scenarios have many setup transactions.
+        // reqwest::Client uses an internal connection pool, so cloning is cheap
+        // (Arc) and all tasks reuse the same pool of TCP connections.
+        let http_client = reqwest::Client::new();
 
         let (_txs, updated_nonces) = self
             .load_txs(PlanType::Setup(|tx_req| {
@@ -649,14 +650,15 @@ where
                 let db = self.db.clone();
                 let rpc_url = self.rpc_url.clone();
                 let tx_type = self.tx_type;
-                let sem = semaphore.clone();
+                let http_client = http_client.clone();
 
                 let handle = tokio::task::spawn(async move {
-                    let _permit = sem.acquire().await.expect("semaphore closed");
+                    let transport = Http::with_client(http_client, rpc_url.to_owned());
+                    let rpc_client = ClientBuilder::default().transport(transport, false);
                     let wallet = ProviderBuilder::new()
                         .wallet(signer)
                         .network::<AnyNetwork>()
-                        .connect_http(rpc_url.to_owned());
+                        .connect_client(rpc_client);
                     debug!("connecting wallet to rpc at {}", rpc_url);
 
                     let tx_label = tx_req
@@ -2388,52 +2390,6 @@ pub mod tests {
         Ok(())
     }
 
-    /// Verifies that the semaphore pattern used in `run_setup()` correctly limits
-    /// concurrency. This is the mechanism that prevents file descriptor exhaustion
-    /// when scenarios have many setup transactions (e.g., 128+).
-    ///
-    /// Regression test for: https://github.com/flashbots/contender/issues/430
-    #[tokio::test]
-    async fn setup_semaphore_limits_concurrency() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::time::Duration;
-        use super::SETUP_CONCURRENCY_LIMIT;
-
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(SETUP_CONCURRENCY_LIMIT));
-        let max_concurrent = Arc::new(AtomicUsize::new(0));
-        let current_concurrent = Arc::new(AtomicUsize::new(0));
-        let total_tasks = 150; // simulate a scenario with many accounts
-
-        let mut handles = vec![];
-        for _ in 0..total_tasks {
-            let sem = semaphore.clone();
-            let max = max_concurrent.clone();
-            let current = current_concurrent.clone();
-            handles.push(tokio::task::spawn(async move {
-                let _permit = sem.acquire().await.unwrap();
-                let c = current.fetch_add(1, Ordering::SeqCst) + 1;
-                max.fetch_max(c, Ordering::SeqCst);
-                // Simulate the work done by each setup task (HTTP calls, receipt polling)
-                tokio::time::sleep(Duration::from_millis(10)).await;
-                current.fetch_sub(1, Ordering::SeqCst);
-            }));
-        }
-
-        for h in handles {
-            h.await.unwrap();
-        }
-
-        let observed_max = max_concurrent.load(Ordering::SeqCst);
-        assert!(
-            observed_max <= SETUP_CONCURRENCY_LIMIT,
-            "max concurrent tasks ({observed_max}) should be <= {SETUP_CONCURRENCY_LIMIT}"
-        );
-        assert!(
-            observed_max > 1,
-            "tasks should run concurrently, got max {observed_max}"
-        );
-    }
-
     /// Config that generates many concurrent setup transactions using `for_all_accounts`.
     /// Used to test that `run_setup()` handles high concurrency correctly.
     #[derive(Clone)]
@@ -2522,18 +2478,12 @@ pub mod tests {
     }
 
     /// Integration test: runs `run_setup()` with 150 concurrent setup tasks against Anvil.
-    /// This is a regression test for file descriptor exhaustion when scenarios have many
-    /// setup transactions (e.g., 25 accounts × 5 setup steps).
-    ///
-    /// Without the concurrency limit (semaphore) in `run_setup()`, this test would fail on
-    /// systems with default file descriptor limits (e.g., macOS ulimit -n 256) because each
-    /// concurrent task opens its own HTTP connection for sending transactions and polling
-    /// receipts.
+    /// Verifies that setup tasks share an HTTP connection pool to prevent file descriptor
+    /// exhaustion when scenarios have many setup transactions (e.g., 50 accounts × 3 steps).
     ///
     /// Regression test for: https://github.com/flashbots/contender/issues/430
     #[tokio::test]
     async fn run_setup_handles_high_concurrency() {
-        use super::SETUP_CONCURRENCY_LIMIT;
 
         let anvil = spawn_anvil();
         let seed = crate::generator::RandSeed::new();
@@ -2590,13 +2540,13 @@ pub mod tests {
             .len();
         let expected_tasks = num_setup_steps * num_setup_accounts;
         assert!(
-            expected_tasks > SETUP_CONCURRENCY_LIMIT,
-            "test should generate more tasks ({expected_tasks}) than the concurrency limit ({SETUP_CONCURRENCY_LIMIT})"
+            expected_tasks > 100,
+            "test should generate many tasks ({expected_tasks}) to exercise connection pooling"
         );
 
         // This is the key assertion: run_setup() must complete without errors
-        // despite spawning 150 concurrent tasks. Without the semaphore, this
-        // would exhaust file descriptors on systems with low ulimits.
+        // despite spawning 150 concurrent tasks. The shared reqwest::Client
+        // pools connections to prevent file descriptor exhaustion.
         let result = scenario.run_setup().await;
         assert!(
             result.is_ok(),
