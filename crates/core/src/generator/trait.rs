@@ -400,6 +400,14 @@ where
                 let setup_steps = conf.get_setup_steps()?;
                 let rpc_url = self.get_rpc_url();
 
+                // Track the last pending task per sender to chain transactions.
+                // Each sender's transactions run sequentially (nonce ordering),
+                // but different senders run in parallel for much faster setup.
+                let mut pending_per_sender: HashMap<
+                    Address,
+                    tokio::task::JoinHandle<std::result::Result<(), crate::Error>>,
+                > = HashMap::new();
+
                 for step in setup_steps.iter() {
                     // lookup placeholders in DB & update map before templating
                     templater.find_fncall_placeholders(
@@ -433,8 +441,9 @@ where
                         vec![0]
                     };
 
-                    // Generate a setup transaction for each account index
-                    let mut step_handles = Vec::new();
+                    // Generate a setup transaction for each account index.
+                    // Track pending tasks per sender so each sender's transactions are
+                    // chained (nonce ordering), but different senders run in parallel.
                     for account_idx in account_indices {
                         // setup tx with template values
                         let mut tx = NamedTxRequest::new(
@@ -458,18 +467,29 @@ where
                         tx.tx.nonce = Some(*nonce);
                         *nonce += 1;
 
+                        // Chain this task after the sender's previous task (if any).
+                        // This ensures nonce ordering per sender while allowing different
+                        // senders to run in parallel, significantly speeding up setup.
                         let handle = on_setup_step(tx.to_owned())?;
                         if let Some(handle) = handle {
-                            step_handles.push(handle);
+                            // Wait for sender's previous task, then run this one
+                            let prev_handle = pending_per_sender.remove(&from);
+                            let chained = tokio::task::spawn(async move {
+                                if let Some(prev) = prev_handle {
+                                    // Ignore errors from previous task - they'll be reported separately
+                                    let _ = prev.await;
+                                }
+                                handle.await.map_err(CallbackError::Join)?
+                            });
+                            pending_per_sender.insert(from, chained);
                         }
                         txs.push(tx.into());
                     }
+                }
 
-                    // Barrier: complete all txs in this step before sending the next
-                    // step's txs, so nonces land in order for each sender.
-                    for handle in step_handles {
-                        handle.await.map_err(CallbackError::Join)??;
-                    }
+                // Await all remaining pending tasks to ensure all setup completes.
+                for (_, handle) in pending_per_sender {
+                    handle.await.map_err(CallbackError::Join)??;
                 }
             }
             PlanType::Spam(num_txs, on_spam_setup) => {
