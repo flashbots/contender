@@ -58,6 +58,10 @@ use tracing::{debug, info, trace, warn};
 
 pub use alloy::transports::http::reqwest::Url;
 
+/// Maximum number of concurrent setup tasks spawned by `run_setup()`.
+/// Limits HTTP connections to prevent file descriptor exhaustion with large scenarios.
+pub const SETUP_CONCURRENCY_LIMIT: usize = 25;
+
 #[derive(Clone)]
 pub struct PrometheusCollector {
     prom: &'static OnceCell<prometheus::Registry>,
@@ -619,6 +623,10 @@ where
         let genesis_hash = self.ctx.genesis_hash;
         let blob_base_fee = get_blob_fee_maybe(&self.rpc_client).await;
 
+        // Limit concurrent setup tasks to prevent file descriptor exhaustion
+        // when scenarios have many setup transactions (e.g., 128+)
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(SETUP_CONCURRENCY_LIMIT));
+
         let (_txs, updated_nonces) = self
             .load_txs(PlanType::Setup(|tx_req| {
                 /* callback */
@@ -641,8 +649,10 @@ where
                 let db = self.db.clone();
                 let rpc_url = self.rpc_url.clone();
                 let tx_type = self.tx_type;
+                let sem = semaphore.clone();
 
                 let handle = tokio::task::spawn(async move {
+                    let _permit = sem.acquire().await.expect("semaphore closed");
                     let wallet = ProviderBuilder::new()
                         .wallet(signer)
                         .network::<AnyNetwork>()
@@ -2376,5 +2386,222 @@ pub mod tests {
         }
 
         Ok(())
+    }
+
+    /// Verifies that the semaphore pattern used in `run_setup()` correctly limits
+    /// concurrency. This is the mechanism that prevents file descriptor exhaustion
+    /// when scenarios have many setup transactions (e.g., 128+).
+    ///
+    /// Regression test for: https://github.com/flashbots/contender/issues/430
+    #[tokio::test]
+    async fn setup_semaphore_limits_concurrency() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::time::Duration;
+        use super::SETUP_CONCURRENCY_LIMIT;
+
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(SETUP_CONCURRENCY_LIMIT));
+        let max_concurrent = Arc::new(AtomicUsize::new(0));
+        let current_concurrent = Arc::new(AtomicUsize::new(0));
+        let total_tasks = 150; // simulate a scenario with many accounts
+
+        let mut handles = vec![];
+        for _ in 0..total_tasks {
+            let sem = semaphore.clone();
+            let max = max_concurrent.clone();
+            let current = current_concurrent.clone();
+            handles.push(tokio::task::spawn(async move {
+                let _permit = sem.acquire().await.unwrap();
+                let c = current.fetch_add(1, Ordering::SeqCst) + 1;
+                max.fetch_max(c, Ordering::SeqCst);
+                // Simulate the work done by each setup task (HTTP calls, receipt polling)
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                current.fetch_sub(1, Ordering::SeqCst);
+            }));
+        }
+
+        for h in handles {
+            h.await.unwrap();
+        }
+
+        let observed_max = max_concurrent.load(Ordering::SeqCst);
+        assert!(
+            observed_max <= SETUP_CONCURRENCY_LIMIT,
+            "max concurrent tasks ({observed_max}) should be <= {SETUP_CONCURRENCY_LIMIT}"
+        );
+        assert!(
+            observed_max > 1,
+            "tasks should run concurrently, got max {observed_max}"
+        );
+    }
+
+    /// Config that generates many concurrent setup transactions using `for_all_accounts`.
+    /// Used to test that `run_setup()` handles high concurrency correctly.
+    #[derive(Clone)]
+    struct HighConcurrencyMockConfig;
+
+    impl PlanConfig<String> for HighConcurrencyMockConfig {
+        fn get_env(&self) -> std::result::Result<HashMap<String, String>, GeneratorError> {
+            Ok(HashMap::new())
+        }
+
+        fn get_create_steps(&self) -> std::result::Result<Vec<CreateDefinition>, GeneratorError> {
+            Ok(vec![CreateDefinition {
+                contract: CompiledContract {
+                    bytecode: COUNTER_BYTECODE.to_string(),
+                    name: "counter".to_string(),
+                },
+                signature: None,
+                args: None,
+                from: None,
+                from_pool: Some("admin".to_owned()),
+            }])
+        }
+
+        fn get_setup_steps(
+            &self,
+        ) -> std::result::Result<Vec<FunctionCallDefinition>, GeneratorError> {
+            // 3 setup steps, each running for all accounts in "setup_pool".
+            // With setup_accounts(50) this generates 150 concurrent tasks.
+            // gas_limit is set to skip gas estimation (the call target is the Counter contract).
+            Ok(vec![
+                FunctionCallDefinition::new(
+                    "0x0000000000000000000000000000000000000001",
+                )
+                .with_from_pool("setup_pool")
+                .with_signature("increment()")
+                .with_gas_limit(100_000)
+                .with_for_all_accounts(true)
+                .with_kind("increment_a"),
+                FunctionCallDefinition::new(
+                    "0x0000000000000000000000000000000000000001",
+                )
+                .with_from_pool("setup_pool")
+                .with_signature("increment()")
+                .with_gas_limit(100_000)
+                .with_for_all_accounts(true)
+                .with_kind("increment_b"),
+                FunctionCallDefinition::new(
+                    "0x0000000000000000000000000000000000000001",
+                )
+                .with_from_pool("setup_pool")
+                .with_signature("increment()")
+                .with_gas_limit(100_000)
+                .with_for_all_accounts(true)
+                .with_kind("increment_c"),
+            ])
+        }
+
+        fn get_spam_steps(&self) -> std::result::Result<Vec<SpamRequest>, GeneratorError> {
+            Ok(vec![])
+        }
+    }
+
+    impl Templater<String> for HighConcurrencyMockConfig {
+        fn copy_end(&self, input: &str, _last_end: usize) -> String {
+            input.to_owned()
+        }
+        fn replace_placeholders(
+            &self,
+            input: &str,
+            _placeholder_map: &HashMap<String, String>,
+        ) -> String {
+            input.to_owned()
+        }
+        fn terminator_start(&self, _input: &str) -> Option<usize> {
+            None
+        }
+        fn terminator_end(&self, _input: &str) -> Option<usize> {
+            None
+        }
+        fn num_placeholders(&self, _input: &str) -> usize {
+            0
+        }
+        fn find_key(&self, _input: &str) -> Option<(String, usize)> {
+            None
+        }
+    }
+
+    /// Integration test: runs `run_setup()` with 150 concurrent setup tasks against Anvil.
+    /// This is a regression test for file descriptor exhaustion when scenarios have many
+    /// setup transactions (e.g., 25 accounts × 5 setup steps).
+    ///
+    /// Without the concurrency limit (semaphore) in `run_setup()`, this test would fail on
+    /// systems with default file descriptor limits (e.g., macOS ulimit -n 256) because each
+    /// concurrent task opens its own HTTP connection for sending transactions and polling
+    /// receipts.
+    ///
+    /// Regression test for: https://github.com/flashbots/contender/issues/430
+    #[tokio::test]
+    async fn run_setup_handles_high_concurrency() {
+        use super::SETUP_CONCURRENCY_LIMIT;
+
+        let anvil = spawn_anvil();
+        let seed = crate::generator::RandSeed::new();
+        let signers = get_test_signers();
+        let num_setup_accounts = 50;
+
+        let mut scenario = TestScenario::new(
+            HighConcurrencyMockConfig,
+            MockDb.into(),
+            seed,
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers,
+                // 50 setup accounts × 3 setup steps = 150 concurrent tasks
+                agent_spec: AgentSpec::default().setup_accounts(num_setup_accounts),
+                tx_type: alloy::consensus::TxType::Eip1559,
+                bundle_type: BundleType::default(),
+                pending_tx_timeout_secs: 12,
+                extra_msg_handles: None,
+                sync_nonces_after_batch: true,
+                rpc_batch_size: 0,
+                gas_price: None,
+            },
+            None,
+            (&PROM, &HIST).into(),
+        )
+        .await
+        .unwrap();
+
+        // Fund all agent accounts (25 ETH per account)
+        let fund_amount = U256::from(25u128 * 10u128.pow(18));
+        for (name, agent) in scenario.agent_store.all_agents() {
+            println!(
+                "funding agent: {name} (num signers: {})",
+                agent.signers.len()
+            );
+            agent
+                .fund_signers(&get_test_signers()[0], fund_amount, scenario.rpc_client.clone())
+                .await
+                .unwrap();
+        }
+
+        scenario.sync_nonces().await.unwrap();
+        scenario.ctx.add_to_gas_price(GWEI_TO_WEI as i128 * 10);
+
+        // Deploy contracts first (Counter)
+        scenario.deploy_contracts().await.unwrap();
+
+        // Verify that the config produces many setup transactions
+        let num_setup_steps = HighConcurrencyMockConfig
+            .get_setup_steps()
+            .unwrap()
+            .len();
+        let expected_tasks = num_setup_steps * num_setup_accounts;
+        assert!(
+            expected_tasks > SETUP_CONCURRENCY_LIMIT,
+            "test should generate more tasks ({expected_tasks}) than the concurrency limit ({SETUP_CONCURRENCY_LIMIT})"
+        );
+
+        // This is the key assertion: run_setup() must complete without errors
+        // despite spawning 150 concurrent tasks. Without the semaphore, this
+        // would exhaust file descriptors on systems with low ulimits.
+        let result = scenario.run_setup().await;
+        assert!(
+            result.is_ok(),
+            "run_setup() should succeed with high concurrency (got: {:?})",
+            result.err()
+        );
     }
 }
