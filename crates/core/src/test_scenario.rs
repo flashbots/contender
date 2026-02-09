@@ -2433,14 +2433,12 @@ pub mod tests {
             Ok(["a", "b", "c"]
                 .into_iter()
                 .map(|suffix| {
-                    FunctionCallDefinition::new(
-                        "0x0000000000000000000000000000000000000001",
-                    )
-                    .with_from_pool("setup_pool")
-                    .with_signature("increment()")
-                    .with_gas_limit(100_000)
-                    .with_for_all_accounts(true)
-                    .with_kind(format!("increment_{suffix}"))
+                    FunctionCallDefinition::new("0x0000000000000000000000000000000000000001")
+                        .with_from_pool("setup_pool")
+                        .with_signature("increment()")
+                        .with_gas_limit(100_000)
+                        .with_for_all_accounts(true)
+                        .with_kind(format!("increment_{suffix}"))
                 })
                 .collect())
         }
@@ -2481,13 +2479,11 @@ pub mod tests {
         ) -> std::result::Result<Vec<FunctionCallDefinition>, GeneratorError> {
             Ok((0..self.num_steps)
                 .map(|i| {
-                    FunctionCallDefinition::new(
-                        "0x0000000000000000000000000000000000000001",
-                    )
-                    .with_from_pool("admin")
-                    .with_signature("increment()")
-                    .with_gas_limit(100_000)
-                    .with_kind(format!("increment_{i}"))
+                    FunctionCallDefinition::new("0x0000000000000000000000000000000000000001")
+                        .with_from_pool("admin")
+                        .with_signature("increment()")
+                        .with_gas_limit(100_000)
+                        .with_kind(format!("increment_{i}"))
                 })
                 .collect())
         }
@@ -2534,7 +2530,11 @@ pub mod tests {
         let fund_amount = U256::from(25u128 * 10u128.pow(18));
         for (_name, agent) in scenario.agent_store.all_agents() {
             agent
-                .fund_signers(&get_test_signers()[0], fund_amount, scenario.rpc_client.clone())
+                .fund_signers(
+                    &get_test_signers()[0],
+                    fund_amount,
+                    scenario.rpc_client.clone(),
+                )
                 .await
                 .unwrap();
         }
@@ -2577,10 +2577,7 @@ pub mod tests {
         )
         .await;
 
-        let num_setup_steps = HighConcurrencyMockConfig
-            .get_setup_steps()
-            .unwrap()
-            .len();
+        let num_setup_steps = HighConcurrencyMockConfig.get_setup_steps().unwrap().len();
         let expected_tasks = num_setup_steps * num_setup_accounts;
         assert!(
             expected_tasks > SETUP_CONCURRENCY_LIMIT,
