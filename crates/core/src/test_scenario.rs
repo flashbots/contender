@@ -136,6 +136,10 @@ where
     pub rpc_batch_size: u64,
     pub num_rpc_batches_sent: u64,
     pub gas_price: Option<U256>,
+    /// Shared HTTP client for provider creation. Using a single reqwest::Client
+    /// across all spawned tasks ensures they share one connection pool, preventing
+    /// file descriptor exhaustion from opening too many TCP connections.
+    http_client: reqwest::Client,
 }
 
 pub struct TestScenarioParams {
@@ -186,6 +190,7 @@ struct DeployContractParams<'a, D: DbOps> {
     tx_req: &'a NamedTxRequest,
     extra_tx_params: ExtraTxParams,
     tx_type: TxType,
+    http_client: reqwest::Client,
     rpc_url: &'a Url,
     signer: &'a PrivateKeySigner,
     genesis_hash: FixedBytes<32>,
@@ -329,6 +334,7 @@ where
             rpc_batch_size,
             num_rpc_batches_sent: 0,
             gas_price,
+            http_client: reqwest::Client::new(),
         })
     }
 
@@ -528,6 +534,7 @@ where
                     .unwrap_or_else(|| panic!("couldn't find wallet for 'from' address {from}"))
                     .to_owned();
                 let db = self.db.clone();
+                let http_client = self.http_client.clone();
 
                 let handle = tokio::task::spawn(async move {
                     Self::deploy_contract(DeployContractParams {
@@ -535,6 +542,7 @@ where
                         tx_req: &tx_req,
                         extra_tx_params: (gas_price, blob_gas_price, chain_id).into(),
                         tx_type,
+                        http_client,
                         rpc_url: &rpc_url,
                         signer: &wallet,
                         genesis_hash,
@@ -560,15 +568,18 @@ where
             tx_req,
             extra_tx_params,
             tx_type,
+            http_client,
             rpc_url,
             signer,
             genesis_hash,
         } = params;
         let wallet = EthereumWallet::from(signer.to_owned());
+        let transport = Http::with_client(http_client, rpc_url.to_owned());
+        let rpc_client = ClientBuilder::default().transport(transport, false);
         let wallet_client = ProviderBuilder::new()
             .wallet(&wallet)
             .network::<AnyNetwork>()
-            .connect_http(rpc_url.to_owned());
+            .connect_client(rpc_client);
 
         let ExtraTxParams {
             gas_price,
@@ -626,10 +637,6 @@ where
         let genesis_hash = self.ctx.genesis_hash;
         let blob_base_fee = get_blob_fee_maybe(&self.rpc_client).await;
 
-        // Share a single HTTP client across all setup tasks so they reuse
-        // a connection pool rather than each opening a new TCP connection.
-        let http_client = reqwest::Client::new();
-
         // Limit concurrent tasks within each setup step to prevent file
         // descriptor exhaustion (HTTP/1.1 needs one connection per concurrent
         // request). This is safe because load_txs awaits each step's handles
@@ -659,7 +666,7 @@ where
                 let db = self.db.clone();
                 let rpc_url = self.rpc_url.clone();
                 let tx_type = self.tx_type;
-                let http_client = http_client.clone();
+                let http_client = self.http_client.clone();
                 let sem = semaphore.clone();
 
                 let handle = tokio::task::spawn(async move {
@@ -2486,6 +2493,150 @@ pub mod tests {
         fn find_key(&self, _input: &str) -> Option<(String, usize)> {
             None
         }
+    }
+
+    /// Config that generates many separate setup steps from a single sender, mimicking
+    /// the erc20 scenario pattern (e.g., `cargo run -- spam --tps 100 -a 60 erc20`).
+    /// Each step is an independent `FunctionCallDefinition` using the same `from_pool`,
+    /// so they all get the same sender with incrementing nonces (0, 1, 2, ...).
+    #[derive(Clone)]
+    struct SequentialNonceMockConfig {
+        num_steps: usize,
+    }
+
+    impl PlanConfig<String> for SequentialNonceMockConfig {
+        fn get_env(&self) -> std::result::Result<HashMap<String, String>, GeneratorError> {
+            Ok(HashMap::new())
+        }
+
+        fn get_create_steps(&self) -> std::result::Result<Vec<CreateDefinition>, GeneratorError> {
+            Ok(vec![CreateDefinition {
+                contract: CompiledContract {
+                    bytecode: COUNTER_BYTECODE.to_string(),
+                    name: "counter".to_string(),
+                },
+                signature: None,
+                args: None,
+                from: None,
+                from_pool: Some("admin".to_owned()),
+            }])
+        }
+
+        fn get_setup_steps(
+            &self,
+        ) -> std::result::Result<Vec<FunctionCallDefinition>, GeneratorError> {
+            // N separate steps, each from the same pool (single sender).
+            // This produces N tasks with nonces 0..N-1 for the same address.
+            Ok((0..self.num_steps)
+                .map(|i| {
+                    FunctionCallDefinition::new(
+                        "0x0000000000000000000000000000000000000001",
+                    )
+                    .with_from_pool("admin")
+                    .with_signature("increment()")
+                    .with_gas_limit(100_000)
+                    .with_kind(format!("increment_{i}"))
+                })
+                .collect())
+        }
+
+        fn get_spam_steps(&self) -> std::result::Result<Vec<SpamRequest>, GeneratorError> {
+            Ok(vec![])
+        }
+    }
+
+    impl Templater<String> for SequentialNonceMockConfig {
+        fn copy_end(&self, input: &str, _last_end: usize) -> String {
+            input.to_owned()
+        }
+        fn replace_placeholders(
+            &self,
+            input: &str,
+            _placeholder_map: &HashMap<String, String>,
+        ) -> String {
+            input.to_owned()
+        }
+        fn terminator_start(&self, _input: &str) -> Option<usize> {
+            None
+        }
+        fn terminator_end(&self, _input: &str) -> Option<usize> {
+            None
+        }
+        fn num_placeholders(&self, _input: &str) -> usize {
+            0
+        }
+        fn find_key(&self, _input: &str) -> Option<(String, usize)> {
+            None
+        }
+    }
+
+    /// Regression test for nonce ordering deadlocks with sequential setup steps.
+    ///
+    /// Reproduces the erc20-like pattern: many separate setup steps from a single
+    /// sender, each with an incrementing nonce. Without the per-step barrier in
+    /// load_txs, tasks race for semaphore permits in arbitrary order and a task
+    /// holding nonce N+1 blocks on the mempool while nonce N's task is blocked on
+    /// the semaphore — a deadlock that only resolves via the 30s timeout.
+    #[tokio::test]
+    async fn run_setup_sequential_nonces_single_sender() {
+        use super::SETUP_CONCURRENCY_LIMIT;
+
+        let num_steps = SETUP_CONCURRENCY_LIMIT * 3; // 75 steps, well above semaphore limit
+        let anvil = spawn_anvil();
+        let seed = crate::generator::RandSeed::new();
+        let signers = get_test_signers();
+
+        let mut scenario = TestScenario::new(
+            SequentialNonceMockConfig { num_steps },
+            MockDb.into(),
+            seed,
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers,
+                agent_spec: AgentSpec::default(),
+                tx_type: alloy::consensus::TxType::Eip1559,
+                bundle_type: BundleType::default(),
+                pending_tx_timeout_secs: 12,
+                extra_msg_handles: None,
+                sync_nonces_after_batch: true,
+                rpc_batch_size: 0,
+                gas_price: None,
+            },
+            None,
+            (&PROM, &HIST).into(),
+        )
+        .await
+        .unwrap();
+
+        // Fund the admin agent
+        let fund_amount = U256::from(25u128 * 10u128.pow(18));
+        for (name, agent) in scenario.agent_store.all_agents() {
+            println!(
+                "funding agent: {name} (num signers: {})",
+                agent.signers.len()
+            );
+            agent
+                .fund_signers(&get_test_signers()[0], fund_amount, scenario.rpc_client.clone())
+                .await
+                .unwrap();
+        }
+
+        scenario.sync_nonces().await.unwrap();
+        scenario.ctx.add_to_gas_price(GWEI_TO_WEI as i128 * 10);
+
+        // Deploy the Counter contract
+        scenario.deploy_contracts().await.unwrap();
+
+        // run_setup() must complete without deadlocking. With the old semaphore-only
+        // approach this would stall: 75 steps from the same sender means nonces 0-74,
+        // and tasks grabbing permits out of order would deadlock.
+        let result = scenario.run_setup().await;
+        assert!(
+            result.is_ok(),
+            "run_setup() with sequential nonces should not deadlock (got: {:?})",
+            result.err()
+        );
     }
 
     /// Integration test: runs `run_setup()` with 150 concurrent setup tasks against Anvil.
