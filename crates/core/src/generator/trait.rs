@@ -465,9 +465,8 @@ where
                         txs.push(tx.into());
                     }
 
-                    // Await all handles for this step before proceeding to the next.
-                    // This ensures nonce ordering: all nonce-N txs complete before
-                    // nonce-(N+1) txs are sent for the same sender.
+                    // Barrier: complete all txs in this step before sending the next
+                    // step's txs, so nonces land in order for each sender.
                     for handle in step_handles {
                         handle.await.map_err(CallbackError::Join)??;
                     }
