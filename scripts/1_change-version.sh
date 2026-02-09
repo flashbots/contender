@@ -11,7 +11,12 @@ version="$1"
 echo "version: $version"
 
 # update workspace.package.version in Cargo.toml
-sed -i "s/^version = \".*\"/version = \"$version\"/" Cargo.toml
+# Use -i'' for macOS compatibility (GNU sed ignores the empty string, BSD sed requires it)
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    sed -i '' "s/^version = \".*\"/version = \"$version\"/" Cargo.toml
+else
+    sed -i "s/^version = \".*\"/version = \"$version\"/" Cargo.toml
+fi
 
 echo "finished."
 git status
