@@ -509,8 +509,10 @@ pub fn human_readable_duration(duration: Duration) -> String {
 
 #[cfg(test)]
 mod test {
+    use crate::commands::common::EngineParams;
     use crate::error::CliError;
     use crate::util::error::UtilError;
+    use crate::util::fund_account;
     use crate::util::human_readable_duration;
     use crate::util::utils::human_readable_gas;
 
@@ -525,11 +527,19 @@ mod test {
         providers::{DynProvider, Provider, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
+    use contender_core::util::default_signers;
     use std::str::FromStr;
     use std::time::Duration;
 
     pub fn spawn_anvil() -> AnvilInstance {
         Anvil::new().block_time_f64(0.25).spawn()
+    }
+
+    pub fn init_tracing() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("contender=debug,info")
+            .with_test_writer()
+            .try_init();
     }
 
     #[test]
@@ -713,6 +723,94 @@ mod test {
                 chain_id: _
             })
         ))
+    }
+
+    #[tokio::test]
+    async fn fund_account_returns_rpc_error_on_duplicate_tx() {
+        init_tracing();
+        let anvil = spawn_anvil();
+        let rpc_client = DynProvider::new(
+            ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .connect_http(anvil.endpoint_url()),
+        );
+        let signer = PrivateKeySigner::from_str(super::DEFAULT_PRV_KEYS[0]).unwrap();
+        let recipient: Address = "0x0000000000000000000000000000000000000013"
+            .parse()
+            .unwrap();
+        let min_balance = U256::from(ETH_TO_WEI);
+        let tx_type = alloy::consensus::TxType::Eip1559;
+        // send eth to the recipient
+        let res = fund_account(&signer, recipient, min_balance, &rpc_client, None, tx_type).await;
+        assert!(res.is_ok(), "initial funding should succeed");
+        println!("initial funding tx sent, attempting duplicate... {res:?}");
+        // attempt to send the same transaction again, which should result in an error because the nonce is the same and the first transaction is still pending
+        let res = fund_account(&signer, recipient, min_balance, &rpc_client, None, tx_type).await;
+        assert!(
+            res.is_err(),
+            "duplicate transaction should result in an error"
+        );
+        println!("error as expected: {res:?}");
+        assert!(
+            matches!(res.unwrap_err(), UtilError::Rpc(e) if e.to_string().to_lowercase().contains("transaction already imported")),
+            "error should be a util RPC error indicating the transaction is already known or underpriced"
+        );
+    }
+
+    #[tokio::test]
+    async fn fund_accounts_ignores_duplicate_transactions() {
+        init_tracing();
+        let anvil = Anvil::new().args(["--no-mining"]).spawn();
+        println!("Anvil endpoint: {}", anvil.endpoint_url());
+        let provider = ProviderBuilder::new()
+            .network::<AnyNetwork>()
+            .connect_http(anvil.endpoint_url());
+        let rpc_client = DynProvider::new(provider);
+        let recipients = [Address::random(), Address::random()];
+        let signers = default_signers();
+        let admin_signer = signers.first().unwrap();
+
+        // call fund_accounts, which will stall waiting for transactions to confirm, but since we set no-mining, they will never confirm
+        // time out quickly so we can call it again
+        tokio::select! {
+            // time out after 3 seconds
+            _ = tokio::time::sleep(Duration::from_secs(3)) => {
+                // at this point we'll have sent all our transactions, now to the next stage
+                println!("cancelling fund_accounts call, retrying...");
+            }
+            res = fund_accounts(
+                &recipients,
+                admin_signer,
+                &rpc_client,
+                U256::from(ETH_TO_WEI),
+                alloy::consensus::TxType::Eip1559,
+                &EngineParams {
+                    engine_provider: None,
+                    call_fcu: false,
+                },
+            ) => {
+                // this won't happen because we set no-mining, but if it does, we want to know about it
+                res.unwrap();
+            }
+        }
+
+        // call fund_accounts again with the same recipients, which will attempt to send the same transactions again, but since they are already in the mempool, it should skip them and not error
+        let res = fund_accounts(
+            &recipients,
+            admin_signer,
+            &rpc_client,
+            U256::from(ETH_TO_WEI),
+            alloy::consensus::TxType::Eip1559,
+            &EngineParams {
+                engine_provider: None,
+                call_fcu: false,
+            },
+        )
+        .await;
+        assert!(
+            res.is_ok(),
+            "fund_accounts should ignore duplicate transactions in mempool"
+        );
     }
 
     #[test]
