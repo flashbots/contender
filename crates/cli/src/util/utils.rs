@@ -26,6 +26,9 @@ use std::{str::FromStr, sync::Arc, time::Duration};
 use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
 
+/// Maximum number of concurrent funding tasks to avoid overwhelming the RPC with connections.
+const FUNDING_CONCURRENCY_LIMIT: usize = 25;
+
 pub const DEFAULT_PRV_KEYS: [&str; 10] = [
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
     "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
@@ -207,8 +210,7 @@ pub async fn fund_accounts(
         );
     }
 
-    // Limit concurrent funding tasks to avoid overwhelming the RPC with connections.
-    let semaphore = Arc::new(Semaphore::new(25));
+    let semaphore = Arc::new(Semaphore::new(FUNDING_CONCURRENCY_LIMIT));
 
     for (idx, (address, _)) in insufficient_balances.into_iter().enumerate() {
         let fund_amount = min_balance;
@@ -234,9 +236,7 @@ pub async fn fund_accounts(
                     // and the function returned), just drop the result.
                     let _ = sender.send(res).await;
                 }
-                // "already known" means the tx is already in the mempool (e.g. from
-                // a previous run). This is fine — the tx will still be mined.
-                Err(ref e) if e.to_string().contains("already known") => {
+                Err(e) if e.to_string().contains("already known") => {
                     warn!("funding tx for {address} already in mempool, skipping");
                 }
                 Err(e) => return Err(e.into()),
