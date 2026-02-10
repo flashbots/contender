@@ -49,6 +49,7 @@ struct TemplateData {
     metrics: SpamRunMetrics,
     chart_data: ChartData,
     campaign: Option<CampaignMetadata>,
+    version: String,
 }
 
 impl TemplateData {
@@ -62,6 +63,7 @@ impl TemplateData {
             metrics: meta.metrics.to_owned(),
             chart_data: meta.chart_data.to_owned(),
             campaign: meta.campaign.to_owned(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
         }
     }
 }

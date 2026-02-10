@@ -477,7 +477,10 @@ pub async fn report_campaign(
 fn render_campaign_html(summary: &CampaignReportSummary) -> Result<String> {
     let template = include_str!("template_campaign.html.handlebars");
     let html = handlebars::Handlebars::new()
-        .render_template(template, &serde_json::json!({ "campaign": summary }))?;
+        .render_template(template, &serde_json::json!({
+            "campaign": summary,
+            "version": env!("CARGO_PKG_VERSION")
+        }))?;
     Ok(html)
 }
 
