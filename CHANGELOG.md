@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- added contender version to bottom of reports ([#452](https://github.com/flashbots/contender/pull/452/changes))
+
+## [0.8.1](https://github.com/flashbots/contender/releases/tag/v0.8.1) - 2026-02-09
+
 - bugfix: fixed internal default erc20 args, made `TimedSpammer` output more regular ([#443](https://github.com/flashbots/contender/pull/443))
+- bugfix: limit concurrent setup tasks to prevent FD exhaustion ([#447](https://github.com/flashbots/contender/pull/447))
+
 
 ## [0.8.0](https://github.com/flashbots/contender/releases/tag/v0.8.0) - 2026-02-02
 
