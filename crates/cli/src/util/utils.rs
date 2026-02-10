@@ -236,7 +236,15 @@ pub async fn fund_accounts(
                     // and the function returned), just drop the result.
                     let _ = sender.send(res).await;
                 }
-                Err(e) if e.to_string().contains("already known") => {
+                Err(UtilError::Rpc(e))
+                    if [
+                        "already known",
+                        "replacement transaction underpriced",
+                        "transaction already imported",
+                    ]
+                    .iter()
+                    .any(|em| e.to_string().to_lowercase().contains(em)) =>
+                {
                     warn!("funding tx for {address} already in mempool, skipping");
                 }
                 Err(e) => return Err(e.into()),
