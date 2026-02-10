@@ -535,6 +535,10 @@ mod test {
         Anvil::new().block_time_f64(0.25).spawn()
     }
 
+    pub fn spawn_anvil_no_mining() -> AnvilInstance {
+        Anvil::new().args(["--no-mining"]).spawn()
+    }
+
     pub fn init_tracing() {
         let _ = tracing_subscriber::fmt()
             .with_env_filter("contender=debug,info")
@@ -728,7 +732,7 @@ mod test {
     #[tokio::test]
     async fn fund_account_returns_rpc_error_on_duplicate_tx() {
         init_tracing();
-        let anvil = spawn_anvil();
+        let anvil = spawn_anvil_no_mining();
         let rpc_client = DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
@@ -760,7 +764,7 @@ mod test {
     #[tokio::test]
     async fn fund_accounts_ignores_duplicate_transactions() {
         init_tracing();
-        let anvil = Anvil::new().args(["--no-mining"]).spawn();
+        let anvil = spawn_anvil_no_mining();
         println!("Anvil endpoint: {}", anvil.endpoint_url());
         let provider = ProviderBuilder::new()
             .network::<AnyNetwork>()
