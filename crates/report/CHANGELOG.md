@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- added contender version to bottom of reports ([#452](https://github.com/flashbots/contender/pull/452/changes))
+
+## [0.8.1](https://github.com/flashbots/contender/releases/tag/v0.8.1) - 2026-02-09
+
 - filter/condense heatmap input to prevent performance degradation ([#443](https://github.com/flashbots/contender/pull/443/changes))
 
 ## [0.6.0](https://github.com/flashbots/contender/releases/tag/v0.6.0) - 2025-11-25
