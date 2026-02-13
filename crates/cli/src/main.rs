@@ -50,7 +50,7 @@ async fn run() -> Result<(), CliError> {
     debug!("data directory: {data_dir}");
     debug!("opening DB at {db_path}");
 
-    let db = SqliteDb::from_file(&db_path).map_err(|e| CliError::Db(e.into()))?;
+    let db = SqliteDb::from_file(&db_path)?;
     init_db(&args.command, &db)?;
 
     match args.command {
@@ -143,13 +143,9 @@ async fn run() -> Result<(), CliError> {
                 if preceding_runs > 0 {
                     warn!("--preceding-runs is ignored when --campaign is provided");
                 }
-                contender_report::command::report_campaign(
-                    &resolved_campaign_id,
-                    &db,
-                    &data_dir,
-                )
-                .await
-                .map_err(CliError::Report)?;
+                contender_report::command::report_campaign(&resolved_campaign_id, &db, &data_dir)
+                    .await
+                    .map_err(CliError::Report)?;
             } else {
                 let use_json = matches!(format, ReportFormat::Json);
                 contender_report::command::report(
