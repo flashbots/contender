@@ -175,7 +175,7 @@ pub struct SpamCampaignContext {
 }
 
 impl SpamCommandArgs {
-    pub fn new(scenario: SpamScenario, cli_args: SpamCliArgs) -> Result<Self> {
+    pub fn new(scenario: SpamScenario, cli_args: SpamCliArgs, data_dir: &str) -> Result<Self> {
         Ok(Self {
             scenario,
             spam_args: cli_args.clone(),
@@ -184,7 +184,7 @@ impl SpamCommandArgs {
                     .eth_json_rpc_args
                     .rpc_args
                     .seed
-                    .unwrap_or(load_seedfile()?),
+                    .unwrap_or(load_seedfile(data_dir)?),
             ),
         })
     }

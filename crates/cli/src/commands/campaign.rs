@@ -129,7 +129,7 @@ pub async fn run_campaign(
         .seed
         .clone()
         .or_else(|| campaign.spam.seed.map(|s| s.to_string()))
-        .unwrap_or(load_seedfile()?);
+        .unwrap_or(load_seedfile(data_dir)?);
 
     // Setup phase: run setup for each (stage, mix) with the same derived seed that spam will use.
     // This ensures setup creates accounts matching what spam expects.
@@ -155,8 +155,8 @@ pub async fn run_campaign(
                 if setup_args.accounts_per_agent.is_none() {
                     setup_args.accounts_per_agent = Some(10);
                 }
-                let setup_cmd = SetupCommandArgs::new(scenario, setup_args)?;
-                commands::setup(db, setup_cmd).await?;
+                let setup_cmd = SetupCommandArgs::new(scenario, setup_args, data_dir)?;
+                commands::setup(db, setup_cmd).await?
             }
         }
     }
@@ -195,7 +195,7 @@ pub async fn run_campaign(
                         let timeout_duration = std::time::Duration::from_secs(timeout_secs);
                         match tokio::time::timeout(
                             timeout_duration,
-                            execute_stage(db, &campaign, stage, &args, &campaign_id, &stage_seed),
+                            execute_stage(db, &campaign, stage, &args, &campaign_id, &stage_seed, data_dir),
                         )
                         .await
                         {
@@ -209,7 +209,7 @@ pub async fn run_campaign(
                             }
                         }
                     } else {
-                        execute_stage(db, &campaign, stage, &args, &campaign_id, &stage_seed).await?
+                        execute_stage(db, &campaign, stage, &args, &campaign_id, &stage_seed, data_dir).await?
                     };
 
                     run_ids.extend(stage_run_ids);
@@ -397,6 +397,7 @@ async fn prepare_scenario(
     stage_seed: &str,
     mix_idx: usize,
     mix: &ResolvedMixEntry,
+    data_dir: &str,
 ) -> Result<(SpamCommandArgs, ScenarioMeta), CliError> {
     let scenario_seed = bump_seed(stage_seed, &mix_idx.to_string());
     let mut args = args.to_owned();
@@ -421,14 +422,14 @@ async fn prepare_scenario(
     let spam_scenario = if let Some(builtin_cli) = parse_builtin_reference(&mix.scenario) {
         let provider = args.eth_json_rpc_args.new_rpc_provider()?;
         let builtin = builtin_cli
-            .to_builtin_scenario(&provider, &spam_cli_args)
+            .to_builtin_scenario(&provider, &spam_cli_args, data_dir)
             .await?;
         SpamScenario::Builtin(builtin)
     } else {
         SpamScenario::Testfile(mix.scenario.clone())
     };
 
-    let spam_args = SpamCommandArgs::new(spam_scenario, spam_cli_args)?;
+    let spam_args = SpamCommandArgs::new(spam_scenario, spam_cli_args, data_dir)?;
 
     let meta = ScenarioMeta {
         campaign_id: campaign_id.to_owned(),
@@ -450,6 +451,7 @@ async fn execute_stage(
     args: &CampaignCliArgs,
     campaign_id: &str,
     stage_seed: &str,
+    data_dir: &str,
 ) -> Result<Vec<u64>, CliError> {
     // Collect active scenarios (non-zero rate) with their indices
     let active_scenarios: Vec<_> = stage
@@ -473,7 +475,8 @@ async fn execute_stage(
     if active_scenarios.len() == 1 {
         let (mix_idx, mix) = active_scenarios[0];
         let (spam_args, meta) =
-            prepare_scenario(args, campaign, stage, campaign_id, stage_seed, mix_idx, mix).await?;
+            prepare_scenario(args, campaign, stage, campaign_id, stage_seed, mix_idx, mix, data_dir)
+                .await?;
 
         meta.log_start(true);
 
@@ -501,7 +504,8 @@ async fn execute_stage(
 
     for (mix_idx, mix) in active_scenarios {
         let (spam_args, meta) =
-            prepare_scenario(args, campaign, stage, campaign_id, stage_seed, mix_idx, mix).await?;
+            prepare_scenario(args, campaign, stage, campaign_id, stage_seed, mix_idx, mix, data_dir)
+                .await?;
 
         meta.log_start(false);
 

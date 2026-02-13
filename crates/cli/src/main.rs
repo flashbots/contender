@@ -70,7 +70,7 @@ async fn run() -> Result<(), CliError> {
                 "scenario:simple.toml"
             };
             let scenario = SpamScenario::Testfile(testfile.to_owned());
-            let args = SetupCommandArgs::new(scenario, args.rpc_args)?;
+            let args = SetupCommandArgs::new(scenario, args.rpc_args, &data_dir)?;
 
             commands::setup(&db, args).await?
         }
@@ -101,19 +101,23 @@ async fn run() -> Result<(), CliError> {
             let scenario = if let Some(testfile) = testfile {
                 SpamScenario::Testfile(testfile)
             } else if let Some(config) = builtin_scenario_config {
-                SpamScenario::Builtin(config.to_builtin_scenario(&provider, &args).await?)
+                SpamScenario::Builtin(
+                    config
+                        .to_builtin_scenario(&provider, &args, &data_dir)
+                        .await?,
+                )
             } else {
                 // default to fill-block scenario
                 SpamScenario::Builtin(
                     BuiltinScenarioCli::FillBlock(FillBlockCliArgs {
                         max_gas_per_block: None,
                     })
-                    .to_builtin_scenario(&provider, &args)
+                    .to_builtin_scenario(&provider, &args, &data_dir)
                     .await?,
                 )
             };
 
-            let spam_args = SpamCommandArgs::new(scenario, *args)?;
+            let spam_args = SpamCommandArgs::new(scenario, *args, &data_dir)?;
             commands::spam(&db, &spam_args, SpamCampaignContext::default()).await?;
         }
 

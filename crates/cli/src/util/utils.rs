@@ -408,12 +408,6 @@ pub fn resolve_data_dir(cli_arg: Option<std::path::PathBuf>) -> Result<String, U
     Ok(dir)
 }
 
-/// Legacy function for backwards compatibility. Prefer resolve_data_dir.
-#[deprecated(note = "Use resolve_data_dir instead")]
-pub fn data_dir() -> Result<String, UtilError> {
-    default_data_dir()
-}
-
 /// Returns the fully-qualified path to the report directory.
 /// Creates the directory if it does not exist.
 pub fn init_reports_dir(data_dir: &str) -> String {
@@ -484,11 +478,8 @@ pub fn parse_duration(input: &str) -> std::result::Result<Duration, ParseDuratio
     }
 }
 
-pub fn load_seedfile() -> Result<String, CliError> {
-    #[allow(deprecated)]
-    let data_path = data_dir()?;
-
-    let seed_path = format!("{}/seed", &data_path);
+pub fn load_seedfile(data_dir: &str) -> Result<String, CliError> {
+    let seed_path = format!("{}/seed", data_dir);
     if !std::path::Path::new(&seed_path).exists() {
         info!("generating seed file at {}", &seed_path);
         let mut rng = rand::thread_rng();
