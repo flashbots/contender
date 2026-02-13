@@ -7,7 +7,7 @@ use crate::commands::{
 };
 use crate::error::CliError;
 use crate::util::load_testconfig;
-use crate::util::{data_dir, load_seedfile, parse_duration};
+use crate::util::{load_seedfile, parse_duration};
 use crate::BuiltinScenarioCli;
 use alloy::primitives::{keccak256, U256};
 use clap::Args;
@@ -116,6 +116,7 @@ fn bump_seed(base_seed: &str, stage_name: &str) -> String {
 
 pub async fn run_campaign(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
+    data_dir: &str,
     args: CampaignCliArgs,
 ) -> Result<(), CliError> {
     let campaign = CampaignConfig::from_file(&args.campaign)?;
@@ -242,7 +243,8 @@ pub async fn run_campaign(
                 Some(last_run),
                 last_run - first_run,
                 db,
-                &data_dir()?,
+                data_dir,
+                false, // use HTML format by default for campaign reports
             )
             .await?;
         }

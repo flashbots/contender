@@ -372,9 +372,9 @@ pub async fn find_insufficient_balances(
     Ok(insufficient_balances)
 }
 
-/// Returns the path to the data directory.
+/// Returns the path to the default data directory.
 /// The directory is created if it does not exist.
-pub fn data_dir() -> Result<String, UtilError> {
+pub fn default_data_dir() -> Result<String, UtilError> {
     let home_dir = if cfg!(windows) {
         std::env::var("USERPROFILE")?
     } else {
@@ -388,16 +388,50 @@ pub fn data_dir() -> Result<String, UtilError> {
     Ok(dir)
 }
 
+/// Resolves the data directory with the following priority:
+/// 1. CLI argument (if provided)
+/// 2. CONTENDER_DATA_DIR environment variable (if set)
+/// 3. Default: $HOME/.contender
+///
+/// Creates the directory if it does not exist.
+pub fn resolve_data_dir(cli_arg: Option<std::path::PathBuf>) -> Result<String, UtilError> {
+    let dir = if let Some(path) = cli_arg {
+        path.to_string_lossy().to_string()
+    } else if let Ok(env_dir) = std::env::var("CONTENDER_DATA_DIR") {
+        env_dir
+    } else {
+        return default_data_dir();
+    };
+
+    // ensure directory exists
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// Legacy function for backwards compatibility. Prefer resolve_data_dir.
+#[deprecated(note = "Use resolve_data_dir instead")]
+pub fn data_dir() -> Result<String, UtilError> {
+    default_data_dir()
+}
+
 /// Returns the fully-qualified path to the report directory.
-pub fn init_reports_dir() -> String {
-    let path = format!("{}/reports", data_dir().expect("invalid data directory"));
+/// Creates the directory if it does not exist.
+pub fn init_reports_dir(data_dir: &str) -> String {
+    let path = format!("{}/reports", data_dir);
     std::fs::create_dir_all(&path).expect("failed to create report directory");
     path
 }
 
+/// Returns path to the contender DB file within the given data directory.
+pub fn db_file_in(data_dir: &str) -> String {
+    format!("{data_dir}/contender.db")
+}
+
 /// Returns path to default contender DB file.
+#[deprecated(note = "Use db_file_in instead")]
+#[allow(dead_code)]
 pub fn db_file() -> Result<String, UtilError> {
-    let data_path = data_dir()?;
+    let data_path = default_data_dir()?;
     Ok(format!("{data_path}/contender.db"))
 }
 
@@ -451,6 +485,7 @@ pub fn parse_duration(input: &str) -> std::result::Result<Duration, ParseDuratio
 }
 
 pub fn load_seedfile() -> Result<String, CliError> {
+    #[allow(deprecated)]
     let data_path = data_dir()?;
 
     let seed_path = format!("{}/seed", &data_path);

@@ -1,4 +1,4 @@
-use super::gen_html::{build_html_report, CampaignMetadata, ReportMetadata};
+use super::gen_html::{build_html_report, build_json_report, CampaignMetadata, ReportMetadata};
 use super::util::std_deviation;
 use crate::block_trace::{estimate_block_data, get_block_data, get_block_traces};
 use crate::cache::CacheFile;
@@ -31,6 +31,7 @@ pub async fn report(
     preceding_runs: u64,
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     data_dir: &str,
+    use_json: bool,
 ) -> Result<()> {
     let num_runs = db.num_runs().map_err(|e| e.into())?;
 
@@ -256,27 +257,36 @@ pub async fn report(
     // compile report
     let mut blocks = cache_data.blocks;
     blocks.sort_by_key(|a| a.header.number);
-    let report_path = build_html_report(
-        ReportMetadata {
-            scenario_name: scenario_title,
-            start_run_id,
-            end_run_id,
-            start_block: blocks.first().unwrap().header.number,
-            end_block: blocks.last().unwrap().header.number,
-            rpc_url: rpc_url.to_string(),
-            metrics,
-            chart_data: ChartData {
-                heatmap: heatmap.echart_data(),
-                gas_per_block: gas_per_block.echart_data(),
-                time_to_inclusion: tti.echart_data(),
-                tx_gas_used: gas_used.echart_data(),
-                pending_txs: pending_txs.echart_data(),
-                latency_data_sendrawtransaction: latency_chart_sendrawtx.echart_data(),
-            },
-            campaign: campaign_context,
+    let report_metadata = ReportMetadata {
+        scenario_name: scenario_title,
+        start_run_id,
+        end_run_id,
+        start_block: blocks.first().unwrap().header.number,
+        end_block: blocks.last().unwrap().header.number,
+        rpc_url: rpc_url.to_string(),
+        metrics,
+        chart_data: ChartData {
+            heatmap: heatmap.echart_data(),
+            gas_per_block: gas_per_block.echart_data(),
+            time_to_inclusion: tti.echart_data(),
+            tx_gas_used: gas_used.echart_data(),
+            pending_txs: pending_txs.echart_data(),
+            latency_data_sendrawtransaction: latency_chart_sendrawtx.echart_data(),
         },
-        &format!("{data_dir}/reports"),
-    )?;
+        campaign: campaign_context,
+    };
+
+    let reports_dir = format!("{data_dir}/reports");
+
+    if use_json {
+        // JSON output - no browser opening
+        let report_path = build_json_report(&report_metadata, &reports_dir)?;
+        println!("{report_path}");
+        return Ok(());
+    }
+
+    // HTML output with browser opening (existing behavior)
+    let report_path = build_html_report(report_metadata, &reports_dir)?;
 
     // Open the report in the default web browser, skipping if "none" is set
     // in the BROWSER environment variable.
@@ -371,8 +381,8 @@ pub async fn report_campaign(
 
     let run_generation_result: Result<()> = async {
         for run in &runs {
-            // generate per-run report (single run)
-            report(Some(run.id), 0, db, data_dir).await?;
+            // generate per-run report (single run) - always use HTML for campaign runs
+            report(Some(run.id), 0, db, data_dir, false).await?;
             let run_txs = db.get_run_txs(run.id).map_err(|e| e.into())?;
             let (run_tx_count_from_logs, run_error_count_from_logs) =
                 tx_and_error_counts(&run_txs, run.tx_count);

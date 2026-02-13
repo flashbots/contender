@@ -8,6 +8,7 @@ use crate::default_scenarios::BuiltinScenarioCli;
 
 use super::admin::AdminCommand;
 use super::spam::SpamCliArgs;
+use super::ReportFormat;
 
 #[derive(Debug, Subcommand)]
 pub enum ContenderSubcommand {
@@ -84,6 +85,15 @@ pub enum ContenderSubcommand {
             default_missing_value = "__LATEST_CAMPAIGN__"
         )]
         campaign_id: Option<String>,
+
+        /// Output format: html (default, opens browser) or json (machine-readable).
+        #[arg(
+            long,
+            short = 'f',
+            default_value = "html",
+            value_enum
+        )]
+        format: ReportFormat,
     },
 
     #[command(
