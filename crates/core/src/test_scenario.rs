@@ -27,7 +27,7 @@ use alloy::{
     eips::eip2718::Encodable2718,
     eips::BlockId,
     hex::ToHexExt,
-    network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, TransactionBuilder},
+    network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, ReceiptResponse, TransactionBuilder},
     node_bindings::Anvil,
     primitives::utils::{format_ether, format_units},
     primitives::{keccak256, Address, Bytes, FixedBytes, TxKind, U256},
@@ -36,8 +36,8 @@ use alloy::{
     rpc::types::TransactionRequest,
     serde::WithOtherFields,
     signers::local::{LocalSigner, PrivateKeySigner},
+    transports::http::{reqwest, Http},
 };
-use alloy::{network::ReceiptResponse, transports::http::reqwest};
 use contender_bundle_provider::{
     bundle::BundleType, bundle_provider::new_basic_bundle,
     revert_bundle::RevertProtectBundleRequest, BundleClient,
@@ -57,6 +57,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
 
 pub use alloy::transports::http::reqwest::Url;
+
+/// Maximum concurrent setup tasks (limits open HTTP connections).
+const SETUP_CONCURRENCY_LIMIT: usize = 25;
 
 #[derive(Clone)]
 pub struct PrometheusCollector {
@@ -129,6 +132,8 @@ where
     pub rpc_batch_size: u64,
     pub num_rpc_batches_sent: u64,
     pub gas_price: Option<U256>,
+    /// Shared HTTP client so spawned tasks reuse one connection pool.
+    http_client: reqwest::Client,
 }
 
 pub struct TestScenarioParams {
@@ -179,6 +184,7 @@ struct DeployContractParams<'a, D: DbOps> {
     tx_req: &'a NamedTxRequest,
     extra_tx_params: ExtraTxParams,
     tx_type: TxType,
+    http_client: reqwest::Client,
     rpc_url: &'a Url,
     signer: &'a PrivateKeySigner,
     genesis_hash: FixedBytes<32>,
@@ -322,6 +328,7 @@ where
             rpc_batch_size,
             num_rpc_batches_sent: 0,
             gas_price,
+            http_client: reqwest::Client::new(),
         })
     }
 
@@ -521,6 +528,7 @@ where
                     .unwrap_or_else(|| panic!("couldn't find wallet for 'from' address {from}"))
                     .to_owned();
                 let db = self.db.clone();
+                let http_client = self.http_client.clone();
 
                 let handle = tokio::task::spawn(async move {
                     Self::deploy_contract(DeployContractParams {
@@ -528,6 +536,7 @@ where
                         tx_req: &tx_req,
                         extra_tx_params: (gas_price, blob_gas_price, chain_id).into(),
                         tx_type,
+                        http_client,
                         rpc_url: &rpc_url,
                         signer: &wallet,
                         genesis_hash,
@@ -553,15 +562,18 @@ where
             tx_req,
             extra_tx_params,
             tx_type,
+            http_client,
             rpc_url,
             signer,
             genesis_hash,
         } = params;
         let wallet = EthereumWallet::from(signer.to_owned());
+        let transport = Http::with_client(http_client, rpc_url.to_owned());
+        let rpc_client = ClientBuilder::default().transport(transport, false);
         let wallet_client = ProviderBuilder::new()
             .wallet(&wallet)
             .network::<AnyNetwork>()
-            .connect_http(rpc_url.to_owned());
+            .connect_client(rpc_client);
 
         let ExtraTxParams {
             gas_price,
@@ -619,6 +631,8 @@ where
         let genesis_hash = self.ctx.genesis_hash;
         let blob_base_fee = get_blob_fee_maybe(&self.rpc_client).await;
 
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(SETUP_CONCURRENCY_LIMIT));
+
         let (_txs, updated_nonces) = self
             .load_txs(PlanType::Setup(|tx_req| {
                 /* callback */
@@ -641,12 +655,17 @@ where
                 let db = self.db.clone();
                 let rpc_url = self.rpc_url.clone();
                 let tx_type = self.tx_type;
+                let http_client = self.http_client.clone();
+                let sem = semaphore.clone();
 
                 let handle = tokio::task::spawn(async move {
+                    let _permit = sem.acquire().await.expect("semaphore closed");
+                    let transport = Http::with_client(http_client, rpc_url.to_owned());
+                    let rpc_client = ClientBuilder::default().transport(transport, false);
                     let wallet = ProviderBuilder::new()
                         .wallet(signer)
                         .network::<AnyNetwork>()
-                        .connect_http(rpc_url.to_owned());
+                        .connect_client(rpc_client);
                     debug!("connecting wallet to rpc at {}", rpc_url);
 
                     let tx_label = tx_req
@@ -1761,11 +1780,41 @@ pub mod tests {
     use std::sync::Arc;
     use tokio::sync::OnceCell;
 
-    use super::TestScenarioParams;
+    use super::{TestScenarioParams, SETUP_CONCURRENCY_LIMIT};
 
     // separate prometheus registry for simulations; anvil doesn't count!
     static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
     static HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
+
+    /// Generates a no-op `Templater<String>` impl that passes inputs through unchanged.
+    macro_rules! impl_noop_templater {
+        ($ty:ty) => {
+            impl Templater<String> for $ty {
+                fn copy_end(&self, input: &str, _last_end: usize) -> String {
+                    input.to_owned()
+                }
+                fn replace_placeholders(
+                    &self,
+                    input: &str,
+                    _placeholder_map: &HashMap<String, String>,
+                ) -> String {
+                    input.to_owned()
+                }
+                fn terminator_start(&self, _input: &str) -> Option<usize> {
+                    None
+                }
+                fn terminator_end(&self, _input: &str) -> Option<usize> {
+                    None
+                }
+                fn num_placeholders(&self, _input: &str) -> usize {
+                    0
+                }
+                fn find_key(&self, _input: &str) -> Option<(String, usize)> {
+                    None
+                }
+            }
+        };
+    }
 
     #[derive(Clone)]
     pub struct MockConfig;
@@ -1901,30 +1950,7 @@ pub mod tests {
         }
     }
 
-    impl Templater<String> for MockConfig {
-        fn copy_end(&self, input: &str, _last_end: usize) -> String {
-            input.to_owned()
-        }
-        fn replace_placeholders(
-            &self,
-            input: &str,
-            _placeholder_map: &std::collections::HashMap<String, String>,
-        ) -> String {
-            input.to_owned()
-        }
-        fn terminator_start(&self, _input: &str) -> Option<usize> {
-            None
-        }
-        fn terminator_end(&self, _input: &str) -> Option<usize> {
-            None
-        }
-        fn num_placeholders(&self, _input: &str) -> usize {
-            0
-        }
-        fn find_key(&self, _input: &str) -> Option<(String, usize)> {
-            None
-        }
-    }
+    impl_noop_templater!(MockConfig);
 
     pub async fn get_test_scenario(
         anvil: &AnvilInstance,
@@ -2376,5 +2402,193 @@ pub mod tests {
         }
 
         Ok(())
+    }
+
+    /// Test config: 3 `for_all_accounts` setup steps to exercise high-concurrency paths.
+    #[derive(Clone)]
+    struct HighConcurrencyMockConfig;
+
+    impl PlanConfig<String> for HighConcurrencyMockConfig {
+        fn get_env(&self) -> std::result::Result<HashMap<String, String>, GeneratorError> {
+            Ok(HashMap::new())
+        }
+
+        fn get_create_steps(&self) -> std::result::Result<Vec<CreateDefinition>, GeneratorError> {
+            Ok(vec![CreateDefinition {
+                contract: CompiledContract {
+                    bytecode: COUNTER_BYTECODE.to_string(),
+                    name: "counter".to_string(),
+                },
+                signature: None,
+                args: None,
+                from: None,
+                from_pool: Some("admin".to_owned()),
+            }])
+        }
+
+        fn get_setup_steps(
+            &self,
+        ) -> std::result::Result<Vec<FunctionCallDefinition>, GeneratorError> {
+            // 3 for_all_accounts steps; with setup_accounts(50) this produces 150 tasks.
+            Ok(["a", "b", "c"]
+                .into_iter()
+                .map(|suffix| {
+                    FunctionCallDefinition::new("0x0000000000000000000000000000000000000001")
+                        .with_from_pool("setup_pool")
+                        .with_signature("increment()")
+                        .with_gas_limit(100_000)
+                        .with_for_all_accounts(true)
+                        .with_kind(format!("increment_{suffix}"))
+                })
+                .collect())
+        }
+
+        fn get_spam_steps(&self) -> std::result::Result<Vec<SpamRequest>, GeneratorError> {
+            Ok(vec![])
+        }
+    }
+
+    impl_noop_templater!(HighConcurrencyMockConfig);
+
+    /// Test config: N separate setup steps from a single sender (sequential nonces).
+    #[derive(Clone)]
+    struct SequentialNonceMockConfig {
+        num_steps: usize,
+    }
+
+    impl PlanConfig<String> for SequentialNonceMockConfig {
+        fn get_env(&self) -> std::result::Result<HashMap<String, String>, GeneratorError> {
+            Ok(HashMap::new())
+        }
+
+        fn get_create_steps(&self) -> std::result::Result<Vec<CreateDefinition>, GeneratorError> {
+            Ok(vec![CreateDefinition {
+                contract: CompiledContract {
+                    bytecode: COUNTER_BYTECODE.to_string(),
+                    name: "counter".to_string(),
+                },
+                signature: None,
+                args: None,
+                from: None,
+                from_pool: Some("admin".to_owned()),
+            }])
+        }
+
+        fn get_setup_steps(
+            &self,
+        ) -> std::result::Result<Vec<FunctionCallDefinition>, GeneratorError> {
+            Ok((0..self.num_steps)
+                .map(|i| {
+                    FunctionCallDefinition::new("0x0000000000000000000000000000000000000001")
+                        .with_from_pool("admin")
+                        .with_signature("increment()")
+                        .with_gas_limit(100_000)
+                        .with_kind(format!("increment_{i}"))
+                })
+                .collect())
+        }
+
+        fn get_spam_steps(&self) -> std::result::Result<Vec<SpamRequest>, GeneratorError> {
+            Ok(vec![])
+        }
+    }
+
+    impl_noop_templater!(SequentialNonceMockConfig);
+
+    /// Creates a funded TestScenario with contracts deployed, ready for `run_setup()`.
+    async fn setup_scenario_with_anvil<P>(
+        config: P,
+        agent_spec: AgentSpec,
+    ) -> (AnvilInstance, TestScenario<MockDb, RandSeed, P>)
+    where
+        P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+    {
+        let anvil = spawn_anvil();
+        let mut scenario = TestScenario::new(
+            config,
+            MockDb.into(),
+            RandSeed::new(),
+            TestScenarioParams {
+                rpc_url: anvil.endpoint_url(),
+                builder_rpc_url: None,
+                signers: get_test_signers(),
+                agent_spec,
+                tx_type: alloy::consensus::TxType::Eip1559,
+                bundle_type: BundleType::default(),
+                pending_tx_timeout_secs: 12,
+                extra_msg_handles: None,
+                sync_nonces_after_batch: true,
+                rpc_batch_size: 0,
+                gas_price: None,
+            },
+            None,
+            (&PROM, &HIST).into(),
+        )
+        .await
+        .unwrap();
+
+        let fund_amount = U256::from(25u128 * 10u128.pow(18));
+        for (_name, agent) in scenario.agent_store.all_agents() {
+            agent
+                .fund_signers(
+                    &get_test_signers()[0],
+                    fund_amount,
+                    scenario.rpc_client.clone(),
+                )
+                .await
+                .unwrap();
+        }
+
+        scenario.sync_nonces().await.unwrap();
+        scenario.ctx.add_to_gas_price(GWEI_TO_WEI as i128 * 10);
+        scenario.deploy_contracts().await.unwrap();
+
+        (anvil, scenario)
+    }
+
+    /// Regression test: sequential nonces from a single sender must not deadlock.
+    /// Reproduces the erc20-like pattern where many steps share one sender.
+    #[tokio::test]
+    async fn run_setup_sequential_nonces_single_sender() {
+        let num_steps = SETUP_CONCURRENCY_LIMIT * 3;
+        let (_anvil, mut scenario) = setup_scenario_with_anvil(
+            SequentialNonceMockConfig { num_steps },
+            AgentSpec::default(),
+        )
+        .await;
+
+        let result = scenario.run_setup().await;
+        assert!(
+            result.is_ok(),
+            "run_setup() with sequential nonces should not deadlock (got: {:?})",
+            result.err()
+        );
+    }
+
+    /// Regression test for https://github.com/flashbots/contender/issues/430:
+    /// many concurrent setup tasks (50 accounts x 3 steps = 150) must not
+    /// exhaust file descriptors.
+    #[tokio::test]
+    async fn run_setup_handles_high_concurrency() {
+        let num_setup_accounts = 50;
+        let (_anvil, mut scenario) = setup_scenario_with_anvil(
+            HighConcurrencyMockConfig,
+            AgentSpec::default().setup_accounts(num_setup_accounts),
+        )
+        .await;
+
+        let num_setup_steps = HighConcurrencyMockConfig.get_setup_steps().unwrap().len();
+        let expected_tasks = num_setup_steps * num_setup_accounts;
+        assert!(
+            expected_tasks > SETUP_CONCURRENCY_LIMIT,
+            "test should generate more tasks ({expected_tasks}) than the concurrency limit ({SETUP_CONCURRENCY_LIMIT})"
+        );
+
+        let result = scenario.run_setup().await;
+        assert!(
+            result.is_ok(),
+            "run_setup() should succeed with high concurrency (got: {:?})",
+            result.err()
+        );
     }
 }
