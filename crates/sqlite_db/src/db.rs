@@ -12,6 +12,7 @@ use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, types::FromSql, Row};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tracing::debug;
 
@@ -56,9 +57,16 @@ impl SqliteDb {
     }
 
     pub fn new_memory() -> Self {
-        let manager = SqliteConnectionManager::memory();
+        // Use a unique shared-cache URI so all connections in this pool
+        // share the same in-memory database (unlike SqliteConnectionManager::memory(),
+        // which gives each connection its own private DB).
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let uri = format!("file:contender_mem_{id}?mode=memory&cache=shared");
+        let manager = SqliteConnectionManager::file(uri);
         let pool = Pool::builder()
-            .max_size(1)
+            .max_size(4)
+            .connection_timeout(Duration::from_secs(30))
             .connection_customizer(Box::new(SqliteConnectionCustomizer))
             .build(manager)
             .expect("failed to create connection pool");
