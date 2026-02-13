@@ -405,7 +405,11 @@ async fn handle_contract_address(contract_name: String, rpc_url: Url, db: &Sqlit
     Ok(())
 }
 
-pub async fn handle_admin_command(command: AdminCommand, data_dir: &str, db: SqliteDb) -> Result<()> {
+pub async fn handle_admin_command(
+    command: AdminCommand,
+    data_dir: &str,
+    db: SqliteDb,
+) -> Result<()> {
     match command {
         AdminCommand::Accounts {
             from_pool,
@@ -425,7 +429,18 @@ pub async fn handle_admin_command(command: AdminCommand, data_dir: &str, db: Sql
             from_pool,
             num_signers,
             scenario_file,
-        } => handle_reclaim_eth(to, rpc, from_pool, num_signers, scenario_file, data_dir, &db).await,
+        } => {
+            handle_reclaim_eth(
+                to,
+                rpc,
+                from_pool,
+                num_signers,
+                scenario_file,
+                data_dir,
+                &db,
+            )
+            .await
+        }
         AdminCommand::ContractAddress {
             contract_name,
             rpc_url,

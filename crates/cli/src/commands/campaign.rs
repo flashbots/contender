@@ -474,9 +474,17 @@ async fn execute_stage(
     // This avoids barrier synchronization and tokio::spawn overhead
     if active_scenarios.len() == 1 {
         let (mix_idx, mix) = active_scenarios[0];
-        let (spam_args, meta) =
-            prepare_scenario(args, campaign, stage, campaign_id, stage_seed, mix_idx, mix, data_dir)
-                .await?;
+        let (spam_args, meta) = prepare_scenario(
+            args,
+            campaign,
+            stage,
+            campaign_id,
+            stage_seed,
+            mix_idx,
+            mix,
+            data_dir,
+        )
+        .await?;
 
         meta.log_start(true);
 
@@ -503,9 +511,17 @@ async fn execute_stage(
     let mut handles = vec![];
 
     for (mix_idx, mix) in active_scenarios {
-        let (spam_args, meta) =
-            prepare_scenario(args, campaign, stage, campaign_id, stage_seed, mix_idx, mix, data_dir)
-                .await?;
+        let (spam_args, meta) = prepare_scenario(
+            args,
+            campaign,
+            stage,
+            campaign_id,
+            stage_seed,
+            mix_idx,
+            mix,
+            data_dir,
+        )
+        .await?;
 
         meta.log_start(false);
 
