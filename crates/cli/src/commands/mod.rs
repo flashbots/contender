@@ -36,12 +36,7 @@ pub enum ReportFormat {
 pub struct ContenderCli {
     /// Override the default data directory (~/.contender).
     /// This directory stores the database and reports.
-    #[arg(
-        long,
-        global = true,
-        env = "CONTENDER_DATA_DIR",
-        value_name = "PATH"
-    )]
+    #[arg(long, global = true, env = "CONTENDER_DATA_DIR", value_name = "PATH")]
     pub data_dir: Option<PathBuf>,
 
     #[command(subcommand)]

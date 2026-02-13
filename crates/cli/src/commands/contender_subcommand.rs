@@ -87,12 +87,7 @@ pub enum ContenderSubcommand {
         campaign_id: Option<String>,
 
         /// Output format: html (default, opens browser) or json (machine-readable).
-        #[arg(
-            long,
-            short = 'f',
-            default_value = "html",
-            value_enum
-        )]
+        #[arg(long, short = 'f', default_value = "html", value_enum)]
         format: ReportFormat,
     },
 
