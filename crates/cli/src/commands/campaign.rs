@@ -388,19 +388,24 @@ impl ScenarioMeta {
     }
 }
 
+/// Context for preparing and executing a scenario within a campaign stage.
+struct ScenarioContext<'a> {
+    args: &'a CampaignCliArgs,
+    campaign: &'a CampaignConfig,
+    stage: &'a ResolvedStage,
+    campaign_id: &'a str,
+    stage_seed: &'a str,
+    data_dir: &'a str,
+}
+
 /// Prepares a scenario for execution, returning the spam args and metadata
 async fn prepare_scenario(
-    args: &CampaignCliArgs,
-    campaign: &CampaignConfig,
-    stage: &ResolvedStage,
-    campaign_id: &str,
-    stage_seed: &str,
+    ctx: &ScenarioContext<'_>,
     mix_idx: usize,
     mix: &ResolvedMixEntry,
-    data_dir: &str,
 ) -> Result<(SpamCommandArgs, ScenarioMeta), CliError> {
-    let scenario_seed = bump_seed(stage_seed, &mix_idx.to_string());
-    let mut args = args.to_owned();
+    let scenario_seed = bump_seed(ctx.stage_seed, &mix_idx.to_string());
+    let mut args = ctx.args.to_owned();
     args.eth_json_rpc_args.seed = Some(scenario_seed.clone());
     debug!("mix {mix_idx} seed: {}", scenario_seed);
 
@@ -413,32 +418,32 @@ async fn prepare_scenario(
     let spam_cli_args = create_spam_cli_args(
         Some(mix.scenario.clone()),
         &args,
-        campaign.spam.mode,
+        ctx.campaign.spam.mode,
         mix.rate,
-        stage.duration,
+        ctx.stage.duration,
         skip_setup,
     );
 
     let spam_scenario = if let Some(builtin_cli) = parse_builtin_reference(&mix.scenario) {
         let provider = args.eth_json_rpc_args.new_rpc_provider()?;
         let builtin = builtin_cli
-            .to_builtin_scenario(&provider, &spam_cli_args, data_dir)
+            .to_builtin_scenario(&provider, &spam_cli_args, ctx.data_dir)
             .await?;
         SpamScenario::Builtin(builtin)
     } else {
         SpamScenario::Testfile(mix.scenario.clone())
     };
 
-    let spam_args = SpamCommandArgs::new(spam_scenario, spam_cli_args, data_dir)?;
+    let spam_args = SpamCommandArgs::new(spam_scenario, spam_cli_args, ctx.data_dir)?;
 
     let meta = ScenarioMeta {
-        campaign_id: campaign_id.to_owned(),
-        campaign_name: campaign.name.clone(),
-        stage_name: stage.name.clone(),
+        campaign_id: ctx.campaign_id.to_owned(),
+        campaign_name: ctx.campaign.name.clone(),
+        stage_name: ctx.stage.name.clone(),
         scenario_label: mix.scenario.clone(),
-        mode: campaign.spam.mode,
+        mode: ctx.campaign.spam.mode,
         rate: mix.rate,
-        duration: stage.duration,
+        duration: ctx.stage.duration,
     };
 
     Ok((spam_args, meta))
@@ -470,21 +475,20 @@ async fn execute_stage(
         .into());
     }
 
+    let ctx = ScenarioContext {
+        args,
+        campaign,
+        stage,
+        campaign_id,
+        stage_seed,
+        data_dir,
+    };
+
     // FAST PATH: Single mix scenario - call spam_inner directly (same as spam mode)
     // This avoids barrier synchronization and tokio::spawn overhead
     if active_scenarios.len() == 1 {
         let (mix_idx, mix) = active_scenarios[0];
-        let (spam_args, meta) = prepare_scenario(
-            args,
-            campaign,
-            stage,
-            campaign_id,
-            stage_seed,
-            mix_idx,
-            mix,
-            data_dir,
-        )
-        .await?;
+        let (spam_args, meta) = prepare_scenario(&ctx, mix_idx, mix).await?;
 
         meta.log_start(true);
 
@@ -511,17 +515,7 @@ async fn execute_stage(
     let mut handles = vec![];
 
     for (mix_idx, mix) in active_scenarios {
-        let (spam_args, meta) = prepare_scenario(
-            args,
-            campaign,
-            stage,
-            campaign_id,
-            stage_seed,
-            mix_idx,
-            mix,
-            data_dir,
-        )
-        .await?;
+        let (spam_args, meta) = prepare_scenario(&ctx, mix_idx, mix).await?;
 
         meta.log_start(false);
 
