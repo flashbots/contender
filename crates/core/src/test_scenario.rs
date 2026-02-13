@@ -906,7 +906,7 @@ where
         Ok(payloads)
     }
 
-    /// Send one batch of spam txs evenly over one second.
+    /// Send one batch of spam txs as fast as possible.
     async fn execute_spam<F: SpamCallback + 'static>(
         &mut self,
         trigger: SpamTrigger,
@@ -931,8 +931,6 @@ where
             a_nonce.cmp(&b_nonce)
         });
 
-        let num_payloads = payloads.len();
-
         let mut tasks: Vec<tokio::task::JoinHandle<()>> = vec![];
 
         // takes gas to add to the gas price for the next batch (if needed)
@@ -954,8 +952,6 @@ where
                 .all(|p| matches!(p, ExecutionPayload::SignedTx(_, _)));
 
         if !should_batch_rpc {
-            let micros_per_task = 1_000_000 / num_payloads.max(1) as u64;
-
             for payload in payloads {
                 self.num_rpc_batches_sent += 1;
                 let rpc_client = self.rpc_client.clone();
@@ -968,8 +964,6 @@ where
                 let cancel_token = self.ctx.cancel_token.clone();
                 let error_sender = error_sender.clone();
 
-                // Wait to space transactions out evenly across a second
-                tokio::time::sleep(Duration::from_micros(micros_per_task)).await;
                 tasks.push(tokio::task::spawn(async move {
                 let extra = RuntimeTxInfo::default();
                 let handles = match payload {
@@ -1099,9 +1093,6 @@ where
 
         // === json-rpc batch mode for SignedTx payloads ===
         let batch_size = self.rpc_batch_size as usize;
-        let num_batches = num_payloads.div_ceil(batch_size).max(1) as u64;
-        let micros_per_batch = 1_000_000 / num_batches;
-
         let rpc_url = self.rpc_url.clone();
         let http_client = reqwest::Client::new();
 
@@ -1132,7 +1123,6 @@ where
                 })
                 .collect();
 
-            tokio::time::sleep(Duration::from_micros(micros_per_batch)).await;
             tasks.push(tokio::task::spawn(async move {
                 // Build json-rpc batch payload with multiple eth_sendRawTransaction requests
                 let mut requests = Vec::with_capacity(signed_chunk.len());
@@ -1460,21 +1450,32 @@ where
             .collect::<_>())
     }
 
-    /// Wait for `self.pending_tx_timeout_secs` for pending txs to confirm, then delete any remaining cache items.
+    /// Wait for pending txs to confirm, then delete any remaining cache items.
+    /// Resets the timeout whenever progress is made (cache shrinks).
     pub async fn dump_tx_cache(&self, run_id: u64) -> Result<()> {
         debug!("dumping tx cache...");
 
-        let start_time = Instant::now();
         for msg_handle in self.msg_handles.values() {
             tokio::select! {
                 _ = self.ctx.cancel_token.cancelled() => {
                 }
                 _ = async {
-                    while !self.tx_actor().done_flushing().await? {
-                        if start_time.elapsed().as_secs() > self.pending_tx_timeout_secs {
+                    let mut last_cache_len = usize::MAX;
+                    let mut last_progress = Instant::now();
+                    loop {
+                        let cache_len = self.tx_actor().done_flushing().await?;
+                        if cache_len == 0 {
+                            break;
+                        }
+                        if cache_len < last_cache_len {
+                            last_cache_len = cache_len;
+                            last_progress = Instant::now();
+                        }
+                        if last_progress.elapsed().as_secs() > self.pending_tx_timeout_secs {
                             warn!("timed out waiting for pending transactions");
                             break;
                         }
+                        tokio::time::sleep(Duration::from_millis(100)).await;
                     }
                     msg_handle.dump_cache(run_id).await?;
                     Ok::<_, Error>(())

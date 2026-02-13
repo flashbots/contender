@@ -1,7 +1,4 @@
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use std::{sync::Arc, time::Duration};
 
 use alloy::{
     network::{AnyReceiptEnvelope, ReceiptResponse},
@@ -55,7 +52,6 @@ enum FlushRequest {
     RemoveConfirmed {
         confirmed_tx_hashes: Vec<TxHash>,
         new_target_block: u64,
-        pending_tx_timeout: Duration,
     },
 }
 
@@ -237,21 +233,10 @@ where
             FlushRequest::RemoveConfirmed {
                 confirmed_tx_hashes,
                 new_target_block,
-                pending_tx_timeout,
             } => {
-                // Remove confirmed txs and timed-out txs
-                self.cache.retain(|tx| {
-                    let is_confirmed = confirmed_tx_hashes.contains(&tx.tx_hash);
-                    let is_timed_out =
-                        is_tx_timed_out_ms(tx.start_timestamp_ms, pending_tx_timeout);
-                    if is_timed_out && !is_confirmed {
-                        debug!(
-                            "tx timed out after {:?}: {:?}",
-                            pending_tx_timeout, tx.tx_hash
-                        );
-                    }
-                    !is_confirmed && !is_timed_out
-                });
+                // Remove confirmed txs (already recorded in DB by process_block_receipts)
+                self.cache
+                    .retain(|tx| !confirmed_tx_hashes.contains(&tx.tx_hash));
                 // Update target block
                 if let Some(ref mut ctx) = self.ctx {
                     if new_target_block > ctx.target_block {
@@ -287,16 +272,6 @@ where
             }
         }
         Ok(())
-    }
-}
-
-/// Check if tx is timed out based on start timestamp
-fn is_tx_timed_out_ms(start_timestamp_ms: u128, timeout: Duration) -> bool {
-    let duration_since_epoch = Duration::from_millis(start_timestamp_ms as u64);
-    let timestamp = std::time::UNIX_EPOCH + duration_since_epoch;
-    match SystemTime::now().duration_since(timestamp) {
-        Ok(elapsed) => elapsed > timeout,
-        Err(_) => true,
     }
 }
 
@@ -345,23 +320,44 @@ async fn flush_loop<D: DbOps + Send + Sync + 'static>(
             continue;
         }
 
-        // Process all pending blocks
-        let mut all_confirmed_hashes = Vec::new();
+        // Process blocks one at a time, refreshing the snapshot after each
+        let mut cache_snapshot = cache_snapshot;
+        let run_id = ctx.run_id;
+
         for bn in ctx.target_block..new_block {
-            match process_block_receipts(&cache_snapshot, &db, &rpc, ctx.run_id, bn).await {
-                Ok(confirmed) => all_confirmed_hashes.extend(confirmed),
+            match process_block_receipts(&cache_snapshot, &db, &rpc, run_id, bn).await {
+                Ok(confirmed) => {
+                    let _ = flush_sender
+                        .send(FlushRequest::RemoveConfirmed {
+                            confirmed_tx_hashes: confirmed,
+                            new_target_block: bn + 1,
+                        })
+                        .await;
+
+                    // Refresh snapshot so next block sees updated cache
+                    let (reply_tx, reply_rx) = oneshot::channel();
+                    if flush_sender
+                        .send(FlushRequest::GetSnapshot { reply: reply_tx })
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                    match reply_rx.await {
+                        Ok((new_snapshot, Some(_))) => {
+                            cache_snapshot = new_snapshot;
+                        }
+                        Ok((_, None)) => break,
+                        Err(_) => break,
+                    }
+
+                    if cache_snapshot.is_empty() {
+                        break;
+                    }
+                }
                 Err(e) => warn!("flush_cache error for block {}: {:?}", bn, e),
             }
         }
-
-        // Send removal request back to message handler
-        let _ = flush_sender
-            .send(FlushRequest::RemoveConfirmed {
-                confirmed_tx_hashes: all_confirmed_hashes,
-                new_target_block: new_block,
-                pending_tx_timeout: ctx.pending_tx_timeout,
-            })
-            .await;
     }
 }
 
@@ -554,7 +550,7 @@ impl TxActorHandle {
         Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
     }
 
-    pub async fn done_flushing(&self) -> Result<bool> {
+    pub async fn done_flushing(&self) -> Result<usize> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(TxActorMessage::GetCacheLen(sender))
@@ -562,7 +558,7 @@ impl TxActorHandle {
             .map_err(Box::new)
             .map_err(CallbackError::from)?;
         let cache_len = receiver.await.map_err(CallbackError::from)?;
-        Ok(cache_len == 0)
+        Ok(cache_len)
     }
 
     /// Removes an existing tx in the cache.
