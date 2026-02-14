@@ -51,7 +51,16 @@ pub async fn fill_block(
         block_gas_limit.unwrap_or(30_000_000)
     };
 
-    let num_txs = txs_per_block.unwrap_or(txs_per_second.unwrap_or_default());
+    let num_txs = match (txs_per_block, txs_per_second) {
+        (Some(0), _) | (_, Some(0)) => {
+            return Err(CliError::Args(crate::commands::error::ArgsError::SpamRateNotFound));
+        }
+        (Some(n), _) => n,
+        (_, Some(n)) => n,
+        (None, None) => {
+            return Err(CliError::Args(crate::commands::error::ArgsError::SpamRateNotFound));
+        }
+    };
     let gas_per_tx = gas_limit / num_txs;
 
     info!("Attempting to fill blocks with {gas_limit} gas; sending {num_txs} txs, each with gas limit {gas_per_tx}.");
