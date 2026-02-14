@@ -1123,6 +1123,7 @@ where
                 })
                 .collect();
 
+            let hist = self.prometheus.hist.get();
             tasks.push(tokio::task::spawn(async move {
                 // Build json-rpc batch payload with multiple eth_sendRawTransaction requests
                 let mut requests = Vec::with_capacity(signed_chunk.len());
@@ -1138,9 +1139,19 @@ where
                     }));
                 }
 
+                // === PROMETHEUS LATENCY METRICS ===
+                let mut timer = hist.as_ref().map(|h| {
+                    h.with_label_values(&["eth_sendRawTransaction"])
+                        .start_timer()
+                });
+
                 let resp = match http_client.post(rpc_url).json(&requests).send().await {
-                    Ok(r) => r,
+                    Ok(r) => {
+                        timer.take().map(|t| t.observe_duration());
+                        r
+                    }
                     Err(e) => {
+                        timer.take().map(|t| t.observe_duration());
                         warn!("failed to send JSON-RPC batch: {e:?}");
                         return;
                     }
