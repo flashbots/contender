@@ -53,12 +53,16 @@ pub async fn fill_block(
 
     let num_txs = match (txs_per_block, txs_per_second) {
         (Some(0), _) | (_, Some(0)) => {
-            return Err(CliError::Args(crate::commands::error::ArgsError::SpamRateNotFound));
+            return Err(CliError::Args(
+                crate::commands::error::ArgsError::SpamRateNotFound,
+            ));
         }
         (Some(n), _) => n,
         (_, Some(n)) => n,
         (None, None) => {
-            return Err(CliError::Args(crate::commands::error::ArgsError::SpamRateNotFound));
+            return Err(CliError::Args(
+                crate::commands::error::ArgsError::SpamRateNotFound,
+            ));
         }
     };
     let gas_per_tx = gas_limit / num_txs;
