@@ -1147,11 +1147,11 @@ where
 
                 let resp = match http_client.post(rpc_url).json(&requests).send().await {
                     Ok(r) => {
-                        timer.take().map(|t| t.observe_duration());
+                        if let Some(t) = timer.take() { t.observe_duration() }
                         r
                     }
                     Err(e) => {
-                        timer.take().map(|t| t.observe_duration());
+                        if let Some(t) = timer.take() { t.observe_duration() }
                         warn!("failed to send JSON-RPC batch: {e:?}");
                         return;
                     }
