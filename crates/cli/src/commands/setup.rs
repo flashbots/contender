@@ -19,6 +19,7 @@ use contender_core::{
 use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use contender_testfile::TestConfig;
 use std::{
+    path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -209,8 +210,13 @@ pub struct SetupCommandArgs {
 }
 
 impl SetupCommandArgs {
-    pub fn new(scenario: SpamScenario, cli_args: SendTxsCliArgsInner) -> Result<Self, CliError> {
-        let seed = RandSeed::seed_from_str(&cli_args.seed.to_owned().unwrap_or(load_seedfile()?));
+    pub fn new(
+        scenario: SpamScenario,
+        cli_args: SendTxsCliArgsInner,
+        data_dir: &Path,
+    ) -> Result<Self, CliError> {
+        let seed =
+            RandSeed::seed_from_str(&cli_args.seed.to_owned().unwrap_or(load_seedfile(data_dir)?));
         Ok(Self {
             scenario,
             eth_json_rpc_args: cli_args.clone(),

@@ -22,8 +22,13 @@ use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use contender_testfile::TestConfig;
 use nu_ansi_term::{AnsiGenericString, Style as ANSIStyle};
 use rand::Rng;
+use std::path::{Path, PathBuf};
 use std::{str::FromStr, sync::Arc, time::Duration};
+use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
+
+/// Maximum number of concurrent funding tasks to avoid overwhelming the RPC with connections.
+const FUNDING_CONCURRENCY_LIMIT: usize = 25;
 
 pub const DEFAULT_PRV_KEYS: [&str; 10] = [
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
@@ -205,14 +210,19 @@ pub async fn fund_accounts(
             insufficient_balances.len()
         );
     }
+
+    let semaphore = Arc::new(Semaphore::new(FUNDING_CONCURRENCY_LIMIT));
+
     for (idx, (address, _)) in insufficient_balances.into_iter().enumerate() {
         let fund_amount = min_balance;
         let fund_with = fund_with.to_owned();
         let sender = sender_pending_tx.clone();
         let rpc_client = rpc_client.clone();
+        let sem = semaphore.clone();
 
         fund_handles.push(tokio::task::spawn(async move {
-            let res = fund_account(
+            let _permit = sem.acquire().await.expect("semaphore closed");
+            match fund_account(
                 &fund_with,
                 address,
                 fund_amount,
@@ -220,8 +230,26 @@ pub async fn fund_accounts(
                 Some(admin_nonce + idx as u64),
                 tx_type,
             )
-            .await?;
-            sender.send(res).await.expect("failed to handle pending tx");
+            .await
+            {
+                Ok(res) => {
+                    // If the receiver is already closed (e.g. an earlier task failed
+                    // and the function returned), just drop the result.
+                    let _ = sender.send(res).await;
+                }
+                Err(UtilError::Rpc(e))
+                    if [
+                        "already known",
+                        "replacement transaction underpriced",
+                        "transaction already imported",
+                    ]
+                    .iter()
+                    .any(|em| e.to_string().to_lowercase().contains(em)) =>
+                {
+                    warn!("funding tx for {address} already in mempool, skipping");
+                }
+                Err(e) => return Err(e.into()),
+            }
 
             Ok::<_, CliError>(())
         }));
@@ -345,16 +373,38 @@ pub async fn find_insufficient_balances(
     Ok(insufficient_balances)
 }
 
-/// Returns the path to the data directory.
+/// Returns the path to the default data directory.
 /// The directory is created if it does not exist.
-pub fn data_dir() -> Result<String, UtilError> {
+pub fn default_data_dir() -> Result<PathBuf, UtilError> {
     let home_dir = if cfg!(windows) {
         std::env::var("USERPROFILE")?
     } else {
         std::env::var("HOME")?
     };
+    let home_dir = PathBuf::from(&home_dir);
 
-    let dir = format!("{home_dir}/.contender");
+    let dir = home_dir.join(".contender");
+
+    // ensure directory exists
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// Resolves the data directory with the following priority:
+/// 1. CLI argument (if provided)
+/// 2. CONTENDER_DATA_DIR environment variable (if set)
+/// 3. Default: $HOME/.contender
+///
+/// Creates the directory if it does not exist.
+pub fn resolve_data_dir(cli_arg: Option<std::path::PathBuf>) -> Result<PathBuf, UtilError> {
+    let dir = if let Some(path) = cli_arg {
+        path.to_string_lossy().to_string()
+    } else if let Ok(env_dir) = std::env::var("CONTENDER_DATA_DIR") {
+        env_dir
+    } else {
+        return default_data_dir();
+    };
+    let dir = PathBuf::from(dir);
 
     // ensure directory exists
     std::fs::create_dir_all(&dir)?;
@@ -362,16 +412,25 @@ pub fn data_dir() -> Result<String, UtilError> {
 }
 
 /// Returns the fully-qualified path to the report directory.
-pub fn init_reports_dir() -> String {
-    let path = format!("{}/reports", data_dir().expect("invalid data directory"));
+/// Creates the directory if it does not exist.
+pub fn init_reports_dir(data_dir: &Path) -> PathBuf {
+    let path = data_dir.join("reports");
     std::fs::create_dir_all(&path).expect("failed to create report directory");
     path
 }
 
+/// Returns path to the contender DB file within the given data directory.
+pub fn db_file_in(data_dir: &Path) -> PathBuf {
+    data_dir.join("contender.db")
+}
+
 /// Returns path to default contender DB file.
+#[deprecated(note = "Use db_file_in instead")]
+#[allow(dead_code)]
 pub fn db_file() -> Result<String, UtilError> {
-    let data_path = data_dir()?;
-    Ok(format!("{data_path}/contender.db"))
+    let data_path = default_data_dir()?;
+    let db_path = data_path.join("contender.db");
+    Ok(db_path.to_string_lossy().to_string())
 }
 
 pub fn bold<'a>(msg: impl AsRef<str> + 'a) -> AnsiGenericString<'a, str> {
@@ -423,12 +482,10 @@ pub fn parse_duration(input: &str) -> std::result::Result<Duration, ParseDuratio
     }
 }
 
-pub fn load_seedfile() -> Result<String, CliError> {
-    let data_path = data_dir()?;
-
-    let seed_path = format!("{}/seed", &data_path);
-    if !std::path::Path::new(&seed_path).exists() {
-        info!("generating seed file at {}", &seed_path);
+pub fn load_seedfile(data_dir: &Path) -> Result<String, CliError> {
+    let seed_path = data_dir.join("seed");
+    if !seed_path.exists() {
+        info!("generating seed file at {seed_path:?}");
         let mut rng = rand::thread_rng();
         let seed: [u8; 32] = rng.gen();
         let seed_hex = hex::encode(seed);
@@ -482,8 +539,10 @@ pub fn human_readable_duration(duration: Duration) -> String {
 
 #[cfg(test)]
 mod test {
+    use crate::commands::common::EngineParams;
     use crate::error::CliError;
     use crate::util::error::UtilError;
+    use crate::util::fund_account;
     use crate::util::human_readable_duration;
     use crate::util::utils::human_readable_gas;
 
@@ -498,11 +557,23 @@ mod test {
         providers::{DynProvider, Provider, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
+    use contender_core::util::default_signers;
     use std::str::FromStr;
     use std::time::Duration;
 
     pub fn spawn_anvil() -> AnvilInstance {
         Anvil::new().block_time_f64(0.25).spawn()
+    }
+
+    pub fn spawn_anvil_no_mining() -> AnvilInstance {
+        Anvil::new().args(["--no-mining"]).spawn()
+    }
+
+    pub fn init_tracing() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("contender=debug,info")
+            .with_test_writer()
+            .try_init();
     }
 
     #[test]
@@ -686,6 +757,94 @@ mod test {
                 chain_id: _
             })
         ))
+    }
+
+    #[tokio::test]
+    async fn fund_account_returns_rpc_error_on_duplicate_tx() {
+        init_tracing();
+        let anvil = spawn_anvil_no_mining();
+        let rpc_client = DynProvider::new(
+            ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .connect_http(anvil.endpoint_url()),
+        );
+        let signer = PrivateKeySigner::from_str(super::DEFAULT_PRV_KEYS[0]).unwrap();
+        let recipient: Address = "0x0000000000000000000000000000000000000013"
+            .parse()
+            .unwrap();
+        let min_balance = U256::from(ETH_TO_WEI);
+        let tx_type = alloy::consensus::TxType::Eip1559;
+        // send eth to the recipient
+        let res = fund_account(&signer, recipient, min_balance, &rpc_client, None, tx_type).await;
+        assert!(res.is_ok(), "initial funding should succeed");
+        println!("initial funding tx sent, attempting duplicate... {res:?}");
+        // attempt to send the same transaction again, which should result in an error because the nonce is the same and the first transaction is still pending
+        let res = fund_account(&signer, recipient, min_balance, &rpc_client, None, tx_type).await;
+        assert!(
+            res.is_err(),
+            "duplicate transaction should result in an error"
+        );
+        println!("error as expected: {res:?}");
+        assert!(
+            matches!(res.unwrap_err(), UtilError::Rpc(e) if e.to_string().to_lowercase().contains("transaction already imported")),
+            "error should be a util RPC error indicating the transaction is already known or underpriced"
+        );
+    }
+
+    #[tokio::test]
+    async fn fund_accounts_ignores_duplicate_transactions() {
+        init_tracing();
+        let anvil = spawn_anvil_no_mining();
+        println!("Anvil endpoint: {}", anvil.endpoint_url());
+        let provider = ProviderBuilder::new()
+            .network::<AnyNetwork>()
+            .connect_http(anvil.endpoint_url());
+        let rpc_client = DynProvider::new(provider);
+        let recipients = [Address::random(), Address::random()];
+        let signers = default_signers();
+        let admin_signer = signers.first().unwrap();
+
+        // call fund_accounts, which will stall waiting for transactions to confirm, but since we set no-mining, they will never confirm
+        // time out quickly so we can call it again
+        tokio::select! {
+            // time out after 3 seconds
+            _ = tokio::time::sleep(Duration::from_secs(3)) => {
+                // at this point we'll have sent all our transactions, now to the next stage
+                println!("cancelling fund_accounts call, retrying...");
+            }
+            res = fund_accounts(
+                &recipients,
+                admin_signer,
+                &rpc_client,
+                U256::from(ETH_TO_WEI),
+                alloy::consensus::TxType::Eip1559,
+                &EngineParams {
+                    engine_provider: None,
+                    call_fcu: false,
+                },
+            ) => {
+                // this won't happen because we set no-mining, but if it does, we want to know about it
+                res.unwrap();
+            }
+        }
+
+        // call fund_accounts again with the same recipients, which will attempt to send the same transactions again, but since they are already in the mempool, it should skip them and not error
+        let res = fund_accounts(
+            &recipients,
+            admin_signer,
+            &rpc_client,
+            U256::from(ETH_TO_WEI),
+            alloy::consensus::TxType::Eip1559,
+            &EngineParams {
+                engine_provider: None,
+                call_fcu: false,
+            },
+        )
+        .await;
+        assert!(
+            res.is_ok(),
+            "fund_accounts should ignore duplicate transactions in mempool"
+        );
     }
 
     #[test]

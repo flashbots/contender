@@ -5,10 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+
+## [0.8.1](https://github.com/flashbots/contender/releases/tag/v0.8.1) - 2026-02-09
 
 - changed internals of TimedSpammer to tick on `tokio::time::interval` rather than using `sleep` (was causing time drift) ([#443](https://github.com/flashbots/contender/pull/443/changes))
   - added benefit: smoother spam output
+- bugfix: limit concurrent setup tasks to prevent FD exhaustion ([#447](https://github.com/flashbots/contender/pull/447/changes))
 
 ## [0.8.0](https://github.com/flashbots/contender/releases/tag/v0.8.0) - 2026-02-02
 
