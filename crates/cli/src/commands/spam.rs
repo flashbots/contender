@@ -40,7 +40,10 @@ use contender_engine_provider::{
 };
 use contender_testfile::TestConfig;
 use op_alloy_network::{Ethereum, Optimism};
-use std::{path::PathBuf, sync::atomic::AtomicBool};
+use std::{
+    path::{Path, PathBuf},
+    sync::atomic::AtomicBool,
+};
 use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
 
@@ -175,7 +178,7 @@ pub struct SpamCampaignContext {
 }
 
 impl SpamCommandArgs {
-    pub fn new(scenario: SpamScenario, cli_args: SpamCliArgs) -> Result<Self> {
+    pub fn new(scenario: SpamScenario, cli_args: SpamCliArgs, data_dir: &Path) -> Result<Self> {
         Ok(Self {
             scenario,
             spam_args: cli_args.clone(),
@@ -184,7 +187,7 @@ impl SpamCommandArgs {
                     .eth_json_rpc_args
                     .rpc_args
                     .seed
-                    .unwrap_or(load_seedfile()?),
+                    .unwrap_or(load_seedfile(data_dir)?),
             ),
         })
     }

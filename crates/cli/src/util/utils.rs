@@ -22,6 +22,7 @@ use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use contender_testfile::TestConfig;
 use nu_ansi_term::{AnsiGenericString, Style as ANSIStyle};
 use rand::Rng;
+use std::path::{Path, PathBuf};
 use std::{str::FromStr, sync::Arc, time::Duration};
 use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
@@ -372,16 +373,38 @@ pub async fn find_insufficient_balances(
     Ok(insufficient_balances)
 }
 
-/// Returns the path to the data directory.
+/// Returns the path to the default data directory.
 /// The directory is created if it does not exist.
-pub fn data_dir() -> Result<String, UtilError> {
+pub fn default_data_dir() -> Result<PathBuf, UtilError> {
     let home_dir = if cfg!(windows) {
         std::env::var("USERPROFILE")?
     } else {
         std::env::var("HOME")?
     };
+    let home_dir = PathBuf::from(&home_dir);
 
-    let dir = format!("{home_dir}/.contender");
+    let dir = home_dir.join(".contender");
+
+    // ensure directory exists
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// Resolves the data directory with the following priority:
+/// 1. CLI argument (if provided)
+/// 2. CONTENDER_DATA_DIR environment variable (if set)
+/// 3. Default: $HOME/.contender
+///
+/// Creates the directory if it does not exist.
+pub fn resolve_data_dir(cli_arg: Option<std::path::PathBuf>) -> Result<PathBuf, UtilError> {
+    let dir = if let Some(path) = cli_arg {
+        path.to_string_lossy().to_string()
+    } else if let Ok(env_dir) = std::env::var("CONTENDER_DATA_DIR") {
+        env_dir
+    } else {
+        return default_data_dir();
+    };
+    let dir = PathBuf::from(dir);
 
     // ensure directory exists
     std::fs::create_dir_all(&dir)?;
@@ -389,16 +412,25 @@ pub fn data_dir() -> Result<String, UtilError> {
 }
 
 /// Returns the fully-qualified path to the report directory.
-pub fn init_reports_dir() -> String {
-    let path = format!("{}/reports", data_dir().expect("invalid data directory"));
+/// Creates the directory if it does not exist.
+pub fn init_reports_dir(data_dir: &Path) -> PathBuf {
+    let path = data_dir.join("reports");
     std::fs::create_dir_all(&path).expect("failed to create report directory");
     path
 }
 
+/// Returns path to the contender DB file within the given data directory.
+pub fn db_file_in(data_dir: &Path) -> PathBuf {
+    data_dir.join("contender.db")
+}
+
 /// Returns path to default contender DB file.
+#[deprecated(note = "Use db_file_in instead")]
+#[allow(dead_code)]
 pub fn db_file() -> Result<String, UtilError> {
-    let data_path = data_dir()?;
-    Ok(format!("{data_path}/contender.db"))
+    let data_path = default_data_dir()?;
+    let db_path = data_path.join("contender.db");
+    Ok(db_path.to_string_lossy().to_string())
 }
 
 pub fn bold<'a>(msg: impl AsRef<str> + 'a) -> AnsiGenericString<'a, str> {
@@ -450,12 +482,10 @@ pub fn parse_duration(input: &str) -> std::result::Result<Duration, ParseDuratio
     }
 }
 
-pub fn load_seedfile() -> Result<String, CliError> {
-    let data_path = data_dir()?;
-
-    let seed_path = format!("{}/seed", &data_path);
-    if !std::path::Path::new(&seed_path).exists() {
-        info!("generating seed file at {}", &seed_path);
+pub fn load_seedfile(data_dir: &Path) -> Result<String, CliError> {
+    let seed_path = data_dir.join("seed");
+    if !seed_path.exists() {
+        info!("generating seed file at {seed_path:?}");
         let mut rng = rand::thread_rng();
         let seed: [u8; 32] = rng.gen();
         let seed_hex = hex::encode(seed);

@@ -15,6 +15,12 @@ contender report -p 2
 contender report -i 203 -p 3
 ```
 
+Contender can also generate JSON reports -- useful for automated analysis/reporting. JSON reports contain all the raw data used to generate HTML reports. Just add the `--format` (`-f`) flag:
+
+```bash
+contender report -f json
+```
+
 ## Database ops
 
 ```bash
