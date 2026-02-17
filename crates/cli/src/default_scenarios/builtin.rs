@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use super::fill_block::{fill_block, FillBlockArgs, FillBlockCliArgs};
 use crate::{
     commands::SpamCliArgs,
@@ -79,7 +81,7 @@ impl BuiltinScenarioCli {
         &self,
         provider: &AnyProvider,
         spam_args: &SpamCliArgs,
-        data_dir: &str,
+        data_dir: &Path,
     ) -> Result<BuiltinScenario, CliError> {
         match self.to_owned() {
             BuiltinScenarioCli::Blobs(args) => Ok(BuiltinScenario::Blobs(args)),

@@ -7,7 +7,7 @@ use crate::command::SpamRunMetrics;
 use crate::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::info;
+use std::path::{Path, PathBuf};
 
 pub struct ReportMetadata {
     pub scenario_name: String,
@@ -119,7 +119,7 @@ impl ReportExportV1 {
 }
 
 /// Builds an HTML report for the given run IDs. Returns the path to the report.
-pub fn build_html_report(meta: ReportMetadata, reports_dir: &str) -> Result<String> {
+pub fn build_html_report(meta: ReportMetadata, reports_dir: &Path) -> Result<PathBuf> {
     let template = include_str!("template.html.handlebars");
 
     let mut data = HashMap::new();
@@ -127,27 +127,21 @@ pub fn build_html_report(meta: ReportMetadata, reports_dir: &str) -> Result<Stri
     data.insert("data", template_data);
     let html = handlebars::Handlebars::new().render_template(template, &data)?;
 
-    let path = format!(
-        "{}/report-{}-{}.html",
-        reports_dir, meta.start_run_id, meta.end_run_id
-    );
+    let filename = format!("report-{}-{}.html", meta.start_run_id, meta.end_run_id);
+    let path = reports_dir.join(filename);
     std::fs::write(&path, html)?;
-    info!("saved report to {path}");
 
     Ok(path)
 }
 
 /// Builds a JSON report for the given run IDs. Returns the path to the report.
-pub fn build_json_report(meta: &ReportMetadata, reports_dir: &str) -> Result<String> {
+pub fn build_json_report(meta: &ReportMetadata, reports_dir: &Path) -> Result<PathBuf> {
     let export = ReportExportV1::new(meta);
     let json = serde_json::to_string_pretty(&export)?;
 
-    let path = format!(
-        "{}/report-{}-{}.json",
-        reports_dir, meta.start_run_id, meta.end_run_id
-    );
+    let filename = format!("report-{}-{}.json", meta.start_run_id, meta.end_run_id);
+    let path = reports_dir.join(filename);
     std::fs::write(&path, json)?;
-    info!("saved JSON report to {path}");
 
     Ok(path)
 }

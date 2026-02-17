@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use super::block_trace::TxTraceReceipt;
 use crate::Result;
 use alloy::network::AnyRpcBlock;
@@ -9,20 +11,20 @@ static CACHE_FILENAME: &str = "debug_trace.json";
 pub struct CacheFile {
     pub traces: Vec<TxTraceReceipt>,
     pub blocks: Vec<AnyRpcBlock>,
-    pub data_dir: String,
+    pub data_dir: PathBuf,
 }
 
 impl CacheFile {
-    pub fn new(traces: Vec<TxTraceReceipt>, blocks: Vec<AnyRpcBlock>, data_dir: &str) -> Self {
+    pub fn new(traces: Vec<TxTraceReceipt>, blocks: Vec<AnyRpcBlock>, data_dir: &Path) -> Self {
         Self {
             traces,
             blocks,
-            data_dir: data_dir.to_string(),
+            data_dir: data_dir.to_path_buf(),
         }
     }
 
-    pub fn load(data_dir: &str) -> Result<Self> {
-        let file = std::fs::File::open(cache_path(data_dir))?;
+    pub fn load(data_dir: impl AsRef<Path>) -> Result<Self> {
+        let file = std::fs::File::open(cache_path(data_dir.as_ref()))?;
         let cache_data: CacheFile = serde_json::from_reader(file)?;
         Ok(cache_data)
     }
@@ -35,6 +37,6 @@ impl CacheFile {
 }
 
 /// Returns the fully-qualified path to the cache file.
-fn cache_path(data_dir: &str) -> String {
-    format!("{data_dir}/{CACHE_FILENAME}")
+fn cache_path(data_dir: &Path) -> PathBuf {
+    data_dir.join(CACHE_FILENAME)
 }

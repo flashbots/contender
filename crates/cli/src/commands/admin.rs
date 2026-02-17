@@ -14,7 +14,7 @@ use contender_core::{
 };
 use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tracing::{info, warn};
 use url::Url;
@@ -22,13 +22,13 @@ use url::Url;
 #[derive(Debug, Error)]
 pub enum AdminError {
     #[error("seed file is empty. path: {0}")]
-    SeedFileEmpty(String),
+    SeedFileEmpty(PathBuf),
 
     #[error("failed to read seed file at path: {0}")]
-    SeedFileDoesNotExist(String),
+    SeedFileDoesNotExist(PathBuf),
 
     #[error("invalid data in seed file at path: {0}")]
-    SeedFileInvalid(String),
+    SeedFileInvalid(PathBuf),
 
     #[error("failed to read input from stdin")]
     Readline(std::io::Error),
@@ -120,8 +120,8 @@ pub enum AdminCommand {
 }
 
 /// Reads and validates the seed file
-fn read_seed_file(data_dir: &str) -> Result<Vec<u8>> {
-    let seed_path = format!("{data_dir}/seed");
+fn read_seed_file(data_dir: &Path) -> Result<Vec<u8>> {
+    let seed_path = data_dir.join("seed");
     let seed_hex = std::fs::read_to_string(&seed_path)
         .map_err(|_| AdminError::SeedFileDoesNotExist(seed_path.to_owned()))?;
     let decoded = hex::decode(seed_hex.trim())
@@ -145,7 +145,7 @@ fn confirm_sensitive_operation(_operation: &str) -> Result<()> {
 }
 
 /// Handles the accounts subcommand
-fn handle_accounts(from_pool: String, num_signers: usize, data_dir: &str) -> Result<()> {
+fn handle_accounts(from_pool: String, num_signers: usize, data_dir: &Path) -> Result<()> {
     let seed_bytes = read_seed_file(data_dir)?;
     let seed = RandSeed::seed_from_bytes(&seed_bytes);
     print_accounts_for_pool(&from_pool, num_signers, &seed)?;
@@ -172,14 +172,14 @@ fn print_accounts_for_pool(pool: &str, num_signers: usize, seed: &RandSeed) -> R
 }
 
 /// Handles the seed subcommand
-fn handle_seed(data_dir: &str) -> Result<()> {
+fn handle_seed(data_dir: &Path) -> Result<()> {
     confirm_sensitive_operation("displaying seed value")?;
     let seed_bytes = read_seed_file(data_dir)?;
     println!("{}", hex::encode(seed_bytes));
     Ok(())
 }
 
-fn print_setcode_account(data_dir: &str) -> Result<()> {
+fn print_setcode_account(data_dir: &Path) -> Result<()> {
     confirm_sensitive_operation("displaying private key")?;
     let seed_bytes = read_seed_file(data_dir)?;
     let seed = RandSeed::seed_from_bytes(&seed_bytes);
@@ -196,7 +196,7 @@ async fn handle_reclaim_eth(
     from_pool: Vec<String>,
     num_accounts: usize,
     scenario_file: Option<String>,
-    data_dir: &str,
+    data_dir: &Path,
     db: &SqliteDb,
 ) -> Result<()> {
     // Determine RPC URL and from_pools
@@ -407,7 +407,7 @@ async fn handle_contract_address(contract_name: String, rpc_url: Url, db: &Sqlit
 
 pub async fn handle_admin_command(
     command: AdminCommand,
-    data_dir: &str,
+    data_dir: &Path,
     db: SqliteDb,
 ) -> Result<()> {
     match command {

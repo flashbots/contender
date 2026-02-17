@@ -11,9 +11,9 @@ use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, types::FromSql, Row};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+use std::{collections::BTreeMap, path::Path};
 use tracing::debug;
 
 // DEV NOTE: increment this const when making changes to the DB schema
@@ -46,7 +46,7 @@ pub struct SqliteDb {
 }
 
 impl SqliteDb {
-    pub fn from_file(file: &str) -> Result<Self> {
+    pub fn from_file(file: impl AsRef<Path>) -> Result<Self> {
         let manager = SqliteConnectionManager::file(file);
         let pool = Pool::builder()
             .max_size(4)

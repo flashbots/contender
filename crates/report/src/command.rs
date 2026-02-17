@@ -30,7 +30,7 @@ pub async fn report(
     last_run_id: Option<u64>,
     preceding_runs: u64,
     db: &(impl DbOps + Clone + Send + Sync + 'static),
-    data_dir: &str,
+    data_dir: &Path,
     use_json: bool,
 ) -> Result<()> {
     let num_runs = db.num_runs().map_err(|e| e.into())?;
@@ -66,10 +66,11 @@ pub async fn report(
     // collect CSV report for each run_id
     let start_run_id = end_run_id - preceding_runs;
     let mut all_txs = vec![];
+    let reports_dir = data_dir.join("reports");
     for id in start_run_id..=end_run_id {
         let txs = db.get_run_txs(id).map_err(|e| e.into())?;
         all_txs.extend_from_slice(&txs);
-        save_csv_report(id, &txs, &format!("{data_dir}/reports"))?;
+        save_csv_report(id, &txs, &reports_dir)?;
     }
 
     // get run data, filter by rpc_url
@@ -276,17 +277,18 @@ pub async fn report(
         campaign: campaign_context,
     };
 
-    let reports_dir = format!("{data_dir}/reports");
+    let reports_dir = data_dir.join("reports");
 
     if use_json {
         // JSON output - no browser opening
         let report_path = build_json_report(&report_metadata, &reports_dir)?;
-        println!("{report_path}");
+        info!("saved JSON report to {report_path:?}");
         return Ok(());
     }
 
     // HTML output with browser opening (existing behavior)
     let report_path = build_html_report(report_metadata, &reports_dir)?;
+    info!("saved report to {report_path:?}");
 
     // Open the report in the default web browser, skipping if "none" is set
     // in the BROWSER environment variable.
@@ -294,14 +296,14 @@ pub async fn report(
     if env::var("BROWSER").unwrap_or_default() == "none" {
         return Ok(());
     }
-    webbrowser::open(&report_path)?;
+    webbrowser::open(&report_path.to_string_lossy().to_string())?;
 
     Ok(())
 }
 
 /// Saves RunTxs to `{reports_dir}/{id}.csv`.
-fn save_csv_report(id: u64, txs: &[RunTx], reports_dir: &str) -> Result<()> {
-    let out_path = format!("{reports_dir}/{id}.csv");
+fn save_csv_report(id: u64, txs: &[RunTx], reports_dir: &Path) -> Result<()> {
+    let out_path = reports_dir.join(format!("{id}.csv"));
 
     info!("Exporting report for run #{id:?} to {out_path:?}");
     let mut writer = WriterBuilder::new().has_headers(true).from_path(out_path)?;
@@ -356,14 +358,14 @@ struct StageScenarioSummary {
 pub async fn report_campaign(
     campaign_id: &str,
     db: &(impl DbOps + Clone + Send + Sync + 'static),
-    data_dir: &str,
+    data_dir: &Path,
 ) -> Result<()> {
     let runs = db.get_runs_by_campaign(campaign_id).map_err(|e| e.into())?;
     if runs.is_empty() {
         return Err(Error::CampaignNotFound(campaign_id.to_owned()));
     }
 
-    let data_path = Path::new(data_dir).join("reports");
+    let data_path = data_dir.join("reports");
     if !data_path.exists() {
         fs::create_dir_all(&data_path)?;
     }

@@ -14,6 +14,7 @@ use clap::Args;
 use contender_core::db::DbOps;
 use contender_core::error::RuntimeParamErrorKind;
 use contender_testfile::{CampaignConfig, CampaignMode, ResolvedMixEntry, ResolvedStage};
+use std::path::Path;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 use url::Url;
@@ -116,7 +117,7 @@ fn bump_seed(base_seed: &str, stage_name: &str) -> String {
 
 pub async fn run_campaign(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
-    data_dir: &str,
+    data_dir: &Path,
     args: CampaignCliArgs,
 ) -> Result<(), CliError> {
     let campaign = CampaignConfig::from_file(&args.campaign)?;
@@ -395,7 +396,7 @@ struct ScenarioContext<'a> {
     stage: &'a ResolvedStage,
     campaign_id: &'a str,
     stage_seed: &'a str,
-    data_dir: &'a str,
+    data_dir: &'a Path,
 }
 
 /// Prepares a scenario for execution, returning the spam args and metadata
@@ -456,7 +457,7 @@ async fn execute_stage(
     args: &CampaignCliArgs,
     campaign_id: &str,
     stage_seed: &str,
-    data_dir: &str,
+    data_dir: &Path,
 ) -> Result<Vec<u64>, CliError> {
     // Collect active scenarios (non-zero rate) with their indices
     let active_scenarios: Vec<_> = stage
