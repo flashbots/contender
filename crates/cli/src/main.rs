@@ -3,7 +3,7 @@ mod default_scenarios;
 mod error;
 mod util;
 
-use crate::commands::{error::ArgsError, SpamCampaignContext};
+use crate::commands::{error::ArgsError, ReportFormat, SpamCampaignContext};
 use alloy::{
     network::AnyNetwork,
     providers::{DynProvider, ProviderBuilder},
@@ -22,17 +22,12 @@ use contender_sqlite::{SqliteDb, DB_VERSION};
 use default_scenarios::{fill_block::FillBlockCliArgs, BuiltinScenarioCli};
 use error::CliError;
 use regex::Regex;
-use std::{str::FromStr, sync::LazyLock};
+use std::str::FromStr;
 use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
-use util::{data_dir, db_file, init_reports_dir};
+use util::{db_file_in, init_reports_dir, resolve_data_dir};
 
-static DB: LazyLock<SqliteDb> = std::sync::LazyLock::new(|| {
-    let path = db_file().expect("failed to get DB file path");
-    debug!("opening DB at {path}");
-    SqliteDb::from_file(&path).expect("failed to open contender DB file")
-});
 // prometheus
 static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
 static LATENCY_HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
@@ -44,12 +39,19 @@ async fn main() -> miette::Result<()> {
 
 async fn run() -> Result<(), CliError> {
     init_tracing();
-    init_reports_dir();
 
     let args = ContenderCli::parse_args();
-    init_db(&args.command)?;
-    let db = DB.clone();
-    let db_path = db_file()?;
+
+    // Resolve data directory from CLI arg, env var, or default
+    let data_dir = resolve_data_dir(args.data_dir.clone())?;
+    let db_path = db_file_in(&data_dir);
+    init_reports_dir(&data_dir);
+
+    debug!("data directory: {data_dir:?}");
+    debug!("opening DB at {db_path:?}");
+
+    let db = SqliteDb::from_file(&db_path)?;
+    init_db(&args.command, &db)?;
 
     match args.command {
         ContenderSubcommand::Db { command } => match command {
@@ -68,7 +70,7 @@ async fn run() -> Result<(), CliError> {
                 "scenario:simple.toml"
             };
             let scenario = SpamScenario::Testfile(testfile.to_owned());
-            let args = SetupCommandArgs::new(scenario, args.rpc_args)?;
+            let args = SetupCommandArgs::new(scenario, args.rpc_args, &data_dir)?;
 
             commands::setup(&db, args).await?
         }
@@ -99,31 +101,36 @@ async fn run() -> Result<(), CliError> {
             let scenario = if let Some(testfile) = testfile {
                 SpamScenario::Testfile(testfile)
             } else if let Some(config) = builtin_scenario_config {
-                SpamScenario::Builtin(config.to_builtin_scenario(&provider, &args).await?)
+                SpamScenario::Builtin(
+                    config
+                        .to_builtin_scenario(&provider, &args, &data_dir)
+                        .await?,
+                )
             } else {
                 // default to fill-block scenario
                 SpamScenario::Builtin(
                     BuiltinScenarioCli::FillBlock(FillBlockCliArgs {
                         max_gas_per_block: None,
                     })
-                    .to_builtin_scenario(&provider, &args)
+                    .to_builtin_scenario(&provider, &args, &data_dir)
                     .await?,
                 )
             };
 
-            let spam_args = SpamCommandArgs::new(scenario, *args)?;
+            let spam_args = SpamCommandArgs::new(scenario, *args, &data_dir)?;
             commands::spam(&db, &spam_args, SpamCampaignContext::default()).await?;
         }
 
         ContenderSubcommand::Replay { args } => {
             let args = ReplayArgs::from_cli_args(*args).await?;
-            commands::replay::replay(args, &DB.clone()).await?;
+            commands::replay::replay(args, &db).await?;
         }
 
         ContenderSubcommand::Report {
             last_run_id,
             preceding_runs,
             campaign_id,
+            format,
         } => {
             if let Some(campaign_id) = campaign_id {
                 let resolved_campaign_id = if campaign_id == "__LATEST_CAMPAIGN__" {
@@ -140,19 +147,17 @@ async fn run() -> Result<(), CliError> {
                 if preceding_runs > 0 {
                     warn!("--preceding-runs is ignored when --campaign is provided");
                 }
-                contender_report::command::report_campaign(
-                    &resolved_campaign_id,
-                    &db,
-                    &data_dir().expect("invalid data dir"),
-                )
-                .await
-                .map_err(CliError::Report)?;
+                contender_report::command::report_campaign(&resolved_campaign_id, &db, &data_dir)
+                    .await
+                    .map_err(CliError::Report)?;
             } else {
+                let use_json = matches!(format, ReportFormat::Json);
                 contender_report::command::report(
                     last_run_id,
                     preceding_runs,
                     &db,
-                    &data_dir().expect("invalid data dir"),
+                    &data_dir,
+                    use_json,
                 )
                 .await
                 .map_err(CliError::Report)?;
@@ -160,12 +165,12 @@ async fn run() -> Result<(), CliError> {
         }
 
         ContenderSubcommand::Admin { command } => {
-            handle_admin_command(command, db).await?;
+            handle_admin_command(command, &data_dir, db).await?;
         }
 
         ContenderSubcommand::Campaign { args } => {
             tokio::select! {
-                res = commands::campaign::run_campaign(&db, *args) => {
+                res = commands::campaign::run_campaign(&db, &data_dir, *args) => {
                     res?;
                 }
                 _ = tokio::signal::ctrl_c() => {
@@ -179,10 +184,10 @@ async fn run() -> Result<(), CliError> {
 }
 
 /// Check DB version, throw error if version is incompatible with currently-running version of contender.
-fn init_db(command: &ContenderSubcommand) -> Result<(), CliError> {
-    if DB.table_exists("run_txs").map_err(CliError::Db)? {
+fn init_db(command: &ContenderSubcommand, db: &SqliteDb) -> Result<(), CliError> {
+    if db.table_exists("run_txs").map_err(CliError::Db)? {
         // check version and exit if DB version is incompatible
-        let quit_early = DB.version() != DB_VERSION
+        let quit_early = db.version() != DB_VERSION
             && !matches!(
                 command,
                 ContenderSubcommand::Db { command: _ } | ContenderSubcommand::Admin { command: _ }
@@ -190,7 +195,7 @@ fn init_db(command: &ContenderSubcommand) -> Result<(), CliError> {
         if quit_early {
             let recommendation = format!(
                 "To backup your data, run `contender db export`.\n{}",
-                if DB.version() < DB_VERSION {
+                if db.version() < DB_VERSION {
                     // contender version is newer than DB version, so user needs to upgrade DB
                     "Please run `contender db drop` or `contender db reset` to update your DB."
                 } else {
@@ -201,7 +206,7 @@ fn init_db(command: &ContenderSubcommand) -> Result<(), CliError> {
             warn!("Your database is incompatible with this version of contender.");
             warn!(
                 "Remote DB version = {}, contender expected version {}.",
-                DB.version(),
+                db.version(),
                 DB_VERSION
             );
             warn!("{recommendation}");
@@ -209,7 +214,7 @@ fn init_db(command: &ContenderSubcommand) -> Result<(), CliError> {
         }
     } else {
         info!("no DB found, creating new DB");
-        DB.create_tables().map_err(CliError::Db)?;
+        db.create_tables().map_err(CliError::Db)?;
     }
     Ok(())
 }

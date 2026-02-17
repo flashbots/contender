@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use super::fill_block::{fill_block, FillBlockArgs, FillBlockCliArgs};
 use crate::{
     commands::SpamCliArgs,
@@ -79,6 +81,7 @@ impl BuiltinScenarioCli {
         &self,
         provider: &AnyProvider,
         spam_args: &SpamCliArgs,
+        data_dir: &Path,
     ) -> Result<BuiltinScenario, CliError> {
         match self.to_owned() {
             BuiltinScenarioCli::Blobs(args) => Ok(BuiltinScenario::Blobs(args)),
@@ -93,7 +96,7 @@ impl BuiltinScenarioCli {
                     .rpc_args
                     .seed
                     .to_owned()
-                    .unwrap_or(load_seedfile()?);
+                    .unwrap_or(load_seedfile(data_dir)?);
                 let seed = RandSeed::seed_from_str(&seed);
                 let mut agents = AgentStore::new();
                 agents.init(
