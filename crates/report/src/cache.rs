@@ -15,11 +15,15 @@ pub struct CacheFile {
 }
 
 impl CacheFile {
-    pub fn new(traces: Vec<TxTraceReceipt>, blocks: Vec<AnyRpcBlock>, data_dir: &Path) -> Self {
+    pub fn new(
+        traces: Vec<TxTraceReceipt>,
+        blocks: Vec<AnyRpcBlock>,
+        data_dir: impl AsRef<Path>,
+    ) -> Self {
         Self {
             traces,
             blocks,
-            data_dir: data_dir.to_path_buf(),
+            data_dir: data_dir.as_ref().to_path_buf(),
         }
     }
 
