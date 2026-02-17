@@ -139,12 +139,11 @@ pub async fn get_block_traces(
 ) -> Result<Vec<TxTraceReceipt>> {
     // get tx traces for all txs in all_blocks
     let mut all_traces = vec![];
-    if full_blocks.is_empty() {
+    let total_txs: usize = full_blocks.iter().map(|b| b.transactions.len()).sum();
+    if full_blocks.is_empty() || total_txs == 0 {
         return Ok(all_traces);
     }
-    let (sender, mut receiver) = tokio::sync::mpsc::channel::<TxTraceReceipt>(
-        full_blocks.iter().map(|b| b.transactions.len()).sum(),
-    );
+    let (sender, mut receiver) = tokio::sync::mpsc::channel::<TxTraceReceipt>(total_txs);
 
     for block in full_blocks {
         let mut tx_tasks = vec![];

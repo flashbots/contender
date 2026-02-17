@@ -1,23 +1,26 @@
 use crate::{commands::Result, util::error::UtilError};
 use contender_core::db::DbOps;
 use contender_sqlite::SqliteDb;
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use tracing::info;
 
 /// Delete the database file
-pub async fn drop_db(db_path: &str) -> Result<()> {
+pub async fn drop_db(db_path: &Path) -> Result<()> {
     // Check if file exists before attempting to remove
     if fs::metadata(db_path).is_ok() {
         fs::remove_file(db_path)?;
-        info!("Database file '{db_path}' has been deleted.");
+        info!("Database file '{db_path:?}' has been deleted.");
     } else {
-        info!("Database file '{db_path}' does not exist.");
+        info!("Database file '{db_path:?}' does not exist.");
     }
     Ok(())
 }
 
 /// Reset the database by dropping it and recreating tables
-pub async fn reset_db(db_path: &str) -> Result<()> {
+pub async fn reset_db(db_path: &Path) -> Result<()> {
     // Drop the database
     drop_db(db_path).await?;
 
@@ -31,7 +34,7 @@ pub async fn reset_db(db_path: &str) -> Result<()> {
 }
 
 /// Export the database to a file
-pub async fn export_db(src_path: &str, target_path: PathBuf) -> Result<()> {
+pub async fn export_db(src_path: &Path, target_path: PathBuf) -> Result<()> {
     // Ensure source database exists
     if fs::metadata(src_path).is_err() {
         return Err(UtilError::DBDoesNotExist.into());
@@ -44,7 +47,7 @@ pub async fn export_db(src_path: &str, target_path: PathBuf) -> Result<()> {
 }
 
 /// Import the database from a file
-pub async fn import_db(src_path: PathBuf, target_path: &str) -> Result<()> {
+pub async fn import_db(src_path: PathBuf, target_path: &Path) -> Result<()> {
     // Ensure source file exists
     if !src_path.exists() {
         return Err(UtilError::DBDoesNotExist.into());
@@ -52,9 +55,9 @@ pub async fn import_db(src_path: PathBuf, target_path: &str) -> Result<()> {
 
     // If target exists, create a backup
     if fs::metadata(target_path).is_ok() {
-        let backup_path = format!("{target_path}.backup");
+        let backup_path = target_path.with_extension("backup");
         fs::copy(target_path, &backup_path).map_err(UtilError::DBBackupFailed)?;
-        info!("Created backup of existing database at '{target_path}.backup'");
+        info!("Created backup of existing database at '{backup_path:?}'");
     }
 
     // Copy the source database to the target location
@@ -71,14 +74,9 @@ mod tests {
     /// Creates a temp directory containing a database file with the given name.
     ///
     /// Returns the temp directory and the full path to the database file.
-    fn setup_test_env(name: &str) -> (TempDir, String) {
+    fn setup_test_env(name: &str) -> (TempDir, PathBuf) {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
-        let db_path = temp_dir
-            .path()
-            .join(format!("test_{name}.db"))
-            .to_str()
-            .unwrap()
-            .to_string();
+        let db_path = temp_dir.path().join(format!("test_{name}.db"));
 
         (temp_dir, db_path)
     }

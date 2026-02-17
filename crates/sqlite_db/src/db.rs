@@ -11,11 +11,34 @@ use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, types::FromSql, Row};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
+use std::{collections::BTreeMap, path::Path};
 use tracing::debug;
 
 // DEV NOTE: increment this const when making changes to the DB schema
 use crate::DB_VERSION;
+
+#[derive(Debug)]
+struct SqliteConnectionCustomizer;
+
+impl r2d2::CustomizeConnection<rusqlite::Connection, rusqlite::Error>
+    for SqliteConnectionCustomizer
+{
+    fn on_acquire(
+        &self,
+        conn: &mut rusqlite::Connection,
+    ) -> std::result::Result<(), rusqlite::Error> {
+        // Enable WAL mode for better concurrent read/write performance.
+        // WAL avoids the need to create a rollback journal on every write,
+        // preventing SQLITE_CANTOPEN errors under contention.
+        conn.execute_batch("PRAGMA journal_mode = WAL;")?;
+        // Set a busy timeout so writers retry instead of immediately failing
+        // when the database is locked by another connection.
+        conn.execute_batch("PRAGMA busy_timeout = 5000;")?;
+        Ok(())
+    }
+}
 
 #[derive(Clone)]
 pub struct SqliteDb {
@@ -23,15 +46,30 @@ pub struct SqliteDb {
 }
 
 impl SqliteDb {
-    pub fn from_file(file: &str) -> Result<Self> {
+    pub fn from_file(file: impl AsRef<Path>) -> Result<Self> {
         let manager = SqliteConnectionManager::file(file);
-        let pool = Pool::new(manager)?;
+        let pool = Pool::builder()
+            .max_size(4)
+            .connection_timeout(Duration::from_secs(30))
+            .connection_customizer(Box::new(SqliteConnectionCustomizer))
+            .build(manager)?;
         Ok(Self { pool })
     }
 
     pub fn new_memory() -> Self {
-        let manager = SqliteConnectionManager::memory();
-        let pool = Pool::new(manager).expect("failed to create connection pool");
+        // Use a unique shared-cache URI so all connections in this pool
+        // share the same in-memory database (unlike SqliteConnectionManager::memory(),
+        // which gives each connection its own private DB).
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let uri = format!("file:contender_mem_{id}?mode=memory&cache=shared");
+        let manager = SqliteConnectionManager::file(uri);
+        let pool = Pool::builder()
+            .max_size(4)
+            .connection_timeout(Duration::from_secs(30))
+            .connection_customizer(Box::new(SqliteConnectionCustomizer))
+            .build(manager)
+            .expect("failed to create connection pool");
         Self { pool }
     }
 
@@ -477,39 +515,38 @@ impl DbOps for SqliteDb {
     }
 
     fn insert_run_txs(&self, run_id: u64, run_txs: &[RunTx]) -> Result<()> {
-        let pool = self.get_pool()?;
+        let mut conn = self.get_pool()?;
+        let tx = conn.transaction()?;
 
-        let stmts = run_txs.iter().map(|tx| {
-            let val_or_null_u64 = |v: &Option<u64>| v.map(|v| v.to_string()).unwrap_or("NULL".to_owned());
-            let val_or_null_str = |v: &Option<String>| v.to_owned().map(|v| format!("'{v}'")).unwrap_or("NULL".to_owned());
+        for run_tx in run_txs {
+            let val_or_null_u64 =
+                |v: &Option<u64>| v.map(|v| v.to_string()).unwrap_or("NULL".to_owned());
+            let val_or_null_str = |v: &Option<String>| {
+                v.to_owned()
+                    .map(|v| format!("'{v}'"))
+                    .unwrap_or("NULL".to_owned())
+            };
 
-            let kind = val_or_null_str(&tx.kind);
-            let end_timestamp = val_or_null_u64(&tx.end_timestamp_secs);
-            let block_number = val_or_null_u64(&tx.block_number);
-            let gas_used = val_or_null_u64(&tx.gas_used);
-            let error = val_or_null_str(&tx.error);
+            let kind = val_or_null_str(&run_tx.kind);
+            let end_timestamp = val_or_null_u64(&run_tx.end_timestamp_secs);
+            let block_number = val_or_null_u64(&run_tx.block_number);
+            let gas_used = val_or_null_u64(&run_tx.gas_used);
+            let error = val_or_null_str(&run_tx.error);
 
-            format!(
+            tx.execute_batch(&format!(
                 "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind, error) VALUES ({}, '{}', {}, {}, {}, {}, {}, {});",
                 run_id,
-                tx.tx_hash.encode_hex(),
-                tx.start_timestamp_secs,
+                run_tx.tx_hash.encode_hex(),
+                run_tx.start_timestamp_secs,
                 end_timestamp,
                 block_number,
                 gas_used,
                 kind,
                 error,
-            )
-        });
+            ))?;
+        }
 
-        pool.execute_batch(&format!(
-            "BEGIN;
-            {}
-            COMMIT;",
-            stmts
-                .reduce(|ac, c| format!("{ac}\n{c}"))
-                .unwrap_or_default(),
-        ))?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -518,25 +555,19 @@ impl DbOps for SqliteDb {
         run_id: u64,
         latency_metrics: &BTreeMap<String, Vec<Bucket>>,
     ) -> Result<()> {
-        let pool = self.get_pool()?;
-        let stmts = latency_metrics.iter().map(|(method, buckets)| {
-            buckets.iter().map(move |bucket| {
-                format!(
+        let mut conn = self.get_pool()?;
+        let tx = conn.transaction()?;
+
+        for (method, buckets) in latency_metrics {
+            for bucket in buckets {
+                tx.execute_batch(&format!(
                     "INSERT INTO latency (run_id, upper_bound_secs, count, method) VALUES ({}, {}, {}, '{}');",
                     run_id, bucket.upper_bound, bucket.cumulative_count, method
-                )
-            })
-        });
-        for method_stmt in stmts {
-            pool.execute_batch(&format!(
-                "BEGIN;
-                {}
-                COMMIT;",
-                method_stmt
-                    .reduce(|acc, curr| format!("{acc}\n{curr}"))
-                    .unwrap_or_default(),
-            ))?;
+                ))?;
+            }
         }
+
+        tx.commit()?;
         Ok(())
     }
 

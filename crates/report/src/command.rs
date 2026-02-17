@@ -1,4 +1,4 @@
-use super::gen_html::{build_html_report, CampaignMetadata, ReportMetadata};
+use super::gen_html::{build_html_report, build_json_report, CampaignMetadata, ReportMetadata};
 use super::util::std_deviation;
 use crate::block_trace::{estimate_block_data, get_block_data, get_block_traces};
 use crate::cache::CacheFile;
@@ -30,7 +30,8 @@ pub async fn report(
     last_run_id: Option<u64>,
     preceding_runs: u64,
     db: &(impl DbOps + Clone + Send + Sync + 'static),
-    data_dir: &str,
+    data_dir: &Path,
+    use_json: bool,
 ) -> Result<()> {
     let num_runs = db.num_runs().map_err(|e| e.into())?;
 
@@ -65,10 +66,11 @@ pub async fn report(
     // collect CSV report for each run_id
     let start_run_id = end_run_id - preceding_runs;
     let mut all_txs = vec![];
+    let reports_dir = data_dir.join("reports");
     for id in start_run_id..=end_run_id {
         let txs = db.get_run_txs(id).map_err(|e| e.into())?;
         all_txs.extend_from_slice(&txs);
-        save_csv_report(id, &txs, &format!("{data_dir}/reports"))?;
+        save_csv_report(id, &txs, &reports_dir)?;
     }
 
     // get run data, filter by rpc_url
@@ -256,27 +258,37 @@ pub async fn report(
     // compile report
     let mut blocks = cache_data.blocks;
     blocks.sort_by_key(|a| a.header.number);
-    let report_path = build_html_report(
-        ReportMetadata {
-            scenario_name: scenario_title,
-            start_run_id,
-            end_run_id,
-            start_block: blocks.first().unwrap().header.number,
-            end_block: blocks.last().unwrap().header.number,
-            rpc_url: rpc_url.to_string(),
-            metrics,
-            chart_data: ChartData {
-                heatmap: heatmap.echart_data(),
-                gas_per_block: gas_per_block.echart_data(),
-                time_to_inclusion: tti.echart_data(),
-                tx_gas_used: gas_used.echart_data(),
-                pending_txs: pending_txs.echart_data(),
-                latency_data_sendrawtransaction: latency_chart_sendrawtx.echart_data(),
-            },
-            campaign: campaign_context,
+    let report_metadata = ReportMetadata {
+        scenario_name: scenario_title,
+        start_run_id,
+        end_run_id,
+        start_block: blocks.first().unwrap().header.number,
+        end_block: blocks.last().unwrap().header.number,
+        rpc_url: rpc_url.to_string(),
+        metrics,
+        chart_data: ChartData {
+            heatmap: heatmap.echart_data(),
+            gas_per_block: gas_per_block.echart_data(),
+            time_to_inclusion: tti.echart_data(),
+            tx_gas_used: gas_used.echart_data(),
+            pending_txs: pending_txs.echart_data(),
+            latency_data_sendrawtransaction: latency_chart_sendrawtx.echart_data(),
         },
-        &format!("{data_dir}/reports"),
-    )?;
+        campaign: campaign_context,
+    };
+
+    let reports_dir = data_dir.join("reports");
+
+    if use_json {
+        // JSON output - no browser opening
+        let report_path = build_json_report(&report_metadata, &reports_dir)?;
+        info!("saved JSON report to {report_path:?}");
+        return Ok(());
+    }
+
+    // HTML output with browser opening (existing behavior)
+    let report_path = build_html_report(report_metadata, &reports_dir)?;
+    info!("saved report to {report_path:?}");
 
     // Open the report in the default web browser, skipping if "none" is set
     // in the BROWSER environment variable.
@@ -284,14 +296,14 @@ pub async fn report(
     if env::var("BROWSER").unwrap_or_default() == "none" {
         return Ok(());
     }
-    webbrowser::open(&report_path)?;
+    webbrowser::open(report_path.to_string_lossy().as_ref())?;
 
     Ok(())
 }
 
 /// Saves RunTxs to `{reports_dir}/{id}.csv`.
-fn save_csv_report(id: u64, txs: &[RunTx], reports_dir: &str) -> Result<()> {
-    let out_path = format!("{reports_dir}/{id}.csv");
+fn save_csv_report(id: u64, txs: &[RunTx], reports_dir: &Path) -> Result<()> {
+    let out_path = reports_dir.join(format!("{id}.csv"));
 
     info!("Exporting report for run #{id:?} to {out_path:?}");
     let mut writer = WriterBuilder::new().has_headers(true).from_path(out_path)?;
@@ -346,14 +358,14 @@ struct StageScenarioSummary {
 pub async fn report_campaign(
     campaign_id: &str,
     db: &(impl DbOps + Clone + Send + Sync + 'static),
-    data_dir: &str,
+    data_dir: &Path,
 ) -> Result<()> {
     let runs = db.get_runs_by_campaign(campaign_id).map_err(|e| e.into())?;
     if runs.is_empty() {
         return Err(Error::CampaignNotFound(campaign_id.to_owned()));
     }
 
-    let data_path = Path::new(data_dir).join("reports");
+    let data_path = data_dir.join("reports");
     if !data_path.exists() {
         fs::create_dir_all(&data_path)?;
     }
@@ -371,8 +383,8 @@ pub async fn report_campaign(
 
     let run_generation_result: Result<()> = async {
         for run in &runs {
-            // generate per-run report (single run)
-            report(Some(run.id), 0, db, data_dir).await?;
+            // generate per-run report (single run) - always use HTML for campaign runs
+            report(Some(run.id), 0, db, data_dir, false).await?;
             let run_txs = db.get_run_txs(run.id).map_err(|e| e.into())?;
             let (run_tx_count_from_logs, run_error_count_from_logs) =
                 tx_and_error_counts(&run_txs, run.tx_count);
@@ -476,8 +488,13 @@ pub async fn report_campaign(
 
 fn render_campaign_html(summary: &CampaignReportSummary) -> Result<String> {
     let template = include_str!("template_campaign.html.handlebars");
-    let html = handlebars::Handlebars::new()
-        .render_template(template, &serde_json::json!({ "campaign": summary }))?;
+    let html = handlebars::Handlebars::new().render_template(
+        template,
+        &serde_json::json!({
+            "campaign": summary,
+            "version": env!("CARGO_PKG_VERSION")
+        }),
+    )?;
     Ok(html)
 }
 
