@@ -296,7 +296,7 @@ pub async fn report(
     if env::var("BROWSER").unwrap_or_default() == "none" {
         return Ok(());
     }
-    webbrowser::open(&report_path.to_string_lossy().to_string())?;
+    webbrowser::open(report_path.to_string_lossy().as_ref())?;
 
     Ok(())
 }
