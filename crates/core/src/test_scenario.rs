@@ -10,7 +10,7 @@ use crate::{
         seeder::{rand_seed::SeedGenerator, Seeder},
         templater::Templater,
         types::{AnyProvider, PlanType},
-        util::{complete_tx_request, generate_setcode_signer},
+        util::{complete_tx_request, generate_setcode_signer, scenario_db_key},
         Generator, NamedTxRequest, PlanConfig,
     },
     provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID},
@@ -619,10 +619,7 @@ where
             receipt.contract_address.unwrap_or_default()
         );
         if let Some(name) = &tx_req.name {
-            let db_name = match &scenario_label {
-                Some(label) => format!("{name}_{label}"),
-                None => name.to_owned(),
-            };
+            let db_name = scenario_db_key(name, scenario_label.as_deref());
             db.insert_named_txs(
                 &[NamedTx::new(
                     db_name,

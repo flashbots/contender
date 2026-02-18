@@ -3,7 +3,7 @@ use crate::{
     generator::{
         constants::{SENDER_KEY, SETCODE_KEY},
         function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict},
-        util::{encode_calldata, UtilError},
+        util::{encode_calldata, scenario_db_key, UtilError},
         CreateDefinition,
     },
 };
@@ -82,10 +82,7 @@ where
                 continue;
             }
 
-            let db_key = match scenario_label {
-                Some(label) => format!("{}_{label}", template_key.to_string()),
-                None => template_key.to_string(),
-            };
+            let db_key = scenario_db_key(&template_key, scenario_label);
             let template_value = db
                 .get_named_tx(&db_key, rpc_url, genesis_hash)
                 .map_err(|e| e.into())?;
