@@ -77,6 +77,7 @@ pub struct CampaignCliArgs {
 
     /// Generate report after campaign finishes.
     #[arg(
+        global = true,
         long,
         long_help = "Generate a report for the spam run(s) after the campaign completes.",
         visible_aliases = ["report"]
