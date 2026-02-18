@@ -111,6 +111,7 @@ pub async fn setup(
         sync_nonces_after_batch: true,
         rpc_batch_size: 0,
         gas_price: None,
+        scenario_label: args.eth_json_rpc_args.scenario_label,
     };
 
     let mut scenario = TestScenario::new(

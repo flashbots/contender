@@ -407,6 +407,12 @@ impl SpamCommandArgs {
             sync_nonces_after_batch: !self.spam_args.optimistic_nonces,
             rpc_batch_size,
             gas_price: self.spam_args.eth_json_rpc_args.rpc_args.gas_price,
+            scenario_label: self
+                .spam_args
+                .eth_json_rpc_args
+                .rpc_args
+                .scenario_label
+                .clone(),
         };
         let mut test_scenario = TestScenario::new(
             testconfig,
@@ -833,6 +839,7 @@ mod tests {
                 override_senders: false,
                 gas_price: None,
                 accounts_per_agent: None,
+                scenario_label: None,
             },
         }
     }

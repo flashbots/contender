@@ -313,6 +313,7 @@ pub mod tests {
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
                 gas_price: None,
+                scenario_label: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -365,6 +366,7 @@ pub mod tests {
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
                 gas_price: None,
+                scenario_label: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -387,6 +389,7 @@ pub mod tests {
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
                 gas_price: None,
+                scenario_label: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -455,6 +458,7 @@ pub mod tests {
                 &MockDb,
                 "http://localhost:8545",
                 Default::default(),
+                None,
             )
             .unwrap();
 
@@ -484,6 +488,7 @@ value = \"1eth\"
             sync_nonces_after_batch: true,
             rpc_batch_size: 0,
             gas_price: None,
+            scenario_label: None,
         }
     }
 
@@ -648,5 +653,92 @@ duration_secs = 600
             .mix
             .iter()
             .any(|m| m.scenario.contains("erc20_transfer")));
+    }
+
+    mod scenario_label {
+        use crate::TestConfig;
+        use alloy::primitives::Address;
+        use contender_core::db::{DbOps, NamedTx};
+        use contender_core::generator::templater::Templater;
+        use contender_sqlite::SqliteDb;
+        use std::collections::HashMap;
+
+        fn setup_db_with_named_tx(name: &str) -> SqliteDb {
+            let db = SqliteDb::new_memory();
+            db.create_tables().unwrap();
+            db.insert_named_txs(
+                &[NamedTx::new(
+                    name.to_owned(),
+                    Default::default(),
+                    Some(Address::repeat_byte(0xAB)),
+                )],
+                "http://localhost:8545",
+                Default::default(),
+            )
+            .unwrap();
+            db
+        }
+
+        #[test]
+        fn find_placeholder_uses_labeled_db_key() {
+            let db = setup_db_with_named_tx("Token_v2");
+            let cfg = TestConfig::default();
+            let mut map = HashMap::new();
+
+            // With label "v2", lookup for "{Token}" should query "Token_v2" in the DB
+            cfg.find_placeholder_values(
+                "{Token}",
+                &mut map,
+                &db,
+                "http://localhost:8545",
+                Default::default(),
+                Some("v2"),
+            )
+            .unwrap();
+
+            assert_eq!(map.len(), 1);
+            assert!(map.contains_key("Token"));
+        }
+
+        #[test]
+        fn find_placeholder_without_label_uses_plain_key() {
+            let db = setup_db_with_named_tx("Token");
+            let cfg = TestConfig::default();
+            let mut map = HashMap::new();
+
+            // Without label, lookup for "{Token}" should query "Token" in the DB
+            cfg.find_placeholder_values(
+                "{Token}",
+                &mut map,
+                &db,
+                "http://localhost:8545",
+                Default::default(),
+                None,
+            )
+            .unwrap();
+
+            assert_eq!(map.len(), 1);
+            assert!(map.contains_key("Token"));
+        }
+
+        #[test]
+        fn find_placeholder_with_label_misses_unlabeled_entry() {
+            // DB has "Token" (no label), but we look up with label "v2"
+            let db = setup_db_with_named_tx("Token");
+            let cfg = TestConfig::default();
+            let mut map = HashMap::new();
+
+            // Should fail because "Token_v2" doesn't exist in the DB
+            let result = cfg.find_placeholder_values(
+                "{Token}",
+                &mut map,
+                &db,
+                "http://localhost:8545",
+                Default::default(),
+                Some("v2"),
+            );
+
+            assert!(result.is_err());
+        }
     }
 }
