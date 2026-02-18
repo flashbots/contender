@@ -9,7 +9,7 @@ use crate::{
     error::CliError,
     util::{
         bold, check_private_keys, fund_accounts, load_seedfile, load_testconfig, parse_duration,
-        provider::AuthClient,
+        provider::AuthClient, resolve_data_dir,
     },
     LATENCY_HIST as HIST, PROM,
 };
@@ -104,6 +104,7 @@ pub struct SpamCliArgs {
     pub optimistic_nonces: bool,
 
     #[arg(
+        global = true,
         long,
         long_help = "Set this to generate a report for the spam run(s) after spamming.",
         visible_aliases = ["report"]
@@ -779,7 +780,22 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
     run_context: SpamCampaignContext,
 ) -> Result<Option<u64>> {
     let mut test_scenario = args.init_scenario(db).await?;
-    spam_inner(db, &mut test_scenario, args, run_context).await
+    let run_id = spam_inner(db, &mut test_scenario, args, run_context).await?;
+    if args.spam_args.gen_report {
+        if let Some(run_id) = &run_id {
+            contender_report::command::report(
+                Some(*run_id),
+                0,
+                db,
+                &resolve_data_dir(None)?,
+                false, // TODO: support JSON reports, maybe add a CLI flag for it
+            )
+            .await?;
+        } else {
+            warn!("Cannot generate report: no run ID found.");
+        }
+    }
+    Ok(run_id)
 }
 
 #[cfg(test)]

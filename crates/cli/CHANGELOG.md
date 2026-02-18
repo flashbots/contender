@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - changed internal erc20 defaults (didn't match cli defaults) ([#443](https://github.com/flashbots/contender/pull/443/changes))
 - use `std::path::Path` instead of `str` where applicable, add data_dir arg to enable custom data dir at runtime ([453](https://github.com/flashbots/contender/pull/453/changes))
 - add json option to `report` ([453](https://github.com/flashbots/contender/pull/453/changes))
+- fix: generate report when `--gen-report` is passed to `spam` ([#457](https://github.com/flashbots/contender/pull/457/changes))
 
 ## [0.8.0](https://github.com/flashbots/contender/releases/tag/v0.8.0) - 2026-02-02
 
