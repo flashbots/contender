@@ -195,6 +195,16 @@ pub fn parse_value(input: &str) -> Result<U256, UtilError> {
     }
 }
 
+pub fn scenario_db_key<K: Eq + std::hash::Hash + ToString + std::fmt::Debug + Send + Sync>(
+    template_key: &K,
+    scenario_label: Option<&str>,
+) -> String {
+    match scenario_label {
+        Some(label) => format!("{}_{label}", template_key.to_string()),
+        None => template_key.to_string(),
+    }
+}
+
 #[cfg(test)]
 pub mod test {
     use alloy::node_bindings::{Anvil, AnvilInstance};

@@ -137,6 +137,14 @@ Requires --auth-rpc-url and --jwt-secret to be set.",
         visible_aliases = ["na", "accounts"],
     )]
     pub accounts_per_agent: Option<u64>,
+
+    /// Label to differentiate multiple deployments of the same scenario.
+    #[arg(
+        long = "scenario-label",
+        visible_aliases = ["sl"],
+        long_help = "Label to differentiate multiple deployments of the same scenario. Appends _{label} to contract names in the DB.",
+    )]
+    pub scenario_label: Option<String>,
 }
 
 impl SendTxsCliArgsInner {

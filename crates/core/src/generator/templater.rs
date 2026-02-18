@@ -3,7 +3,7 @@ use crate::{
     generator::{
         constants::{SENDER_KEY, SETCODE_KEY},
         function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict},
-        util::{encode_calldata, UtilError},
+        util::{encode_calldata, scenario_db_key, UtilError},
         CreateDefinition,
     },
 };
@@ -57,6 +57,7 @@ where
         db: &impl DbOps,
         rpc_url: &str,
         genesis_hash: FixedBytes<32>,
+        scenario_label: Option<&str>,
     ) -> Result<()> {
         // count number of placeholders (by left brace) in arg
         let num_template_vals = self.num_placeholders(arg);
@@ -81,8 +82,9 @@ where
                 continue;
             }
 
+            let db_key = scenario_db_key(&template_key, scenario_label);
             let template_value = db
-                .get_named_tx(&template_key.to_string(), rpc_url, genesis_hash)
+                .get_named_tx(&db_key, rpc_url, genesis_hash)
                 .map_err(|e| e.into())?;
             if let Some(template_value) = template_value {
                 placeholder_map.insert(
@@ -111,18 +113,47 @@ where
         placeholder_map: &mut HashMap<K, String>,
         rpc_url: &str,
         genesis_hash: FixedBytes<32>,
+        scenario_label: Option<&str>,
     ) -> Result<()> {
         // find templates in fn args & `to`
         let fn_args = fncall.args.to_owned().unwrap_or_default();
         for arg in fn_args.iter() {
-            self.find_placeholder_values(arg, placeholder_map, db, rpc_url, genesis_hash)?;
+            self.find_placeholder_values(
+                arg,
+                placeholder_map,
+                db,
+                rpc_url,
+                genesis_hash,
+                scenario_label,
+            )?;
         }
         if let Some(from) = &fncall.from {
-            self.find_placeholder_values(from, placeholder_map, db, rpc_url, genesis_hash)?;
+            self.find_placeholder_values(
+                from,
+                placeholder_map,
+                db,
+                rpc_url,
+                genesis_hash,
+                scenario_label,
+            )?;
         }
-        self.find_placeholder_values(&fncall.to, placeholder_map, db, rpc_url, genesis_hash)?;
+        self.find_placeholder_values(
+            &fncall.to,
+            placeholder_map,
+            db,
+            rpc_url,
+            genesis_hash,
+            scenario_label,
+        )?;
         if let Some(auth) = &fncall.authorization_address {
-            self.find_placeholder_values(auth, placeholder_map, db, rpc_url, genesis_hash)?;
+            self.find_placeholder_values(
+                auth,
+                placeholder_map,
+                db,
+                rpc_url,
+                genesis_hash,
+                scenario_label,
+            )?;
         }
         Ok(())
     }
@@ -135,14 +166,29 @@ where
         placeholder_map: &mut HashMap<K, String>,
         rpc_url: &str,
         genesis_hash: FixedBytes<32>,
+        scenario_label: Option<&str>,
     ) -> Result<()> {
         if let Some(args) = &createdef.args {
             for arg in args.iter() {
-                self.find_placeholder_values(arg, placeholder_map, db, rpc_url, genesis_hash)?;
+                self.find_placeholder_values(
+                    arg,
+                    placeholder_map,
+                    db,
+                    rpc_url,
+                    genesis_hash,
+                    scenario_label,
+                )?;
             }
         }
         if let Some(from) = &createdef.from {
-            self.find_placeholder_values(from, placeholder_map, db, rpc_url, genesis_hash)?;
+            self.find_placeholder_values(
+                from,
+                placeholder_map,
+                db,
+                rpc_url,
+                genesis_hash,
+                scenario_label,
+            )?;
         }
         // also scan bytecode for placeholders
         self.find_placeholder_values(
@@ -151,6 +197,7 @@ where
             db,
             rpc_url,
             genesis_hash,
+            scenario_label,
         )?;
         Ok(())
     }

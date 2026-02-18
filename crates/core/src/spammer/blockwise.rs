@@ -131,6 +131,7 @@ mod tests {
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
                 gas_price: None,
+                scenario_label: None,
             },
             None,
             (&PROM, &HIST).into(),

@@ -10,7 +10,7 @@ use crate::{
         seeder::{rand_seed::SeedGenerator, Seeder},
         templater::Templater,
         types::{AnyProvider, PlanType},
-        util::{complete_tx_request, generate_setcode_signer},
+        util::{complete_tx_request, generate_setcode_signer, scenario_db_key},
         Generator, NamedTxRequest, PlanConfig,
     },
     provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID},
@@ -132,6 +132,7 @@ where
     pub rpc_batch_size: u64,
     pub num_rpc_batches_sent: u64,
     pub gas_price: Option<U256>,
+    pub scenario_label: Option<String>,
     /// Shared HTTP client so spawned tasks reuse one connection pool.
     http_client: reqwest::Client,
 }
@@ -148,6 +149,7 @@ pub struct TestScenarioParams {
     pub sync_nonces_after_batch: bool,
     pub rpc_batch_size: u64,
     pub gas_price: Option<U256>,
+    pub scenario_label: Option<String>,
 }
 
 pub struct SpamRunContext<'a, F: SpamCallback + 'static> {
@@ -188,6 +190,7 @@ struct DeployContractParams<'a, D: DbOps> {
     rpc_url: &'a Url,
     signer: &'a PrivateKeySigner,
     genesis_hash: FixedBytes<32>,
+    scenario_label: Option<String>,
 }
 
 impl<D, S, P> TestScenario<D, S, P>
@@ -216,6 +219,7 @@ where
             sync_nonces_after_batch,
             rpc_batch_size,
             gas_price,
+            scenario_label,
         } = params;
         let agent_store = config.build_agent_store(&rand_seed, agent_spec.clone());
 
@@ -328,6 +332,7 @@ where
             rpc_batch_size,
             num_rpc_batches_sent: 0,
             gas_price,
+            scenario_label,
             http_client: reqwest::Client::new(),
         })
     }
@@ -447,6 +452,7 @@ where
                 sync_nonces_after_batch: self.should_sync_nonces,
                 rpc_batch_size: self.rpc_batch_size,
                 gas_price: self.gas_price,
+                scenario_label: self.scenario_label.clone(),
             },
             None,
             (&PROM, &HIST).into(),
@@ -530,6 +536,7 @@ where
                 let db = self.db.clone();
                 let http_client = self.http_client.clone();
 
+                let scenario_label = self.scenario_label.clone();
                 let handle = tokio::task::spawn(async move {
                     Self::deploy_contract(DeployContractParams {
                         db: &db,
@@ -540,6 +547,7 @@ where
                         rpc_url: &rpc_url,
                         signer: &wallet,
                         genesis_hash,
+                        scenario_label,
                     })
                     .await
                 });
@@ -566,6 +574,7 @@ where
             rpc_url,
             signer,
             genesis_hash,
+            scenario_label,
         } = params;
         let wallet = EthereumWallet::from(signer.to_owned());
         let transport = Http::with_client(http_client, rpc_url.to_owned());
@@ -610,9 +619,10 @@ where
             receipt.contract_address.unwrap_or_default()
         );
         if let Some(name) = &tx_req.name {
+            let db_name = scenario_db_key(name, scenario_label.as_deref());
             db.insert_named_txs(
                 &[NamedTx::new(
-                    name.to_owned(),
+                    db_name,
                     receipt.transaction_hash,
                     receipt.contract_address,
                 )],
@@ -1373,6 +1383,7 @@ where
                 sync_nonces_after_batch: self.should_sync_nonces,
                 rpc_batch_size: self.rpc_batch_size,
                 gas_price: self.gas_price,
+                scenario_label: self.scenario_label.clone(),
             },
             None,
             (&PROM, &HIST).into(),
@@ -1747,6 +1758,10 @@ where
     fn get_genesis_hash(&self) -> FixedBytes<32> {
         self.ctx.genesis_hash
     }
+
+    fn get_scenario_label(&self) -> Option<&str> {
+        self.scenario_label.as_deref()
+    }
 }
 
 struct SpamContextHandler {
@@ -1997,6 +2012,7 @@ pub mod tests {
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
                 gas_price,
+                scenario_label: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -2536,6 +2552,7 @@ pub mod tests {
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
                 gas_price: None,
+                scenario_label: None,
             },
             None,
             (&PROM, &HIST).into(),

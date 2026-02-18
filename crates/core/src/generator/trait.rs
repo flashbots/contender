@@ -118,6 +118,7 @@ where
     fn get_nonce_map(&self) -> &HashMap<Address, u64>;
     fn get_setcode_signer(&self) -> &PrivateKeySigner;
     fn get_genesis_hash(&self) -> FixedBytes<32>;
+    fn get_scenario_label(&self) -> Option<&str>;
 
     /// Generates a map of N=`num_values` fuzzed values for each parameter in `fuzz_args`.
     fn create_fuzz_map(
@@ -261,6 +262,7 @@ where
                 &mut placeholder_map,
                 &self.get_rpc_url(),
                 self.get_genesis_hash(),
+                self.get_scenario_label(),
             )?;
             // contract address; we'll copy its code to our EOA
             let actual_auth_address = self
@@ -365,6 +367,7 @@ where
                         &mut placeholder_map,
                         &self.get_rpc_url(),
                         self.get_genesis_hash(),
+                        self.get_scenario_label(),
                     )?;
 
                     // populate step with from address
@@ -416,6 +419,7 @@ where
                         &mut placeholder_map,
                         &rpc_url,
                         self.get_genesis_hash(),
+                        self.get_scenario_label(),
                     )?;
 
                     // Determine which account indices to use for this setup step
@@ -514,6 +518,7 @@ where
 
                 // finds placeholders in a function call definition and populates `placeholder_map` and `canonical_fuzz_map` with injectable values.
                 let rpc_url = self.get_rpc_url();
+                let scenario_label = self.get_scenario_label();
                 let mut lookup_tx_placeholders = |tx: &FunctionCallDefinition| {
                     templater
                         .find_fncall_placeholders(
@@ -522,6 +527,7 @@ where
                             &mut placeholder_map,
                             &rpc_url,
                             self.get_genesis_hash(),
+                            scenario_label,
                         )
                         .map_err(|e| {
                             DbError::NotFound(format!(

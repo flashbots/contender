@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## Unreleased
+
+- added `scenario_label` support to apply contract name labels at the DB boundary
+
+### Breaking changes
+
+- `TestScenarioParams` has a new required field `scenario_label: Option<String>`
+- `Generator` trait has a new required method `get_scenario_label() -> Option<&str>`
+- `Templater` trait methods `find_placeholder_values`, `find_fncall_placeholders`, and `find_create_placeholders` have a new `scenario_label: Option<&str>` parameter
+
 ## [0.8.1](https://github.com/flashbots/contender/releases/tag/v0.8.1) - 2026-02-09
 
 - changed internals of TimedSpammer to tick on `tokio::time::interval` rather than using `sleep` (was causing time drift) ([#443](https://github.com/flashbots/contender/pull/443/changes))

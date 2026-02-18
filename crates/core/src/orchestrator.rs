@@ -54,6 +54,7 @@ where
     pub funding: U256,
     pub sync_nonces_after_batch: bool,
     pub rpc_batch_size: u64,
+    pub scenario_label: Option<String>,
 }
 
 impl<P> ContenderCtx<MockDb, RandSeed, P>
@@ -117,6 +118,7 @@ where
             funding: *SMOL_AMOUNT,
             sync_nonces_after_batch: true,
             rpc_batch_size: 0,
+            scenario_label: None,
         }
     }
 }
@@ -190,6 +192,7 @@ where
             funding: *SMOL_AMOUNT,
             sync_nonces_after_batch: true,
             rpc_batch_size: 0,
+            scenario_label: None,
         }
     }
 
@@ -207,6 +210,7 @@ where
             sync_nonces_after_batch: self.sync_nonces_after_batch,
             rpc_batch_size: self.rpc_batch_size,
             gas_price: None,
+            scenario_label: self.scenario_label.clone(),
         };
 
         TestScenario::new(
@@ -245,6 +249,7 @@ where
     funding: U256,
     sync_nonces_after_batch: bool,
     rpc_batch_size: u64,
+    scenario_label: Option<String>,
 }
 
 impl<D, S, P> ContenderCtxBuilder<D, S, P>
@@ -297,6 +302,10 @@ where
         self.seeder = s;
         self
     }
+    pub fn scenario_label(mut self, label: String) -> Self {
+        self.scenario_label = Some(label);
+        self
+    }
 
     pub fn build(self) -> ContenderCtx<D, S, P> {
         // always try to create tables before building, so user doesn't have to think about it later.
@@ -320,6 +329,7 @@ where
             funding: self.funding,
             sync_nonces_after_batch: self.sync_nonces_after_batch,
             rpc_batch_size: self.rpc_batch_size,
+            scenario_label: self.scenario_label,
         }
     }
 }

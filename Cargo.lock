@@ -2263,6 +2263,7 @@ version = "0.8.1"
 dependencies = [
  "alloy",
  "contender_core",
+ "contender_sqlite",
  "prometheus",
  "serde",
  "thiserror 2.0.17",
