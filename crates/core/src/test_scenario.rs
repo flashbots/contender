@@ -2714,4 +2714,40 @@ pub mod tests {
             result.err()
         );
     }
+
+    #[tokio::test]
+    async fn send_raw_tx_sync_sends_txs_and_disables_batching() -> Result<()> {
+        let txs_per_duration: u64 = 35;
+        let num_periods = 2;
+        let total_txs = txs_per_duration * num_periods;
+        let anvil = spawn_anvil();
+
+        let mut scenario = get_test_scenario(&anvil, None, None).await?;
+        scenario.send_raw_tx_sync = true;
+        
+        // Set rpc_batch_size to verify sync mode overrides it.
+        // Normally batch_size=10 would group 35 txs into 4 batches per period (8 total),
+        // but sync mode needs per-tx HTTP responses for end_timestamp_ms tracking,
+        // so batching must be bypassed — every tx is sent individually.
+        scenario.rpc_batch_size = 10;
+
+        let spammer = BlockwiseSpammer::new();
+        let callback = NilCallback;
+
+        spammer
+            .spam_rpc(
+                &mut scenario,
+                txs_per_duration,
+                num_periods,
+                None,
+                Arc::new(callback),
+            )
+            .await?;
+
+        // All 70 txs sent individually via eth_sendRawTransactionSync,
+        // confirming both that sync sending works and that batching is bypassed.
+        assert_eq!(scenario.num_rpc_batches_sent, total_txs);
+
+        Ok(())
+    }
 }
