@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-- added `--send-raw-tx-sync` flag to `spam` and `campaign` for `eth_sendRawTransactionSync` support ([#459](https://github.com/flashbots/contender/pull/XXX))
+- added `--send-raw-tx-sync` flag to `spam` and `campaign` for `eth_sendRawTransactionSync` support ([#459](https://github.com/flashbots/contender/pull/459))
 - added contender version to bottom of reports ([#452](https://github.com/flashbots/contender/pull/452/changes))
 - enable custom data dir at runtime ([453](https://github.com/flashbots/contender/pull/453/changes))
 - clean up html report UI, support batched `eth_sendRawTransaction` latency metrics ([#455](https://github.com/flashbots/contender/pull/455))

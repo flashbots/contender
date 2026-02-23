@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-- added `eth_sendRawTransactionSync` support with per-tx `end_timestamp_ms` tracking ([#459](https://github.com/flashbots/contender/pull/XXX))
+- added `eth_sendRawTransactionSync` support with per-tx `end_timestamp_ms` tracking ([#459](https://github.com/flashbots/contender/pull/459))
 - added `scenario_label` support to apply contract name labels at the DB boundary
 
 ### Breaking changes
