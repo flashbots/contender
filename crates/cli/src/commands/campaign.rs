@@ -101,6 +101,14 @@ pub struct CampaignCliArgs {
     )]
     pub spam_timeout: Duration,
 
+    /// Use eth_sendRawTransactionSync instead of eth_sendRawTransaction.
+    #[arg(
+        long = "send-raw-tx-sync",
+        default_value_t = false,
+        long_help = "Use eth_sendRawTransactionSync instead of eth_sendRawTransaction. The RPC blocks until the tx is included, giving precise TTI. NOTE: incompatible with --rpc-batch-size."
+    )]
+    pub send_raw_tx_sync: bool,
+
     /// Run campaign in a loop, indefinitely.
     #[arg(
         global = true,
@@ -325,6 +333,7 @@ fn create_spam_cli_args(
         gen_report: false,
         skip_setup,
         rpc_batch_size: args.rpc_batch_size,
+        send_raw_tx_sync: args.send_raw_tx_sync,
         spam_timeout: args.spam_timeout,
     }
 }

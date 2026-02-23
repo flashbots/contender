@@ -133,6 +133,8 @@ where
     pub num_rpc_batches_sent: u64,
     pub gas_price: Option<U256>,
     pub scenario_label: Option<String>,
+    /// Use `eth_sendRawTransactionSync` instead of `eth_sendRawTransaction`.
+    pub send_raw_tx_sync: bool,
     /// Shared HTTP client so spawned tasks reuse one connection pool.
     http_client: reqwest::Client,
 }
@@ -150,6 +152,7 @@ pub struct TestScenarioParams {
     pub rpc_batch_size: u64,
     pub gas_price: Option<U256>,
     pub scenario_label: Option<String>,
+    pub send_raw_tx_sync: bool,
 }
 
 pub struct SpamRunContext<'a, F: SpamCallback + 'static> {
@@ -220,6 +223,7 @@ where
             rpc_batch_size,
             gas_price,
             scenario_label,
+            send_raw_tx_sync,
         } = params;
         let agent_store = config.build_agent_store(&rand_seed, agent_spec.clone());
 
@@ -333,6 +337,7 @@ where
             num_rpc_batches_sent: 0,
             gas_price,
             scenario_label,
+            send_raw_tx_sync,
             http_client: reqwest::Client::new(),
         })
     }
@@ -453,6 +458,7 @@ where
                 rpc_batch_size: self.rpc_batch_size,
                 gas_price: self.gas_price,
                 scenario_label: self.scenario_label.clone(),
+                send_raw_tx_sync: self.send_raw_tx_sync,
             },
             None,
             (&PROM, &HIST).into(),
@@ -953,13 +959,16 @@ where
         let (error_sender, error_receiver) = tokio::sync::mpsc::channel::<Error>(1);
         let error_sender = Arc::new(error_sender);
 
-        // Should use json-rpc batching for this tick if both conditions are met:
-        //  - rpc_batch_size > 0
-        //  - all payloads are SignedTx (no builder bundles)
+        // Batching groups multiple eth_sendRawTransaction calls into one HTTP request.
+        // This is incompatible with sync mode because we need per-tx timestamps
+        // from individual HTTP responses to measure time-to-inclusion accurately.
         let should_batch_rpc = self.rpc_batch_size > 0
+            && !self.send_raw_tx_sync
             && payloads
                 .iter()
                 .all(|p| matches!(p, ExecutionPayload::SignedTx(_, _)));
+
+        let send_raw_tx_sync = self.send_raw_tx_sync;
 
         if !should_batch_rpc {
             for payload in payloads {
@@ -973,10 +982,88 @@ where
                 let nonce_sender = nonce_sender.clone();
                 let cancel_token = self.ctx.cancel_token.clone();
                 let error_sender = error_sender.clone();
+                let http_client = self.http_client.clone();
+                let rpc_url = self.rpc_url.clone();
 
                 tasks.push(tokio::task::spawn(async move {
                 let extra = RuntimeTxInfo::default();
                 let handles = match payload {
+                    ExecutionPayload::SignedTx(signed_tx, req) if send_raw_tx_sync => {
+                        // eth_sendRawTransactionSync path: use raw HTTP POST so we can
+                        // record the end timestamp when the RPC responds.
+                        let tx_hash = signed_tx.tx_hash().to_owned();
+                        debug!("sending tx via eth_sendRawTransactionSync: {tx_hash}");
+                        let mut raw_tx = Vec::new();
+                        signed_tx.encode_2718(&mut raw_tx);
+                        let mut raw_hex = String::with_capacity(2 + raw_tx.len() * 2);
+                        raw_hex.push_str("0x");
+                        raw_hex.push_str(&raw_tx.encode_hex());
+                        let request_body = json!({
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "method": "eth_sendRawTransactionSync",
+                            "params": [raw_hex],
+                        });
+                        let res = tokio::select! {
+                            resp = http_client
+                                .post(rpc_url.as_str())
+                                .json(&request_body)
+                                .send() => Some(resp),
+                            _ = cancel_token.cancelled() => None,
+                        };
+                        let end_ts = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis();
+                        let extra = extra.with_end_timestamp(end_ts);
+
+                        let ctx = SpamRunContext {
+                            nonce_sender: &nonce_sender,
+                            success_sender: &success_sender,
+                            gas_sender: &gas_sender,
+                            callback_handler: callback_handler.as_ref(),
+                            tx_handlers: &tx_handlers,
+                            cancel_token: &cancel_token,
+                        };
+
+                        match res {
+                            Some(Ok(resp)) => {
+                                // Parse the JSON-RPC response to check for errors
+                                let error_msg = match resp.json::<serde_json::Value>().await {
+                                    Ok(body) => body
+                                        .get("error")
+                                        .and_then(|e| e.get("message"))
+                                        .and_then(|m| m.as_str())
+                                        .map(|s| s.to_string()),
+                                    Err(e) => Some(format!(
+                                        "failed to parse sendRawTransactionSync response: {e}"
+                                    )),
+                                };
+                                handle_tx_outcome(
+                                    tx_hash,
+                                    &req,
+                                    extra,
+                                    error_msg.as_deref(),
+                                    &ctx,
+                                )
+                                .await;
+                            }
+                            Some(Err(e)) => {
+                                handle_tx_outcome(
+                                    tx_hash,
+                                    &req,
+                                    extra,
+                                    Some(&format!("sendRawTransactionSync HTTP error: {e}")),
+                                    &ctx,
+                                )
+                                .await;
+                            }
+                            None => {
+                                // Cancelled — don't record the tx
+                            }
+                        }
+                        Vec::<Option<tokio::task::JoinHandle<_>>>::new()
+                    }
                     ExecutionPayload::SignedTx(signed_tx, req) => {
                         let tx_hash = signed_tx.tx_hash().to_owned();
                         let res = rpc_client
@@ -1384,6 +1471,7 @@ where
                 rpc_batch_size: self.rpc_batch_size,
                 gas_price: self.gas_price,
                 scenario_label: self.scenario_label.clone(),
+                send_raw_tx_sync: self.send_raw_tx_sync,
             },
             None,
             (&PROM, &HIST).into(),
@@ -2013,6 +2101,7 @@ pub mod tests {
                 rpc_batch_size: 0,
                 gas_price,
                 scenario_label: None,
+                send_raw_tx_sync: false,
             },
             None,
             (&PROM, &HIST).into(),
@@ -2553,6 +2642,7 @@ pub mod tests {
                 rpc_batch_size: 0,
                 gas_price: None,
                 scenario_label: None,
+                send_raw_tx_sync: false,
             },
             None,
             (&PROM, &HIST).into(),
