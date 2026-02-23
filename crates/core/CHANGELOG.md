@@ -8,10 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- added `eth_sendRawTransactionSync` support with per-tx `end_timestamp_ms` tracking ([#459](https://github.com/flashbots/contender/pull/XXX))
 - added `scenario_label` support to apply contract name labels at the DB boundary
 
 ### Breaking changes
 
+- `TestScenarioParams` has a new required field `send_raw_tx_sync: bool`
 - `TestScenarioParams` has a new required field `scenario_label: Option<String>`
 - `Generator` trait has a new required method `get_scenario_label() -> Option<&str>`
 - `Templater` trait methods `find_placeholder_values`, `find_fncall_placeholders`, and `find_create_placeholders` have a new `scenario_label: Option<&str>` parameter
