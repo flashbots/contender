@@ -1806,7 +1806,7 @@ pub mod tests {
     };
     use crate::spammer::util::test::get_test_signers;
     use crate::spammer::{BlockwiseSpammer, NilCallback, Spammer};
-    use crate::test_scenario::TestScenario;
+    use crate::test_scenario::{read_setup_concurrency_limit, TestScenario};
     use crate::Error;
     use crate::Result;
     use alloy::consensus::constants::GWEI_TO_WEI;
@@ -2632,6 +2632,20 @@ pub mod tests {
             result.is_ok(),
             "run_setup() should succeed with high concurrency (got: {:?})",
             result.err()
+        );
+    }
+
+    #[test]
+    fn env_controls_setup_concurrency_limit() {
+        std::env::set_var("SETUP_CONCURRENCY_LIMIT", "5");
+        let new_limit = read_setup_concurrency_limit();
+        assert_eq!(new_limit, 5, "SETUP_CONCURRENCY_LIMIT should be set to 5");
+
+        std::env::remove_var("SETUP_CONCURRENCY_LIMIT");
+        let default_limit = read_setup_concurrency_limit();
+        assert_eq!(
+            default_limit, 25,
+            "SETUP_CONCURRENCY_LIMIT should default to 25 when env var is unset"
         );
     }
 }
