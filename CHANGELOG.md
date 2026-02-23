@@ -5,7 +5,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Note: this file did not exist until after `v0.5.6`.
 
-## Unreleased
+## [0.9.0](https://github.com/flashbots/contender/releases/tag/v0.9.0) - 2026-02-23
 
 - added contender version to bottom of reports ([#452](https://github.com/flashbots/contender/pull/452/changes))
 - enable custom data dir at runtime ([453](https://github.com/flashbots/contender/pull/453/changes))
