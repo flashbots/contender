@@ -32,8 +32,8 @@ impl FlashblockTimeToInclusionChart {
         let mut counts = vec![];
         let mut max_count = 0;
 
-        // 200ms per bucket
-        let bucket_size_ms = 200;
+        // 100ms per bucket
+        let bucket_size_ms = 100;
         for &latency_ms in &self.latencies_ms {
             let bucket_index = (latency_ms / bucket_size_ms) as usize;
             if bucket_index >= buckets.len() {
