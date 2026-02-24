@@ -25,6 +25,7 @@ pub enum TxActorMessage {
     SentRunTx {
         tx_hash: TxHash,
         start_timestamp_ms: u128,
+        end_timestamp_ms: Option<u128>,
         kind: Option<String>,
         error: Option<String>,
         on_receive: oneshot::Sender<()>,
@@ -73,6 +74,7 @@ where
 pub struct PendingRunTx {
     pub tx_hash: TxHash,
     pub start_timestamp_ms: u128,
+    pub end_timestamp_ms: Option<u128>,
     pub kind: Option<String>,
     pub error: Option<String>,
 }
@@ -87,6 +89,7 @@ impl PendingRunTx {
         Self {
             tx_hash,
             start_timestamp_ms,
+            end_timestamp_ms: None,
             kind: kind.map(|s| s.to_owned()),
             error: error.map(|s| s.to_owned()),
         }
@@ -141,7 +144,8 @@ where
         }
     }
 
-    /// Dumps all cached txs into the DB. Does not assign `end_timestamp`, `block_number`, or `gas_used`.
+    /// Dumps all cached txs into the DB. Does not assign `block_number` or `gas_used`.
+    /// If a tx has an `end_timestamp_ms` (from sync RPC), it is converted to seconds.
     fn dump_cache(&mut self, run_id: u64) -> Result<Vec<RunTx>> {
         let run_txs: Vec<_> = self
             .cache
@@ -149,7 +153,7 @@ where
             .map(|pending_tx| RunTx {
                 tx_hash: pending_tx.tx_hash,
                 start_timestamp_secs: (pending_tx.start_timestamp_ms / 1000) as u64,
-                end_timestamp_secs: None,
+                end_timestamp_secs: pending_tx.end_timestamp_ms.map(|ms| (ms / 1000) as u64),
                 block_number: None,
                 gas_used: None,
                 kind: pending_tx.kind.to_owned(),
@@ -191,6 +195,7 @@ where
             TxActorMessage::SentRunTx {
                 tx_hash,
                 start_timestamp_ms,
+                end_timestamp_ms,
                 kind,
                 error,
                 on_receive,
@@ -198,6 +203,7 @@ where
                 let run_tx = PendingRunTx {
                     tx_hash,
                     start_timestamp_ms,
+                    end_timestamp_ms,
                     kind,
                     error,
                 };
@@ -444,7 +450,12 @@ async fn process_block_receipts<D: DbOps + Send + Sync + 'static>(
             RunTx {
                 tx_hash: pending_tx.tx_hash,
                 start_timestamp_secs: (pending_tx.start_timestamp_ms / 1000) as u64,
-                end_timestamp_secs: Some(target_block.header.timestamp),
+                end_timestamp_secs: Some(
+                    pending_tx
+                        .end_timestamp_ms
+                        .map(|ms| (ms / 1000) as u64)
+                        .unwrap_or(target_block.header.timestamp),
+                ),
                 block_number: Some(target_block.header.number),
                 gas_used: Some(receipt.gas_used),
                 kind: pending_tx.kind.clone(),
@@ -481,6 +492,7 @@ pub struct TxActorHandle {
 pub struct CacheTx {
     pub tx_hash: TxHash,
     pub start_timestamp_ms: u128,
+    pub end_timestamp_ms: Option<u128>,
     pub kind: Option<String>,
     pub error: Option<String>,
 }
@@ -518,6 +530,7 @@ impl TxActorHandle {
         let CacheTx {
             tx_hash,
             start_timestamp_ms,
+            end_timestamp_ms,
             kind,
             error,
         } = params;
@@ -526,6 +539,7 @@ impl TxActorHandle {
             .send(TxActorMessage::SentRunTx {
                 tx_hash,
                 start_timestamp_ms,
+                end_timestamp_ms,
                 kind,
                 on_receive: sender,
                 error,

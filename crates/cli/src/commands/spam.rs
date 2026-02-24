@@ -134,6 +134,14 @@ pub struct SpamCliArgs {
     )]
     pub rpc_batch_size: u64,
 
+    /// Use eth_sendRawTransactionSync instead of eth_sendRawTransaction.
+    #[arg(
+        long = "send-raw-tx-sync",
+        default_value_t = false,
+        long_help = "Use eth_sendRawTransactionSync instead of eth_sendRawTransaction. The RPC blocks until the tx is included, giving precise TTI. NOTE: incompatible with --rpc-batch-size."
+    )]
+    pub send_raw_tx_sync: bool,
+
     #[arg(
         long = "timeout",
         long_help = "The time to wait for spammer to recover from failure before stopping contender. NOTE: this flag is deprecated and currently does nothing. It will be removed in a future release.",
@@ -232,8 +240,16 @@ impl SpamCommandArgs {
         let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam_len as u64));
         let engine_params = self.engine_params().await?;
 
-        // Clamp rpc_batch_size to txs_per_duration (tps or tpb) if needed.
+        // If send_raw_tx_sync is set alongside rpc_batch_size, warn and disable batching.
         let mut rpc_batch_size = self.spam_args.rpc_batch_size;
+        if self.spam_args.send_raw_tx_sync && rpc_batch_size > 0 {
+            tracing::warn!(
+                "--send-raw-tx-sync is incompatible with --rpc-batch-size; disabling JSON-RPC batching"
+            );
+            rpc_batch_size = 0;
+        }
+
+        // Clamp rpc_batch_size to txs_per_duration (tps or tpb) if needed.
         if rpc_batch_size > 0 {
             if txs_per_duration == 0 {
                 tracing::warn!(
@@ -414,6 +430,7 @@ impl SpamCommandArgs {
                 .rpc_args
                 .scenario_label
                 .clone(),
+            send_raw_tx_sync: self.spam_args.send_raw_tx_sync,
         };
         let mut test_scenario = TestScenario::new(
             testconfig,
@@ -913,6 +930,7 @@ mod tests {
                     gen_report: false,
                     skip_setup: false,
                     rpc_batch_size: 0,
+                    send_raw_tx_sync: false,
                     spam_timeout: Duration::from_secs(5),
                 },
                 seed: rand_seed.clone(),
