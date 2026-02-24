@@ -33,6 +33,7 @@ pub async fn report(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     data_dir: &Path,
     use_json: bool,
+    skip_tx_traces: bool,
 ) -> Result<()> {
     let num_runs = db.num_runs().map_err(|e| e.into())?;
 
@@ -139,7 +140,12 @@ pub async fn report(
         } else {
             get_block_data(&all_txs, &rpc_client).await?
         };
-        let trace_data = get_block_traces(&block_data, &rpc_client).await?;
+        let trace_data = if skip_tx_traces {
+            info!("Skipping per-transaction traces (--skip-tx-traces)");
+            vec![]
+        } else {
+            get_block_traces(&block_data, &rpc_client).await?
+        };
         (trace_data, block_data)
     };
 
@@ -362,6 +368,7 @@ pub async fn report_campaign(
     campaign_id: &str,
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     data_dir: &Path,
+    skip_tx_traces: bool,
 ) -> Result<()> {
     let runs = db.get_runs_by_campaign(campaign_id).map_err(|e| e.into())?;
     if runs.is_empty() {
@@ -387,7 +394,7 @@ pub async fn report_campaign(
     let run_generation_result: Result<()> = async {
         for run in &runs {
             // generate per-run report (single run) - always use HTML for campaign runs
-            report(Some(run.id), 0, db, data_dir, false).await?;
+            report(Some(run.id), 0, db, data_dir, false, skip_tx_traces).await?;
             let run_txs = db.get_run_txs(run.id).map_err(|e| e.into())?;
             let (run_tx_count_from_logs, run_error_count_from_logs) =
                 tx_and_error_counts(&run_txs, run.tx_count);

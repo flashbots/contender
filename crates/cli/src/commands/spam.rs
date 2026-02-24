@@ -805,6 +805,7 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
                 db,
                 &resolve_data_dir(None)?,
                 false, // TODO: support JSON reports, maybe add a CLI flag for it
+                false,
             )
             .await?;
         } else {

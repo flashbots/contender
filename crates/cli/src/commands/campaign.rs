@@ -256,6 +256,7 @@ pub async fn run_campaign(
                 db,
                 data_dir,
                 false, // use HTML format by default for campaign reports
+                false,
             )
             .await?;
         }
