@@ -3,6 +3,7 @@ use super::util::std_deviation;
 use crate::block_trace::{estimate_block_data, get_block_data, get_block_traces};
 use crate::cache::CacheFile;
 use crate::chart::{
+    flashblock_index::FlashblockIndexChart,
     flashblock_time_to_inclusion::FlashblockTimeToInclusionChart,
     gas_per_block::GasPerBlockChart, heatmap::HeatMapChart, pending_txs::PendingTxsChart,
     rpc_latency::LatencyChart, time_to_inclusion::TimeToInclusionChart,
@@ -254,6 +255,7 @@ pub async fn report(
     let gas_used = TxGasUsedChart::new(&cache_data.traces, 4000);
     let pending_txs = PendingTxsChart::new(&all_txs);
     let flashblock_tti = FlashblockTimeToInclusionChart::new(&all_txs);
+    let flashblock_idx = FlashblockIndexChart::new(&all_txs);
     let latency_chart_sendrawtx = LatencyChart::new(
         canonical_latency_map
             .get("eth_sendRawTransaction")
@@ -282,6 +284,7 @@ pub async fn report(
             pending_txs: pending_txs.echart_data(),
             latency_data_sendrawtransaction: latency_chart_sendrawtx.echart_data(),
             flashblock_time_to_inclusion: flashblock_tti.map(|c| c.echart_data()),
+            flashblock_index: flashblock_idx.map(|c| c.echart_data()),
         },
         campaign: campaign_context,
     };

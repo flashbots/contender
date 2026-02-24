@@ -148,6 +148,7 @@ struct RunTxRow {
     kind: Option<String>,
     error: Option<String>,
     flashblock_latency: Option<u64>,
+    flashblock_index: Option<u64>,
 }
 
 impl RunTxRow {
@@ -162,6 +163,7 @@ impl RunTxRow {
             kind: row.get(6)?,
             error: row.get(7)?,
             flashblock_latency: row.get(8)?,
+            flashblock_index: row.get(9)?,
         })
     }
 }
@@ -180,6 +182,7 @@ impl From<RunTxRow> for RunTx {
             kind: row.kind,
             error: row.error,
             flashblock_latency_ms: row.flashblock_latency,
+            flashblock_index: row.flashblock_index,
         }
     }
 }
@@ -304,6 +307,7 @@ impl DbOps for SqliteDb {
                 kind TEXT,
                 error TEXT,
                 flashblock_latency INTEGER,
+                flashblock_index INTEGER,
                 FOREIGN KEY(run_id) REFERENCES runs(id)
             )",
             "CREATE TABLE latency (
@@ -361,7 +365,7 @@ impl DbOps for SqliteDb {
     fn get_run_txs(&self, run_id: u64) -> Result<Vec<RunTx>> {
         let pool = self.get_pool()?;
         let mut stmt = pool
-            .prepare("SELECT run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind, error, flashblock_latency FROM run_txs WHERE run_id = ?1")?;
+            .prepare("SELECT run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind, error, flashblock_latency, flashblock_index FROM run_txs WHERE run_id = ?1")?;
 
         let rows = stmt.query_map(params![run_id], RunTxRow::from_row)?;
         let res = rows
@@ -537,9 +541,10 @@ impl DbOps for SqliteDb {
             let gas_used = val_or_null_u64(&run_tx.gas_used);
             let error = val_or_null_str(&run_tx.error);
             let flashblock_latency = val_or_null_u64(&run_tx.flashblock_latency_ms);
+            let flashblock_index = val_or_null_u64(&run_tx.flashblock_index);
 
             tx.execute_batch(&format!(
-                "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind, error, flashblock_latency) VALUES ({}, '{}', {}, {}, {}, {}, {}, {}, {});",
+                "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind, error, flashblock_latency, flashblock_index) VALUES ({}, '{}', {}, {}, {}, {}, {}, {}, {}, {});",
                 run_id,
                 run_tx.tx_hash.encode_hex(),
                 run_tx.start_timestamp_ms,
@@ -549,6 +554,7 @@ impl DbOps for SqliteDb {
                 kind,
                 error,
                 flashblock_latency,
+                flashblock_index,
             ))?;
         }
 
@@ -768,6 +774,7 @@ mod tests {
                 kind: Some("test".to_string()),
                 error: None,
                 flashblock_latency_ms: None,
+                flashblock_index: None,
             },
             RunTx {
                 tx_hash: TxHash::from_slice(&[1u8; 32]),
@@ -778,6 +785,7 @@ mod tests {
                 kind: Some("test".to_string()),
                 error: None,
                 flashblock_latency_ms: Some(150),
+                flashblock_index: Some(2),
             },
         ];
         db.insert_run_txs(run_id, &run_txs).unwrap();

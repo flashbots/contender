@@ -15,6 +15,7 @@ pub struct RunTx {
     pub kind: Option<String>,
     pub error: Option<String>,
     pub flashblock_latency_ms: Option<u64>,
+    pub flashblock_index: Option<u64>,
 }
 
 pub struct SpamRun {

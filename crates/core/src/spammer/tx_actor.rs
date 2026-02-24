@@ -61,6 +61,7 @@ enum FlushRequest {
     MarkFlashblock {
         tx_hash: TxHash,
         timestamp_ms: u128,
+        index: u64,
     },
 }
 
@@ -85,6 +86,7 @@ pub struct PendingRunTx {
     pub kind: Option<String>,
     pub error: Option<String>,
     pub flashblock_timestamp_ms: Option<u128>,
+    pub flashblock_index: Option<u64>,
 }
 
 impl PendingRunTx {
@@ -100,6 +102,7 @@ impl PendingRunTx {
             kind: kind.map(|s| s.to_owned()),
             error: error.map(|s| s.to_owned()),
             flashblock_timestamp_ms: None,
+            flashblock_index: None,
         }
     }
 }
@@ -170,6 +173,7 @@ where
                     kind: pending_tx.kind.to_owned(),
                     error: pending_tx.error.to_owned(),
                     flashblock_latency_ms,
+                    flashblock_index: pending_tx.flashblock_index,
                 }
             })
             .collect();
@@ -218,6 +222,7 @@ where
                     kind,
                     error,
                     flashblock_timestamp_ms: None,
+                    flashblock_index: None,
                 };
                 self.cache.push(run_tx);
                 on_receive
@@ -265,6 +270,7 @@ where
             FlushRequest::MarkFlashblock {
                 tx_hash,
                 timestamp_ms,
+                index,
             } => {
                 // First match wins — only set if not already set
                 if let Some(pending_tx) = self
@@ -274,7 +280,8 @@ where
                 {
                     if pending_tx.flashblock_timestamp_ms.is_none() {
                         pending_tx.flashblock_timestamp_ms = Some(timestamp_ms);
-                        debug!("marked flashblock for tx {}", tx_hash);
+                        pending_tx.flashblock_index = Some(index);
+                        debug!("marked flashblock for tx {} (index={})", tx_hash, index);
                     }
                 }
             }
@@ -487,6 +494,7 @@ async fn process_block_receipts<D: DbOps + Send + Sync + 'static>(
                 kind: pending_tx.kind.clone(),
                 error: get_tx_error(receipt, pending_tx),
                 flashblock_latency_ms,
+                flashblock_index: pending_tx.flashblock_index,
             }
         })
         .collect();
@@ -540,63 +548,51 @@ async fn flashblocks_preflight(ws_url: &Url) -> Result<()> {
 
     // Wait for a valid flashblock message (with timeout).
     // The endpoint auto-streams — no subscription handshake required.
-    let response = tokio::time::timeout(Duration::from_secs(10), ws_stream.next())
-        .await
-        .map_err(|_| {
-            crate::error::Error::Runtime(crate::error::RuntimeErrorKind::InvalidParams(
-                crate::error::RuntimeParamErrorKind::InvalidArgs(
-                    "Flashblocks WS endpoint did not send any data within 10 seconds".to_string(),
-                ),
-            ))
-        })?;
-
-    match response {
-        Some(Ok(msg)) => {
-            if let Some(text) = ws_message_to_text(msg) {
-                let parsed: serde_json::Value =
-                    serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
-                // Validate that this looks like a flashblock message by checking for metadata.receipts
-                if parsed.get("metadata").and_then(|m| m.get("receipts")).is_some() {
-                    info!("Flashblocks WS endpoint validated successfully");
-                } else {
-                    return Err(crate::error::Error::Runtime(
-                        crate::error::RuntimeErrorKind::InvalidParams(
-                            crate::error::RuntimeParamErrorKind::InvalidArgs(format!(
-                                "Flashblocks WS endpoint sent unexpected message format (missing metadata.receipts): {}",
-                                &text[..text.len().min(200)]
-                            )),
-                        ),
-                    ));
+    // Loop to skip non-data frames (e.g. Ping) until we get a Text/Binary message.
+    let preflight_result = tokio::time::timeout(Duration::from_secs(10), async {
+        while let Some(msg_result) = ws_stream.next().await {
+            match msg_result {
+                Ok(msg) => {
+                    if let Some(text) = ws_message_to_text(msg) {
+                        return Ok(text);
+                    }
+                    // Non-data frame (Ping, Pong, etc.) — skip and wait for next
+                    continue;
                 }
-            } else {
-                return Err(crate::error::Error::Runtime(
-                    crate::error::RuntimeErrorKind::InvalidParams(
-                        crate::error::RuntimeParamErrorKind::InvalidArgs(
-                            "Flashblocks WS endpoint sent non-text/binary message during preflight".to_string(),
-                        ),
-                    ),
-                ));
+                Err(e) => {
+                    return Err(format!("Flashblocks WS connection error during preflight: {e}"));
+                }
             }
         }
-        Some(Err(e)) => {
-            return Err(crate::error::Error::Runtime(
-                crate::error::RuntimeErrorKind::InvalidParams(
-                    crate::error::RuntimeParamErrorKind::InvalidArgs(format!(
-                        "Flashblocks WS connection error during preflight: {}",
-                        e
-                    )),
-                ),
-            ));
-        }
-        None => {
-            return Err(crate::error::Error::Runtime(
-                crate::error::RuntimeErrorKind::InvalidParams(
-                    crate::error::RuntimeParamErrorKind::InvalidArgs(
-                        "Flashblocks WS connection closed during preflight".to_string(),
-                    ),
-                ),
-            ));
-        }
+        Err("Flashblocks WS connection closed during preflight".to_string())
+    })
+    .await
+    .map_err(|_| {
+        crate::error::Error::Runtime(crate::error::RuntimeErrorKind::InvalidParams(
+            crate::error::RuntimeParamErrorKind::InvalidArgs(
+                "Flashblocks WS endpoint did not send any data within 10 seconds".to_string(),
+            ),
+        ))
+    })?
+    .map_err(|msg| {
+        crate::error::Error::Runtime(crate::error::RuntimeErrorKind::InvalidParams(
+            crate::error::RuntimeParamErrorKind::InvalidArgs(msg),
+        ))
+    })?;
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&preflight_result).unwrap_or(serde_json::Value::Null);
+    if parsed.get("metadata").and_then(|m| m.get("receipts")).is_some() {
+        info!("Flashblocks WS endpoint validated successfully");
+    } else {
+        return Err(crate::error::Error::Runtime(
+            crate::error::RuntimeErrorKind::InvalidParams(
+                crate::error::RuntimeParamErrorKind::InvalidArgs(format!(
+                    "Flashblocks WS endpoint sent unexpected message format (missing metadata.receipts): {}",
+                    &preflight_result[..preflight_result.len().min(200)]
+                )),
+            ),
+        ));
     }
 
     // Close the preflight connection
@@ -656,6 +652,12 @@ async fn flashblocks_listener(flush_sender: mpsc::Sender<FlushRequest>, ws_url: 
 
             // Flashblock diff format:
             // {"payload_id":"0x...","index":0,"diff":{"transactions":[...]},"metadata":{"receipts":{"0xTxHash1":{...},...}}}
+            // Extract the flashblock index
+            let index = parsed
+                .get("index")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+
             // Extract tx hashes from metadata.receipts keys
             let tx_hashes: Vec<TxHash> = parsed
                 .get("metadata")
@@ -671,8 +673,9 @@ async fn flashblocks_listener(flush_sender: mpsc::Sender<FlushRequest>, ws_url: 
 
             if !tx_hashes.is_empty() {
                 debug!(
-                    "Flashblock diff received with {} tx(s)",
-                    tx_hashes.len()
+                    "Flashblock diff received with {} tx(s) (index={})",
+                    tx_hashes.len(),
+                    index
                 );
             }
 
@@ -681,6 +684,7 @@ async fn flashblocks_listener(flush_sender: mpsc::Sender<FlushRequest>, ws_url: 
                     .send(FlushRequest::MarkFlashblock {
                         tx_hash,
                         timestamp_ms,
+                        index,
                     })
                     .await
                     .is_err()

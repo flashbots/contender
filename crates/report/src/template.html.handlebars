@@ -283,6 +283,13 @@
   </section>
   {{/if}}
 
+  {{#if data.chart_data.flashblock_index}}
+  <section>
+    <h2>Flashblock Index</h2>
+    <div class="chart" id="flashblock-index-distribution"></div>
+  </section>
+  {{/if}}
+
   <section>
     <h2>Tx Gas Used</h2>
     <div class="chart" id="tx-gas-used"></div>
@@ -547,6 +554,49 @@
       chart.setOption(option);
     }
 
+    async function renderFlashblockIndex() {
+      var el = document.getElementById('flashblock-index-distribution');
+      if (!el) return;
+      var chart = echarts.init(el);
+
+      const labels = [{{#if data.chart_data.flashblock_index}}{{#each data.chart_data.flashblock_index.labels}}"{{this}}"{{#if @last}}{{else}}, {{/if}}{{/each}}{{/if}}];
+      const counts = {{#if data.chart_data.flashblock_index}}{{data.chart_data.flashblock_index.counts}}{{else}}[]{{/if}};
+
+      var option = {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: {
+            type: 'shadow'
+          }
+        },
+        xAxis: {
+          type: 'category',
+          data: labels,
+          name: 'Flashblock Index',
+          nameGap: 2,
+          axisLabel: {
+            interval: 0,
+          },
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Num. Transactions',
+          min: 0,
+          max: {{#if data.chart_data.flashblock_index}}{{data.chart_data.flashblock_index.max_count}}{{else}}0{{/if}},
+        },
+        series: [{
+          name: 'Txs',
+          type: 'bar',
+          data: counts,
+          itemStyle: {
+            color: '#91CC75'
+          }
+        }]
+      };
+
+      chart.setOption(option);
+    }
+
     async function renderTxGasUsed() {
       // Initialize the echarts instance based on the prepared dom
       var chart = echarts.init(document.getElementById('tx-gas-used'));
@@ -731,6 +781,7 @@
       renderGasPerBlock(),
       renderTimeToInclusion(),
       renderFlashblockTimeToInclusion(),
+      renderFlashblockIndex(),
       renderTxGasUsed(),
       renderPendingTxs(),
       renderMethodLatency('eth_sendRawTransaction'),
