@@ -1,3 +1,4 @@
+use crate::chart::flashblock_time_to_inclusion::FlashblockTimeToInclusionData;
 use crate::chart::pending_txs::PendingTxsData;
 use crate::chart::rpc_latency::LatencyData;
 use crate::chart::time_to_inclusion::TimeToInclusionData;
@@ -37,6 +38,8 @@ pub struct ChartData {
     pub tx_gas_used: TxGasUsedData,
     pub pending_txs: PendingTxsData,
     pub latency_data_sendrawtransaction: LatencyData,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flashblock_time_to_inclusion: Option<FlashblockTimeToInclusionData>,
 }
 
 #[derive(Deserialize, Serialize)]

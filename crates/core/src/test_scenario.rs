@@ -150,6 +150,7 @@ pub struct TestScenarioParams {
     pub rpc_batch_size: u64,
     pub gas_price: Option<U256>,
     pub scenario_label: Option<String>,
+    pub flashblocks_ws_url: Option<Url>,
 }
 
 pub struct SpamRunContext<'a, F: SpamCallback + 'static> {
@@ -220,6 +221,7 @@ where
             rpc_batch_size,
             gas_price,
             scenario_label,
+            flashblocks_ws_url,
         } = params;
         let agent_store = config.build_agent_store(&rand_seed, agent_spec.clone());
 
@@ -294,7 +296,9 @@ where
         let cancel_token = CancellationToken::new();
 
         // default msg_handle to handle txs sent on rpc_url
-        let msg_handle = Arc::new(TxActorHandle::new(12000, db.clone(), rpc_client.clone()));
+        let msg_handle = Arc::new(
+            TxActorHandle::new(12000, db.clone(), rpc_client.clone(), flashblocks_ws_url).await?,
+        );
         let mut msg_handles = HashMap::new();
         msg_handles.insert("default".to_owned(), msg_handle);
         msg_handles.extend(extra_msg_handles.unwrap_or_default());
@@ -453,6 +457,7 @@ where
                 rpc_batch_size: self.rpc_batch_size,
                 gas_price: self.gas_price,
                 scenario_label: self.scenario_label.clone(),
+                flashblocks_ws_url: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -1384,6 +1389,7 @@ where
                 rpc_batch_size: self.rpc_batch_size,
                 gas_price: self.gas_price,
                 scenario_label: self.scenario_label.clone(),
+                flashblocks_ws_url: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -2013,6 +2019,7 @@ pub mod tests {
                 rpc_batch_size: 0,
                 gas_price,
                 scenario_label: None,
+                flashblocks_ws_url: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -2553,6 +2560,7 @@ pub mod tests {
                 rpc_batch_size: 0,
                 gas_price: None,
                 scenario_label: None,
+                flashblocks_ws_url: None,
             },
             None,
             (&PROM, &HIST).into(),

@@ -132,6 +132,7 @@ mod tests {
                 rpc_batch_size: 0,
                 gas_price: None,
                 scenario_label: None,
+                flashblocks_ws_url: None,
             },
             None,
             (&PROM, &HIST).into(),

@@ -3,6 +3,7 @@ use super::util::std_deviation;
 use crate::block_trace::{estimate_block_data, get_block_data, get_block_traces};
 use crate::cache::CacheFile;
 use crate::chart::{
+    flashblock_time_to_inclusion::FlashblockTimeToInclusionChart,
     gas_per_block::GasPerBlockChart, heatmap::HeatMapChart, pending_txs::PendingTxsChart,
     rpc_latency::LatencyChart, time_to_inclusion::TimeToInclusionChart,
     tx_gas_used::TxGasUsedChart,
@@ -246,6 +247,7 @@ pub async fn report(
     let tti = TimeToInclusionChart::new(&all_txs);
     let gas_used = TxGasUsedChart::new(&cache_data.traces, 4000);
     let pending_txs = PendingTxsChart::new(&all_txs);
+    let flashblock_tti = FlashblockTimeToInclusionChart::new(&all_txs);
     let latency_chart_sendrawtx = LatencyChart::new(
         canonical_latency_map
             .get("eth_sendRawTransaction")
@@ -273,6 +275,7 @@ pub async fn report(
             tx_gas_used: gas_used.echart_data(),
             pending_txs: pending_txs.echart_data(),
             latency_data_sendrawtransaction: latency_chart_sendrawtx.echart_data(),
+            flashblock_time_to_inclusion: flashblock_tti.map(|c| c.echart_data()),
         },
         campaign: campaign_context,
     };
@@ -616,14 +619,14 @@ fn run_time_bounds(run: &SpamRun, run_txs: &[RunTx]) -> (Option<u128>, Option<u1
     if !run_txs.is_empty() {
         let start = run_txs
             .iter()
-            .map(|t| t.start_timestamp_secs as u128 * 1000)
+            .map(|t| t.start_timestamp_ms as u128)
             .min();
         let end = run_txs
             .iter()
             .map(|t| {
-                t.end_timestamp_secs
-                    .map(|e| e as u128 * 1000)
-                    .unwrap_or(t.start_timestamp_secs as u128 * 1000)
+                t.end_timestamp_ms
+                    .map(|e| e as u128)
+                    .unwrap_or(t.start_timestamp_ms as u128)
             })
             .max();
         return (start, end);

@@ -109,6 +109,15 @@ pub struct CampaignCliArgs {
         visible_aliases = ["indefinite", "indefinitely", "infinite"]
     )]
     pub run_forever: bool,
+
+    /// WebSocket URL for flashblocks pre-confirmation subscription.
+    #[arg(
+        long = "flashblocks-ws-url",
+        value_name = "URL",
+        env = "FLASHBLOCKS_WS_URL",
+        long_help = "WebSocket URL for subscribing to flashblock pre-confirmations. When set, contender will track sub-block inclusion latency alongside full-block metrics."
+    )]
+    pub flashblocks_ws_url: Option<Url>,
 }
 
 fn bump_seed(base_seed: &str, stage_name: &str) -> String {
@@ -326,6 +335,7 @@ fn create_spam_cli_args(
         skip_setup,
         rpc_batch_size: args.rpc_batch_size,
         spam_timeout: args.spam_timeout,
+        flashblocks_ws_url: args.flashblocks_ws_url.clone(),
     }
 }
 

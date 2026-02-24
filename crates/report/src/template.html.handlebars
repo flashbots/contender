@@ -276,6 +276,13 @@
     <div class="chart" id="time-to-inclusion"></div>
   </section>
 
+  {{#if data.chart_data.flashblock_time_to_inclusion}}
+  <section>
+    <h2>Flashblock Time to Inclusion</h2>
+    <div class="chart" id="flashblock-time-to-inclusion"></div>
+  </section>
+  {{/if}}
+
   <section>
     <h2>Tx Gas Used</h2>
     <div class="chart" id="tx-gas-used"></div>
@@ -497,6 +504,49 @@
       chart.setOption(option);
     }
 
+    async function renderFlashblockTimeToInclusion() {
+      var el = document.getElementById('flashblock-time-to-inclusion');
+      if (!el) return;
+      var chart = echarts.init(el);
+
+      const buckets = [{{#if data.chart_data.flashblock_time_to_inclusion}}{{#each data.chart_data.flashblock_time_to_inclusion.buckets}}"{{this}}"{{#if @last}}{{else}}, {{/if}}{{/each}}{{/if}}];
+      const counts = {{#if data.chart_data.flashblock_time_to_inclusion}}{{data.chart_data.flashblock_time_to_inclusion.counts}}{{else}}[]{{/if}};
+
+      var option = {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: {
+            type: 'shadow'
+          }
+        },
+        xAxis: {
+          type: 'category',
+          data: buckets,
+          nameGap: 2,
+          axisLabel: {
+            interval: buckets.length > 20 ? Math.floor(buckets.length / 20) - 1 : 0,
+            rotate: 45
+          },
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Num. Transactions',
+          min: 0,
+          max: {{#if data.chart_data.flashblock_time_to_inclusion}}{{data.chart_data.flashblock_time_to_inclusion.max_count}}{{else}}0{{/if}},
+        },
+        series: [{
+          name: 'Txs',
+          type: 'bar',
+          data: counts,
+          itemStyle: {
+            color: '#91CC75'
+          }
+        }]
+      };
+
+      chart.setOption(option);
+    }
+
     async function renderTxGasUsed() {
       // Initialize the echarts instance based on the prepared dom
       var chart = echarts.init(document.getElementById('tx-gas-used'));
@@ -680,6 +730,7 @@
       renderHeatmap(),
       renderGasPerBlock(),
       renderTimeToInclusion(),
+      renderFlashblockTimeToInclusion(),
       renderTxGasUsed(),
       renderPendingTxs(),
       renderMethodLatency('eth_sendRawTransaction'),
