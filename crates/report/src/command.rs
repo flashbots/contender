@@ -26,6 +26,15 @@ use std::path::Path;
 use std::str::FromStr;
 use tracing::{debug, info};
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+/// Gas usage quantiles for blocks.
+pub struct GasQuantiles {
+    pub p50: u128,
+    pub p90: u128,
+    pub p95: u128,
+    pub p99: u128,
+}
+
 pub async fn report(
     last_run_id: Option<u64>,
     preceding_runs: u64,
@@ -144,6 +153,38 @@ pub async fn report(
 
     // find peak gas usage
     let peak_gas = blocks.iter().map(|b| b.header.gas_used).max().unwrap_or(0);
+    let gas_quantiles = {
+        let mut gas_values: Vec<u128> = blocks.iter().map(|b| b.header.gas_used as u128).collect();
+        gas_values.sort();
+        if gas_values.is_empty() {
+            GasQuantiles {
+                p50: 0,
+                p90: 0,
+                p95: 0,
+                p99: 0,
+            }
+        } else {
+            let len = gas_values.len();
+            let p50_idx = ((len as f64 * 0.5).ceil() as usize)
+                .saturating_sub(1)
+                .min(len - 1);
+            let p90_idx = ((len as f64 * 0.9).ceil() as usize)
+                .saturating_sub(1)
+                .min(len - 1);
+            let p95_idx = ((len as f64 * 0.95).ceil() as usize)
+                .saturating_sub(1)
+                .min(len - 1);
+            let p99_idx = ((len as f64 * 0.99).ceil() as usize)
+                .saturating_sub(1)
+                .min(len - 1);
+            GasQuantiles {
+                p50: gas_values[p50_idx],
+                p90: gas_values[p90_idx],
+                p95: gas_values[p95_idx],
+                p99: gas_values[p99_idx],
+            }
+        }
+    };
     let block_gas_limit = blocks
         .first()
         .map(|blk| blk.header.gas_limit)
@@ -216,6 +257,12 @@ pub async fn report(
 
     let block_time_delta_std_dev = block_time_delta_std_dev.unwrap_or(0.0);
     let metrics = SpamRunMetrics {
+        gas_quantiles: GasQuantiles {
+            p50: gas_quantiles.p50,
+            p90: gas_quantiles.p90,
+            p95: gas_quantiles.p95,
+            p99: gas_quantiles.p99,
+        },
         peak_gas: MetricDescriptor::new(
             peak_gas,
             Some(&format!("{}%", (peak_gas * 100) / block_gas_limit)),
@@ -652,6 +699,7 @@ pub struct RpcLatencyQuantiles {
 /// Metrics for a spam run. Must be readable by handlebars.
 pub struct SpamRunMetrics {
     pub peak_gas: MetricDescriptor<u64>,
+    pub gas_quantiles: GasQuantiles,
     pub peak_tx_count: MetricDescriptor<u64>,
     pub average_block_time_secs: MetricDescriptor<f64>,
     pub latency_quantiles: Vec<RpcLatencyQuantiles>,
