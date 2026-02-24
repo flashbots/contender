@@ -157,13 +157,26 @@ pub async fn report(
         let mut gas_values: Vec<u128> = blocks.iter().map(|b| b.header.gas_used as u128).collect();
         gas_values.sort();
         if gas_values.is_empty() {
-            GasQuantiles { p50: 0, p90: 0, p95: 0, p99: 0 }
+            GasQuantiles {
+                p50: 0,
+                p90: 0,
+                p95: 0,
+                p99: 0,
+            }
         } else {
             let len = gas_values.len();
-            let p50_idx = ((len as f64 * 0.5).ceil() as usize).saturating_sub(1).min(len - 1);
-            let p90_idx = ((len as f64 * 0.9).ceil() as usize).saturating_sub(1).min(len - 1);
-            let p95_idx = ((len as f64 * 0.95).ceil() as usize).saturating_sub(1).min(len - 1);
-            let p99_idx = ((len as f64 * 0.99).ceil() as usize).saturating_sub(1).min(len - 1);
+            let p50_idx = ((len as f64 * 0.5).ceil() as usize)
+                .saturating_sub(1)
+                .min(len - 1);
+            let p90_idx = ((len as f64 * 0.9).ceil() as usize)
+                .saturating_sub(1)
+                .min(len - 1);
+            let p95_idx = ((len as f64 * 0.95).ceil() as usize)
+                .saturating_sub(1)
+                .min(len - 1);
+            let p99_idx = ((len as f64 * 0.99).ceil() as usize)
+                .saturating_sub(1)
+                .min(len - 1);
             GasQuantiles {
                 p50: gas_values[p50_idx],
                 p90: gas_values[p90_idx],
