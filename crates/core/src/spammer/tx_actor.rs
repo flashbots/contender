@@ -1,4 +1,8 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::Duration,
+};
 
 use alloy::{
     hex::FromHex,
@@ -77,6 +81,9 @@ where
     cache: Vec<PendingRunTx>,
     ctx: Option<ActorContext>,
     status: ActorStatus,
+    /// Flashblock marks that arrived before the tx was added to cache.
+    /// Applied retroactively when SentRunTx is processed.
+    pending_flashblock_marks: HashMap<TxHash, (u128, u64)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -152,6 +159,7 @@ where
             cache: Vec::new(),
             ctx: None,
             status: ActorStatus::default(),
+            pending_flashblock_marks: HashMap::new(),
         }
     }
 
@@ -216,13 +224,24 @@ where
                 error,
                 on_receive,
             } => {
+                // Check if a flashblock mark arrived before the tx was cached
+                let (fb_timestamp, fb_index) =
+                    if let Some((ts, idx)) = self.pending_flashblock_marks.remove(&tx_hash) {
+                        debug!(
+                            "applied buffered flashblock mark for tx {} (index={})",
+                            tx_hash, idx
+                        );
+                        (Some(ts), Some(idx))
+                    } else {
+                        (None, None)
+                    };
                 let run_tx = PendingRunTx {
                     tx_hash,
                     start_timestamp_ms,
                     kind,
                     error,
-                    flashblock_timestamp_ms: None,
-                    flashblock_index: None,
+                    flashblock_timestamp_ms: fb_timestamp,
+                    flashblock_index: fb_index,
                 };
                 self.cache.push(run_tx);
                 on_receive
@@ -260,6 +279,10 @@ where
                 // Remove confirmed txs (already recorded in DB by process_block_receipts)
                 self.cache
                     .retain(|tx| !confirmed_tx_hashes.contains(&tx.tx_hash));
+                // Clean up any stale pending marks for confirmed txs
+                for hash in &confirmed_tx_hashes {
+                    self.pending_flashblock_marks.remove(hash);
+                }
                 // Update target block
                 if let Some(ref mut ctx) = self.ctx {
                     if new_target_block > ctx.target_block {
@@ -283,6 +306,12 @@ where
                         pending_tx.flashblock_index = Some(index);
                         debug!("marked flashblock for tx {} (index={})", tx_hash, index);
                     }
+                } else {
+                    // Tx not in cache yet (SentRunTx hasn't been processed).
+                    // Buffer the mark so it can be applied when the tx arrives.
+                    self.pending_flashblock_marks
+                        .entry(tx_hash)
+                        .or_insert((timestamp_ms, index));
                 }
             }
         }
@@ -671,13 +700,22 @@ async fn flashblocks_listener(flush_sender: mpsc::Sender<FlushRequest>, ws_url: 
                 })
                 .unwrap_or_default();
 
-            if !tx_hashes.is_empty() {
-                debug!(
-                    "Flashblock diff received with {} tx(s) (index={})",
-                    tx_hashes.len(),
-                    index
-                );
-            }
+            let has_receipts = parsed
+                .get("metadata")
+                .and_then(|m| m.get("receipts"))
+                .and_then(|r| r.as_object())
+                .map(|r| r.len())
+                .unwrap_or(0);
+            let has_diff_txs = parsed
+                .get("diff")
+                .and_then(|d| d.get("transactions"))
+                .and_then(|t| t.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+            debug!(
+                "Flashblock diff (index={}): {} metadata.receipts, {} diff.transactions, {} matched tx hashes",
+                index, has_receipts, has_diff_txs, tx_hashes.len()
+            );
 
             for tx_hash in tx_hashes {
                 if flush_sender
