@@ -619,10 +619,35 @@ where
 
         // watch pending transaction
         let receipt = res.get_receipt().await.expect("failed to get receipt");
-        debug!(
-            "contract address: {}",
-            receipt.contract_address.unwrap_or_default()
-        );
+        let contract_address = receipt.contract_address.unwrap_or_default();
+        debug!("contract address: {contract_address}");
+
+        // Poll until the contract code is visible via eth_getCode.
+        // This guards against a race where the receipt is available but the
+        // RPC state hasn't caught up, which causes subsequent gas estimates
+        // to return incorrect (too-low) values.
+        let poll_interval = Duration::from_millis(100);
+        let max_wait = Duration::from_secs(10);
+        let start = Instant::now();
+        loop {
+            let code = wallet_client
+                .get_code_at(contract_address)
+                .await
+                .unwrap_or_default();
+            if !code.is_empty() {
+                debug!("contract code visible at {contract_address} after {:?}", start.elapsed());
+                break;
+            }
+            if start.elapsed() >= max_wait {
+                return Err(RuntimeErrorKind::ContractCodeNotVisible(
+                    contract_address,
+                    max_wait.as_secs(),
+                )
+                .into());
+            }
+            tokio::time::sleep(poll_interval).await;
+        }
+
         if let Some(name) = &tx_req.name {
             let db_name = scenario_db_key(name, scenario_label.as_deref());
             db.insert_named_txs(
@@ -723,16 +748,23 @@ where
                     debug!("sent setup tx {:?}: {}", tx_req.kind, res.tx_hash());
                     // get receipt using provider (not wallet) to allow any receipt type (support non-eth chains)
                     let receipt = res.get_receipt().await?;
+                    let status_label = if receipt.status() {
+                        "LANDED"
+                    } else {
+                        "REVERTED"
+                    };
                     debug!(
                         "got receipt for {:?}: ({}) {}",
-                        tx_req.kind,
-                        if receipt.status() {
-                            "LANDED"
-                        } else {
-                            "REVERTED"
-                        },
-                        receipt.transaction_hash
+                        tx_req.kind, status_label, receipt.transaction_hash
                     );
+
+                    if !receipt.status() {
+                        return Err(RuntimeErrorKind::SetupTxReverted {
+                            label: tx_label,
+                            tx_hash: receipt.transaction_hash.to_string(),
+                        }
+                        .into());
+                    }
 
                     if let Some(name) = tx_req.name {
                         db.insert_named_txs(
