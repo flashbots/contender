@@ -1219,8 +1219,22 @@ where
         sent_tx_callback: Arc<F>,
     ) -> Result<()> {
         let mut tick = 0;
+
+        // Deferred batch state from the previous iteration. Tasks run in the
+        // background during the interval wait, so collecting results at the
+        // start of the next tick is typically near-instant.
+        let mut pending_batch: Option<PendingBatch> = None;
+
         while let Some(trigger) = cursor.next().await {
             let trigger = trigger.to_owned();
+
+            // Collect results from the previous iteration's batch.
+            // The tasks have been running since the previous tick fired,
+            // so they are typically already finished and this completes quickly.
+            // This also applies nonce/gas corrections before we prepare the next batch.
+            if let Some(batch) = pending_batch.take() {
+                self.collect_pending_batch(batch, &sent_tx_callback).await?;
+            }
 
             // assign from addrs, nonces, and gas prices for this chunk of tx requests
             let payloads = self
@@ -1229,9 +1243,9 @@ where
             let num_payloads = payloads.len();
 
             // initialize async context handlers
-            let (success_sender, mut success_receiver) = tokio::sync::mpsc::channel(num_payloads);
-            let (add_gas_sender, mut add_gas_receiver) = tokio::sync::mpsc::channel(num_payloads);
-            let (shift_nonce_sender, mut shift_nonce_receiver) =
+            let (success_sender, success_receiver) = tokio::sync::mpsc::channel(num_payloads);
+            let (add_gas_sender, add_gas_receiver) = tokio::sync::mpsc::channel(num_payloads);
+            let (shift_nonce_sender, shift_nonce_receiver) =
                 tokio::sync::mpsc::channel(tx_req_chunks[0].len());
             let context = SpamContextHandler {
                 success_send_tx: success_sender,
@@ -1240,93 +1254,131 @@ where
             };
 
             // send this batch of spam txs
-            let (spam_tasks, mut error_receiver) = self
+            let (spam_tasks, error_receiver) = self
                 .execute_spam(trigger, payloads, sent_tx_callback.clone(), context)
                 .await?;
-            let mut num_tasks = spam_tasks.len();
+            let num_tasks = spam_tasks.len();
 
-            // wait for spam txs to finish sending
-            for task in spam_tasks {
-                tokio::select! {
-                    res = task => {
-                        if let Err(e) = res {
-                            tracing::trace!("spam task abandoned: {e:?}");
-                            num_tasks -= 1;
-                        }
-                    },
-                    Some(err) = error_receiver.recv() => {
-                        return Err(err);
-                    }
-                    _ = self.ctx.cancel_token.cancelled() => {
-                        break;
-                    }
-                }
-            }
+            // Defer task awaiting and bookkeeping to the next iteration.
+            // This lets the tasks run during the interval wait so the collect
+            // at the start of the next tick is near-instant when tasks finish in <1s.
+            pending_batch = Some(PendingBatch {
+                spam_tasks,
+                error_receiver,
+                success_receiver,
+                add_gas_receiver,
+                shift_nonce_receiver,
+                num_payloads,
+                num_tasks,
+                tick,
+            });
 
-            // wait for the on_batch_sent callback to finish
-            if let Some(task) = sent_tx_callback.on_batch_sent() {
-                task.await.map_err(CallbackError::Join)??;
-            }
-
-            info!("[{tick}] executed {num_tasks} spam tasks");
-
-            // increase gas price if needed
-            add_gas_receiver.close();
-            let starting_gas_adder = self.ctx.gas_price_adder;
-            while let Some(gas) = add_gas_receiver.recv().await {
-                if self.ctx.gas_price_adder >= gas as i128 + starting_gas_adder {
-                    continue;
-                }
-                debug!("incrementing gas price by {gas}");
-                self.ctx.add_to_gas_price(gas as i128);
-            }
-
-            // shift nonces if needed
-            // Accumulate all nonce adjustments per address to avoid race conditions
-            // where multiple updates for the same address read stale nonce values
-            shift_nonce_receiver.close();
-            let mut nonce_adjustments: HashMap<Address, i32> = HashMap::new();
-            while let Some((addr, shift)) = shift_nonce_receiver.recv().await {
-                *nonce_adjustments.entry(addr).or_insert(0) += shift;
-            }
-
-            // Apply accumulated adjustments
-            for (addr, total_shift) in nonce_adjustments {
-                let current_nonce = self.nonces.get(&addr).copied().unwrap_or_default();
-                let new_nonce = if total_shift < 0 {
-                    current_nonce.saturating_sub(total_shift.unsigned_abs() as u64)
-                } else {
-                    current_nonce.saturating_add(total_shift as u64)
-                };
-                debug!(
-                    "nonce for {} adjusted by {} (from {} to {})",
-                    addr, total_shift, current_nonce, new_nonce
-                );
-                self.nonces.insert(addr, new_nonce);
-            }
-
-            // decrease gas price if all txs were sent successfully
-            success_receiver.close();
-            let mut success_count = 0;
-            while success_receiver.recv().await.is_some() {
-                success_count += 1;
-            }
-            if success_count == num_payloads {
-                info!("all spam txs sent successfully");
-                if self.ctx.gas_price_adder > 0 {
-                    // remove 10% of the gas price adder
-                    self.ctx.add_to_gas_price(self.ctx.gas_price_adder / -10);
-                }
-            } else {
-                warn!(
-                    "some spam txs failed to send: {} / {}",
-                    num_payloads - success_count,
-                    num_payloads
-                );
-            }
-
-            // increment tick to get next chunk of txs
             tick += 1;
+        }
+
+        // Collect final batch results
+        if let Some(batch) = pending_batch.take() {
+            self.collect_pending_batch(batch, &sent_tx_callback).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Awaits deferred tasks and applies nonce/gas bookkeeping from a previous batch.
+    async fn collect_pending_batch<F: SpamCallback + 'static>(
+        &mut self,
+        batch: PendingBatch,
+        sent_tx_callback: &Arc<F>,
+    ) -> Result<()> {
+        let PendingBatch {
+            spam_tasks,
+            mut error_receiver,
+            mut success_receiver,
+            mut add_gas_receiver,
+            mut shift_nonce_receiver,
+            num_payloads,
+            mut num_tasks,
+            tick,
+        } = batch;
+
+        // wait for spam txs to finish sending
+        for task in spam_tasks {
+            tokio::select! {
+                res = task => {
+                    if let Err(e) = res {
+                        tracing::trace!("spam task abandoned: {e:?}");
+                        num_tasks -= 1;
+                    }
+                },
+                Some(err) = error_receiver.recv() => {
+                    return Err(err);
+                }
+                _ = self.ctx.cancel_token.cancelled() => {
+                    break;
+                }
+            }
+        }
+
+        // wait for the on_batch_sent callback to finish
+        if let Some(task) = sent_tx_callback.on_batch_sent() {
+            task.await.map_err(CallbackError::Join)??;
+        }
+
+        info!("[{tick}] executed {num_tasks} spam tasks");
+
+        // increase gas price if needed
+        add_gas_receiver.close();
+        let starting_gas_adder = self.ctx.gas_price_adder;
+        while let Some(gas) = add_gas_receiver.recv().await {
+            if self.ctx.gas_price_adder >= gas as i128 + starting_gas_adder {
+                continue;
+            }
+            debug!("incrementing gas price by {gas}");
+            self.ctx.add_to_gas_price(gas as i128);
+        }
+
+        // shift nonces if needed
+        // Accumulate all nonce adjustments per address to avoid race conditions
+        // where multiple updates for the same address read stale nonce values
+        shift_nonce_receiver.close();
+        let mut nonce_adjustments: HashMap<Address, i32> = HashMap::new();
+        while let Some((addr, shift)) = shift_nonce_receiver.recv().await {
+            *nonce_adjustments.entry(addr).or_insert(0) += shift;
+        }
+
+        // Apply accumulated adjustments
+        for (addr, total_shift) in nonce_adjustments {
+            let current_nonce = self.nonces.get(&addr).copied().unwrap_or_default();
+            let new_nonce = if total_shift < 0 {
+                current_nonce.saturating_sub(total_shift.unsigned_abs() as u64)
+            } else {
+                current_nonce.saturating_add(total_shift as u64)
+            };
+            debug!(
+                "nonce for {} adjusted by {} (from {} to {})",
+                addr, total_shift, current_nonce, new_nonce
+            );
+            self.nonces.insert(addr, new_nonce);
+        }
+
+        // decrease gas price if all txs were sent successfully
+        success_receiver.close();
+        let mut success_count = 0;
+        while success_receiver.recv().await.is_some() {
+            success_count += 1;
+        }
+        if success_count == num_payloads {
+            info!("all spam txs sent successfully");
+            if self.ctx.gas_price_adder > 0 {
+                // remove 10% of the gas price adder
+                self.ctx.add_to_gas_price(self.ctx.gas_price_adder / -10);
+            }
+        } else {
+            warn!(
+                "some spam txs failed to send: {} / {}",
+                num_payloads - success_count,
+                num_payloads
+            );
         }
 
         Ok(())
@@ -1774,6 +1826,19 @@ struct SpamContextHandler {
     add_gas: tokio::sync::mpsc::Sender<u128>,
     success_send_tx: tokio::sync::mpsc::Sender<()>,
     shift_nonce: tokio::sync::mpsc::Sender<(Address, i32)>,
+}
+
+/// Holds deferred state from a spawned batch so tasks can run during the
+/// interval wait and be collected at the start of the next tick.
+struct PendingBatch {
+    spam_tasks: Vec<tokio::task::JoinHandle<()>>,
+    error_receiver: tokio::sync::mpsc::Receiver<Error>,
+    success_receiver: tokio::sync::mpsc::Receiver<()>,
+    add_gas_receiver: tokio::sync::mpsc::Receiver<u128>,
+    shift_nonce_receiver: tokio::sync::mpsc::Receiver<(Address, i32)>,
+    num_payloads: usize,
+    num_tasks: usize,
+    tick: usize,
 }
 
 trait TxKey {
