@@ -516,7 +516,7 @@ where
     pub async fn deploy_contracts(&mut self) -> Result<()> {
         let pub_provider = &self.rpc_client;
         let gas_price = pub_provider.get_gas_price().await?;
-        let blob_gas_price = get_blob_fee_maybe(&self.rpc_client).await;
+        let blob_gas_price = get_blob_fee_maybe(&self.rpc_client, self.tx_type).await;
         let chain_id = pub_provider.get_chain_id().await?;
 
         // we do everything in the callback so no need to actually capture the returned txs
@@ -644,7 +644,7 @@ where
     pub async fn run_setup(&mut self) -> Result<()> {
         let chain_id = self.chain_id;
         let genesis_hash = self.ctx.genesis_hash;
-        let blob_base_fee = get_blob_fee_maybe(&self.rpc_client).await;
+        let blob_base_fee = get_blob_fee_maybe(&self.rpc_client, self.tx_type).await;
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(SETUP_CONCURRENCY_LIMIT));
 
@@ -825,11 +825,12 @@ where
         let (gas_price, blob_gas_price) = match self.gas_price {
             Some(override_price) => (
                 override_price.to::<u128>(),
-                get_blob_fee_maybe(&self.rpc_client).await,
+                get_blob_fee_maybe(&self.rpc_client, self.tx_type).await,
             ),
             None => {
                 let gas_price = self.rpc_client.get_gas_price().await?;
-                let blob_gas_price = get_blob_fee_maybe(&self.rpc_client).await;
+                let blob_gas_price =
+                    get_blob_fee_maybe(&self.rpc_client, self.tx_type).await;
                 let adjusted_gas_price = |price: u128| {
                     if self.ctx.gas_price_adder < 0 {
                         price - self.ctx.gas_price_adder.unsigned_abs()
@@ -1479,11 +1480,11 @@ where
         let (gas_price, blob_gas_price) = match scenario.gas_price {
             Some(override_price) => (
                 override_price.to::<u128>(),
-                get_blob_fee_maybe(&scenario.rpc_client).await,
+                get_blob_fee_maybe(&scenario.rpc_client, scenario.tx_type).await,
             ),
             None => (
                 scenario.rpc_client.get_gas_price().await?,
-                get_blob_fee_maybe(&scenario.rpc_client).await,
+                get_blob_fee_maybe(&scenario.rpc_client, scenario.tx_type).await,
             ),
         };
 
