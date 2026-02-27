@@ -4,10 +4,9 @@ use crate::block_trace::{estimate_block_data, get_block_data, get_block_traces};
 use crate::cache::CacheFile;
 use crate::chart::{
     flashblock_index::FlashblockIndexChart,
-    flashblock_time_to_inclusion::FlashblockTimeToInclusionChart,
-    gas_per_block::GasPerBlockChart, heatmap::HeatMapChart, pending_txs::PendingTxsChart,
-    rpc_latency::LatencyChart, time_to_inclusion::TimeToInclusionChart,
-    tx_gas_used::TxGasUsedChart,
+    flashblock_time_to_inclusion::FlashblockTimeToInclusionChart, gas_per_block::GasPerBlockChart,
+    heatmap::HeatMapChart, pending_txs::PendingTxsChart, rpc_latency::LatencyChart,
+    time_to_inclusion::TimeToInclusionChart, tx_gas_used::TxGasUsedChart,
 };
 use crate::gen_html::ChartData;
 use crate::util::write_run_txs;
@@ -627,10 +626,7 @@ fn tx_and_error_counts(run_txs: &[RunTx], fallback_tx_count: usize) -> (u64, u64
 
 fn run_time_bounds(run: &SpamRun, run_txs: &[RunTx]) -> (Option<u128>, Option<u128>) {
     if !run_txs.is_empty() {
-        let start = run_txs
-            .iter()
-            .map(|t| t.start_timestamp_ms as u128)
-            .min();
+        let start = run_txs.iter().map(|t| t.start_timestamp_ms as u128).min();
         let end = run_txs
             .iter()
             .map(|t| {

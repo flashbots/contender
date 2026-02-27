@@ -635,7 +635,10 @@ where
                 .await
                 .unwrap_or_default();
             if !code.is_empty() {
-                debug!("contract code visible at {contract_address} after {:?}", start.elapsed());
+                debug!(
+                    "contract code visible at {contract_address} after {:?}",
+                    start.elapsed()
+                );
                 break;
             }
             if start.elapsed() >= max_wait {
@@ -861,8 +864,7 @@ where
             ),
             None => {
                 let gas_price = self.rpc_client.get_gas_price().await?;
-                let blob_gas_price =
-                    get_blob_fee_maybe(&self.rpc_client, self.tx_type).await;
+                let blob_gas_price = get_blob_fee_maybe(&self.rpc_client, self.tx_type).await;
                 let adjusted_gas_price = |price: u128| {
                     if self.ctx.gas_price_adder < 0 {
                         price - self.ctx.gas_price_adder.unsigned_abs()

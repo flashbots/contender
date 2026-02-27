@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use alloy::{
     hex::FromHex,
@@ -115,8 +111,12 @@ impl PendingRunTx {
 
     /// Flashblock inclusion latency (time from send to first flashblock appearance).
     pub fn flashblock_latency_ms(&self) -> Option<u64> {
-        self.flashblock_timestamp_ms
-            .map(|fb_ts| fb_ts.saturating_sub(self.start_timestamp_ms).try_into().unwrap())
+        self.flashblock_timestamp_ms.map(|fb_ts| {
+            fb_ts
+                .saturating_sub(self.start_timestamp_ms)
+                .try_into()
+                .unwrap()
+        })
     }
 }
 
@@ -290,9 +290,8 @@ where
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("Time went backwards")
                     .as_millis();
-                self.pending_flashblock_marks.retain(|_, (ts, _)| {
-                    now_ms.saturating_sub(*ts) < 20_000
-                });
+                self.pending_flashblock_marks
+                    .retain(|_, (ts, _)| now_ms.saturating_sub(*ts) < 20_000);
                 // Update target block
                 if let Some(ref mut ctx) = self.ctx {
                     if new_target_block > ctx.target_block {
@@ -566,17 +565,16 @@ fn ws_message_to_text(msg: Message) -> Option<String> {
 async fn flashblocks_preflight(ws_url: &Url) -> Result<()> {
     info!("Validating flashblocks WS endpoint: {}", ws_url);
 
-    let (mut ws_stream, _) =
-        tokio_tungstenite::connect_async(ws_url.as_str())
-            .await
-            .map_err(|e| {
-                crate::error::Error::Runtime(crate::error::RuntimeErrorKind::InvalidParams(
-                    crate::error::RuntimeParamErrorKind::InvalidArgs(format!(
-                        "Failed to connect to flashblocks WS endpoint {}: {}",
-                        ws_url, e
-                    )),
-                ))
-            })?;
+    let (mut ws_stream, _) = tokio_tungstenite::connect_async(ws_url.as_str())
+        .await
+        .map_err(|e| {
+            crate::error::Error::Runtime(crate::error::RuntimeErrorKind::InvalidParams(
+                crate::error::RuntimeParamErrorKind::InvalidArgs(format!(
+                    "Failed to connect to flashblocks WS endpoint {}: {}",
+                    ws_url, e
+                )),
+            ))
+        })?;
 
     // Wait for a valid flashblock message (with timeout).
     // The endpoint auto-streams — no subscription handshake required.
@@ -592,7 +590,9 @@ async fn flashblocks_preflight(ws_url: &Url) -> Result<()> {
                     continue;
                 }
                 Err(e) => {
-                    return Err(format!("Flashblocks WS connection error during preflight: {e}"));
+                    return Err(format!(
+                        "Flashblocks WS connection error during preflight: {e}"
+                    ));
                 }
             }
         }
@@ -614,7 +614,11 @@ async fn flashblocks_preflight(ws_url: &Url) -> Result<()> {
 
     let parsed: serde_json::Value =
         serde_json::from_str(&preflight_result).unwrap_or(serde_json::Value::Null);
-    if parsed.get("metadata").and_then(|m| m.get("receipts")).is_some() {
+    if parsed
+        .get("metadata")
+        .and_then(|m| m.get("receipts"))
+        .is_some()
+    {
         info!("Flashblocks WS endpoint validated successfully");
     } else {
         return Err(crate::error::Error::Runtime(
@@ -643,7 +647,10 @@ async fn flashblocks_listener(flush_sender: mpsc::Sender<FlushRequest>, ws_url: 
         let ws_stream = match tokio_tungstenite::connect_async(ws_url.as_str()).await {
             Ok((stream, _)) => stream,
             Err(e) => {
-                warn!("Failed to connect to flashblocks WS: {:?}. Retrying in 2s...", e);
+                warn!(
+                    "Failed to connect to flashblocks WS: {:?}. Retrying in 2s...",
+                    e
+                );
                 tokio::time::sleep(Duration::from_secs(2)).await;
                 continue;
             }
