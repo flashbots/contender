@@ -63,3 +63,56 @@ impl FlashblockTimeToInclusionChart {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::TxHash;
+
+    fn make_tx(flashblock_latency_ms: Option<u64>) -> RunTx {
+        RunTx {
+            tx_hash: TxHash::ZERO,
+            start_timestamp_ms: 1000,
+            end_timestamp_ms: Some(2000),
+            block_number: Some(1),
+            gas_used: Some(21000),
+            kind: None,
+            error: None,
+            flashblock_latency_ms,
+            flashblock_index: Some(0),
+        }
+    }
+
+    #[test]
+    fn returns_none_when_no_flashblock_data() {
+        let txs = vec![make_tx(None), make_tx(None)];
+        assert!(FlashblockTimeToInclusionChart::new(&txs).is_none());
+    }
+
+    #[test]
+    fn returns_none_for_empty_input() {
+        assert!(FlashblockTimeToInclusionChart::new(&[]).is_none());
+    }
+
+    #[test]
+    fn buckets_at_100ms_granularity() {
+        let txs = vec![make_tx(Some(50)), make_tx(Some(99)), make_tx(Some(150))];
+        let chart = FlashblockTimeToInclusionChart::new(&txs).unwrap();
+        let data = chart.echart_data();
+
+        assert_eq!(data.buckets, vec!["0 - 100 ms", "100 - 200 ms"]);
+        assert_eq!(data.counts, vec![2, 1]);
+        assert_eq!(data.max_count, 2);
+    }
+
+    #[test]
+    fn sparse_buckets_are_filtered() {
+        // 50ms in bucket 0, 350ms in bucket 3 — buckets 1 and 2 should be filtered out
+        let txs = vec![make_tx(Some(50)), make_tx(Some(350))];
+        let chart = FlashblockTimeToInclusionChart::new(&txs).unwrap();
+        let data = chart.echart_data();
+
+        assert_eq!(data.buckets, vec!["0 - 100 ms", "300 - 400 ms"]);
+        assert_eq!(data.counts, vec![1, 1]);
+    }
+}

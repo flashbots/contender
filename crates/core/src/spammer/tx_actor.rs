@@ -880,3 +880,64 @@ impl TxActorHandle {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::TxHash;
+
+    fn make_pending_tx(start_ms: u128, fb_ts: Option<u128>, fb_idx: Option<u64>) -> PendingRunTx {
+        PendingRunTx {
+            tx_hash: TxHash::ZERO,
+            start_timestamp_ms: start_ms,
+            kind: None,
+            error: None,
+            flashblock_timestamp_ms: fb_ts,
+            flashblock_index: fb_idx,
+        }
+    }
+
+    #[test]
+    fn flashblock_latency_returns_none_when_no_mark() {
+        let tx = make_pending_tx(1000, None, None);
+        assert_eq!(tx.flashblock_latency_ms(), None);
+    }
+
+    #[test]
+    fn flashblock_latency_computes_difference() {
+        let tx = make_pending_tx(1000, Some(1250), Some(0));
+        assert_eq!(tx.flashblock_latency_ms(), Some(250));
+    }
+
+    #[test]
+    fn flashblock_latency_saturates_on_negative() {
+        // If flashblock timestamp is somehow before start (e.g., clock adjustment),
+        // saturating_sub should return 0 instead of underflowing.
+        let tx = make_pending_tx(2000, Some(1000), Some(0));
+        assert_eq!(tx.flashblock_latency_ms(), Some(0));
+    }
+
+    #[test]
+    fn ws_message_to_text_handles_text_frame() {
+        let msg = Message::Text("hello".into());
+        assert_eq!(ws_message_to_text(msg), Some("hello".to_string()));
+    }
+
+    #[test]
+    fn ws_message_to_text_handles_binary_frame() {
+        let msg = Message::Binary(b"hello".to_vec().into());
+        assert_eq!(ws_message_to_text(msg), Some("hello".to_string()));
+    }
+
+    #[test]
+    fn ws_message_to_text_returns_none_for_ping() {
+        let msg = Message::Ping(vec![].into());
+        assert_eq!(ws_message_to_text(msg), None);
+    }
+
+    #[test]
+    fn ws_message_to_text_returns_none_for_invalid_utf8_binary() {
+        let msg = Message::Binary(vec![0xff, 0xfe].into());
+        assert_eq!(ws_message_to_text(msg), None);
+    }
+}
