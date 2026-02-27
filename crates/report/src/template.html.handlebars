@@ -598,11 +598,17 @@
     }
 
     async function renderTxGasUsed() {
-      // Initialize the echarts instance based on the prepared dom
-      var chart = echarts.init(document.getElementById('tx-gas-used'));
-
       const buckets = [{{#each data.chart_data.tx_gas_used.buckets}}"{{this}}"{{#if @last}}{{else}}, {{/if}}{{/each}}];
       const gasUsed = {{data.chart_data.tx_gas_used.counts}};
+
+      if (buckets.length === 0) {
+        document.getElementById('tx-gas-used').innerHTML = '<p>No data available. Use the report command without --skip-tx-traces to populate this chart.</p>';
+        document.getElementById('tx-gas-used').className = 'no-chart';
+        return;
+      }
+
+      // Initialize the echarts instance based on the prepared dom
+      var chart = echarts.init(document.getElementById('tx-gas-used'));
 
       // Specify the configuration items and data for the chart
       var option = {

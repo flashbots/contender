@@ -1187,6 +1187,16 @@ where
                     }));
                 }
 
+                // Capture start timestamp before the HTTP POST so all txs in the
+                // batch share the same send-time reference. This is critical for
+                // flashblock TTI: the sequencer may include txs in a flashblock
+                // before the batch response arrives, so capturing the timestamp
+                // after the response would make start_timestamp_ms too late.
+                let batch_start_timestamp_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis();
+
                 // === PROMETHEUS LATENCY METRICS ===
                 let mut timer = hist.as_ref().map(|h| {
                     h.with_label_values(&["eth_sendRawTransaction"])
@@ -1220,7 +1230,7 @@ where
                 // Process each response; align by index with signed_chunk
                 for (i, (signed_tx, req)) in signed_chunk.into_iter().enumerate() {
                     let tx_hash = *signed_tx.tx_hash();
-                    let extra = RuntimeTxInfo::default();
+                    let extra = RuntimeTxInfo::new(batch_start_timestamp_ms, None, None);
 
                     let error_msg = responses
                         .get(i)

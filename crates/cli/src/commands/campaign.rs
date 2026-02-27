@@ -118,6 +118,14 @@ pub struct CampaignCliArgs {
         long_help = "WebSocket URL for subscribing to flashblock pre-confirmations. When set, contender will track sub-block inclusion latency alongside full-block metrics."
     )]
     pub flashblocks_ws_url: Option<Url>,
+
+    /// Skip per-transaction debug traces when generating the report.
+    #[arg(
+        long,
+        global = true,
+        long_help = "Skip per-transaction debug traces (debug_traceTransaction) when generating the campaign report. This significantly speeds up report generation for large runs at the cost of omitting the storage heatmap and tx gas used charts."
+    )]
+    pub skip_tx_traces: bool,
 }
 
 fn bump_seed(base_seed: &str, stage_name: &str) -> String {
@@ -256,7 +264,7 @@ pub async fn run_campaign(
                 db,
                 data_dir,
                 false, // use HTML format by default for campaign reports
-                false,
+                args.skip_tx_traces,
             )
             .await?;
         }

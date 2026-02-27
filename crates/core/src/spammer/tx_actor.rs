@@ -78,7 +78,7 @@ where
     /// Internal flush request receiver
     flush_receiver: mpsc::Receiver<FlushRequest>,
     db: Arc<D>,
-    cache: Vec<PendingRunTx>,
+    cache: HashMap<TxHash, PendingRunTx>,
     ctx: Option<ActorContext>,
     status: ActorStatus,
     /// Flashblock marks that arrived before the tx was added to cache.
@@ -111,6 +111,12 @@ impl PendingRunTx {
             flashblock_timestamp_ms: None,
             flashblock_index: None,
         }
+    }
+
+    /// Flashblock inclusion latency (time from send to first flashblock appearance).
+    pub fn flashblock_latency_ms(&self) -> Option<u64> {
+        self.flashblock_timestamp_ms
+            .map(|fb_ts| fb_ts.saturating_sub(self.start_timestamp_ms).try_into().unwrap())
     }
 }
 
@@ -156,7 +162,7 @@ where
             receiver,
             flush_receiver,
             db,
-            cache: Vec::new(),
+            cache: HashMap::new(),
             ctx: None,
             status: ActorStatus::default(),
             pending_flashblock_marks: HashMap::new(),
@@ -167,22 +173,17 @@ where
     fn dump_cache(&mut self, run_id: u64) -> Result<Vec<RunTx>> {
         let run_txs: Vec<_> = self
             .cache
-            .iter()
-            .map(|pending_tx| {
-                let flashblock_latency_ms = pending_tx.flashblock_timestamp_ms.map(|fb_ts| {
-                    fb_ts.saturating_sub(pending_tx.start_timestamp_ms) as u64
-                });
-                RunTx {
-                    tx_hash: pending_tx.tx_hash,
-                    start_timestamp_ms: pending_tx.start_timestamp_ms as u64,
-                    end_timestamp_ms: None,
-                    block_number: None,
-                    gas_used: None,
-                    kind: pending_tx.kind.to_owned(),
-                    error: pending_tx.error.to_owned(),
-                    flashblock_latency_ms,
-                    flashblock_index: pending_tx.flashblock_index,
-                }
+            .values()
+            .map(|pending_tx| RunTx {
+                tx_hash: pending_tx.tx_hash,
+                start_timestamp_ms: pending_tx.start_timestamp_ms.try_into().unwrap(),
+                end_timestamp_ms: None,
+                block_number: None,
+                gas_used: None,
+                kind: pending_tx.kind.to_owned(),
+                error: pending_tx.error.to_owned(),
+                flashblock_latency_ms: pending_tx.flashblock_latency_ms(),
+                flashblock_index: pending_tx.flashblock_index,
             })
             .collect();
         self.db
@@ -193,12 +194,9 @@ where
     }
 
     fn remove_cached_tx(&mut self, old_tx_hash: TxHash) -> Result<()> {
-        let old_tx = self
-            .cache
-            .iter()
-            .position(|tx| tx.tx_hash == old_tx_hash)
+        self.cache
+            .remove(&old_tx_hash)
             .ok_or(CallbackError::CacheRemoveTx(old_tx_hash))?;
-        self.cache.remove(old_tx);
         Ok(())
     }
 
@@ -243,7 +241,7 @@ where
                     flashblock_timestamp_ms: fb_timestamp,
                     flashblock_index: fb_index,
                 };
-                self.cache.push(run_tx);
+                self.cache.insert(tx_hash, run_tx);
                 on_receive
                     .send(())
                     .map_err(|e| CallbackError::OneshotSend(format!("SentRunTx: {:?}", e)))?;
@@ -270,19 +268,31 @@ where
         match request {
             FlushRequest::GetSnapshot { reply } => {
                 // Send snapshot of cache and context
-                let _ = reply.send((self.cache.clone(), self.ctx.clone()));
+                let snapshot: Vec<PendingRunTx> = self.cache.values().cloned().collect();
+                let _ = reply.send((snapshot, self.ctx.clone()));
             }
             FlushRequest::RemoveConfirmed {
                 confirmed_tx_hashes,
                 new_target_block,
             } => {
                 // Remove confirmed txs (already recorded in DB by process_block_receipts)
-                self.cache
-                    .retain(|tx| !confirmed_tx_hashes.contains(&tx.tx_hash));
+                for hash in &confirmed_tx_hashes {
+                    self.cache.remove(hash);
+                }
                 // Clean up any stale pending marks for confirmed txs
                 for hash in &confirmed_tx_hashes {
                     self.pending_flashblock_marks.remove(hash);
                 }
+                // Evict buffered flashblock marks older than 20s.
+                // Legitimate marks are consumed within milliseconds; anything
+                // older is a foreign tx hash that will never be claimed.
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("Time went backwards")
+                    .as_millis();
+                self.pending_flashblock_marks.retain(|_, (ts, _)| {
+                    now_ms.saturating_sub(*ts) < 20_000
+                });
                 // Update target block
                 if let Some(ref mut ctx) = self.ctx {
                     if new_target_block > ctx.target_block {
@@ -296,11 +306,7 @@ where
                 index,
             } => {
                 // First match wins — only set if not already set
-                if let Some(pending_tx) = self
-                    .cache
-                    .iter_mut()
-                    .find(|tx| tx.tx_hash == tx_hash)
-                {
+                if let Some(pending_tx) = self.cache.get_mut(&tx_hash) {
                     if pending_tx.flashblock_timestamp_ms.is_none() {
                         pending_tx.flashblock_timestamp_ms = Some(timestamp_ms);
                         pending_tx.flashblock_index = Some(index);
@@ -511,18 +517,15 @@ async fn process_block_receipts<D: DbOps + Send + Sync + 'static>(
                         .unwrap_or_else(|| "N/A".to_owned())
                 );
             }
-            let flashblock_latency_ms = pending_tx.flashblock_timestamp_ms.map(|fb_ts| {
-                fb_ts.saturating_sub(pending_tx.start_timestamp_ms) as u64
-            });
             RunTx {
                 tx_hash: pending_tx.tx_hash,
-                start_timestamp_ms: pending_tx.start_timestamp_ms as u64,
+                start_timestamp_ms: pending_tx.start_timestamp_ms.try_into().unwrap(),
                 end_timestamp_ms: Some(target_block.header.timestamp * 1000),
                 block_number: Some(target_block.header.number),
                 gas_used: Some(receipt.gas_used),
                 kind: pending_tx.kind.clone(),
                 error: get_tx_error(receipt, pending_tx),
-                flashblock_latency_ms,
+                flashblock_latency_ms: pending_tx.flashblock_latency_ms(),
                 flashblock_index: pending_tx.flashblock_index,
             }
         })
@@ -681,17 +684,22 @@ async fn flashblocks_listener(flush_sender: mpsc::Sender<FlushRequest>, ws_url: 
 
             // Flashblock diff format:
             // {"payload_id":"0x...","index":0,"diff":{"transactions":[...]},"metadata":{"receipts":{"0xTxHash1":{...},...}}}
-            // Extract the flashblock index
-            let index = parsed
-                .get("index")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
+            // Extract the flashblock index (required field; skip message if absent)
+            let index = match parsed.get("index").and_then(|v| v.as_u64()) {
+                Some(i) => i,
+                None => {
+                    warn!("Flashblock diff missing 'index' field, skipping message");
+                    continue;
+                }
+            };
 
             // Extract tx hashes from metadata.receipts keys
-            let tx_hashes: Vec<TxHash> = parsed
+            let receipts_obj = parsed
                 .get("metadata")
                 .and_then(|m| m.get("receipts"))
-                .and_then(|r| r.as_object())
+                .and_then(|r| r.as_object());
+
+            let tx_hashes: Vec<TxHash> = receipts_obj
                 .map(|receipts| {
                     receipts
                         .keys()
@@ -700,12 +708,7 @@ async fn flashblocks_listener(flush_sender: mpsc::Sender<FlushRequest>, ws_url: 
                 })
                 .unwrap_or_default();
 
-            let has_receipts = parsed
-                .get("metadata")
-                .and_then(|m| m.get("receipts"))
-                .and_then(|r| r.as_object())
-                .map(|r| r.len())
-                .unwrap_or(0);
+            let has_receipts = receipts_obj.map(|r| r.len()).unwrap_or(0);
             let has_diff_txs = parsed
                 .get("diff")
                 .and_then(|d| d.get("transactions"))
