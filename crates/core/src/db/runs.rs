@@ -6,14 +6,16 @@ use std::time::Duration;
 #[derive(Debug, Serialize, Clone)]
 pub struct RunTx {
     pub tx_hash: TxHash,
-    #[serde(rename = "start_time")]
-    pub start_timestamp_secs: u64,
-    #[serde(rename = "end_time")]
-    pub end_timestamp_secs: Option<u64>,
+    #[serde(rename = "start_time_ms")]
+    pub start_timestamp_ms: u64,
+    #[serde(rename = "end_time_ms")]
+    pub end_timestamp_ms: Option<u64>,
     pub block_number: Option<u64>,
     pub gas_used: Option<u64>,
     pub kind: Option<String>,
     pub error: Option<String>,
+    pub flashblock_latency_ms: Option<u64>,
+    pub flashblock_index: Option<u64>,
 }
 
 pub struct SpamRun {

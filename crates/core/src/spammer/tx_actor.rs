@@ -1,14 +1,18 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use alloy::{
+    hex::FromHex,
     network::{AnyReceiptEnvelope, ReceiptResponse},
     primitives::TxHash,
     providers::Provider,
     rpc::types::TransactionReceipt,
     serde::WithOtherFields,
 };
+use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
+use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, info, warn};
+use url::Url;
 
 use crate::{
     db::{DbOps, RunTx},
@@ -53,6 +57,12 @@ enum FlushRequest {
         confirmed_tx_hashes: Vec<TxHash>,
         new_target_block: u64,
     },
+    /// Mark a tx as seen in a flashblock (first match wins)
+    MarkFlashblock {
+        tx_hash: TxHash,
+        timestamp_ms: u128,
+        index: u64,
+    },
 }
 
 struct TxActor<D>
@@ -64,9 +74,12 @@ where
     /// Internal flush request receiver
     flush_receiver: mpsc::Receiver<FlushRequest>,
     db: Arc<D>,
-    cache: Vec<PendingRunTx>,
+    cache: HashMap<TxHash, PendingRunTx>,
     ctx: Option<ActorContext>,
     status: ActorStatus,
+    /// Flashblock marks that arrived before the tx was added to cache.
+    /// Applied retroactively when SentRunTx is processed.
+    pending_flashblock_marks: HashMap<TxHash, (u128, u64)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -75,6 +88,8 @@ pub struct PendingRunTx {
     pub start_timestamp_ms: u128,
     pub kind: Option<String>,
     pub error: Option<String>,
+    pub flashblock_timestamp_ms: Option<u128>,
+    pub flashblock_index: Option<u64>,
 }
 
 impl PendingRunTx {
@@ -89,7 +104,19 @@ impl PendingRunTx {
             start_timestamp_ms,
             kind: kind.map(|s| s.to_owned()),
             error: error.map(|s| s.to_owned()),
+            flashblock_timestamp_ms: None,
+            flashblock_index: None,
         }
+    }
+
+    /// Flashblock inclusion latency (time from send to first flashblock appearance).
+    pub fn flashblock_latency_ms(&self) -> Option<u64> {
+        self.flashblock_timestamp_ms.map(|fb_ts| {
+            fb_ts
+                .saturating_sub(self.start_timestamp_ms)
+                .try_into()
+                .unwrap()
+        })
     }
 }
 
@@ -135,9 +162,10 @@ where
             receiver,
             flush_receiver,
             db,
-            cache: Vec::new(),
+            cache: HashMap::new(),
             ctx: None,
             status: ActorStatus::default(),
+            pending_flashblock_marks: HashMap::new(),
         }
     }
 
@@ -145,15 +173,17 @@ where
     fn dump_cache(&mut self, run_id: u64) -> Result<Vec<RunTx>> {
         let run_txs: Vec<_> = self
             .cache
-            .iter()
+            .values()
             .map(|pending_tx| RunTx {
                 tx_hash: pending_tx.tx_hash,
-                start_timestamp_secs: (pending_tx.start_timestamp_ms / 1000) as u64,
-                end_timestamp_secs: None,
+                start_timestamp_ms: pending_tx.start_timestamp_ms.try_into().unwrap(),
+                end_timestamp_ms: None,
                 block_number: None,
                 gas_used: None,
                 kind: pending_tx.kind.to_owned(),
                 error: pending_tx.error.to_owned(),
+                flashblock_latency_ms: pending_tx.flashblock_latency_ms(),
+                flashblock_index: pending_tx.flashblock_index,
             })
             .collect();
         self.db
@@ -164,12 +194,9 @@ where
     }
 
     fn remove_cached_tx(&mut self, old_tx_hash: TxHash) -> Result<()> {
-        let old_tx = self
-            .cache
-            .iter()
-            .position(|tx| tx.tx_hash == old_tx_hash)
+        self.cache
+            .remove(&old_tx_hash)
             .ok_or(CallbackError::CacheRemoveTx(old_tx_hash))?;
-        self.cache.remove(old_tx);
         Ok(())
     }
 
@@ -195,13 +222,26 @@ where
                 error,
                 on_receive,
             } => {
+                // Check if a flashblock mark arrived before the tx was cached
+                let (fb_timestamp, fb_index) =
+                    if let Some((ts, idx)) = self.pending_flashblock_marks.remove(&tx_hash) {
+                        debug!(
+                            "applied buffered flashblock mark for tx {} (index={})",
+                            tx_hash, idx
+                        );
+                        (Some(ts), Some(idx))
+                    } else {
+                        (None, None)
+                    };
                 let run_tx = PendingRunTx {
                     tx_hash,
                     start_timestamp_ms,
                     kind,
                     error,
+                    flashblock_timestamp_ms: fb_timestamp,
+                    flashblock_index: fb_index,
                 };
-                self.cache.push(run_tx);
+                self.cache.insert(tx_hash, run_tx);
                 on_receive
                     .send(())
                     .map_err(|e| CallbackError::OneshotSend(format!("SentRunTx: {:?}", e)))?;
@@ -228,20 +268,55 @@ where
         match request {
             FlushRequest::GetSnapshot { reply } => {
                 // Send snapshot of cache and context
-                let _ = reply.send((self.cache.clone(), self.ctx.clone()));
+                let snapshot: Vec<PendingRunTx> = self.cache.values().cloned().collect();
+                let _ = reply.send((snapshot, self.ctx.clone()));
             }
             FlushRequest::RemoveConfirmed {
                 confirmed_tx_hashes,
                 new_target_block,
             } => {
                 // Remove confirmed txs (already recorded in DB by process_block_receipts)
-                self.cache
-                    .retain(|tx| !confirmed_tx_hashes.contains(&tx.tx_hash));
+                for hash in &confirmed_tx_hashes {
+                    self.cache.remove(hash);
+                }
+                // Clean up any stale pending marks for confirmed txs
+                for hash in &confirmed_tx_hashes {
+                    self.pending_flashblock_marks.remove(hash);
+                }
+                // Evict buffered flashblock marks older than 20s.
+                // Legitimate marks are consumed within milliseconds; anything
+                // older is a foreign tx hash that will never be claimed.
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("Time went backwards")
+                    .as_millis();
+                self.pending_flashblock_marks
+                    .retain(|_, (ts, _)| now_ms.saturating_sub(*ts) < 20_000);
                 // Update target block
                 if let Some(ref mut ctx) = self.ctx {
                     if new_target_block > ctx.target_block {
                         ctx.target_block = new_target_block;
                     }
+                }
+            }
+            FlushRequest::MarkFlashblock {
+                tx_hash,
+                timestamp_ms,
+                index,
+            } => {
+                // First match wins — only set if not already set
+                if let Some(pending_tx) = self.cache.get_mut(&tx_hash) {
+                    if pending_tx.flashblock_timestamp_ms.is_none() {
+                        pending_tx.flashblock_timestamp_ms = Some(timestamp_ms);
+                        pending_tx.flashblock_index = Some(index);
+                        debug!("marked flashblock for tx {} (index={})", tx_hash, index);
+                    }
+                } else {
+                    // Tx not in cache yet (SentRunTx hasn't been processed).
+                    // Buffer the mark so it can be applied when the tx arrives.
+                    self.pending_flashblock_marks
+                        .entry(tx_hash)
+                        .or_insert((timestamp_ms, index));
                 }
             }
         }
@@ -443,12 +518,14 @@ async fn process_block_receipts<D: DbOps + Send + Sync + 'static>(
             }
             RunTx {
                 tx_hash: pending_tx.tx_hash,
-                start_timestamp_secs: (pending_tx.start_timestamp_ms / 1000) as u64,
-                end_timestamp_secs: Some(target_block.header.timestamp),
+                start_timestamp_ms: pending_tx.start_timestamp_ms.try_into().unwrap(),
+                end_timestamp_ms: Some(target_block.header.timestamp * 1000),
                 block_number: Some(target_block.header.number),
                 gas_used: Some(receipt.gas_used),
                 kind: pending_tx.kind.clone(),
                 error: get_tx_error(receipt, pending_tx),
+                flashblock_latency_ms: pending_tx.flashblock_latency_ms(),
+                flashblock_index: pending_tx.flashblock_index,
             }
         })
         .collect();
@@ -472,6 +549,206 @@ fn get_tx_error(
     }
 }
 
+/// Extract UTF-8 text from a Text or Binary WebSocket message.
+/// Flashblocks endpoints may send JSON as either frame type.
+fn ws_message_to_text(msg: Message) -> Option<String> {
+    match msg {
+        Message::Text(t) => Some(t.to_string()),
+        Message::Binary(b) => String::from_utf8(b.to_vec()).ok(),
+        _ => None,
+    }
+}
+
+/// Pre-flight check: connect to flashblocks WS endpoint and validate it serves flashblocks.
+/// The endpoint auto-streams flashblock diffs on connect (no subscription needed).
+/// We verify by waiting for a valid message with `metadata.receipts`.
+async fn flashblocks_preflight(ws_url: &Url) -> Result<()> {
+    info!("Validating flashblocks WS endpoint: {}", ws_url);
+
+    let (mut ws_stream, _) = tokio_tungstenite::connect_async(ws_url.as_str())
+        .await
+        .map_err(|e| {
+            crate::error::Error::Runtime(crate::error::RuntimeErrorKind::InvalidParams(
+                crate::error::RuntimeParamErrorKind::InvalidArgs(format!(
+                    "Failed to connect to flashblocks WS endpoint {}: {}",
+                    ws_url, e
+                )),
+            ))
+        })?;
+
+    // Wait for a valid flashblock message (with timeout).
+    // The endpoint auto-streams — no subscription handshake required.
+    // Loop to skip non-data frames (e.g. Ping) until we get a Text/Binary message.
+    let preflight_result = tokio::time::timeout(Duration::from_secs(10), async {
+        while let Some(msg_result) = ws_stream.next().await {
+            match msg_result {
+                Ok(msg) => {
+                    if let Some(text) = ws_message_to_text(msg) {
+                        return Ok(text);
+                    }
+                    // Non-data frame (Ping, Pong, etc.) — skip and wait for next
+                    continue;
+                }
+                Err(e) => {
+                    return Err(format!(
+                        "Flashblocks WS connection error during preflight: {e}"
+                    ));
+                }
+            }
+        }
+        Err("Flashblocks WS connection closed during preflight".to_string())
+    })
+    .await
+    .map_err(|_| {
+        crate::error::Error::Runtime(crate::error::RuntimeErrorKind::InvalidParams(
+            crate::error::RuntimeParamErrorKind::InvalidArgs(
+                "Flashblocks WS endpoint did not send any data within 10 seconds".to_string(),
+            ),
+        ))
+    })?
+    .map_err(|msg| {
+        crate::error::Error::Runtime(crate::error::RuntimeErrorKind::InvalidParams(
+            crate::error::RuntimeParamErrorKind::InvalidArgs(msg),
+        ))
+    })?;
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&preflight_result).unwrap_or(serde_json::Value::Null);
+    if parsed
+        .get("metadata")
+        .and_then(|m| m.get("receipts"))
+        .is_some()
+    {
+        info!("Flashblocks WS endpoint validated successfully");
+    } else {
+        return Err(crate::error::Error::Runtime(
+            crate::error::RuntimeErrorKind::InvalidParams(
+                crate::error::RuntimeParamErrorKind::InvalidArgs(format!(
+                    "Flashblocks WS endpoint sent unexpected message format (missing metadata.receipts): {}",
+                    &preflight_result[..preflight_result.len().min(200)]
+                )),
+            ),
+        ));
+    }
+
+    // Close the preflight connection
+    let _ = ws_stream.close(None).await;
+
+    Ok(())
+}
+
+/// Listens for flashblock diffs over WebSocket and marks matching pending txs.
+/// The endpoint auto-streams flashblock diffs on connect — no subscription needed.
+/// Each message is a JSON object with `metadata.receipts` containing tx hashes as keys.
+async fn flashblocks_listener(flush_sender: mpsc::Sender<FlushRequest>, ws_url: Url) {
+    loop {
+        info!("Connecting to flashblocks WS: {}", ws_url);
+
+        let ws_stream = match tokio_tungstenite::connect_async(ws_url.as_str()).await {
+            Ok((stream, _)) => stream,
+            Err(e) => {
+                warn!(
+                    "Failed to connect to flashblocks WS: {:?}. Retrying in 2s...",
+                    e
+                );
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                continue;
+            }
+        };
+
+        let (_write, mut read) = ws_stream.split();
+
+        // Process incoming messages — endpoint auto-streams, no subscription needed
+        while let Some(msg_result) = read.next().await {
+            let msg = match msg_result {
+                Ok(msg) => msg,
+                Err(e) => {
+                    warn!("Flashblocks WS error: {:?}. Reconnecting...", e);
+                    break;
+                }
+            };
+
+            if matches!(msg, Message::Close(_)) {
+                info!("Flashblocks WS closed. Reconnecting...");
+                break;
+            }
+
+            let text = match ws_message_to_text(msg) {
+                Some(t) => t,
+                None => continue,
+            };
+
+            let timestamp_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("Time went backwards")
+                .as_millis();
+
+            // Parse the flashblock diff message
+            let parsed: serde_json::Value = match serde_json::from_str(&text) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            // Flashblock diff format:
+            // {"payload_id":"0x...","index":0,"diff":{"transactions":[...]},"metadata":{"receipts":{"0xTxHash1":{...},...}}}
+            // Extract the flashblock index (required field; skip message if absent)
+            let index = match parsed.get("index").and_then(|v| v.as_u64()) {
+                Some(i) => i,
+                None => {
+                    warn!("Flashblock diff missing 'index' field, skipping message");
+                    continue;
+                }
+            };
+
+            // Extract tx hashes from metadata.receipts keys
+            let receipts_obj = parsed
+                .get("metadata")
+                .and_then(|m| m.get("receipts"))
+                .and_then(|r| r.as_object());
+
+            let tx_hashes: Vec<TxHash> = receipts_obj
+                .map(|receipts| {
+                    receipts
+                        .keys()
+                        .filter_map(|k| TxHash::from_hex(k).ok())
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let has_receipts = receipts_obj.map(|r| r.len()).unwrap_or(0);
+            let has_diff_txs = parsed
+                .get("diff")
+                .and_then(|d| d.get("transactions"))
+                .and_then(|t| t.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+            debug!(
+                "Flashblock diff (index={}): {} metadata.receipts, {} diff.transactions, {} matched tx hashes",
+                index, has_receipts, has_diff_txs, tx_hashes.len()
+            );
+
+            for tx_hash in tx_hashes {
+                if flush_sender
+                    .send(FlushRequest::MarkFlashblock {
+                        tx_hash,
+                        timestamp_ms,
+                        index,
+                    })
+                    .await
+                    .is_err()
+                {
+                    // Actor shut down
+                    info!("Flashblocks listener stopping: actor channel closed");
+                    return;
+                }
+            }
+        }
+
+        // Reconnect after a short delay
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
 #[derive(Debug)]
 pub struct TxActorHandle {
     sender: mpsc::Sender<TxActorMessage>,
@@ -486,15 +763,21 @@ pub struct CacheTx {
 }
 
 impl TxActorHandle {
-    pub fn new<D: DbOps + Send + Sync + 'static>(
+    pub async fn new<D: DbOps + Send + Sync + 'static>(
         bufsize: usize,
         db: Arc<D>,
         rpc: Arc<AnyProvider>,
-    ) -> Self {
+        flashblocks_ws_url: Option<Url>,
+    ) -> Result<Self> {
+        // Pre-flight check: validate flashblocks WS endpoint before spawning tasks
+        if let Some(ref ws_url) = flashblocks_ws_url {
+            flashblocks_preflight(ws_url).await?;
+        }
+
         let (sender, receiver) = mpsc::channel(bufsize);
         // Channel for flush task to communicate with message handler
-        // Small buffer since flush requests are infrequent
-        let (flush_sender, flush_receiver) = mpsc::channel(16);
+        // Larger buffer to accommodate flashblock messages
+        let (flush_sender, flush_receiver) = mpsc::channel(64);
 
         let mut actor = TxActor::new(receiver, flush_receiver, db.clone());
 
@@ -506,11 +789,19 @@ impl TxActorHandle {
         });
 
         // Spawn the independent flush task (communicates via channels)
+        let flush_sender_clone = flush_sender.clone();
         tokio::task::spawn(async move {
-            flush_loop(flush_sender, db, rpc).await;
+            flush_loop(flush_sender_clone, db, rpc).await;
         });
 
-        Self { sender }
+        // Spawn the flashblocks listener task if URL is provided
+        if let Some(ws_url) = flashblocks_ws_url {
+            tokio::task::spawn(async move {
+                flashblocks_listener(flush_sender, ws_url).await;
+            });
+        }
+
+        Ok(Self { sender })
     }
 
     /// Adds a new tx to the cache.
@@ -594,5 +885,66 @@ impl TxActorHandle {
             .map_err(Box::new)
             .map_err(CallbackError::from)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::TxHash;
+
+    fn make_pending_tx(start_ms: u128, fb_ts: Option<u128>, fb_idx: Option<u64>) -> PendingRunTx {
+        PendingRunTx {
+            tx_hash: TxHash::ZERO,
+            start_timestamp_ms: start_ms,
+            kind: None,
+            error: None,
+            flashblock_timestamp_ms: fb_ts,
+            flashblock_index: fb_idx,
+        }
+    }
+
+    #[test]
+    fn flashblock_latency_returns_none_when_no_mark() {
+        let tx = make_pending_tx(1000, None, None);
+        assert_eq!(tx.flashblock_latency_ms(), None);
+    }
+
+    #[test]
+    fn flashblock_latency_computes_difference() {
+        let tx = make_pending_tx(1000, Some(1250), Some(0));
+        assert_eq!(tx.flashblock_latency_ms(), Some(250));
+    }
+
+    #[test]
+    fn flashblock_latency_saturates_on_negative() {
+        // If flashblock timestamp is somehow before start (e.g., clock adjustment),
+        // saturating_sub should return 0 instead of underflowing.
+        let tx = make_pending_tx(2000, Some(1000), Some(0));
+        assert_eq!(tx.flashblock_latency_ms(), Some(0));
+    }
+
+    #[test]
+    fn ws_message_to_text_handles_text_frame() {
+        let msg = Message::Text("hello".into());
+        assert_eq!(ws_message_to_text(msg), Some("hello".to_string()));
+    }
+
+    #[test]
+    fn ws_message_to_text_handles_binary_frame() {
+        let msg = Message::Binary(b"hello".to_vec().into());
+        assert_eq!(ws_message_to_text(msg), Some("hello".to_string()));
+    }
+
+    #[test]
+    fn ws_message_to_text_returns_none_for_ping() {
+        let msg = Message::Ping(vec![].into());
+        assert_eq!(ws_message_to_text(msg), None);
+    }
+
+    #[test]
+    fn ws_message_to_text_returns_none_for_invalid_utf8_binary() {
+        let msg = Message::Binary(vec![0xff, 0xfe].into());
+        assert_eq!(ws_message_to_text(msg), None);
     }
 }

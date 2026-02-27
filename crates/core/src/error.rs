@@ -79,6 +79,12 @@ pub enum RuntimeErrorKind {
     #[error("failed to get signer for {0}")]
     SignerMissingFromMap(Address),
 
+    #[error("contract code at {0} not visible after {1}s; RPC state may be lagging behind")]
+    ContractCodeNotVisible(Address, u64),
+
+    #[error("setup tx '{label}' reverted: {tx_hash}")]
+    SetupTxReverted { label: String, tx_hash: String },
+
     #[error("cannot proceed; there are no spam txs")]
     SpamTxsEmpty,
 

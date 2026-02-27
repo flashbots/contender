@@ -147,6 +147,8 @@ struct RunTxRow {
     gas_used: Option<u64>,
     kind: Option<String>,
     error: Option<String>,
+    flashblock_latency: Option<u64>,
+    flashblock_index: Option<u64>,
 }
 
 impl RunTxRow {
@@ -160,6 +162,8 @@ impl RunTxRow {
             gas_used: row.get(5)?,
             kind: row.get(6)?,
             error: row.get(7)?,
+            flashblock_latency: row.get(8)?,
+            flashblock_index: row.get(9)?,
         })
     }
 }
@@ -171,12 +175,14 @@ impl From<RunTxRow> for RunTx {
         let tx_hash = TxHash::from_hex(&row.tx_hash).expect("invalid tx hash");
         Self {
             tx_hash,
-            start_timestamp_secs: row.start_timestamp,
-            end_timestamp_secs: row.end_timestamp,
+            start_timestamp_ms: row.start_timestamp,
+            end_timestamp_ms: row.end_timestamp,
             block_number: row.block_number,
             gas_used: row.gas_used,
             kind: row.kind,
             error: row.error,
+            flashblock_latency_ms: row.flashblock_latency,
+            flashblock_index: row.flashblock_index,
         }
     }
 }
@@ -300,6 +306,8 @@ impl DbOps for SqliteDb {
                 gas_used INTEGER,
                 kind TEXT,
                 error TEXT,
+                flashblock_latency INTEGER,
+                flashblock_index INTEGER,
                 FOREIGN KEY(run_id) REFERENCES runs(id)
             )",
             "CREATE TABLE latency (
@@ -357,7 +365,7 @@ impl DbOps for SqliteDb {
     fn get_run_txs(&self, run_id: u64) -> Result<Vec<RunTx>> {
         let pool = self.get_pool()?;
         let mut stmt = pool
-            .prepare("SELECT run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind, error FROM run_txs WHERE run_id = ?1")?;
+            .prepare("SELECT run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind, error, flashblock_latency, flashblock_index FROM run_txs WHERE run_id = ?1")?;
 
         let rows = stmt.query_map(params![run_id], RunTxRow::from_row)?;
         let res = rows
@@ -528,21 +536,25 @@ impl DbOps for SqliteDb {
             };
 
             let kind = val_or_null_str(&run_tx.kind);
-            let end_timestamp = val_or_null_u64(&run_tx.end_timestamp_secs);
+            let end_timestamp = val_or_null_u64(&run_tx.end_timestamp_ms);
             let block_number = val_or_null_u64(&run_tx.block_number);
             let gas_used = val_or_null_u64(&run_tx.gas_used);
             let error = val_or_null_str(&run_tx.error);
+            let flashblock_latency = val_or_null_u64(&run_tx.flashblock_latency_ms);
+            let flashblock_index = val_or_null_u64(&run_tx.flashblock_index);
 
             tx.execute_batch(&format!(
-                "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind, error) VALUES ({}, '{}', {}, {}, {}, {}, {}, {});",
+                "INSERT INTO run_txs (run_id, tx_hash, start_timestamp, end_timestamp, block_number, gas_used, kind, error, flashblock_latency, flashblock_index) VALUES ({}, '{}', {}, {}, {}, {}, {}, {}, {}, {});",
                 run_id,
                 run_tx.tx_hash.encode_hex(),
-                run_tx.start_timestamp_secs,
+                run_tx.start_timestamp_ms,
                 end_timestamp,
                 block_number,
                 gas_used,
                 kind,
                 error,
+                flashblock_latency,
+                flashblock_index,
             ))?;
         }
 
@@ -755,21 +767,25 @@ mod tests {
         let run_txs = vec![
             RunTx {
                 tx_hash: TxHash::from_slice(&[0u8; 32]),
-                start_timestamp_secs: 100,
-                end_timestamp_secs: Some(200),
+                start_timestamp_ms: 100_000,
+                end_timestamp_ms: Some(200_000),
                 block_number: Some(1),
                 gas_used: Some(100),
                 kind: Some("test".to_string()),
                 error: None,
+                flashblock_latency_ms: None,
+                flashblock_index: None,
             },
             RunTx {
                 tx_hash: TxHash::from_slice(&[1u8; 32]),
-                start_timestamp_secs: 200,
-                end_timestamp_secs: Some(300),
+                start_timestamp_ms: 200_000,
+                end_timestamp_ms: Some(300_000),
                 block_number: Some(2),
                 gas_used: Some(200),
                 kind: Some("test".to_string()),
                 error: None,
+                flashblock_latency_ms: Some(150),
+                flashblock_index: Some(2),
             },
         ];
         db.insert_run_txs(run_id, &run_txs).unwrap();
