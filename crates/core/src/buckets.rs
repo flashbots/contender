@@ -27,6 +27,38 @@ pub trait BucketsExt {
     fn estimate_quantile(&self, quantile: f64) -> f64;
 }
 
+/// Collects latency metrics from a prometheus registry.
+/// Returns a map of RPC method names to latency buckets (upper_bound_secs, cumulative_count).
+pub fn collect_latency_from_registry(
+    registry: &prometheus::Registry,
+) -> std::collections::BTreeMap<String, Vec<Bucket>> {
+    use crate::provider::RPC_REQUEST_LATENCY_ID;
+
+    let mut latency_map = std::collections::BTreeMap::new();
+    for mf in &registry.gather() {
+        if mf.name() != RPC_REQUEST_LATENCY_ID {
+            continue;
+        }
+        for m in mf.get_metric() {
+            if m.label.is_empty() {
+                continue;
+            }
+            let label = m.label.first().expect("label");
+            if label.name() != "rpc_method" {
+                continue;
+            }
+            let hist = m.get_histogram();
+            let buckets: Vec<Bucket> = hist
+                .bucket
+                .iter()
+                .filter_map(|b| Some((b.upper_bound(), b.cumulative_count?).into()))
+                .collect();
+            latency_map.insert(label.value().to_string(), buckets);
+        }
+    }
+    latency_map
+}
+
 impl BucketsExt for Vec<Bucket> {
     fn estimate_quantile(&self, quantile: f64) -> f64 {
         if self.is_empty() {

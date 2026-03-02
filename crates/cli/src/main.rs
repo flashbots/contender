@@ -178,6 +178,10 @@ async fn run() -> Result<(), CliError> {
                 }
             }
         }
+
+        ContenderSubcommand::Rpc { args } => {
+            commands::rpc::run_rpc_spam(*args, &db, &data_dir).await?;
+        }
     };
 
     Ok(())

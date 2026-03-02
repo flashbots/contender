@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use crate::commands::campaign::CampaignCliArgs;
 use crate::commands::common::ScenarioSendTxsCliArgs;
 use crate::commands::replay::ReplayCliArgs;
+use crate::commands::rpc::RpcCliArgs;
 use crate::default_scenarios::BuiltinScenarioCli;
 
 use super::admin::AdminCommand;
@@ -98,6 +99,15 @@ pub enum ContenderSubcommand {
     Campaign {
         #[command(flatten)]
         args: Box<CampaignCliArgs>,
+    },
+
+    #[command(
+        name = "rpc",
+        long_about = "Spam arbitrary JSON-RPC methods at a configurable rate."
+    )]
+    Rpc {
+        #[command(flatten)]
+        args: Box<RpcCliArgs>,
     },
 }
 
