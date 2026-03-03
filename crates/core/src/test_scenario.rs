@@ -297,7 +297,14 @@ where
 
         // default msg_handle to handle txs sent on rpc_url
         let msg_handle = Arc::new(
-            TxActorHandle::new(12000, db.clone(), rpc_client.clone(), flashblocks_ws_url).await?,
+            TxActorHandle::new(
+                12000,
+                db.clone(),
+                rpc_client.clone(),
+                flashblocks_ws_url,
+                cancel_token.clone(),
+            )
+            .await?,
         );
         let mut msg_handles = HashMap::new();
         msg_handles.insert("default".to_owned(), msg_handle);

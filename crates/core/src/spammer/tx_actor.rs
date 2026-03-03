@@ -11,6 +11,7 @@ use alloy::{
 use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 use url::Url;
 
@@ -57,12 +58,13 @@ enum FlushRequest {
         confirmed_tx_hashes: Vec<TxHash>,
         new_target_block: u64,
     },
-    /// Mark a tx as seen in a flashblock (first match wins)
-    MarkFlashblock {
-        tx_hash: TxHash,
-        timestamp_ms: u128,
-        index: u64,
-    },
+}
+
+/// Flashblock mark from the WS listener (separate channel to avoid backpressure on flush)
+struct FlashblockMark {
+    tx_hash: TxHash,
+    timestamp_ms: u128,
+    index: u64,
 }
 
 struct TxActor<D>
@@ -73,6 +75,8 @@ where
     receiver: mpsc::Receiver<TxActorMessage>,
     /// Internal flush request receiver
     flush_receiver: mpsc::Receiver<FlushRequest>,
+    /// Dedicated flashblock marks receiver (large buffer to handle high TPS)
+    flashblock_receiver: mpsc::Receiver<FlashblockMark>,
     db: Arc<D>,
     cache: HashMap<TxHash, PendingRunTx>,
     ctx: Option<ActorContext>,
@@ -156,11 +160,13 @@ where
     pub fn new(
         receiver: mpsc::Receiver<TxActorMessage>,
         flush_receiver: mpsc::Receiver<FlushRequest>,
+        flashblock_receiver: mpsc::Receiver<FlashblockMark>,
         db: Arc<D>,
     ) -> Self {
         Self {
             receiver,
             flush_receiver,
+            flashblock_receiver,
             db,
             cache: HashMap::new(),
             ctx: None,
@@ -299,26 +305,27 @@ where
                     }
                 }
             }
-            FlushRequest::MarkFlashblock {
-                tx_hash,
-                timestamp_ms,
-                index,
-            } => {
-                // First match wins — only set if not already set
-                if let Some(pending_tx) = self.cache.get_mut(&tx_hash) {
-                    if pending_tx.flashblock_timestamp_ms.is_none() {
-                        pending_tx.flashblock_timestamp_ms = Some(timestamp_ms);
-                        pending_tx.flashblock_index = Some(index);
-                        debug!("marked flashblock for tx {} (index={})", tx_hash, index);
-                    }
-                } else {
-                    // Tx not in cache yet (SentRunTx hasn't been processed).
-                    // Buffer the mark so it can be applied when the tx arrives.
-                    self.pending_flashblock_marks
-                        .entry(tx_hash)
-                        .or_insert((timestamp_ms, index));
-                }
+        }
+    }
+
+    /// Handle a flashblock mark from the dedicated flashblock channel
+    fn handle_flashblock_mark(&mut self, mark: FlashblockMark) {
+        // First match wins — only set if not already set
+        if let Some(pending_tx) = self.cache.get_mut(&mark.tx_hash) {
+            if pending_tx.flashblock_timestamp_ms.is_none() {
+                pending_tx.flashblock_timestamp_ms = Some(mark.timestamp_ms);
+                pending_tx.flashblock_index = Some(mark.index);
+                debug!(
+                    "marked flashblock for tx {} (index={})",
+                    mark.tx_hash, mark.index
+                );
             }
+        } else {
+            // Tx not in cache yet (SentRunTx hasn't been processed).
+            // Buffer the mark so it can be applied when the tx arrives.
+            self.pending_flashblock_marks
+                .entry(mark.tx_hash)
+                .or_insert((mark.timestamp_ms, mark.index));
         }
     }
 
@@ -330,9 +337,6 @@ where
             }
 
             tokio::select! {
-                // External messages have priority (biased)
-                biased;
-
                 msg = self.receiver.recv() => {
                     if let Some(msg) = msg {
                         self.handle_message(msg)?;
@@ -342,6 +346,12 @@ where
                 req = self.flush_receiver.recv() => {
                     if let Some(req) = req {
                         self.handle_flush_request(req);
+                    }
+                }
+
+                mark = self.flashblock_receiver.recv() => {
+                    if let Some(mark) = mark {
+                        self.handle_flashblock_mark(mark);
                     }
                 }
             }
@@ -640,112 +650,110 @@ async fn flashblocks_preflight(ws_url: &Url) -> Result<()> {
 /// Listens for flashblock diffs over WebSocket and marks matching pending txs.
 /// The endpoint auto-streams flashblock diffs on connect — no subscription needed.
 /// Each message is a JSON object with `metadata.receipts` containing tx hashes as keys.
-async fn flashblocks_listener(flush_sender: mpsc::Sender<FlushRequest>, ws_url: Url) {
-    loop {
-        info!("Connecting to flashblocks WS: {}", ws_url);
+async fn flashblocks_listener(
+    fb_sender: mpsc::Sender<FlashblockMark>,
+    ws_url: Url,
+    cancel_token: CancellationToken,
+) {
+    info!("Connecting to flashblocks WS: {}", ws_url);
 
-        let ws_stream = match tokio_tungstenite::connect_async(ws_url.as_str()).await {
-            Ok((stream, _)) => stream,
+    let ws_stream = match tokio_tungstenite::connect_async(ws_url.as_str()).await {
+        Ok((stream, _)) => stream,
+        Err(e) => {
+            error!("Failed to connect to flashblocks WS: {:?}", e);
+            cancel_token.cancel();
+            return;
+        }
+    };
+
+    let (_write, mut read) = ws_stream.split();
+
+    // Process incoming messages — endpoint auto-streams, no subscription needed
+    while let Some(msg_result) = read.next().await {
+        let msg = match msg_result {
+            Ok(msg) => msg,
             Err(e) => {
-                warn!(
-                    "Failed to connect to flashblocks WS: {:?}. Retrying in 2s...",
-                    e
-                );
-                tokio::time::sleep(Duration::from_secs(2)).await;
+                error!("Flashblocks WS connection lost: {:?}", e);
+                cancel_token.cancel();
+                return;
+            }
+        };
+
+        if matches!(msg, Message::Close(_)) {
+            error!("Flashblocks WS connection closed by server.");
+            cancel_token.cancel();
+            return;
+        }
+
+        let text = match ws_message_to_text(msg) {
+            Some(t) => t,
+            None => continue,
+        };
+
+        let timestamp_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_millis();
+
+        // Parse the flashblock diff message
+        let parsed: serde_json::Value = match serde_json::from_str(&text) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        // Flashblock diff format:
+        // {"payload_id":"0x...","index":0,"diff":{"transactions":[...]},"metadata":{"receipts":{"0xTxHash1":{...},...}}}
+        // Extract the flashblock index (required field; skip message if absent)
+        let index = match parsed.get("index").and_then(|v| v.as_u64()) {
+            Some(i) => i,
+            None => {
+                warn!("Flashblock diff missing 'index' field, skipping message");
                 continue;
             }
         };
 
-        let (_write, mut read) = ws_stream.split();
+        // Extract tx hashes from metadata.receipts keys
+        let receipts_obj = parsed
+            .get("metadata")
+            .and_then(|m| m.get("receipts"))
+            .and_then(|r| r.as_object());
 
-        // Process incoming messages — endpoint auto-streams, no subscription needed
-        while let Some(msg_result) = read.next().await {
-            let msg = match msg_result {
-                Ok(msg) => msg,
-                Err(e) => {
-                    warn!("Flashblocks WS error: {:?}. Reconnecting...", e);
-                    break;
-                }
-            };
+        let tx_hashes: Vec<TxHash> = receipts_obj
+            .map(|receipts| {
+                receipts
+                    .keys()
+                    .filter_map(|k| TxHash::from_hex(k).ok())
+                    .collect()
+            })
+            .unwrap_or_default();
 
-            if matches!(msg, Message::Close(_)) {
-                info!("Flashblocks WS closed. Reconnecting...");
-                break;
-            }
-
-            let text = match ws_message_to_text(msg) {
-                Some(t) => t,
-                None => continue,
-            };
-
-            let timestamp_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("Time went backwards")
-                .as_millis();
-
-            // Parse the flashblock diff message
-            let parsed: serde_json::Value = match serde_json::from_str(&text) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-
-            // Flashblock diff format:
-            // {"payload_id":"0x...","index":0,"diff":{"transactions":[...]},"metadata":{"receipts":{"0xTxHash1":{...},...}}}
-            // Extract the flashblock index (required field; skip message if absent)
-            let index = match parsed.get("index").and_then(|v| v.as_u64()) {
-                Some(i) => i,
-                None => {
-                    warn!("Flashblock diff missing 'index' field, skipping message");
-                    continue;
-                }
-            };
-
-            // Extract tx hashes from metadata.receipts keys
-            let receipts_obj = parsed
-                .get("metadata")
-                .and_then(|m| m.get("receipts"))
-                .and_then(|r| r.as_object());
-
-            let tx_hashes: Vec<TxHash> = receipts_obj
-                .map(|receipts| {
-                    receipts
-                        .keys()
-                        .filter_map(|k| TxHash::from_hex(k).ok())
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            let has_receipts = receipts_obj.map(|r| r.len()).unwrap_or(0);
-            let has_diff_txs = parsed
-                .get("diff")
-                .and_then(|d| d.get("transactions"))
-                .and_then(|t| t.as_array())
-                .map(|a| a.len())
-                .unwrap_or(0);
-            debug!(
+        let has_receipts = receipts_obj.map(|r| r.len()).unwrap_or(0);
+        let has_diff_txs = parsed
+            .get("diff")
+            .and_then(|d| d.get("transactions"))
+            .and_then(|t| t.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
+        debug!(
                 "Flashblock diff (index={}): {} metadata.receipts, {} diff.transactions, {} matched tx hashes",
                 index, has_receipts, has_diff_txs, tx_hashes.len()
             );
 
-            for tx_hash in tx_hashes {
-                if flush_sender
-                    .send(FlushRequest::MarkFlashblock {
-                        tx_hash,
-                        timestamp_ms,
-                        index,
-                    })
-                    .await
-                    .is_err()
-                {
-                    // Actor shut down
-                    info!("Flashblocks listener stopping: actor channel closed");
-                    return;
-                }
+        for tx_hash in tx_hashes {
+            if fb_sender
+                .send(FlashblockMark {
+                    tx_hash,
+                    timestamp_ms,
+                    index,
+                })
+                .await
+                .is_err()
+            {
+                // Actor shut down
+                info!("Flashblocks listener stopping: actor channel closed");
+                return;
             }
         }
-
-        // Reconnect after a short delay
-        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
 
@@ -768,6 +776,7 @@ impl TxActorHandle {
         db: Arc<D>,
         rpc: Arc<AnyProvider>,
         flashblocks_ws_url: Option<Url>,
+        cancel_token: CancellationToken,
     ) -> Result<Self> {
         // Pre-flight check: validate flashblocks WS endpoint before spawning tasks
         if let Some(ref ws_url) = flashblocks_ws_url {
@@ -776,10 +785,11 @@ impl TxActorHandle {
 
         let (sender, receiver) = mpsc::channel(bufsize);
         // Channel for flush task to communicate with message handler
-        // Larger buffer to accommodate flashblock messages
         let (flush_sender, flush_receiver) = mpsc::channel(64);
+        // Dedicated channel for flashblock marks (large buffer to handle high TPS)
+        let (fb_sender, fb_receiver) = mpsc::channel(10_000);
 
-        let mut actor = TxActor::new(receiver, flush_receiver, db.clone());
+        let mut actor = TxActor::new(receiver, flush_receiver, fb_receiver, db.clone());
 
         // Spawn the message handler task (owns the cache)
         tokio::task::spawn(async move {
@@ -789,15 +799,14 @@ impl TxActorHandle {
         });
 
         // Spawn the independent flush task (communicates via channels)
-        let flush_sender_clone = flush_sender.clone();
         tokio::task::spawn(async move {
-            flush_loop(flush_sender_clone, db, rpc).await;
+            flush_loop(flush_sender, db, rpc).await;
         });
 
         // Spawn the flashblocks listener task if URL is provided
         if let Some(ws_url) = flashblocks_ws_url {
             tokio::task::spawn(async move {
-                flashblocks_listener(flush_sender, ws_url).await;
+                flashblocks_listener(fb_sender, ws_url, cancel_token).await;
             });
         }
 
