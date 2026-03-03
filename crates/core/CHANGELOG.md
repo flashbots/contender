@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- extracted `collect_latency_from_registry()` into `buckets` module for reuse across crates
 - added `scenario_label` support to apply contract name labels at the DB boundary
 
 ### Breaking changes
