@@ -203,12 +203,6 @@ pub struct EthGetBlockTransactionCountByHashArgs {
 }
 
 #[derive(Debug, Clone, Args)]
-pub struct EthSendRawTransactionArgs {
-    /// Signed transaction data (hex).
-    pub data: Bytes,
-}
-
-#[derive(Debug, Clone, Args)]
 pub struct Web3Sha3Args {
     /// Data to hash with Keccak-256.
     pub data: Bytes,
@@ -326,6 +320,9 @@ pub struct EthGetLogsArgs {
     pub filter: LogFilterObject,
 }
 
+// eth_sendRawTransaction is intentionally excluded: the nonce is baked into
+// the signed payload, so repeating the same params always fails after the 1st call.
+// Use `contender spam` for transaction-sending workloads.
 #[derive(Debug, Clone, Subcommand)]
 pub enum RpcMethodSubcommand {
     // No params
@@ -335,7 +332,7 @@ pub enum RpcMethodSubcommand {
     EthChainId,
     #[command(name = "eth_gasPrice")]
     EthGasPrice,
-#[command(name = "eth_syncing")]
+    #[command(name = "eth_syncing")]
     EthSyncing,
     #[command(name = "eth_accounts")]
     EthAccounts,
@@ -399,9 +396,7 @@ pub enum RpcMethodSubcommand {
     EthSign(EthSignArgs),
     #[command(name = "eth_signTransaction")]
     EthSignTransaction(EthSignTransactionArgs),
-    #[command(name = "eth_sendRawTransaction")]
-    EthSendRawTransaction(EthSendRawTransactionArgs),
-#[command(name = "eth_uninstallFilter")]
+    #[command(name = "eth_uninstallFilter")]
     EthUninstallFilter(EthUninstallFilterArgs),
     #[command(name = "eth_getFilterChanges")]
     EthGetFilterChanges(EthGetFilterChangesArgs),
@@ -413,7 +408,7 @@ pub enum RpcMethodSubcommand {
     EthCall(EthCallArgs),
     #[command(name = "eth_estimateGas")]
     EthEstimateGas(EthEstimateGasArgs),
-#[command(name = "eth_sendTransaction")]
+    #[command(name = "eth_sendTransaction")]
     EthSendTransaction(EthSendTransactionArgs),
     #[command(name = "eth_getLogs")]
     EthGetLogs(EthGetLogsArgs),
@@ -428,7 +423,7 @@ impl RpcMethodSubcommand {
             EthBlockNumber => "eth_blockNumber",
             EthChainId => "eth_chainId",
             EthGasPrice => "eth_gasPrice",
-EthSyncing => "eth_syncing",
+            EthSyncing => "eth_syncing",
             EthAccounts => "eth_accounts",
             EthProtocolVersion => "eth_protocolVersion",
             EthCoinbase => "eth_coinbase",
@@ -459,13 +454,12 @@ EthSyncing => "eth_syncing",
             EthGetUncleByBlockNumberAndIndex(_) => "eth_getUncleByBlockNumberAndIndex",
             EthSign(_) => "eth_sign",
             EthSignTransaction(_) => "eth_signTransaction",
-            EthSendRawTransaction(_) => "eth_sendRawTransaction",
-EthUninstallFilter(_) => "eth_uninstallFilter",
+            EthUninstallFilter(_) => "eth_uninstallFilter",
             EthGetFilterChanges(_) => "eth_getFilterChanges",
             EthGetFilterLogs(_) => "eth_getFilterLogs",
             EthCall(_) => "eth_call",
             EthEstimateGas(_) => "eth_estimateGas",
-EthSendTransaction(_) => "eth_sendTransaction",
+            EthSendTransaction(_) => "eth_sendTransaction",
             EthGetLogs(_) => "eth_getLogs",
             EthNewFilter(_) => "eth_newFilter",
         }
@@ -479,7 +473,7 @@ EthSendTransaction(_) => "eth_sendTransaction",
             EthBlockNumber
             | EthChainId
             | EthGasPrice
-| EthSyncing
+            | EthSyncing
             | EthAccounts
             | EthProtocolVersion
             | EthCoinbase
@@ -500,7 +494,6 @@ EthSendTransaction(_) => "eth_sendTransaction",
             EthGetBlockTransactionCountByHash(a) => single_param(&a.hash),
             EthGetUncleCountByBlockHash(a) => single_param(&a.hash),
             EthGetUncleCountByBlockNumber(a) => single_param(&a.block),
-            EthSendRawTransaction(a) => single_param(&a.data),
             EthUninstallFilter(a) => single_param(&a.filter_id),
             EthGetFilterChanges(a) => single_param(&a.filter_id),
             EthGetFilterLogs(a) => single_param(&a.filter_id),
@@ -562,10 +555,10 @@ EthSendTransaction(_) => "eth_sendTransaction",
                 out
             }
 
-// tx call object + optional block
+            // tx call object + optional block
             EthCall(a) => tx_object_params(&a.tx, &a.block),
             EthEstimateGas(a) => tx_object_params(&a.tx, &a.block),
-EthSignTransaction(a) => tx_object_params(&a.tx, &None),
+            EthSignTransaction(a) => tx_object_params(&a.tx, &None),
             EthSendTransaction(a) => tx_object_params(&a.tx, &None),
 
             // Filter object
@@ -682,57 +675,35 @@ pub async fn run_rpc_spam(
     info!("Saved RPC spam run #{run_id}");
 
     if args.gen_report {
-        generate_rpc_report(
-            method,
-            &args,
+        let buckets = latency_map.get(method).cloned().unwrap_or_default();
+        let latency_chart = LatencyChart::new(buckets.clone());
+
+        let to_ms = |v: f64| (v * 1000.0).round() as u64;
+        use contender_core::buckets::BucketsExt;
+        let quantiles = RpcLatencyQuantiles {
+            p50: to_ms(buckets.estimate_quantile(0.5)),
+            p90: to_ms(buckets.estimate_quantile(0.9)),
+            p99: to_ms(buckets.estimate_quantile(0.99)),
+            method: method.to_owned(),
+        };
+
+        let meta = RpcReportMetadata {
+            method: method.to_owned(),
+            rpc_url: args.rpc_url.to_string(),
             run_id,
-            total,
-            success,
-            errors,
-            &latency_map,
-            data_dir,
-        )?;
+            rps: args.rps,
+            duration_secs: args.duration,
+            total_requests: total,
+            success_count: success,
+            error_count: errors,
+            latency_quantiles: quantiles,
+            latency_chart: latency_chart.echart_data(),
+        };
+
+        contender_report::command::report_rpc(meta, data_dir).map_err(CliError::Report)?;
     }
 
     Ok(())
-}
-
-fn generate_rpc_report(
-    method: &str,
-    args: &RpcCliArgs,
-    run_id: u64,
-    total: u64,
-    success: u64,
-    errors: u64,
-    latency_map: &BTreeMap<String, Vec<Bucket>>,
-    data_dir: &Path,
-) -> Result<(), CliError> {
-    let buckets = latency_map.get(method).cloned().unwrap_or_default();
-    let latency_chart = LatencyChart::new(buckets.clone());
-
-    let to_ms = |v: f64| (v * 1000.0).round() as u64;
-    use contender_core::buckets::BucketsExt;
-    let quantiles = RpcLatencyQuantiles {
-        p50: to_ms(buckets.estimate_quantile(0.5)),
-        p90: to_ms(buckets.estimate_quantile(0.9)),
-        p99: to_ms(buckets.estimate_quantile(0.99)),
-        method: method.to_owned(),
-    };
-
-    let meta = RpcReportMetadata {
-        method: method.to_owned(),
-        rpc_url: args.rpc_url.to_string(),
-        run_id,
-        rps: args.rps,
-        duration_secs: args.duration,
-        total_requests: total,
-        success_count: success,
-        error_count: errors,
-        latency_quantiles: quantiles,
-        latency_chart: latency_chart.echart_data(),
-    };
-
-    contender_report::command::report_rpc(meta, data_dir).map_err(CliError::Report)
 }
 
 fn collect_latency_metrics() -> BTreeMap<String, Vec<Bucket>> {
@@ -782,7 +753,7 @@ fn print_latency_summary(method: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::node_bindings::Anvil;
+    use alloy::{node_bindings::Anvil, providers::Provider};
     use contender_sqlite::SqliteDb;
     use std::str::FromStr;
 
@@ -870,8 +841,7 @@ mod tests {
         run_rpc_spam(args, &db, dir.path()).await.unwrap();
     }
 
-
-#[tokio::test]
+    #[tokio::test]
     async fn rpc_spam_get_logs() {
         let anvil = spawn_anvil();
         let (db, dir) = test_db();
@@ -891,5 +861,49 @@ mod tests {
             }),
         };
         run_rpc_spam(args, &db, dir.path()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn rpc_spam_send_transaction_high_rps() {
+        let anvil = Anvil::new().block_time_f64(0.25).spawn();
+        let (db, dir) = test_db();
+
+        let sender = anvil.addresses()[0];
+        let rps = 50;
+        let duration = 2;
+        let expected_txs = rps * duration;
+
+        let args = RpcCliArgs {
+            rpc_url: Url::from_str(&anvil.endpoint()).unwrap(),
+            rps,
+            duration,
+            gen_report: false,
+            method: RpcMethodSubcommand::EthSendTransaction(EthSendTransactionArgs {
+                tx: TxCallObject {
+                    from: sender,
+                    to: Address::ZERO,
+                    input: Bytes::default(),
+                    gas: Some(U256::from(21000)),
+                    gas_price: Some(U256::from(2_000_000_000u64)),
+                    value: Some(U256::from(1)),
+                    nonce: None, // let the node auto-assign nonces
+                },
+            }),
+        };
+        run_rpc_spam(args, &db, dir.path()).await.unwrap();
+
+        // Wait for pending txs to be mined.
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        // Verify: the sender's nonce should equal the number of txs sent,
+        // meaning every request got a unique nonce and landed on-chain.
+        let provider = ProviderBuilder::new()
+            .network::<alloy::network::AnyNetwork>()
+            .connect_http(anvil.endpoint_url());
+        let nonce = provider.get_transaction_count(sender).await.unwrap();
+        assert_eq!(
+            nonce, expected_txs,
+            "expected {expected_txs} txs to land but nonce is {nonce}"
+        );
     }
 }
