@@ -1,5 +1,6 @@
 use crate::{
     db::DbError,
+    flashblocks::FlashblocksError,
     generator::{error::GeneratorError, templater::TemplaterError, NamedTxRequest},
     spammer::CallbackError,
 };
@@ -45,6 +46,9 @@ pub enum Error {
 
     #[error("templater error")]
     Templater(#[from] TemplaterError),
+
+    #[error("flashblocks error")]
+    Flashblocks(#[from] FlashblocksError),
 }
 
 #[derive(Debug, Error)]
