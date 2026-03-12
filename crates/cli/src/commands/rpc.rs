@@ -20,7 +20,7 @@ use prometheus::core::Collector;
 use serde::Serialize;
 use std::{collections::BTreeMap, path::Path, time::Duration};
 use tokio::{task::JoinSet, time::MissedTickBehavior};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::{error::CliError, LATENCY_HIST, PROM};
 
@@ -632,7 +632,10 @@ pub async fn run_rpc_spam(
 
     while let Some(result) = tasks.join_next().await {
         match result {
-            Ok(Ok(_)) => success += 1,
+            Ok(Ok(val)) => {
+                success += 1;
+                debug!("[{method}] response: {val}");
+            }
             Ok(Err(e)) => {
                 errors += 1;
                 warn!("RPC error: {e}");
