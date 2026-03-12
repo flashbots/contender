@@ -31,20 +31,21 @@ pub struct RpcCliArgs {
         env = "RPC_URL",
         short = 'r',
         long = "rpc-url",
-        default_value = "http://localhost:8545"
+        default_value = "http://localhost:8545",
+        global = true
     )]
     pub rpc_url: Url,
 
     /// Requests per second.
-    #[arg(long, default_value_t = 1)]
+    #[arg(long, default_value_t = 1, global = true)]
     pub rps: u64,
 
     /// Duration in seconds.
-    #[arg(short, long, default_value_t = 1)]
+    #[arg(short, long, default_value_t = 1, global = true)]
     pub duration: u64,
 
     /// Generate an HTML report after the spam run.
-    #[arg(long)]
+    #[arg(long, global = true)]
     pub gen_report: bool,
 
     #[command(subcommand)]
