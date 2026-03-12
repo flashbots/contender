@@ -4,9 +4,12 @@ use alloy::{hex::FromHex, primitives::TxHash};
 use futures::StreamExt;
 use thiserror::Error;
 use tokio::net::TcpStream;
-use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{
+    tungstenite::{self, Message},
+    MaybeTlsStream, WebSocketStream,
+};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use url::Url;
 
 type Result<T> = std::result::Result<T, FlashblocksError>;
@@ -83,25 +86,17 @@ impl FlashblocksClient {
         cancel_token: CancellationToken,
     ) -> Result<()> {
         info!("Connecting to flashblocks WS: {}", ws_url);
-        let (ws_stream, _) = Self::connect(ws_url).await.expect("failed to connect");
+        let (ws_stream, _) = Self::connect(ws_url).await?;
         let (_write, mut read) = ws_stream.split();
 
         // Process incoming messages — endpoint auto-streams, no subscription needed
         while let Some(msg_result) = read.next().await {
-            let msg = match msg_result {
-                Ok(msg) => msg,
-                Err(e) => {
-                    error!("Flashblocks WS connection lost: {:?}", e);
-                    cancel_token.cancel();
-                    return Err(FlashblocksError::ConnectionFailed {
-                        err: e,
-                        url: ws_url.to_owned(),
-                    });
-                }
-            };
+            let msg = msg_result.map_err(|e| {
+                cancel_token.cancel();
+                FlashblocksError::ConnectionLost(e)
+            })?;
 
             if matches!(msg, Message::Close(_)) {
-                error!("Flashblocks WS connection closed by server.");
                 cancel_token.cancel();
                 return Err(FlashblocksError::ConnectionClosed);
             }
@@ -176,6 +171,7 @@ impl FlashblocksClient {
                 }
             }
         }
+
         Ok(())
     }
 }
@@ -191,6 +187,9 @@ pub enum FlashblocksError {
         url: Url,
     },
 
+    #[error("Flashblocks WS connection lost")]
+    ConnectionLost(tungstenite::Error),
+
     #[error("Flashblocks WS connection closed during preflight")]
     PreflightConnectionClosed,
 
@@ -202,6 +201,9 @@ pub enum FlashblocksError {
 
     #[error("Flashblocks WS endpoint sent unexpected message format (missing metadata.receipts): {}", &_0[.._0.len().min(200)])]
     PreflightInvalidResult(String),
+
+    #[error("Failed to close write stream for Flashblocks WS endpoint")]
+    WriteStreamClose(tokio_tungstenite::tungstenite::Error),
 }
 
 /// Flashblock mark from the WS listener (separate channel to avoid backpressure on flush)
