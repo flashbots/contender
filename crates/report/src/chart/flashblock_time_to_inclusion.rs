@@ -49,12 +49,22 @@ impl FlashblockTimeToInclusionChart {
             buckets[bucket_index] = format!("{lo} - {hi} ms");
         }
 
-        // Filter out empty buckets and counts that are zero
-        (buckets, counts) = buckets
-            .into_iter()
-            .zip(counts)
-            .filter(|(bucket, count)| !bucket.is_empty() && *count > 0)
-            .unzip();
+        // Keep the contiguous range from the first to last populated bucket,
+        // preserving interior empty buckets so the histogram x-axis is continuous.
+        let first = counts.iter().position(|&c| c > 0);
+        let last = counts.iter().rposition(|&c| c > 0);
+        if let (Some(first), Some(last)) = (first, last) {
+            // Label any interior empty buckets that were never visited
+            for (i, bucket) in buckets.iter_mut().enumerate().take(last + 1).skip(first) {
+                if bucket.is_empty() {
+                    let lo = i as u64 * bucket_size_ms;
+                    let hi = lo + bucket_size_ms;
+                    *bucket = format!("{lo} - {hi} ms");
+                }
+            }
+            buckets = buckets[first..=last].to_vec();
+            counts = counts[first..=last].to_vec();
+        }
 
         FlashblockTimeToInclusionData {
             buckets,
@@ -106,13 +116,16 @@ mod tests {
     }
 
     #[test]
-    fn sparse_buckets_are_filtered() {
-        // 50ms in bucket 0, 350ms in bucket 3 — buckets 1 and 2 should be filtered out
+    fn sparse_buckets_are_preserved() {
+        // 50ms in bucket 0, 350ms in bucket 3 — interior buckets 1 and 2 kept with zero counts
         let txs = vec![make_tx(Some(50)), make_tx(Some(350))];
         let chart = FlashblockTimeToInclusionChart::new(&txs).unwrap();
         let data = chart.echart_data();
 
-        assert_eq!(data.buckets, vec!["0 - 100 ms", "300 - 400 ms"]);
-        assert_eq!(data.counts, vec![1, 1]);
+        assert_eq!(
+            data.buckets,
+            vec!["0 - 100 ms", "100 - 200 ms", "200 - 300 ms", "300 - 400 ms"]
+        );
+        assert_eq!(data.counts, vec![1, 0, 0, 1]);
     }
 }

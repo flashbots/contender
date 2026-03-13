@@ -20,6 +20,11 @@ use crate::{
     Result,
 };
 
+/// Maximum number of buffered flashblock marks for txs not yet in cache.
+/// Legitimate marks are consumed within milliseconds when SentRunTx arrives;
+/// entries that linger are foreign tx hashes that will never be claimed.
+const MAX_PENDING_FLASHBLOCK_MARKS: usize = 1024;
+
 /// External messages from API callers
 #[derive(Debug)]
 pub enum TxActorMessage {
@@ -74,6 +79,7 @@ where
     status: ActorStatus,
     /// Flashblock marks that arrived before the tx was added to cache.
     /// Applied retroactively when SentRunTx is processed.
+    /// Capped at [`MAX_PENDING_FLASHBLOCK_MARKS`] to bound memory from unrecognized tx hashes.
     pending_flashblock_marks: HashMap<TxHash, (u128, u64)>,
 }
 
@@ -311,6 +317,11 @@ where
                     mark.tx_hash, mark.index
                 );
             }
+        } else if self.pending_flashblock_marks.len() >= MAX_PENDING_FLASHBLOCK_MARKS {
+            warn!(
+                "pending_flashblock_marks at capacity ({}); dropping mark for tx {}",
+                MAX_PENDING_FLASHBLOCK_MARKS, mark.tx_hash
+            );
         } else {
             // Tx not in cache yet (SentRunTx hasn't been processed).
             // Buffer the mark so it can be applied when the tx arrives.

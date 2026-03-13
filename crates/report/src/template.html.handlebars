@@ -332,11 +332,13 @@
       num + (roundness - (num % roundness))
     }
 
+    const noTraceDataMsg = '<p>No data available. This may be because the target node does not support geth-style preState traces, or because --skip-tx-traces was used.</p>';
+
     async function renderHeatmap() {
       // data may be missing if the target node does not support geth-style traces.
       // if data is missing, skip rendering, replacing the 'heatmap' div with a message
       if ({{data.chart_data.heatmap.blocks}}.length === 0) {
-        document.getElementById('heatmap').innerHTML = '<p>No data available. Target node may not support geth-style preState traces.</p>';
+        document.getElementById('heatmap').innerHTML = noTraceDataMsg;
         document.getElementById('heatmap').className = 'no-chart';
         return;
       }
@@ -602,7 +604,7 @@
       const gasUsed = {{data.chart_data.tx_gas_used.counts}};
 
       if (buckets.length === 0) {
-        document.getElementById('tx-gas-used').innerHTML = '<p>No data available. Use the report command without --skip-tx-traces to populate this chart.</p>';
+        document.getElementById('tx-gas-used').innerHTML = noTraceDataMsg;
         document.getElementById('tx-gas-used').className = 'no-chart';
         return;
       }

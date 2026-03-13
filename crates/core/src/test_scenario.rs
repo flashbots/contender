@@ -1022,7 +1022,7 @@ where
                 let error_sender = error_sender.clone();
 
                 tasks.push(tokio::task::spawn(async move {
-                let extra = RuntimeTxInfo::default();
+                let extra = RuntimeTxInfo::now();
                 let handles = match payload {
                     ExecutionPayload::SignedTx(signed_tx, req) => {
                         let tx_hash = signed_tx.tx_hash().to_owned();
@@ -1201,10 +1201,7 @@ where
                 // flashblock TTI: the sequencer may include txs in a flashblock
                 // before the batch response arrives, so capturing the timestamp
                 // after the response would make start_timestamp_ms too late.
-                let batch_start_timestamp_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis();
+                let batch_extra = RuntimeTxInfo::now();
 
                 // === PROMETHEUS LATENCY METRICS ===
                 let mut timer = hist.as_ref().map(|h| {
@@ -1239,7 +1236,7 @@ where
                 // Process each response; align by index with signed_chunk
                 for (i, (signed_tx, req)) in signed_chunk.into_iter().enumerate() {
                     let tx_hash = *signed_tx.tx_hash();
-                    let extra = RuntimeTxInfo::new(batch_start_timestamp_ms, None, None);
+                    let extra = batch_extra.clone();
 
                     let error_msg = responses
                         .get(i)

@@ -38,11 +38,17 @@ pub struct RuntimeTxInfo {
 }
 
 impl RuntimeTxInfo {
-    pub fn new(start_timestamp_ms: u128, kind: Option<String>, error: Option<String>) -> Self {
+    /// Capture the current system time as the start timestamp.
+    /// Call this immediately before the network send to ensure accurate latency measurement.
+    pub fn now() -> Self {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
         Self {
-            start_timestamp_ms,
-            kind,
-            error,
+            start_timestamp_ms: ts,
+            kind: None,
+            error: None,
         }
     }
 
@@ -56,11 +62,6 @@ impl RuntimeTxInfo {
         self
     }
 
-    pub fn with_start_timestamp(mut self, start_timestamp_ms: u128) -> Self {
-        self.start_timestamp_ms = start_timestamp_ms;
-        self
-    }
-
     pub fn start_timestamp_ms(&self) -> u128 {
         self.start_timestamp_ms
     }
@@ -71,20 +72,6 @@ impl RuntimeTxInfo {
 
     pub fn error(&self) -> Option<&String> {
         self.error.as_ref()
-    }
-}
-
-impl Default for RuntimeTxInfo {
-    fn default() -> Self {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        Self {
-            start_timestamp_ms: now,
-            kind: None,
-            error: None,
-        }
     }
 }
 
