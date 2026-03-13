@@ -47,7 +47,7 @@ impl FlashblocksClient {
         let timeout_duration = Duration::from_secs(10);
         let preflight_result: String = tokio::time::timeout(timeout_duration, async {
             while let Some(msg_result) = ws_stream.next().await {
-                let res = msg_result.map_err(|e| FlashblocksError::PreflightRequestFailed(e))?;
+                let res = msg_result.map_err(FlashblocksError::PreflightRequestFailed)?;
                 if let Some(text) = ws_message_to_text(res) {
                     return Ok(text);
                 }

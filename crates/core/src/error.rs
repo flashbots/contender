@@ -48,7 +48,7 @@ pub enum Error {
     Templater(#[from] TemplaterError),
 
     #[error("flashblocks error")]
-    Flashblocks(#[from] FlashblocksError),
+    Flashblocks(Box<FlashblocksError>),
 }
 
 #[derive(Debug, Error)]
@@ -97,6 +97,12 @@ pub enum RuntimeErrorKind {
 
     #[error("invalid runtime params")]
     InvalidParams(#[from] RuntimeParamErrorKind),
+}
+
+impl From<FlashblocksError> for Error {
+    fn from(e: FlashblocksError) -> Self {
+        Error::Flashblocks(Box::new(e))
+    }
 }
 
 impl From<alloy::node_bindings::NodeError> for Error {
