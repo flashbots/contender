@@ -1,5 +1,5 @@
 use crate::{generator::types::AnyProvider, Result};
-use alloy::{providers::Provider, signers::local::PrivateKeySigner};
+use alloy::{consensus::TxType, providers::Provider, signers::local::PrivateKeySigner};
 use std::str::FromStr;
 use tracing::debug;
 use tracing_subscriber::EnvFilter;
@@ -29,8 +29,12 @@ pub async fn get_block_time(rpc_client: &AnyProvider) -> Result<u64> {
     Ok(block_time_secs)
 }
 
-/// returns blob fee, or 0 if the RPC call fails.
-pub async fn get_blob_fee_maybe(rpc_client: &AnyProvider) -> u128 {
+/// Returns blob fee for EIP-4844 transactions, or 0 for all other tx types.
+/// Skips the RPC call entirely when blobs aren't needed.
+pub async fn get_blob_fee_maybe(rpc_client: &AnyProvider, tx_type: TxType) -> u128 {
+    if tx_type != TxType::Eip4844 {
+        return 0;
+    }
     let res = rpc_client.get_blob_base_fee().await;
     if res.is_err() {
         debug!("failed to get blob base fee; defaulting to 0");

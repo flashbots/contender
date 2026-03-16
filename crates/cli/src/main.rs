@@ -131,6 +131,7 @@ async fn run() -> Result<(), CliError> {
             preceding_runs,
             campaign_id,
             format,
+            skip_tx_traces,
         } => {
             if let Some(campaign_id) = campaign_id {
                 let resolved_campaign_id = if campaign_id == "__LATEST_CAMPAIGN__" {
@@ -147,9 +148,14 @@ async fn run() -> Result<(), CliError> {
                 if preceding_runs > 0 {
                     warn!("--preceding-runs is ignored when --campaign is provided");
                 }
-                contender_report::command::report_campaign(&resolved_campaign_id, &db, &data_dir)
-                    .await
-                    .map_err(CliError::Report)?;
+                contender_report::command::report_campaign(
+                    &resolved_campaign_id,
+                    &db,
+                    &data_dir,
+                    skip_tx_traces,
+                )
+                .await
+                .map_err(CliError::Report)?;
             } else {
                 let use_json = matches!(format, ReportFormat::Json);
                 contender_report::command::report(
@@ -158,6 +164,7 @@ async fn run() -> Result<(), CliError> {
                     &db,
                     &data_dir,
                     use_json,
+                    skip_tx_traces,
                 )
                 .await
                 .map_err(CliError::Report)?;

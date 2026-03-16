@@ -89,6 +89,12 @@ pub enum ContenderSubcommand {
         /// Output format: html (default, opens browser) or json (machine-readable).
         #[arg(long, short = 'f', default_value = "html", value_enum)]
         format: ReportFormat,
+
+        /// Skip per-transaction debug traces (debug_traceTransaction).
+        /// This significantly speeds up report generation for large runs
+        /// at the cost of omitting the storage heatmap and tx gas used charts.
+        #[arg(long)]
+        skip_tx_traces: bool,
     },
 
     #[command(
