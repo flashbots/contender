@@ -29,6 +29,7 @@ contender_engine_provider = { path = "crates/engine_provider/" }
 contender_report = { path = "crates/report/" }
 
 tokio = { version = "1.40.0" }
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
 tokio-util = "0.7"
 alloy = { version = "1.0.22" }
 alloy-signer = { version = "1.0.22", features = ["wallet"] }

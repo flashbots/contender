@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use alloy::{
     network::{AnyReceiptEnvelope, ReceiptResponse},
@@ -8,14 +8,22 @@ use alloy::{
     serde::WithOtherFields,
 };
 use tokio::sync::{mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
+use url::Url;
 
 use crate::{
     db::{DbOps, RunTx},
+    flashblocks::{FlashblockMark, FlashblocksClient},
     generator::types::AnyProvider,
     spammer::CallbackError,
     Result,
 };
+
+/// Maximum number of buffered flashblock marks for txs not yet in cache.
+/// Legitimate marks are consumed within milliseconds when SentRunTx arrives;
+/// entries that linger are foreign tx hashes that will never be claimed.
+const MAX_PENDING_FLASHBLOCK_MARKS: usize = 1024;
 
 /// External messages from API callers
 #[derive(Debug)]
@@ -63,10 +71,16 @@ where
     receiver: mpsc::Receiver<TxActorMessage>,
     /// Internal flush request receiver
     flush_receiver: mpsc::Receiver<FlushRequest>,
+    /// Dedicated flashblock marks receiver (large buffer to handle high TPS)
+    flashblock_receiver: mpsc::Receiver<FlashblockMark>,
     db: Arc<D>,
-    cache: Vec<PendingRunTx>,
+    cache: HashMap<TxHash, PendingRunTx>,
     ctx: Option<ActorContext>,
     status: ActorStatus,
+    /// Flashblock marks that arrived before the tx was added to cache.
+    /// Applied retroactively when SentRunTx is processed.
+    /// Capped at [`MAX_PENDING_FLASHBLOCK_MARKS`] to bound memory from unrecognized tx hashes.
+    pending_flashblock_marks: HashMap<TxHash, (u128, u64)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -75,6 +89,8 @@ pub struct PendingRunTx {
     pub start_timestamp_ms: u128,
     pub kind: Option<String>,
     pub error: Option<String>,
+    pub flashblock_timestamp_ms: Option<u128>,
+    pub flashblock_index: Option<u64>,
 }
 
 impl PendingRunTx {
@@ -89,7 +105,19 @@ impl PendingRunTx {
             start_timestamp_ms,
             kind: kind.map(|s| s.to_owned()),
             error: error.map(|s| s.to_owned()),
+            flashblock_timestamp_ms: None,
+            flashblock_index: None,
         }
+    }
+
+    /// Flashblock inclusion latency (time from send to first flashblock appearance).
+    pub fn flashblock_latency_ms(&self) -> Option<u64> {
+        self.flashblock_timestamp_ms.map(|fb_ts| {
+            fb_ts
+                .saturating_sub(self.start_timestamp_ms)
+                .try_into()
+                .unwrap()
+        })
     }
 }
 
@@ -129,15 +157,18 @@ where
     pub fn new(
         receiver: mpsc::Receiver<TxActorMessage>,
         flush_receiver: mpsc::Receiver<FlushRequest>,
+        flashblock_receiver: mpsc::Receiver<FlashblockMark>,
         db: Arc<D>,
     ) -> Self {
         Self {
             receiver,
             flush_receiver,
+            flashblock_receiver,
             db,
-            cache: Vec::new(),
+            cache: HashMap::new(),
             ctx: None,
             status: ActorStatus::default(),
+            pending_flashblock_marks: HashMap::new(),
         }
     }
 
@@ -145,15 +176,17 @@ where
     fn dump_cache(&mut self, run_id: u64) -> Result<Vec<RunTx>> {
         let run_txs: Vec<_> = self
             .cache
-            .iter()
+            .values()
             .map(|pending_tx| RunTx {
                 tx_hash: pending_tx.tx_hash,
-                start_timestamp_secs: (pending_tx.start_timestamp_ms / 1000) as u64,
-                end_timestamp_secs: None,
+                start_timestamp_ms: pending_tx.start_timestamp_ms.try_into().unwrap(),
+                end_timestamp_ms: None,
                 block_number: None,
                 gas_used: None,
                 kind: pending_tx.kind.to_owned(),
                 error: pending_tx.error.to_owned(),
+                flashblock_latency_ms: pending_tx.flashblock_latency_ms(),
+                flashblock_index: pending_tx.flashblock_index,
             })
             .collect();
         self.db
@@ -164,12 +197,9 @@ where
     }
 
     fn remove_cached_tx(&mut self, old_tx_hash: TxHash) -> Result<()> {
-        let old_tx = self
-            .cache
-            .iter()
-            .position(|tx| tx.tx_hash == old_tx_hash)
+        self.cache
+            .remove(&old_tx_hash)
             .ok_or(CallbackError::CacheRemoveTx(old_tx_hash))?;
-        self.cache.remove(old_tx);
         Ok(())
     }
 
@@ -195,13 +225,26 @@ where
                 error,
                 on_receive,
             } => {
+                // Check if a flashblock mark arrived before the tx was cached
+                let (fb_timestamp, fb_index) =
+                    if let Some((ts, idx)) = self.pending_flashblock_marks.remove(&tx_hash) {
+                        debug!(
+                            "applied buffered flashblock mark for tx {} (index={})",
+                            tx_hash, idx
+                        );
+                        (Some(ts), Some(idx))
+                    } else {
+                        (None, None)
+                    };
                 let run_tx = PendingRunTx {
                     tx_hash,
                     start_timestamp_ms,
                     kind,
                     error,
+                    flashblock_timestamp_ms: fb_timestamp,
+                    flashblock_index: fb_index,
                 };
-                self.cache.push(run_tx);
+                self.cache.insert(tx_hash, run_tx);
                 on_receive
                     .send(())
                     .map_err(|e| CallbackError::OneshotSend(format!("SentRunTx: {:?}", e)))?;
@@ -228,15 +271,30 @@ where
         match request {
             FlushRequest::GetSnapshot { reply } => {
                 // Send snapshot of cache and context
-                let _ = reply.send((self.cache.clone(), self.ctx.clone()));
+                let snapshot: Vec<PendingRunTx> = self.cache.values().cloned().collect();
+                let _ = reply.send((snapshot, self.ctx.clone()));
             }
             FlushRequest::RemoveConfirmed {
                 confirmed_tx_hashes,
                 new_target_block,
             } => {
                 // Remove confirmed txs (already recorded in DB by process_block_receipts)
-                self.cache
-                    .retain(|tx| !confirmed_tx_hashes.contains(&tx.tx_hash));
+                for hash in &confirmed_tx_hashes {
+                    self.cache.remove(hash);
+                }
+                // Clean up any stale pending marks for confirmed txs
+                for hash in &confirmed_tx_hashes {
+                    self.pending_flashblock_marks.remove(hash);
+                }
+                // Evict buffered flashblock marks older than 20s.
+                // Legitimate marks are consumed within milliseconds; anything
+                // older is a foreign tx hash that will never be claimed.
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("Time went backwards")
+                    .as_millis();
+                self.pending_flashblock_marks
+                    .retain(|_, (ts, _)| now_ms.saturating_sub(*ts) < 20_000);
                 // Update target block
                 if let Some(ref mut ctx) = self.ctx {
                     if new_target_block > ctx.target_block {
@@ -244,6 +302,32 @@ where
                     }
                 }
             }
+        }
+    }
+
+    /// Handle a flashblock mark from the dedicated flashblock channel
+    fn handle_flashblock_mark(&mut self, mark: FlashblockMark) {
+        // First match wins — only set if not already set
+        if let Some(pending_tx) = self.cache.get_mut(&mark.tx_hash) {
+            if pending_tx.flashblock_timestamp_ms.is_none() {
+                pending_tx.flashblock_timestamp_ms = Some(mark.timestamp_ms);
+                pending_tx.flashblock_index = Some(mark.index);
+                debug!(
+                    "marked flashblock for tx {} (index={})",
+                    mark.tx_hash, mark.index
+                );
+            }
+        } else if self.pending_flashblock_marks.len() >= MAX_PENDING_FLASHBLOCK_MARKS {
+            warn!(
+                "pending_flashblock_marks at capacity ({}); dropping mark for tx {}",
+                MAX_PENDING_FLASHBLOCK_MARKS, mark.tx_hash
+            );
+        } else {
+            // Tx not in cache yet (SentRunTx hasn't been processed).
+            // Buffer the mark so it can be applied when the tx arrives.
+            self.pending_flashblock_marks
+                .entry(mark.tx_hash)
+                .or_insert((mark.timestamp_ms, mark.index));
         }
     }
 
@@ -255,9 +339,6 @@ where
             }
 
             tokio::select! {
-                // External messages have priority (biased)
-                biased;
-
                 msg = self.receiver.recv() => {
                     if let Some(msg) = msg {
                         self.handle_message(msg)?;
@@ -267,6 +348,12 @@ where
                 req = self.flush_receiver.recv() => {
                     if let Some(req) = req {
                         self.handle_flush_request(req);
+                    }
+                }
+
+                mark = self.flashblock_receiver.recv() => {
+                    if let Some(mark) = mark {
+                        self.handle_flashblock_mark(mark);
                     }
                 }
             }
@@ -443,12 +530,14 @@ async fn process_block_receipts<D: DbOps + Send + Sync + 'static>(
             }
             RunTx {
                 tx_hash: pending_tx.tx_hash,
-                start_timestamp_secs: (pending_tx.start_timestamp_ms / 1000) as u64,
-                end_timestamp_secs: Some(target_block.header.timestamp),
+                start_timestamp_ms: pending_tx.start_timestamp_ms.try_into().unwrap(),
+                end_timestamp_ms: Some(target_block.header.timestamp * 1000),
                 block_number: Some(target_block.header.number),
                 gas_used: Some(receipt.gas_used),
                 kind: pending_tx.kind.clone(),
                 error: get_tx_error(receipt, pending_tx),
+                flashblock_latency_ms: pending_tx.flashblock_latency_ms(),
+                flashblock_index: pending_tx.flashblock_index,
             }
         })
         .collect();
@@ -486,17 +575,25 @@ pub struct CacheTx {
 }
 
 impl TxActorHandle {
-    pub fn new<D: DbOps + Send + Sync + 'static>(
+    pub async fn new<D: DbOps + Send + Sync + 'static>(
         bufsize: usize,
         db: Arc<D>,
         rpc: Arc<AnyProvider>,
-    ) -> Self {
+        flashblocks_ws_url: Option<Url>,
+        cancel_token: CancellationToken,
+    ) -> Result<Self> {
+        // Pre-flight check: validate flashblocks WS endpoint before spawning tasks
+        if let Some(ref ws_url) = flashblocks_ws_url {
+            FlashblocksClient::preflight(ws_url).await?;
+        }
+
         let (sender, receiver) = mpsc::channel(bufsize);
         // Channel for flush task to communicate with message handler
-        // Small buffer since flush requests are infrequent
-        let (flush_sender, flush_receiver) = mpsc::channel(16);
+        let (flush_sender, flush_receiver) = mpsc::channel(64);
+        // Dedicated channel for flashblock marks (large buffer to handle high TPS)
+        let (fb_sender, fb_receiver) = mpsc::channel(10_000);
 
-        let mut actor = TxActor::new(receiver, flush_receiver, db.clone());
+        let mut actor = TxActor::new(receiver, flush_receiver, fb_receiver, db.clone());
 
         // Spawn the message handler task (owns the cache)
         tokio::task::spawn(async move {
@@ -510,7 +607,16 @@ impl TxActorHandle {
             flush_loop(flush_sender, db, rpc).await;
         });
 
-        Self { sender }
+        // Spawn the flashblocks listener task if URL is provided
+        if let Some(ws_url) = flashblocks_ws_url {
+            tokio::task::spawn(async move {
+                if let Err(e) = FlashblocksClient::listen(&ws_url, fb_sender, cancel_token).await {
+                    error!("{}", e);
+                }
+            });
+        }
+
+        Ok(Self { sender })
     }
 
     /// Adds a new tx to the cache.
