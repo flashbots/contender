@@ -13,7 +13,7 @@ use crate::{
         util::{complete_tx_request, generate_setcode_signer, scenario_db_key},
         Generator, NamedTxRequest, PlanConfig,
     },
-    provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID},
+    provider::LoggingLayer,
     spammer::{
         tx_actor::TxActorHandle, CallbackError, ExecutionPayload, RuntimeTxInfo, SpamCallback,
         SpamTrigger,
@@ -45,6 +45,7 @@ use contender_bundle_provider::{
 use contender_engine_provider::ControlChain;
 use futures::{Stream, StreamExt};
 use serde_json::json;
+use std::sync::LazyLock;
 use std::{
     collections::{BTreeMap, HashMap},
     pin::Pin,
@@ -58,8 +59,16 @@ use tracing::{debug, info, trace, warn};
 
 pub use alloy::transports::http::reqwest::Url;
 
+/// Reads the SETUP_CONCURRENCY_LIMIT from the environment, defaults to 25 if not set or invalid.
+fn read_setup_concurrency_limit() -> usize {
+    std::env::var("SETUP_CONCURRENCY_LIMIT")
+        .ok()
+        .and_then(|val| val.parse::<usize>().ok())
+        .unwrap_or(25)
+}
+
 /// Maximum concurrent setup tasks (limits open HTTP connections).
-const SETUP_CONCURRENCY_LIMIT: usize = 25;
+pub static SETUP_CONCURRENCY_LIMIT: LazyLock<usize> = LazyLock::new(read_setup_concurrency_limit);
 
 #[derive(Clone)]
 pub struct PrometheusCollector {
@@ -681,7 +690,7 @@ where
         let genesis_hash = self.ctx.genesis_hash;
         let blob_base_fee = get_blob_fee_maybe(&self.rpc_client, self.tx_type).await;
 
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(SETUP_CONCURRENCY_LIMIT));
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(*SETUP_CONCURRENCY_LIMIT));
 
         let (_txs, updated_nonces) = self
             .load_txs(PlanType::Setup(|tx_req| {
@@ -1622,39 +1631,10 @@ where
     /// Collects latency metrics from the prometheus registry.
     /// Returns a map of RPC method names to a vector of latency buckets which represent (upper_bound_secs, cumulative_count).
     pub fn collect_latency_metrics(&self) -> BTreeMap<String, Vec<Bucket>> {
-        let registry = self.prometheus.prom.get();
-        let mut latency_map = BTreeMap::new();
-        if let Some(registry) = registry {
-            let metric_families = registry.gather();
-
-            for mf in &metric_families {
-                if mf.name() == RPC_REQUEST_LATENCY_ID {
-                    for m in mf.get_metric() {
-                        let mut latencies: Vec<Bucket> = vec![];
-                        if m.label.is_empty() {
-                            continue;
-                        }
-                        let label = m.label.first().expect("label");
-                        if label.name() != "rpc_method" {
-                            continue;
-                        }
-                        let hist = m.get_histogram();
-                        for bucket in &hist.bucket {
-                            if bucket.cumulative_count.is_none() {
-                                continue;
-                            }
-                            let upper_bound = bucket.upper_bound();
-                            let cumulative_count =
-                                bucket.cumulative_count.expect("cumulative_count");
-
-                            latencies.push((upper_bound, cumulative_count).into());
-                        }
-                        latency_map.insert(label.value().to_string(), latencies);
-                    }
-                }
-            }
+        match self.prometheus.prom.get() {
+            Some(registry) => crate::buckets::collect_latency_from_registry(registry),
+            None => BTreeMap::new(),
         }
-        latency_map
     }
 
     /// Updates gas limits hashmap for a given tx, returns the key used to index the tx to its gas limit.
@@ -1917,7 +1897,7 @@ pub mod tests {
     };
     use crate::spammer::util::test::get_test_signers;
     use crate::spammer::{BlockwiseSpammer, NilCallback, Spammer};
-    use crate::test_scenario::TestScenario;
+    use crate::test_scenario::{read_setup_concurrency_limit, TestScenario};
     use crate::Error;
     use crate::Result;
     use alloy::consensus::constants::GWEI_TO_WEI;
@@ -2705,7 +2685,7 @@ pub mod tests {
     /// Reproduces the erc20-like pattern where many steps share one sender.
     #[tokio::test]
     async fn run_setup_sequential_nonces_single_sender() {
-        let num_steps = SETUP_CONCURRENCY_LIMIT * 3;
+        let num_steps = *SETUP_CONCURRENCY_LIMIT * 3;
         let (_anvil, mut scenario) = setup_scenario_with_anvil(
             SequentialNonceMockConfig { num_steps },
             AgentSpec::default(),
@@ -2735,8 +2715,9 @@ pub mod tests {
         let num_setup_steps = HighConcurrencyMockConfig.get_setup_steps().unwrap().len();
         let expected_tasks = num_setup_steps * num_setup_accounts;
         assert!(
-            expected_tasks > SETUP_CONCURRENCY_LIMIT,
-            "test should generate more tasks ({expected_tasks}) than the concurrency limit ({SETUP_CONCURRENCY_LIMIT})"
+            expected_tasks > *SETUP_CONCURRENCY_LIMIT,
+            "test should generate more tasks ({expected_tasks}) than the concurrency limit ({})",
+            *SETUP_CONCURRENCY_LIMIT
         );
 
         let result = scenario.run_setup().await;
@@ -2744,6 +2725,20 @@ pub mod tests {
             result.is_ok(),
             "run_setup() should succeed with high concurrency (got: {:?})",
             result.err()
+        );
+    }
+
+    #[test]
+    fn env_controls_setup_concurrency_limit() {
+        std::env::set_var("SETUP_CONCURRENCY_LIMIT", "5");
+        let new_limit = read_setup_concurrency_limit();
+        assert_eq!(new_limit, 5, "SETUP_CONCURRENCY_LIMIT should be set to 5");
+
+        std::env::remove_var("SETUP_CONCURRENCY_LIMIT");
+        let default_limit = read_setup_concurrency_limit();
+        assert_eq!(
+            default_limit, 25,
+            "SETUP_CONCURRENCY_LIMIT should default to 25 when env var is unset"
         );
     }
 }
