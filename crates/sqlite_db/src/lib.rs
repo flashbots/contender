@@ -3,7 +3,7 @@ mod db;
 pub mod error;
 
 /// Increment this whenever making changes to the DB schema.
-pub static DB_VERSION: u64 = 6;
+pub static DB_VERSION: u64 = 7;
 
 pub use ctx::*;
 pub use db::*;

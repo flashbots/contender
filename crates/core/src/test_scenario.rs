@@ -13,7 +13,7 @@ use crate::{
         util::{complete_tx_request, generate_setcode_signer, scenario_db_key},
         Generator, NamedTxRequest, PlanConfig,
     },
-    provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID},
+    provider::LoggingLayer,
     spammer::{
         tx_actor::TxActorHandle, CallbackError, ExecutionPayload, RuntimeTxInfo, SpamCallback,
         SpamTrigger,
@@ -45,6 +45,7 @@ use contender_bundle_provider::{
 use contender_engine_provider::ControlChain;
 use futures::{Stream, StreamExt};
 use serde_json::json;
+use std::sync::LazyLock;
 use std::{
     collections::{BTreeMap, HashMap},
     pin::Pin,
@@ -58,8 +59,16 @@ use tracing::{debug, info, trace, warn};
 
 pub use alloy::transports::http::reqwest::Url;
 
+/// Reads the SETUP_CONCURRENCY_LIMIT from the environment, defaults to 25 if not set or invalid.
+fn read_setup_concurrency_limit() -> usize {
+    std::env::var("SETUP_CONCURRENCY_LIMIT")
+        .ok()
+        .and_then(|val| val.parse::<usize>().ok())
+        .unwrap_or(25)
+}
+
 /// Maximum concurrent setup tasks (limits open HTTP connections).
-const SETUP_CONCURRENCY_LIMIT: usize = 25;
+pub static SETUP_CONCURRENCY_LIMIT: LazyLock<usize> = LazyLock::new(read_setup_concurrency_limit);
 
 #[derive(Clone)]
 pub struct PrometheusCollector {
@@ -150,6 +159,7 @@ pub struct TestScenarioParams {
     pub rpc_batch_size: u64,
     pub gas_price: Option<U256>,
     pub scenario_label: Option<String>,
+    pub flashblocks_ws_url: Option<Url>,
 }
 
 pub struct SpamRunContext<'a, F: SpamCallback + 'static> {
@@ -220,6 +230,7 @@ where
             rpc_batch_size,
             gas_price,
             scenario_label,
+            flashblocks_ws_url,
         } = params;
         let agent_store = config.build_agent_store(&rand_seed, agent_spec.clone());
 
@@ -294,7 +305,16 @@ where
         let cancel_token = CancellationToken::new();
 
         // default msg_handle to handle txs sent on rpc_url
-        let msg_handle = Arc::new(TxActorHandle::new(12000, db.clone(), rpc_client.clone()));
+        let msg_handle = Arc::new(
+            TxActorHandle::new(
+                12000,
+                db.clone(),
+                rpc_client.clone(),
+                flashblocks_ws_url,
+                cancel_token.clone(),
+            )
+            .await?,
+        );
         let mut msg_handles = HashMap::new();
         msg_handles.insert("default".to_owned(), msg_handle);
         msg_handles.extend(extra_msg_handles.unwrap_or_default());
@@ -453,6 +473,7 @@ where
                 rpc_batch_size: self.rpc_batch_size,
                 gas_price: self.gas_price,
                 scenario_label: self.scenario_label.clone(),
+                flashblocks_ws_url: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -511,7 +532,7 @@ where
     pub async fn deploy_contracts(&mut self) -> Result<()> {
         let pub_provider = &self.rpc_client;
         let gas_price = pub_provider.get_gas_price().await?;
-        let blob_gas_price = get_blob_fee_maybe(&self.rpc_client).await;
+        let blob_gas_price = get_blob_fee_maybe(&self.rpc_client, self.tx_type).await;
         let chain_id = pub_provider.get_chain_id().await?;
 
         // we do everything in the callback so no need to actually capture the returned txs
@@ -614,10 +635,38 @@ where
 
         // watch pending transaction
         let receipt = res.get_receipt().await.expect("failed to get receipt");
-        debug!(
-            "contract address: {}",
-            receipt.contract_address.unwrap_or_default()
-        );
+        let contract_address = receipt.contract_address.unwrap_or_default();
+        debug!("contract address: {contract_address}");
+
+        // Poll until the contract code is visible via eth_getCode.
+        // This guards against a race where the receipt is available but the
+        // RPC state hasn't caught up, which causes subsequent gas estimates
+        // to return incorrect (too-low) values.
+        let poll_interval = Duration::from_millis(100);
+        let max_wait = Duration::from_secs(10);
+        let start = Instant::now();
+        loop {
+            let code = wallet_client
+                .get_code_at(contract_address)
+                .await
+                .unwrap_or_default();
+            if !code.is_empty() {
+                debug!(
+                    "contract code visible at {contract_address} after {:?}",
+                    start.elapsed()
+                );
+                break;
+            }
+            if start.elapsed() >= max_wait {
+                return Err(RuntimeErrorKind::ContractCodeNotVisible(
+                    contract_address,
+                    max_wait.as_secs(),
+                )
+                .into());
+            }
+            tokio::time::sleep(poll_interval).await;
+        }
+
         if let Some(name) = &tx_req.name {
             let db_name = scenario_db_key(name, scenario_label.as_deref());
             db.insert_named_txs(
@@ -639,9 +688,9 @@ where
     pub async fn run_setup(&mut self) -> Result<()> {
         let chain_id = self.chain_id;
         let genesis_hash = self.ctx.genesis_hash;
-        let blob_base_fee = get_blob_fee_maybe(&self.rpc_client).await;
+        let blob_base_fee = get_blob_fee_maybe(&self.rpc_client, self.tx_type).await;
 
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(SETUP_CONCURRENCY_LIMIT));
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(*SETUP_CONCURRENCY_LIMIT));
 
         let (_txs, updated_nonces) = self
             .load_txs(PlanType::Setup(|tx_req| {
@@ -718,16 +767,23 @@ where
                     debug!("sent setup tx {:?}: {}", tx_req.kind, res.tx_hash());
                     // get receipt using provider (not wallet) to allow any receipt type (support non-eth chains)
                     let receipt = res.get_receipt().await?;
+                    let status_label = if receipt.status() {
+                        "LANDED"
+                    } else {
+                        "REVERTED"
+                    };
                     debug!(
                         "got receipt for {:?}: ({}) {}",
-                        tx_req.kind,
-                        if receipt.status() {
-                            "LANDED"
-                        } else {
-                            "REVERTED"
-                        },
-                        receipt.transaction_hash
+                        tx_req.kind, status_label, receipt.transaction_hash
                     );
+
+                    if !receipt.status() {
+                        return Err(RuntimeErrorKind::SetupTxReverted {
+                            label: tx_label,
+                            tx_hash: receipt.transaction_hash.to_string(),
+                        }
+                        .into());
+                    }
 
                     if let Some(name) = tx_req.name {
                         db.insert_named_txs(
@@ -820,11 +876,11 @@ where
         let (gas_price, blob_gas_price) = match self.gas_price {
             Some(override_price) => (
                 override_price.to::<u128>(),
-                get_blob_fee_maybe(&self.rpc_client).await,
+                get_blob_fee_maybe(&self.rpc_client, self.tx_type).await,
             ),
             None => {
                 let gas_price = self.rpc_client.get_gas_price().await?;
-                let blob_gas_price = get_blob_fee_maybe(&self.rpc_client).await;
+                let blob_gas_price = get_blob_fee_maybe(&self.rpc_client, self.tx_type).await;
                 let adjusted_gas_price = |price: u128| {
                     if self.ctx.gas_price_adder < 0 {
                         price - self.ctx.gas_price_adder.unsigned_abs()
@@ -975,7 +1031,7 @@ where
                 let error_sender = error_sender.clone();
 
                 tasks.push(tokio::task::spawn(async move {
-                let extra = RuntimeTxInfo::default();
+                let extra = RuntimeTxInfo::now();
                 let handles = match payload {
                     ExecutionPayload::SignedTx(signed_tx, req) => {
                         let tx_hash = signed_tx.tx_hash().to_owned();
@@ -1149,6 +1205,13 @@ where
                     }));
                 }
 
+                // Capture start timestamp before the HTTP POST so all txs in the
+                // batch share the same send-time reference. This is critical for
+                // flashblock TTI: the sequencer may include txs in a flashblock
+                // before the batch response arrives, so capturing the timestamp
+                // after the response would make start_timestamp_ms too late.
+                let batch_extra = RuntimeTxInfo::now();
+
                 // === PROMETHEUS LATENCY METRICS ===
                 let mut timer = hist.as_ref().map(|h| {
                     h.with_label_values(&["eth_sendRawTransaction"])
@@ -1182,7 +1245,7 @@ where
                 // Process each response; align by index with signed_chunk
                 for (i, (signed_tx, req)) in signed_chunk.into_iter().enumerate() {
                     let tx_hash = *signed_tx.tx_hash();
-                    let extra = RuntimeTxInfo::default();
+                    let extra = batch_extra.clone();
 
                     let error_msg = responses
                         .get(i)
@@ -1214,8 +1277,22 @@ where
         sent_tx_callback: Arc<F>,
     ) -> Result<()> {
         let mut tick = 0;
+
+        // Deferred batch state from the previous iteration. Tasks run in the
+        // background during the interval wait, so collecting results at the
+        // start of the next tick is typically near-instant.
+        let mut pending_batch: Option<PendingBatch> = None;
+
         while let Some(trigger) = cursor.next().await {
             let trigger = trigger.to_owned();
+
+            // Collect results from the previous iteration's batch.
+            // The tasks have been running since the previous tick fired,
+            // so they are typically already finished and this completes quickly.
+            // This also applies nonce/gas corrections before we prepare the next batch.
+            if let Some(batch) = pending_batch.take() {
+                self.collect_pending_batch(batch, &sent_tx_callback).await?;
+            }
 
             // assign from addrs, nonces, and gas prices for this chunk of tx requests
             let payloads = self
@@ -1224,9 +1301,9 @@ where
             let num_payloads = payloads.len();
 
             // initialize async context handlers
-            let (success_sender, mut success_receiver) = tokio::sync::mpsc::channel(num_payloads);
-            let (add_gas_sender, mut add_gas_receiver) = tokio::sync::mpsc::channel(num_payloads);
-            let (shift_nonce_sender, mut shift_nonce_receiver) =
+            let (success_sender, success_receiver) = tokio::sync::mpsc::channel(num_payloads);
+            let (add_gas_sender, add_gas_receiver) = tokio::sync::mpsc::channel(num_payloads);
+            let (shift_nonce_sender, shift_nonce_receiver) =
                 tokio::sync::mpsc::channel(tx_req_chunks[0].len());
             let context = SpamContextHandler {
                 success_send_tx: success_sender,
@@ -1235,93 +1312,131 @@ where
             };
 
             // send this batch of spam txs
-            let (spam_tasks, mut error_receiver) = self
+            let (spam_tasks, error_receiver) = self
                 .execute_spam(trigger, payloads, sent_tx_callback.clone(), context)
                 .await?;
-            let mut num_tasks = spam_tasks.len();
+            let num_tasks = spam_tasks.len();
 
-            // wait for spam txs to finish sending
-            for task in spam_tasks {
-                tokio::select! {
-                    res = task => {
-                        if let Err(e) = res {
-                            tracing::trace!("spam task abandoned: {e:?}");
-                            num_tasks -= 1;
-                        }
-                    },
-                    Some(err) = error_receiver.recv() => {
-                        return Err(err);
-                    }
-                    _ = self.ctx.cancel_token.cancelled() => {
-                        break;
-                    }
-                }
-            }
+            // Defer task awaiting and bookkeeping to the next iteration.
+            // This lets the tasks run during the interval wait so the collect
+            // at the start of the next tick is near-instant when tasks finish in <1s.
+            pending_batch = Some(PendingBatch {
+                spam_tasks,
+                error_receiver,
+                success_receiver,
+                add_gas_receiver,
+                shift_nonce_receiver,
+                num_payloads,
+                num_tasks,
+                tick,
+            });
 
-            // wait for the on_batch_sent callback to finish
-            if let Some(task) = sent_tx_callback.on_batch_sent() {
-                task.await.map_err(CallbackError::Join)??;
-            }
-
-            info!("[{tick}] executed {num_tasks} spam tasks");
-
-            // increase gas price if needed
-            add_gas_receiver.close();
-            let starting_gas_adder = self.ctx.gas_price_adder;
-            while let Some(gas) = add_gas_receiver.recv().await {
-                if self.ctx.gas_price_adder >= gas as i128 + starting_gas_adder {
-                    continue;
-                }
-                debug!("incrementing gas price by {gas}");
-                self.ctx.add_to_gas_price(gas as i128);
-            }
-
-            // shift nonces if needed
-            // Accumulate all nonce adjustments per address to avoid race conditions
-            // where multiple updates for the same address read stale nonce values
-            shift_nonce_receiver.close();
-            let mut nonce_adjustments: HashMap<Address, i32> = HashMap::new();
-            while let Some((addr, shift)) = shift_nonce_receiver.recv().await {
-                *nonce_adjustments.entry(addr).or_insert(0) += shift;
-            }
-
-            // Apply accumulated adjustments
-            for (addr, total_shift) in nonce_adjustments {
-                let current_nonce = self.nonces.get(&addr).copied().unwrap_or_default();
-                let new_nonce = if total_shift < 0 {
-                    current_nonce.saturating_sub(total_shift.unsigned_abs() as u64)
-                } else {
-                    current_nonce.saturating_add(total_shift as u64)
-                };
-                debug!(
-                    "nonce for {} adjusted by {} (from {} to {})",
-                    addr, total_shift, current_nonce, new_nonce
-                );
-                self.nonces.insert(addr, new_nonce);
-            }
-
-            // decrease gas price if all txs were sent successfully
-            success_receiver.close();
-            let mut success_count = 0;
-            while success_receiver.recv().await.is_some() {
-                success_count += 1;
-            }
-            if success_count == num_payloads {
-                info!("all spam txs sent successfully");
-                if self.ctx.gas_price_adder > 0 {
-                    // remove 10% of the gas price adder
-                    self.ctx.add_to_gas_price(self.ctx.gas_price_adder / -10);
-                }
-            } else {
-                warn!(
-                    "some spam txs failed to send: {} / {}",
-                    num_payloads - success_count,
-                    num_payloads
-                );
-            }
-
-            // increment tick to get next chunk of txs
             tick += 1;
+        }
+
+        // Collect final batch results
+        if let Some(batch) = pending_batch.take() {
+            self.collect_pending_batch(batch, &sent_tx_callback).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Awaits deferred tasks and applies nonce/gas bookkeeping from a previous batch.
+    async fn collect_pending_batch<F: SpamCallback + 'static>(
+        &mut self,
+        batch: PendingBatch,
+        sent_tx_callback: &Arc<F>,
+    ) -> Result<()> {
+        let PendingBatch {
+            spam_tasks,
+            mut error_receiver,
+            mut success_receiver,
+            mut add_gas_receiver,
+            mut shift_nonce_receiver,
+            num_payloads,
+            mut num_tasks,
+            tick,
+        } = batch;
+
+        // wait for spam txs to finish sending
+        for task in spam_tasks {
+            tokio::select! {
+                res = task => {
+                    if let Err(e) = res {
+                        tracing::trace!("spam task abandoned: {e:?}");
+                        num_tasks -= 1;
+                    }
+                },
+                Some(err) = error_receiver.recv() => {
+                    return Err(err);
+                }
+                _ = self.ctx.cancel_token.cancelled() => {
+                    break;
+                }
+            }
+        }
+
+        // wait for the on_batch_sent callback to finish
+        if let Some(task) = sent_tx_callback.on_batch_sent() {
+            task.await.map_err(CallbackError::Join)??;
+        }
+
+        info!("[{tick}] executed {num_tasks} spam tasks");
+
+        // increase gas price if needed
+        add_gas_receiver.close();
+        let starting_gas_adder = self.ctx.gas_price_adder;
+        while let Some(gas) = add_gas_receiver.recv().await {
+            if self.ctx.gas_price_adder >= gas as i128 + starting_gas_adder {
+                continue;
+            }
+            debug!("incrementing gas price by {gas}");
+            self.ctx.add_to_gas_price(gas as i128);
+        }
+
+        // shift nonces if needed
+        // Accumulate all nonce adjustments per address to avoid race conditions
+        // where multiple updates for the same address read stale nonce values
+        shift_nonce_receiver.close();
+        let mut nonce_adjustments: HashMap<Address, i32> = HashMap::new();
+        while let Some((addr, shift)) = shift_nonce_receiver.recv().await {
+            *nonce_adjustments.entry(addr).or_insert(0) += shift;
+        }
+
+        // Apply accumulated adjustments
+        for (addr, total_shift) in nonce_adjustments {
+            let current_nonce = self.nonces.get(&addr).copied().unwrap_or_default();
+            let new_nonce = if total_shift < 0 {
+                current_nonce.saturating_sub(total_shift.unsigned_abs() as u64)
+            } else {
+                current_nonce.saturating_add(total_shift as u64)
+            };
+            debug!(
+                "nonce for {} adjusted by {} (from {} to {})",
+                addr, total_shift, current_nonce, new_nonce
+            );
+            self.nonces.insert(addr, new_nonce);
+        }
+
+        // decrease gas price if all txs were sent successfully
+        success_receiver.close();
+        let mut success_count = 0;
+        while success_receiver.recv().await.is_some() {
+            success_count += 1;
+        }
+        if success_count == num_payloads {
+            info!("all spam txs sent successfully");
+            if self.ctx.gas_price_adder > 0 {
+                // remove 10% of the gas price adder
+                self.ctx.add_to_gas_price(self.ctx.gas_price_adder / -10);
+            }
+        } else {
+            warn!(
+                "some spam txs failed to send: {} / {}",
+                num_payloads - success_count,
+                num_payloads
+            );
         }
 
         Ok(())
@@ -1384,6 +1499,7 @@ where
                 rpc_batch_size: self.rpc_batch_size,
                 gas_price: self.gas_price,
                 scenario_label: self.scenario_label.clone(),
+                flashblocks_ws_url: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -1421,11 +1537,11 @@ where
         let (gas_price, blob_gas_price) = match scenario.gas_price {
             Some(override_price) => (
                 override_price.to::<u128>(),
-                get_blob_fee_maybe(&scenario.rpc_client).await,
+                get_blob_fee_maybe(&scenario.rpc_client, scenario.tx_type).await,
             ),
             None => (
                 scenario.rpc_client.get_gas_price().await?,
-                get_blob_fee_maybe(&scenario.rpc_client).await,
+                get_blob_fee_maybe(&scenario.rpc_client, scenario.tx_type).await,
             ),
         };
 
@@ -1515,39 +1631,10 @@ where
     /// Collects latency metrics from the prometheus registry.
     /// Returns a map of RPC method names to a vector of latency buckets which represent (upper_bound_secs, cumulative_count).
     pub fn collect_latency_metrics(&self) -> BTreeMap<String, Vec<Bucket>> {
-        let registry = self.prometheus.prom.get();
-        let mut latency_map = BTreeMap::new();
-        if let Some(registry) = registry {
-            let metric_families = registry.gather();
-
-            for mf in &metric_families {
-                if mf.name() == RPC_REQUEST_LATENCY_ID {
-                    for m in mf.get_metric() {
-                        let mut latencies: Vec<Bucket> = vec![];
-                        if m.label.is_empty() {
-                            continue;
-                        }
-                        let label = m.label.first().expect("label");
-                        if label.name() != "rpc_method" {
-                            continue;
-                        }
-                        let hist = m.get_histogram();
-                        for bucket in &hist.bucket {
-                            if bucket.cumulative_count.is_none() {
-                                continue;
-                            }
-                            let upper_bound = bucket.upper_bound();
-                            let cumulative_count =
-                                bucket.cumulative_count.expect("cumulative_count");
-
-                            latencies.push((upper_bound, cumulative_count).into());
-                        }
-                        latency_map.insert(label.value().to_string(), latencies);
-                    }
-                }
-            }
+        match self.prometheus.prom.get() {
+            Some(registry) => crate::buckets::collect_latency_from_registry(registry),
+            None => BTreeMap::new(),
         }
-        latency_map
     }
 
     /// Updates gas limits hashmap for a given tx, returns the key used to index the tx to its gas limit.
@@ -1770,6 +1857,19 @@ struct SpamContextHandler {
     shift_nonce: tokio::sync::mpsc::Sender<(Address, i32)>,
 }
 
+/// Holds deferred state from a spawned batch so tasks can run during the
+/// interval wait and be collected at the start of the next tick.
+struct PendingBatch {
+    spam_tasks: Vec<tokio::task::JoinHandle<()>>,
+    error_receiver: tokio::sync::mpsc::Receiver<Error>,
+    success_receiver: tokio::sync::mpsc::Receiver<()>,
+    add_gas_receiver: tokio::sync::mpsc::Receiver<u128>,
+    shift_nonce_receiver: tokio::sync::mpsc::Receiver<(Address, i32)>,
+    num_payloads: usize,
+    num_tasks: usize,
+    tick: usize,
+}
+
 trait TxKey {
     /// Defines a key to index a unique transaction request (e.g. in a hashmap).
     fn key(&self) -> FixedBytes<32>;
@@ -1797,7 +1897,7 @@ pub mod tests {
     };
     use crate::spammer::util::test::get_test_signers;
     use crate::spammer::{BlockwiseSpammer, NilCallback, Spammer};
-    use crate::test_scenario::TestScenario;
+    use crate::test_scenario::{read_setup_concurrency_limit, TestScenario};
     use crate::Error;
     use crate::Result;
     use alloy::consensus::constants::GWEI_TO_WEI;
@@ -2013,6 +2113,7 @@ pub mod tests {
                 rpc_batch_size: 0,
                 gas_price,
                 scenario_label: None,
+                flashblocks_ws_url: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -2553,6 +2654,7 @@ pub mod tests {
                 rpc_batch_size: 0,
                 gas_price: None,
                 scenario_label: None,
+                flashblocks_ws_url: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -2583,7 +2685,7 @@ pub mod tests {
     /// Reproduces the erc20-like pattern where many steps share one sender.
     #[tokio::test]
     async fn run_setup_sequential_nonces_single_sender() {
-        let num_steps = SETUP_CONCURRENCY_LIMIT * 3;
+        let num_steps = *SETUP_CONCURRENCY_LIMIT * 3;
         let (_anvil, mut scenario) = setup_scenario_with_anvil(
             SequentialNonceMockConfig { num_steps },
             AgentSpec::default(),
@@ -2613,8 +2715,9 @@ pub mod tests {
         let num_setup_steps = HighConcurrencyMockConfig.get_setup_steps().unwrap().len();
         let expected_tasks = num_setup_steps * num_setup_accounts;
         assert!(
-            expected_tasks > SETUP_CONCURRENCY_LIMIT,
-            "test should generate more tasks ({expected_tasks}) than the concurrency limit ({SETUP_CONCURRENCY_LIMIT})"
+            expected_tasks > *SETUP_CONCURRENCY_LIMIT,
+            "test should generate more tasks ({expected_tasks}) than the concurrency limit ({})",
+            *SETUP_CONCURRENCY_LIMIT
         );
 
         let result = scenario.run_setup().await;
@@ -2622,6 +2725,20 @@ pub mod tests {
             result.is_ok(),
             "run_setup() should succeed with high concurrency (got: {:?})",
             result.err()
+        );
+    }
+
+    #[test]
+    fn env_controls_setup_concurrency_limit() {
+        std::env::set_var("SETUP_CONCURRENCY_LIMIT", "5");
+        let new_limit = read_setup_concurrency_limit();
+        assert_eq!(new_limit, 5, "SETUP_CONCURRENCY_LIMIT should be set to 5");
+
+        std::env::remove_var("SETUP_CONCURRENCY_LIMIT");
+        let default_limit = read_setup_concurrency_limit();
+        assert_eq!(
+            default_limit, 25,
+            "SETUP_CONCURRENCY_LIMIT should default to 25 when env var is unset"
         );
     }
 }

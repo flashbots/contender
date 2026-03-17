@@ -1,5 +1,6 @@
 use crate::{
     db::DbError,
+    flashblocks::FlashblocksError,
     generator::{error::GeneratorError, templater::TemplaterError, NamedTxRequest},
     spammer::CallbackError,
 };
@@ -45,6 +46,9 @@ pub enum Error {
 
     #[error("templater error")]
     Templater(#[from] TemplaterError),
+
+    #[error("flashblocks error")]
+    Flashblocks(Box<FlashblocksError>),
 }
 
 #[derive(Debug, Error)]
@@ -79,6 +83,12 @@ pub enum RuntimeErrorKind {
     #[error("failed to get signer for {0}")]
     SignerMissingFromMap(Address),
 
+    #[error("contract code at {0} not visible after {1}s; RPC state may be lagging behind")]
+    ContractCodeNotVisible(Address, u64),
+
+    #[error("setup tx '{label}' reverted: {tx_hash}")]
+    SetupTxReverted { label: String, tx_hash: String },
+
     #[error("cannot proceed; there are no spam txs")]
     SpamTxsEmpty,
 
@@ -87,6 +97,12 @@ pub enum RuntimeErrorKind {
 
     #[error("invalid runtime params")]
     InvalidParams(#[from] RuntimeParamErrorKind),
+}
+
+impl From<FlashblocksError> for Error {
+    fn from(e: FlashblocksError) -> Self {
+        Error::Flashblocks(Box::new(e))
+    }
 }
 
 impl From<alloy::node_bindings::NodeError> for Error {

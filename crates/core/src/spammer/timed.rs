@@ -49,8 +49,11 @@ where
             let mut tick_interval = interval(wait_interval);
             // Skip the first immediate tick - we want to wait before the first batch
             tick_interval.tick().await;
-            // If processing takes longer than interval, burst to catch up
-            tick_interval.set_missed_tick_behavior(MissedTickBehavior::Burst);
+            // If processing takes longer than interval, delay the next tick
+            // rather than bursting. Burst causes cascading delays because queued
+            // ticks fire immediately, giving deferred task collections no
+            // background processing time.
+            tick_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
             Ok(
                 futures::stream::unfold((0u64, tick_interval), |(tick, mut interval)| async move {

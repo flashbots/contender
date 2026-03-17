@@ -211,6 +211,7 @@ where
             rpc_batch_size: self.rpc_batch_size,
             gas_price: None,
             scenario_label: self.scenario_label.clone(),
+            flashblocks_ws_url: None,
         };
 
         TestScenario::new(
