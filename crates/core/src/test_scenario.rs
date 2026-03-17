@@ -13,7 +13,7 @@ use crate::{
         util::{complete_tx_request, generate_setcode_signer, scenario_db_key},
         Generator, NamedTxRequest, PlanConfig,
     },
-    provider::{LoggingLayer, RPC_REQUEST_LATENCY_ID},
+    provider::LoggingLayer,
     spammer::{
         tx_actor::TxActorHandle, CallbackError, ExecutionPayload, RuntimeTxInfo, SpamCallback,
         SpamTrigger,
@@ -1631,39 +1631,10 @@ where
     /// Collects latency metrics from the prometheus registry.
     /// Returns a map of RPC method names to a vector of latency buckets which represent (upper_bound_secs, cumulative_count).
     pub fn collect_latency_metrics(&self) -> BTreeMap<String, Vec<Bucket>> {
-        let registry = self.prometheus.prom.get();
-        let mut latency_map = BTreeMap::new();
-        if let Some(registry) = registry {
-            let metric_families = registry.gather();
-
-            for mf in &metric_families {
-                if mf.name() == RPC_REQUEST_LATENCY_ID {
-                    for m in mf.get_metric() {
-                        let mut latencies: Vec<Bucket> = vec![];
-                        if m.label.is_empty() {
-                            continue;
-                        }
-                        let label = m.label.first().expect("label");
-                        if label.name() != "rpc_method" {
-                            continue;
-                        }
-                        let hist = m.get_histogram();
-                        for bucket in &hist.bucket {
-                            if bucket.cumulative_count.is_none() {
-                                continue;
-                            }
-                            let upper_bound = bucket.upper_bound();
-                            let cumulative_count =
-                                bucket.cumulative_count.expect("cumulative_count");
-
-                            latencies.push((upper_bound, cumulative_count).into());
-                        }
-                        latency_map.insert(label.value().to_string(), latencies);
-                    }
-                }
-            }
+        match self.prometheus.prom.get() {
+            Some(registry) => crate::buckets::collect_latency_from_registry(registry),
+            None => BTreeMap::new(),
         }
-        latency_map
     }
 
     /// Updates gas limits hashmap for a given tx, returns the key used to index the tx to its gas limit.

@@ -737,3 +737,21 @@ impl<T> MetricDescriptor<T> {
         }
     }
 }
+
+/// Generate an HTML report for an RPC-only spam run and open it in the browser.
+pub fn report_rpc(meta: crate::gen_html::RpcReportMetadata, data_dir: &Path) -> Result<()> {
+    let reports_dir = data_dir.join("reports");
+    if !reports_dir.exists() {
+        fs::create_dir_all(&reports_dir)?;
+    }
+
+    let report_path = crate::gen_html::build_rpc_html_report(meta, &reports_dir)?;
+    info!("saved RPC report to {report_path:?}");
+
+    if env::var("BROWSER").unwrap_or_default() == "none" {
+        return Ok(());
+    }
+    webbrowser::open(report_path.to_string_lossy().as_ref())?;
+
+    Ok(())
+}

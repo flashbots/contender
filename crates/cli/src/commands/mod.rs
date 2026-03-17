@@ -5,6 +5,7 @@ mod contender_subcommand;
 pub mod db;
 pub mod error;
 pub mod replay;
+pub mod rpc;
 mod setup;
 mod spam;
 

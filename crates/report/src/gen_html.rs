@@ -151,3 +151,71 @@ pub fn build_json_report(meta: &ReportMetadata, reports_dir: &Path) -> Result<Pa
 
     Ok(path)
 }
+
+// ---------------------------------------------------------------------------
+// RPC-only report
+// ---------------------------------------------------------------------------
+
+use crate::command::RpcLatencyQuantiles;
+
+pub struct RpcReportMetadata {
+    pub method: String,
+    pub rpc_url: String,
+    pub run_id: u64,
+    pub rps: u64,
+    pub duration_secs: u64,
+    pub total_requests: u64,
+    pub success_count: u64,
+    pub error_count: u64,
+    pub latency_quantiles: RpcLatencyQuantiles,
+    pub latency_chart: LatencyData,
+}
+
+#[derive(Serialize)]
+struct RpcTemplateData {
+    method: String,
+    date: String,
+    rpc_url: String,
+    rps: u64,
+    duration_secs: u64,
+    total_requests: u64,
+    success_count: u64,
+    error_count: u64,
+    latency_quantiles: RpcLatencyQuantiles,
+    latency_chart: LatencyData,
+    version: String,
+}
+
+impl RpcTemplateData {
+    fn new(meta: &RpcReportMetadata) -> Self {
+        Self {
+            method: meta.method.clone(),
+            date: chrono::Local::now().to_rfc2822(),
+            rpc_url: meta.rpc_url.clone(),
+            rps: meta.rps,
+            duration_secs: meta.duration_secs,
+            total_requests: meta.total_requests,
+            success_count: meta.success_count,
+            error_count: meta.error_count,
+            latency_quantiles: meta.latency_quantiles.clone(),
+            latency_chart: meta.latency_chart.clone(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+        }
+    }
+}
+
+/// Builds an HTML report for an RPC-only spam run. Returns the path to the report.
+pub fn build_rpc_html_report(meta: RpcReportMetadata, reports_dir: &Path) -> Result<PathBuf> {
+    let template = include_str!("template_rpc.html.handlebars");
+
+    let mut data = HashMap::new();
+    let template_data = RpcTemplateData::new(&meta);
+    data.insert("data", template_data);
+    let html = handlebars::Handlebars::new().render_template(template, &data)?;
+
+    let filename = format!("rpc-report-{}.html", meta.run_id);
+    let path = reports_dir.join(filename);
+    std::fs::write(&path, html)?;
+
+    Ok(path)
+}
