@@ -7,11 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.0](https://github.com/flashbots/contender/releases/tag/v0.9.0) - 2026-02-23
 
+- added `contender rpc` subcommand for spam-testing arbitrary JSON-RPC methods with latency tracking and HTML report generation
 - added contender version to bottom of reports ([#452](https://github.com/flashbots/contender/pull/452/changes))
 - enable custom data dir at runtime ([453](https://github.com/flashbots/contender/pull/453/changes))
 - clean up html report UI, support batched `eth_sendRawTransaction` latency metrics ([#455](https://github.com/flashbots/contender/pull/455))
 - added `--scenario-label` flag to deploy and spam the same scenario under different labels ([#456](https://github.com/flashbots/contender/pull/456))
 - fix: generate report when `--gen-report` is passed to `spam` ([#457](https://github.com/flashbots/contender/pull/457))
+- control `SETUP_CONCURRENCY_LIMIT` with env var ([#461](https://github.com/flashbots/contender/pull/461))
 
 ## [0.8.1](https://github.com/flashbots/contender/releases/tag/v0.8.1) - 2026-02-09
 

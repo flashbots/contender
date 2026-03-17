@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.0](https://github.com/flashbots/contender/releases/tag/v0.9.0) - 2026-02-23
 
+- added RPC report template and `report_rpc()` for generating HTML reports from `contender rpc` runs
 - added contender version to bottom of reports ([#452](https://github.com/flashbots/contender/pull/452/changes))
 - use `std::path::Path` instead of `str` where applicable ([453](https://github.com/flashbots/contender/pull/453/changes))
 - clean up html report UI, support batched `eth_sendRawTransaction` latency metrics ([#455](https://github.com/flashbots/contender/pull/455/changes))

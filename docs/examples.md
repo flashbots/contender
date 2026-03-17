@@ -68,3 +68,20 @@ args = []
 ```bash
 contender spam ./example.toml --tps 10 -e testAddr=0x0000000000000000000000000000000000000013
 ```
+
+## setup concurrency
+
+**Setup steps** can be executed in two ways: `contender setup` with a file-based scenario, or `contender spam` with a builtin scenario.
+
+By default, setup steps will send up to **25 transactions**, and wait for them to land onchain before sending more.
+
+To change this amount, set `SETUP_CONCURRENCY_LIMIT` in your environment:
+
+```bash
+# only send 10 txs at a time
+# run the erc20 scenario with 50 accounts per agent (-a)
+SETUP_CONCURRENCY_LIMIT=10 \
+contender spam --tps 50 -a 50 erc20
+```
+
+The builtin `erc20` scenario creates a setup step for each account, so in this case we'd have 50 setup txs to send, and you'd see 5 batches of 10 txs landing onchain, one after another.
