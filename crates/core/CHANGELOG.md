@@ -6,11 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [0.9.0](https://github.com/flashbots/contender/releases/tag/v0.9.0) - 2026-02-23
+## [0.9.0](https://github.com/flashbots/contender/releases/tag/v0.9.0) - 2026-03-17
 
-- extracted `collect_latency_from_registry()` into `buckets` module for reuse across crates ([#468](https://github.com/flashbots/contender/pull/468/changes))
+- remove artificial delay in timed spammer to achieve accurate timing ([#454](https://github.com/flashbots/contender/pull/454))
 - added `scenario_label` support to apply contract name labels at the DB boundary ([#456](https://github.com/flashbots/contender/pull/456/changes))
 - control `SETUP_CONCURRENCY_LIMIT` with env var ([#461](https://github.com/flashbots/contender/pull/461/changes))
+- extracted `collect_latency_from_registry()` into `buckets` module for reuse across crates ([#468](https://github.com/flashbots/contender/pull/468/changes))
+- add support for flashblocks w/ time-to-inclusion fields ([#465](https://github.com/flashbots/contender/pull/465/changes))
 
 ### Breaking changes
 
