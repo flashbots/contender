@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use crate::commands::campaign::CampaignCliArgs;
 use crate::commands::common::ScenarioSendTxsCliArgs;
 use crate::commands::replay::ReplayCliArgs;
+use crate::commands::rpc::RpcCliArgs;
 use crate::default_scenarios::BuiltinScenarioCli;
 
 use super::admin::AdminCommand;
@@ -89,6 +90,12 @@ pub enum ContenderSubcommand {
         /// Output format: html (default, opens browser) or json (machine-readable).
         #[arg(long, short = 'f', default_value = "html", value_enum)]
         format: ReportFormat,
+
+        /// Skip per-transaction debug traces (debug_traceTransaction).
+        /// This significantly speeds up report generation for large runs
+        /// at the cost of omitting the storage heatmap and tx gas used charts.
+        #[arg(long)]
+        skip_tx_traces: bool,
     },
 
     #[command(
@@ -98,6 +105,15 @@ pub enum ContenderSubcommand {
     Campaign {
         #[command(flatten)]
         args: Box<CampaignCliArgs>,
+    },
+
+    #[command(
+        name = "rpc",
+        long_about = "Spam arbitrary JSON-RPC methods at a configurable rate."
+    )]
+    Rpc {
+        #[command(flatten)]
+        args: Box<RpcCliArgs>,
     },
 }
 
