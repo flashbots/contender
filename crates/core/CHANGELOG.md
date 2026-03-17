@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-- added `scenario_label` support to apply contract name labels at the DB boundary
+- added `scenario_label` support to apply contract name labels at the DB boundary ([#456](https://github.com/flashbots/contender/pull/456))
+- control `SETUP_CONCURRENCY_LIMIT` with env var ([#461](https://github.com/flashbots/contender/pull/461))
 
 ### Breaking changes
 
