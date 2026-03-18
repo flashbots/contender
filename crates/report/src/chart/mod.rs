@@ -1,3 +1,5 @@
+pub mod flashblock_index;
+pub mod flashblock_time_to_inclusion;
 pub mod gas_per_block;
 pub mod heatmap;
 pub mod pending_txs;

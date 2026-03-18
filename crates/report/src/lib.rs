@@ -7,6 +7,6 @@ pub mod gen_html;
 pub mod util;
 
 pub use error::Error;
-pub use gen_html::{ChartData, ReportExportV1, ReportMetadata};
+pub use gen_html::{ChartData, ReportExportV1, ReportMetadata, RpcReportMetadata};
 
 pub type Result<T> = std::result::Result<T, Error>;

@@ -3,9 +3,10 @@ use super::util::std_deviation;
 use crate::block_trace::{estimate_block_data, get_block_data, get_block_traces};
 use crate::cache::CacheFile;
 use crate::chart::{
-    gas_per_block::GasPerBlockChart, heatmap::HeatMapChart, pending_txs::PendingTxsChart,
-    rpc_latency::LatencyChart, time_to_inclusion::TimeToInclusionChart,
-    tx_gas_used::TxGasUsedChart,
+    flashblock_index::FlashblockIndexChart,
+    flashblock_time_to_inclusion::FlashblockTimeToInclusionChart, gas_per_block::GasPerBlockChart,
+    heatmap::HeatMapChart, pending_txs::PendingTxsChart, rpc_latency::LatencyChart,
+    time_to_inclusion::TimeToInclusionChart, tx_gas_used::TxGasUsedChart,
 };
 use crate::gen_html::ChartData;
 use crate::util::write_run_txs;
@@ -26,12 +27,22 @@ use std::path::Path;
 use std::str::FromStr;
 use tracing::{debug, info};
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+/// Gas usage quantiles for blocks.
+pub struct GasQuantiles {
+    pub p50: u128,
+    pub p90: u128,
+    pub p95: u128,
+    pub p99: u128,
+}
+
 pub async fn report(
     last_run_id: Option<u64>,
     preceding_runs: u64,
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     data_dir: &Path,
     use_json: bool,
+    skip_tx_traces: bool,
 ) -> Result<()> {
     let num_runs = db.num_runs().map_err(|e| e.into())?;
 
@@ -138,12 +149,49 @@ pub async fn report(
         } else {
             get_block_data(&all_txs, &rpc_client).await?
         };
-        let trace_data = get_block_traces(&block_data, &rpc_client).await?;
+        let trace_data = if skip_tx_traces {
+            info!("Skipping per-transaction traces (--skip-tx-traces)");
+            vec![]
+        } else {
+            get_block_traces(&block_data, &rpc_client).await?
+        };
         (trace_data, block_data)
     };
 
     // find peak gas usage
     let peak_gas = blocks.iter().map(|b| b.header.gas_used).max().unwrap_or(0);
+    let gas_quantiles = {
+        let mut gas_values: Vec<u128> = blocks.iter().map(|b| b.header.gas_used as u128).collect();
+        gas_values.sort();
+        if gas_values.is_empty() {
+            GasQuantiles {
+                p50: 0,
+                p90: 0,
+                p95: 0,
+                p99: 0,
+            }
+        } else {
+            let len = gas_values.len();
+            let p50_idx = ((len as f64 * 0.5).ceil() as usize)
+                .saturating_sub(1)
+                .min(len - 1);
+            let p90_idx = ((len as f64 * 0.9).ceil() as usize)
+                .saturating_sub(1)
+                .min(len - 1);
+            let p95_idx = ((len as f64 * 0.95).ceil() as usize)
+                .saturating_sub(1)
+                .min(len - 1);
+            let p99_idx = ((len as f64 * 0.99).ceil() as usize)
+                .saturating_sub(1)
+                .min(len - 1);
+            GasQuantiles {
+                p50: gas_values[p50_idx],
+                p90: gas_values[p90_idx],
+                p95: gas_values[p95_idx],
+                p99: gas_values[p99_idx],
+            }
+        }
+    };
     let block_gas_limit = blocks
         .first()
         .map(|blk| blk.header.gas_limit)
@@ -216,6 +264,12 @@ pub async fn report(
 
     let block_time_delta_std_dev = block_time_delta_std_dev.unwrap_or(0.0);
     let metrics = SpamRunMetrics {
+        gas_quantiles: GasQuantiles {
+            p50: gas_quantiles.p50,
+            p90: gas_quantiles.p90,
+            p95: gas_quantiles.p95,
+            p99: gas_quantiles.p99,
+        },
         peak_gas: MetricDescriptor::new(
             peak_gas,
             Some(&format!("{}%", (peak_gas * 100) / block_gas_limit)),
@@ -246,6 +300,8 @@ pub async fn report(
     let tti = TimeToInclusionChart::new(&all_txs);
     let gas_used = TxGasUsedChart::new(&cache_data.traces, 4000);
     let pending_txs = PendingTxsChart::new(&all_txs);
+    let flashblock_tti = FlashblockTimeToInclusionChart::new(&all_txs);
+    let flashblock_idx = FlashblockIndexChart::new(&all_txs);
     let latency_chart_sendrawtx = LatencyChart::new(
         canonical_latency_map
             .get("eth_sendRawTransaction")
@@ -273,6 +329,8 @@ pub async fn report(
             tx_gas_used: gas_used.echart_data(),
             pending_txs: pending_txs.echart_data(),
             latency_data_sendrawtransaction: latency_chart_sendrawtx.echart_data(),
+            flashblock_time_to_inclusion: flashblock_tti.map(|c| c.echart_data()),
+            flashblock_index: flashblock_idx.map(|c| c.echart_data()),
         },
         campaign: campaign_context,
     };
@@ -359,6 +417,7 @@ pub async fn report_campaign(
     campaign_id: &str,
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     data_dir: &Path,
+    skip_tx_traces: bool,
 ) -> Result<()> {
     let runs = db.get_runs_by_campaign(campaign_id).map_err(|e| e.into())?;
     if runs.is_empty() {
@@ -384,7 +443,7 @@ pub async fn report_campaign(
     let run_generation_result: Result<()> = async {
         for run in &runs {
             // generate per-run report (single run) - always use HTML for campaign runs
-            report(Some(run.id), 0, db, data_dir, false).await?;
+            report(Some(run.id), 0, db, data_dir, false, skip_tx_traces).await?;
             let run_txs = db.get_run_txs(run.id).map_err(|e| e.into())?;
             let (run_tx_count_from_logs, run_error_count_from_logs) =
                 tx_and_error_counts(&run_txs, run.tx_count);
@@ -614,16 +673,13 @@ fn tx_and_error_counts(run_txs: &[RunTx], fallback_tx_count: usize) -> (u64, u64
 
 fn run_time_bounds(run: &SpamRun, run_txs: &[RunTx]) -> (Option<u128>, Option<u128>) {
     if !run_txs.is_empty() {
-        let start = run_txs
-            .iter()
-            .map(|t| t.start_timestamp_secs as u128 * 1000)
-            .min();
+        let start = run_txs.iter().map(|t| t.start_timestamp_ms as u128).min();
         let end = run_txs
             .iter()
             .map(|t| {
-                t.end_timestamp_secs
-                    .map(|e| e as u128 * 1000)
-                    .unwrap_or(t.start_timestamp_secs as u128 * 1000)
+                t.end_timestamp_ms
+                    .map(|e| e as u128)
+                    .unwrap_or(t.start_timestamp_ms as u128)
             })
             .max();
         return (start, end);
@@ -652,6 +708,7 @@ pub struct RpcLatencyQuantiles {
 /// Metrics for a spam run. Must be readable by handlebars.
 pub struct SpamRunMetrics {
     pub peak_gas: MetricDescriptor<u64>,
+    pub gas_quantiles: GasQuantiles,
     pub peak_tx_count: MetricDescriptor<u64>,
     pub average_block_time_secs: MetricDescriptor<f64>,
     pub latency_quantiles: Vec<RpcLatencyQuantiles>,
@@ -679,4 +736,22 @@ impl<T> MetricDescriptor<T> {
             value,
         }
     }
+}
+
+/// Generate an HTML report for an RPC-only spam run and open it in the browser.
+pub fn report_rpc(meta: crate::gen_html::RpcReportMetadata, data_dir: &Path) -> Result<()> {
+    let reports_dir = data_dir.join("reports");
+    if !reports_dir.exists() {
+        fs::create_dir_all(&reports_dir)?;
+    }
+
+    let report_path = crate::gen_html::build_rpc_html_report(meta, &reports_dir)?;
+    info!("saved RPC report to {report_path:?}");
+
+    if env::var("BROWSER").unwrap_or_default() == "none" {
+        return Ok(());
+    }
+    webbrowser::open(report_path.to_string_lossy().as_ref())?;
+
+    Ok(())
 }

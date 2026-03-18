@@ -3,6 +3,7 @@ pub mod buckets;
 mod constants;
 pub mod db;
 pub mod error;
+pub mod flashblocks;
 pub mod generator;
 pub mod orchestrator;
 pub mod provider;

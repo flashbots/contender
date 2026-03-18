@@ -113,6 +113,7 @@ pub async fn setup(
         gas_price: None,
         scenario_label: args.eth_json_rpc_args.scenario_label,
         send_raw_tx_sync: false,
+        flashblocks_ws_url: None,
     };
 
     let mut scenario = TestScenario::new(

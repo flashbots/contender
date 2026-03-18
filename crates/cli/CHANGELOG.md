@@ -5,14 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.9.0](https://github.com/flashbots/contender/releases/tag/v0.9.0) - 2026-03-17
 
 - added `--send-raw-tx-sync` flag to `spam` and `campaign` commands ([#459](https://github.com/flashbots/contender/pull/459))
 - changed internal erc20 defaults (didn't match cli defaults) ([#443](https://github.com/flashbots/contender/pull/443/changes))
+- added chainlink scenario to repo scenarios ([#446](https://github.com/flashbots/contender/pull/446))
 - use `std::path::Path` instead of `str` where applicable, add data_dir arg to enable custom data dir at runtime ([453](https://github.com/flashbots/contender/pull/453/changes))
-- add json option to `report` ([453](https://github.com/flashbots/contender/pull/453/changes))
+- add json option to `report` ([#453](https://github.com/flashbots/contender/pull/453/changes))
 - added `--scenario-label` flag to deploy and spam the same scenario under different labels ([#456](https://github.com/flashbots/contender/pull/456/changes))
 - fix: generate report when `--gen-report` is passed to `spam` ([#457](https://github.com/flashbots/contender/pull/457/changes))
+- limit concurrent funding tasks to 25 ([#451](https://github.com/flashbots/contender/pull/451/changes))
+- added `contender rpc` subcommand: spam any Ethereum JSON-RPC method at a configurable rate with `--rps` and `-d` flags ([#468](https://github.com/flashbots/contender/pull/468))
+  - added `--gen-report` flag to `contender rpc` for HTML report generation with latency histogram and percentile table
+- add support for flashblocks time-to-inclusion collection & `--flashblocks-ws-url` ([#465](https://github.com/flashbots/contender/pull/465/changes))
 
 ## [0.8.0](https://github.com/flashbots/contender/releases/tag/v0.8.0) - 2026-02-02
 

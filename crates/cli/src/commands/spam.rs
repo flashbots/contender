@@ -149,6 +149,15 @@ pub struct SpamCliArgs {
         default_value = "5min"
     )]
     pub spam_timeout: Duration,
+
+    /// WebSocket URL for flashblocks pre-confirmation subscription.
+    #[arg(
+        long = "flashblocks-ws-url",
+        value_name = "URL",
+        env = "FLASHBLOCKS_WS_URL",
+        long_help = "WebSocket URL for subscribing to flashblock pre-confirmations. When set, contender will track sub-block inclusion latency alongside full-block metrics."
+    )]
+    pub flashblocks_ws_url: Option<Url>,
 }
 #[derive(Clone)]
 pub enum SpamScenario {
@@ -431,6 +440,7 @@ impl SpamCommandArgs {
                 .scenario_label
                 .clone(),
             send_raw_tx_sync: self.spam_args.send_raw_tx_sync,
+            flashblocks_ws_url: self.spam_args.flashblocks_ws_url.clone(),
         };
         let mut test_scenario = TestScenario::new(
             testconfig,
@@ -812,6 +822,7 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
                 db,
                 &resolve_data_dir(None)?,
                 false, // TODO: support JSON reports, maybe add a CLI flag for it
+                false,
             )
             .await?;
         } else {
@@ -932,6 +943,7 @@ mod tests {
                     rpc_batch_size: 0,
                     send_raw_tx_sync: false,
                     spam_timeout: Duration::from_secs(5),
+                    flashblocks_ws_url: None,
                 },
                 seed: rand_seed.clone(),
             },

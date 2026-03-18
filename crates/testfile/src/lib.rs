@@ -315,6 +315,7 @@ pub mod tests {
                 gas_price: None,
                 scenario_label: None,
                 send_raw_tx_sync: false,
+                flashblocks_ws_url: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -369,6 +370,7 @@ pub mod tests {
                 gas_price: None,
                 scenario_label: None,
                 send_raw_tx_sync: false,
+                flashblocks_ws_url: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -393,6 +395,7 @@ pub mod tests {
                 gas_price: None,
                 scenario_label: None,
                 send_raw_tx_sync: false,
+                flashblocks_ws_url: None,
             },
             None,
             (&PROM, &HIST).into(),
@@ -493,6 +496,7 @@ value = \"1eth\"
             gas_price: None,
             scenario_label: None,
             send_raw_tx_sync: false,
+            flashblocks_ws_url: None,
         }
     }
 

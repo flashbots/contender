@@ -215,6 +215,7 @@ where
             gas_price: None,
             scenario_label: self.scenario_label.clone(),
             send_raw_tx_sync: self.send_raw_tx_sync,
+            flashblocks_ws_url: None,
         };
 
         TestScenario::new(
