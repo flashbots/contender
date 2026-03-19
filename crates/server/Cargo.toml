@@ -1,0 +1,23 @@
+[package]
+name = "contender_server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Contender server"
+
+[[bin]]
+name = "contender-server"
+path = "src/main.rs"
+
+[dependencies]
+contender_core.workspace = true
+
+async-trait = { workspace = true }
+jsonrpsee = { workspace = true, features = ["server", "macros"] }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }

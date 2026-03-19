@@ -230,22 +230,28 @@ fn init_db(command: &ContenderSubcommand, db: &SqliteDb) -> Result<(), CliError>
     Ok(())
 }
 
-fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env().ok(); // fallback if RUST_LOG is unset
-
-    let mut opts = TracingOptions::default();
+/// Reads the RUST_LOG environment variable and extracts log levels.
+pub fn read_rust_log() -> Vec<tracing::Level> {
     let rustlog = std::env::var("RUST_LOG").unwrap_or_default().to_lowercase();
 
     // interpret log levels from words matching `=[a-zA-Z]+`
     let level_regex = Regex::new(r"=[a-zA-Z]+").unwrap();
-    let matches: Vec<tracing::Level> = level_regex
+    level_regex
         .find_iter(&rustlog)
         .map(|m| m.as_str().trim_start_matches('='))
         .map(|m| tracing::Level::from_str(m).unwrap_or(tracing::Level::INFO))
-        .collect();
+        .collect()
+}
+
+fn init_tracing() {
+    let filter = EnvFilter::try_from_default_env().ok(); // fallback if RUST_LOG is unset
+    let mut opts = TracingOptions::default();
 
     // if user provides any log level > info, print line num & source file in logs
-    if matches.iter().any(|lvl| *lvl > tracing::Level::INFO) {
+    if read_rust_log()
+        .iter()
+        .any(|lvl| *lvl > tracing::Level::INFO)
+    {
         opts = opts.with_line_number(true).with_target(true);
     }
 

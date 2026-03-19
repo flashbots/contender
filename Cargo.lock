@@ -2246,6 +2246,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "contender_server"
+version = "0.9.0"
+dependencies = [
+ "async-trait",
+ "contender_core",
+ "jsonrpsee 0.24.10",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.20",
+]
+
+[[package]]
 name = "contender_sqlite"
 version = "0.9.0"
 dependencies = [
@@ -2597,7 +2609,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.108",
 ]
 
 [[package]]
@@ -4164,16 +4176,30 @@ dependencies = [
 
 [[package]]
 name = "jsonrpsee"
+version = "0.24.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e281ae70cc3b98dac15fced3366a880949e65fc66e345ce857a5682d152f3e62"
+dependencies = [
+ "jsonrpsee-core 0.24.10",
+ "jsonrpsee-proc-macros 0.24.10",
+ "jsonrpsee-server 0.24.10",
+ "jsonrpsee-types 0.24.10",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "jsonrpsee"
 version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f3f48dc3e6b8bd21e15436c1ddd0bc22a6a54e8ec46fedd6adf3425f396ec6a"
 dependencies = [
  "jsonrpsee-client-transport",
- "jsonrpsee-core",
+ "jsonrpsee-core 0.26.0",
  "jsonrpsee-http-client",
- "jsonrpsee-proc-macros",
- "jsonrpsee-server",
- "jsonrpsee-types",
+ "jsonrpsee-proc-macros 0.26.0",
+ "jsonrpsee-server 0.26.0",
+ "jsonrpsee-types 0.26.0",
  "jsonrpsee-wasm-client",
  "jsonrpsee-ws-client",
  "tokio",
@@ -4191,7 +4217,7 @@ dependencies = [
  "futures-util",
  "gloo-net",
  "http",
- "jsonrpsee-core",
+ "jsonrpsee-core 0.26.0",
  "pin-project",
  "rustls",
  "rustls-pki-types",
@@ -4207,6 +4233,29 @@ dependencies = [
 
 [[package]]
 name = "jsonrpsee-core"
+version = "0.24.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "348ee569eaed52926b5e740aae20863762b16596476e943c9e415a6479021622"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "jsonrpsee-types 0.24.10",
+ "parking_lot",
+ "rand 0.8.5",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "jsonrpsee-core"
 version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "316c96719901f05d1137f19ba598b5fe9c9bc39f4335f67f6be8613921946480"
@@ -4218,7 +4267,7 @@ dependencies = [
  "http",
  "http-body",
  "http-body-util",
- "jsonrpsee-types",
+ "jsonrpsee-types 0.26.0",
  "parking_lot",
  "pin-project",
  "rand 0.9.2",
@@ -4244,8 +4293,8 @@ dependencies = [
  "hyper",
  "hyper-rustls",
  "hyper-util",
- "jsonrpsee-core",
- "jsonrpsee-types",
+ "jsonrpsee-core 0.26.0",
+ "jsonrpsee-types 0.26.0",
  "rustls",
  "rustls-platform-verifier",
  "serde",
@@ -4254,6 +4303,19 @@ dependencies = [
  "tokio",
  "tower 0.5.2",
  "url",
+]
+
+[[package]]
+name = "jsonrpsee-proc-macros"
+version = "0.24.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7398cddf5013cca4702862a2692b66c48a3bd6cf6ec681a47453c93d63cf8de5"
+dependencies = [
+ "heck",
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.108",
 ]
 
 [[package]]
@@ -4271,6 +4333,33 @@ dependencies = [
 
 [[package]]
 name = "jsonrpsee-server"
+version = "0.24.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21429bcdda37dcf2d43b68621b994adede0e28061f816b038b0f18c70c143d51"
+dependencies = [
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "jsonrpsee-core 0.24.10",
+ "jsonrpsee-types 0.24.10",
+ "pin-project",
+ "route-recognizer",
+ "serde",
+ "serde_json",
+ "soketto",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tower 0.4.13",
+ "tracing",
+]
+
+[[package]]
+name = "jsonrpsee-server"
 version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4c51b7c290bb68ce3af2d029648148403863b982f138484a73f02a9dd52dbd7f"
@@ -4281,8 +4370,8 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
- "jsonrpsee-core",
- "jsonrpsee-types",
+ "jsonrpsee-core 0.26.0",
+ "jsonrpsee-types 0.26.0",
  "pin-project",
  "route-recognizer",
  "serde",
@@ -4294,6 +4383,18 @@ dependencies = [
  "tokio-util",
  "tower 0.5.2",
  "tracing",
+]
+
+[[package]]
+name = "jsonrpsee-types"
+version = "0.24.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0f05e0028e55b15dbd2107163b3c744cd3bb4474f193f95d9708acbf5677e44"
+dependencies = [
+ "http",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -4315,8 +4416,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7902885de4779f711a95d82c8da2d7e5f9f3a7c7cfa44d51c067fd1c29d72a3c"
 dependencies = [
  "jsonrpsee-client-transport",
- "jsonrpsee-core",
- "jsonrpsee-types",
+ "jsonrpsee-core 0.26.0",
+ "jsonrpsee-types 0.26.0",
  "tower 0.5.2",
 ]
 
@@ -4328,8 +4429,8 @@ checksum = "9b6fceceeb05301cc4c065ab3bd2fa990d41ff4eb44e4ca1b30fa99c057c3e79"
 dependencies = [
  "http",
  "jsonrpsee-client-transport",
- "jsonrpsee-core",
- "jsonrpsee-types",
+ "jsonrpsee-core 0.26.0",
+ "jsonrpsee-types 0.26.0",
  "tower 0.5.2",
  "url",
 ]
@@ -5258,7 +5359,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8eb878fc5ea95adb5abe55fb97475b3eb0dcc77dfcd6f61bd626a68ae0bdba1"
 dependencies = [
  "alloy-primitives",
- "jsonrpsee",
+ "jsonrpsee 0.26.0",
 ]
 
 [[package]]
@@ -7123,7 +7224,7 @@ dependencies = [
  "alloy-rpc-types-debug",
  "eyre",
  "futures",
- "jsonrpsee",
+ "jsonrpsee 0.26.0",
  "pretty_assertions",
  "reth-engine-primitives",
  "reth-evm",
@@ -7148,7 +7249,7 @@ dependencies = [
  "futures",
  "futures-util",
  "interprocess",
- "jsonrpsee",
+ "jsonrpsee 0.26.0",
  "pin-project",
  "serde_json",
  "thiserror 2.0.17",
@@ -7405,7 +7506,7 @@ dependencies = [
  "eyre",
  "fdlimit",
  "futures",
- "jsonrpsee",
+ "jsonrpsee 0.26.0",
  "rayon",
  "reth-basic-payload-builder",
  "reth-chain-state",
@@ -7565,7 +7666,7 @@ source = "git+https://github.com/paradigmxyz/reth?tag=v1.8.2#9c30bf7af5e0d45deaf
 dependencies = [
  "eyre",
  "http",
- "jsonrpsee-server",
+ "jsonrpsee-server 0.26.0",
  "metrics",
  "metrics-exporter-prometheus",
  "metrics-process",
@@ -7838,9 +7939,9 @@ dependencies = [
  "derive_more",
  "eyre",
  "futures",
- "jsonrpsee",
- "jsonrpsee-core",
- "jsonrpsee-types",
+ "jsonrpsee 0.26.0",
+ "jsonrpsee-core 0.26.0",
+ "jsonrpsee-types 0.26.0",
  "metrics",
  "op-alloy-consensus",
  "op-alloy-network",
@@ -8160,8 +8261,8 @@ dependencies = [
  "http-body",
  "hyper",
  "itertools 0.14.0",
- "jsonrpsee",
- "jsonrpsee-types",
+ "jsonrpsee 0.26.0",
+ "jsonrpsee-types 0.26.0",
  "jsonwebtoken",
  "parking_lot",
  "pin-project",
@@ -8225,7 +8326,7 @@ dependencies = [
  "alloy-rpc-types-trace",
  "alloy-rpc-types-txpool",
  "alloy-serde",
- "jsonrpsee",
+ "jsonrpsee 0.26.0",
  "reth-chain-state",
  "reth-engine-primitives",
  "reth-network-peers",
@@ -8242,7 +8343,7 @@ dependencies = [
  "alloy-provider",
  "dyn-clone",
  "http",
- "jsonrpsee",
+ "jsonrpsee 0.26.0",
  "metrics",
  "pin-project",
  "reth-chain-state",
@@ -8285,7 +8386,7 @@ dependencies = [
  "alloy-signer",
  "auto_impl",
  "dyn-clone",
- "jsonrpsee-types",
+ "jsonrpsee-types 0.26.0",
  "op-alloy-consensus",
  "op-alloy-network",
  "op-alloy-rpc-types",
@@ -8308,8 +8409,8 @@ dependencies = [
  "alloy-primitives",
  "alloy-rpc-types-engine",
  "async-trait",
- "jsonrpsee-core",
- "jsonrpsee-types",
+ "jsonrpsee-core 0.26.0",
+ "jsonrpsee-types 0.26.0",
  "metrics",
  "parking_lot",
  "reth-chainspec",
@@ -8349,8 +8450,8 @@ dependencies = [
  "auto_impl",
  "dyn-clone",
  "futures",
- "jsonrpsee",
- "jsonrpsee-types",
+ "jsonrpsee 0.26.0",
+ "jsonrpsee-types 0.26.0",
  "parking_lot",
  "reth-chain-state",
  "reth-chainspec",
@@ -8390,8 +8491,8 @@ dependencies = [
  "derive_more",
  "futures",
  "itertools 0.14.0",
- "jsonrpsee-core",
- "jsonrpsee-types",
+ "jsonrpsee-core 0.26.0",
+ "jsonrpsee-types 0.26.0",
  "metrics",
  "rand 0.9.2",
  "reqwest",
@@ -8442,8 +8543,8 @@ dependencies = [
  "alloy-eips",
  "alloy-primitives",
  "alloy-rpc-types-engine",
- "jsonrpsee-core",
- "jsonrpsee-types",
+ "jsonrpsee-core 0.26.0",
+ "jsonrpsee-types 0.26.0",
  "reth-errors",
  "reth-network-api",
  "serde",
