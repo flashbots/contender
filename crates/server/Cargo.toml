@@ -15,9 +15,12 @@ path = "src/main.rs"
 
 [dependencies]
 contender_core.workspace = true
+contender_testfile.workspace = true
+contender_sqlite.workspace = true
 
 async-trait = { workspace = true }
 jsonrpsee = { workspace = true, features = ["server", "macros"] }
+thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }

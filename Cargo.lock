@@ -2251,8 +2251,11 @@ version = "0.9.0"
 dependencies = [
  "async-trait",
  "contender_core",
+ "contender_sqlite",
+ "contender_testfile",
  "jsonrpsee 0.24.10",
  "serde",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.20",

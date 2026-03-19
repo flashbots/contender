@@ -1,19 +1,32 @@
+use std::str::FromStr;
+
+use contender_core::{generator::RandSeed, test_scenario::Url, Contender};
+use contender_sqlite::SqliteDb;
+use contender_testfile::TestConfig;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+use crate::rpc::AddSessionParams;
+
 pub struct ContenderSession {
     pub info: ContenderSessionInfo,
-    // TODO: add contender stuff here (ContenderCtx?)
+    pub contender: Contender<SqliteDb, RandSeed, TestConfig>,
 }
 
 impl ContenderSession {
-    fn new(name: String, sessions: &[ContenderSession]) -> Self {
-        Self {
-            info: ContenderSessionInfo {
-                id: sessions.len(),
-                name,
-            },
-        }
+    /// Should only be called by ContenderSessionCache when adding a new session, since the session ID is determined by the cache
+    fn new(sessions: &[ContenderSession], params: &AddSessionParams) -> Self {
+        let info = ContenderSessionInfo {
+            id: sessions.len(),
+            name: params.name.clone(),
+            rpc_url: params.rpc_url.clone(),
+        };
+
+        // TODO: get TestConfig params and put them here
+        let config = TestConfig::from_str(include_str!("../../../scenarios/uniV2.toml"))
+            .expect("valid test config");
+
+        let contender = info.create_contender(config);
+        Self { info, contender }
     }
 }
 
@@ -21,9 +34,25 @@ impl ContenderSession {
 pub struct ContenderSessionInfo {
     pub id: usize,
     pub name: String,
+    pub rpc_url: Url,
 }
 
-#[derive(Debug)]
+impl ContenderSessionInfo {
+    pub fn create_contender(
+        &self,
+        testconfig: TestConfig,
+    ) -> Contender<SqliteDb, RandSeed, TestConfig> {
+        // using in-memory SQLite for now; will switch to file-based if we need persistence across server restarts
+        let db = contender_sqlite::SqliteDb::new_memory();
+        let seeder = contender_core::generator::RandSeed::seed_from_bytes(&self.id.to_be_bytes());
+        let contender_ctx =
+            contender_core::ContenderCtx::builder(testconfig, db, seeder, self.rpc_url.clone())
+                .build();
+
+        Contender::new(contender_ctx)
+    }
+}
+
 pub struct ContenderSessionCache {
     sessions: Vec<ContenderSession>,
 }
@@ -35,15 +64,17 @@ impl ContenderSessionCache {
         }
     }
 
-    /// Add a new session to the cache and return its ID. The ID is simply the index of the session in the vector.
-    pub fn add_session(
-        &mut self,
-        name: String, /* TODO: here we add TestScenario-related params */
-    ) -> ContenderSessionInfo {
-        let session = ContenderSession::new(name, &self.sessions);
+    /// Add a new session to the cache. The ID is simply the index of the session in the vector.
+    /// The session is not initialized yet, the caller is responsible for calling initialize on the session's contender before it's returned by the RPC provider.
+    ///
+    /// Returns a mutable reference to the newly added session,
+    /// which can be used to call initialize on it before it's returned by the RPC provider.
+    pub fn add_session(&mut self, params: AddSessionParams) -> &mut ContenderSession {
+        let session = ContenderSession::new(&self.sessions, &params);
         let info = session.info.clone();
+
         self.sessions.push(session);
-        info
+        &mut self.sessions[info.id]
     }
 
     pub fn get_session(&self, id: usize) -> Option<&ContenderSession> {
