@@ -21,3 +21,4 @@ jsonrpsee = { workspace = true, features = ["server", "macros"] }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+serde.workspace = true
