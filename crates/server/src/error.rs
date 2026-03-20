@@ -2,10 +2,18 @@ use base64::DecodeError;
 use jsonrpsee::types::{ErrorObject, ErrorObjectOwned};
 use thiserror::Error;
 
+use crate::sessions::ContenderSessionInfo;
+
 #[derive(Debug, Error)]
 pub enum ContenderRpcError {
     #[error("Failed to initialize contender session: {0}")]
     SessionInitializationFailed(contender_core::Error),
+
+    #[error("Session not found: {0}")]
+    SessionNotFound(usize),
+
+    #[error("Session {} is not initialized", _0.id)]
+    SessionNotInitialized(ContenderSessionInfo),
 
     #[error("Invalid test config: {0}")]
     InvalidTestConfig(#[from] contender_testfile::Error),
@@ -48,6 +56,19 @@ impl From<ContenderRpcError> for ErrorObjectOwned {
                 4,
                 "Invalid UTF-8 in config".to_string(),
                 Some(e.to_string()),
+            ),
+
+            ContenderRpcError::SessionNotFound(id) => {
+                ErrorObject::owned(5, format!("Session {id} not found"), Option::<String>::None)
+            }
+
+            ContenderRpcError::SessionNotInitialized(info) => ErrorObject::owned(
+                6,
+                format!(
+                    "Session {} not ready (status: {}); must be initialized before spamming",
+                    info.id, info.status
+                ),
+                Option::<String>::None,
             ),
 
             ContenderRpcError::InvalidArguments(msg) => {

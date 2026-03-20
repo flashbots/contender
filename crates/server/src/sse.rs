@@ -37,7 +37,7 @@ async fn logs_handler(
             format!("Session {session_id} not found"),
         )
     })?;
-    let rx = session.log_tx.subscribe();
+    let rx = session.log_channel.subscribe();
     drop(sessions);
 
     let stream = BroadcastStream::new(rx).filter_map(|res| match res {

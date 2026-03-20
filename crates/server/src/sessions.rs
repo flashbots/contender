@@ -6,17 +6,27 @@ use tokio::sync::broadcast;
 
 use crate::log_layer::SessionLogSinks;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum SessionStatus {
     Initializing,
     Ready,
     Failed(String),
 }
 
+impl std::fmt::Display for SessionStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SessionStatus::Initializing => write!(f, "Initializing"),
+            SessionStatus::Ready => write!(f, "Ready"),
+            SessionStatus::Failed(err) => write!(f, "Failed: {err}"),
+        }
+    }
+}
+
 pub struct ContenderSession {
     pub info: ContenderSessionInfo,
     pub contender: Option<Contender<SqliteDb, RandSeed, TestConfig>>,
-    pub log_tx: broadcast::Sender<String>,
+    pub log_channel: broadcast::Sender<String>,
 }
 
 pub struct NewSessionParams {
@@ -37,11 +47,11 @@ impl ContenderSession {
         };
 
         let contender = info.create_contender(params.test_config);
-        let (log_tx, _) = broadcast::channel(4096);
+        let (log_channel, _) = broadcast::channel(4096);
         Self {
             info,
             contender: Some(contender),
-            log_tx,
+            log_channel,
         }
     }
 }
@@ -95,11 +105,11 @@ impl ContenderSessionCache {
     pub fn add_session(&mut self, params: NewSessionParams) -> &mut ContenderSession {
         let session = ContenderSession::new(self.next_session_id(), params);
         let info = session.info.clone();
-        let log_tx = session.log_tx.clone();
+        let log_channel = session.log_channel.clone();
 
         // Register the broadcast sender in the log sinks so the tracing layer can route to it.
         if let Ok(mut sinks) = self.log_sinks.try_write() {
-            sinks.insert(info.id, log_tx);
+            sinks.insert(info.id, log_channel);
         }
 
         self.sessions.push(session);

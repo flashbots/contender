@@ -22,6 +22,8 @@ use crate::{
 
 #[rpc(server)]
 pub trait ContenderRpc {
+    // ================ RPC Methods ================
+
     #[method(name = "status")]
     async fn status(&self) -> jsonrpsee::core::RpcResult<String>;
 
@@ -39,6 +41,11 @@ pub trait ContenderRpc {
 
     #[method(name = "remove_session")]
     async fn remove_session(&self, id: usize) -> jsonrpsee::core::RpcResult<()>;
+
+    #[method(name = "spam")]
+    async fn spam(&self, session_id: usize) -> jsonrpsee::core::RpcResult<String>;
+
+    // ================ WS Methods ================
 
     #[subscription(name = "subscribe_logs" => "session_log", item = String)]
     async fn subscribe_logs(&self, session_id: usize) -> jsonrpsee::core::SubscriptionResult;
@@ -238,7 +245,7 @@ impl ContenderRpcServer for ContenderServer {
                 .await;
             return Ok(());
         };
-        let mut rx = session.log_tx.subscribe();
+        let mut rx = session.log_channel.subscribe();
         drop(sessions);
 
         let sink = pending.accept().await?;
@@ -254,6 +261,33 @@ impl ContenderRpcServer for ContenderServer {
         });
 
         Ok(())
+    }
+
+    async fn spam(&self, session_id: usize) -> jsonrpsee::core::RpcResult<String> {
+        println!("Spamming session {session_id}...");
+
+        let sessions = self.sessions.read().await;
+        let Some(session) = sessions.get_session(session_id) else {
+            return Err(ContenderRpcError::SessionNotFound(session_id).into());
+        };
+        println!("Got session {}: {}", session_id, session.info.name);
+
+        if session.info.status != SessionStatus::Ready {
+            return Err(ContenderRpcError::SessionNotInitialized(session.info.clone()).into());
+        }
+        drop(sessions);
+
+        let span = tracing::info_span!("session_spam", id = session_id);
+        tokio::spawn(
+            contender_core::CURRENT_SESSION_ID
+                .scope(session_id, async move {
+                    println!("spawned task for spamming session {session_id}");
+                    // TODO: spam with contender here
+                })
+                .instrument(span),
+        );
+
+        Ok(format!("Spamming session {session_id}"))
     }
 }
 
