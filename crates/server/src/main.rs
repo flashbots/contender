@@ -3,6 +3,7 @@ use std::sync::Arc;
 use contender_server::log_layer::{new_log_sinks, SessionLogRouter};
 use contender_server::rpc::{ContenderRpcServer as _, ContenderServer};
 use contender_server::sessions::ContenderSessionCache;
+use contender_server::sse::sse_router;
 use jsonrpsee::server::{Server, ServerHandle};
 use tokio::sync::RwLock;
 use tracing::info;
@@ -28,7 +29,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let sessions = Arc::new(RwLock::new(ContenderSessionCache::new(log_sinks)));
 
-    let handle = start_rpc_server(sessions).await?;
+    let handle = start_rpc_server(sessions.clone()).await?;
+
+    // SSE endpoint for log streaming (port 3001)
+    let sse_app = sse_router(sessions);
+    let sse_listener = tokio::net::TcpListener::bind("127.0.0.1:3001").await?;
+    info!("SSE server listening on 127.0.0.1:3001");
+    let sse_handle = tokio::spawn(async move { axum::serve(sse_listener, sse_app).await });
 
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
@@ -36,6 +43,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ = handle.stopped() => {
             info!("RPC server stopped");
+        }
+        res = sse_handle => {
+            info!("SSE server stopped: {:?}", res);
         }
     }
 

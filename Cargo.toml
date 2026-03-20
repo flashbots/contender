@@ -54,6 +54,10 @@ url = "2.5.7"
 uuid = "1.19.0"
 base64 = "0.22"
 
+## server
+axum = "0.8"
+tokio-stream = "0.1"
+
 ## core
 futures = "0.3.30"
 async-trait = "0.1.82"

@@ -32,3 +32,5 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 serde.workspace = true
 serde_json.workspace = true
+axum = { workspace = true }
+tokio-stream.workspace = true
