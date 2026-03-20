@@ -2,9 +2,9 @@ use crate::default_scenarios::builtin::ToTestConfig;
 use alloy::primitives::{Address, U256};
 use clap::Parser;
 use contender_core::generator::{types::SpamRequest, util::parse_value, FunctionCallDefinition};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Parser, Clone, Debug, Deserialize)]
+#[derive(Parser, Clone, Debug, Deserialize, Serialize)]
 pub struct TransferStressCliArgs {
     #[arg(
         short = 'a',

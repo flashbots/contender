@@ -5,12 +5,12 @@ use contender_core::generator::{
     error::GeneratorError,
     util::{encode_calldata, parse_value},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_SIG: &str = "execute((address,uint256,bytes)[])";
 pub const DEFAULT_ARGS: &str = "[(0x{Counter},0,0xd09de08a)]";
 
-#[derive(Clone, Debug, Parser, Deserialize)]
+#[derive(Clone, Debug, Parser, Deserialize, Serialize)]
 pub struct SetCodeExecuteCliArgs {
     /// The address to call via the smart-wallet's execute function.
     #[arg(
@@ -55,7 +55,7 @@ Example:
     pub value: Option<U256>,
 }
 
-#[derive(clap::Subcommand, Clone, Debug, Deserialize)]
+#[derive(clap::Subcommand, Clone, Debug, Deserialize, Serialize)]
 pub enum SetCodeSubCommand {
     /// Helper function to delegate function calls via `execute(Call[])` on a smart-wallet contract.
     Execute(SetCodeExecuteCliArgs),

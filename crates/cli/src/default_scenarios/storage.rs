@@ -1,9 +1,9 @@
 use crate::default_scenarios::{builtin::ToTestConfig, contracts};
 use contender_core::generator::{types::SpamRequest, CreateDefinition, FunctionCallDefinition};
 use contender_testfile::TestConfig;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, clap::Parser, Deserialize)]
+#[derive(Debug, Clone, clap::Parser, Deserialize, Serialize)]
 pub struct StorageStressCliArgs {
     #[arg(
         short = 's',

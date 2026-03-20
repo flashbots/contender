@@ -8,10 +8,10 @@ use contender_core::generator::{
     types::SpamRequest, CompiledContract, CreateDefinition, FunctionCallDefinition,
 };
 use contender_testfile::TestConfig;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[derive(Debug, Clone, Parser, Deserialize)]
+#[derive(Debug, Clone, Parser, Deserialize, Serialize)]
 pub struct UniV2CliArgs {
     #[arg(
         short,

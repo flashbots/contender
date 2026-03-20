@@ -1,7 +1,7 @@
 use clap::Parser;
 use contender_core::generator::{types::SpamRequest, CreateDefinition, FunctionCallDefinition};
 use contender_testfile::TestConfig;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 
 use crate::default_scenarios::{
@@ -15,7 +15,7 @@ use crate::default_scenarios::{
     transfers::{TransferStressArgs, TransferStressCliArgs},
 };
 
-#[derive(Debug, Clone, Parser, Deserialize)]
+#[derive(Debug, Clone, Parser, Deserialize, Serialize)]
 pub struct StressCliArgs {
     #[arg(
         long,

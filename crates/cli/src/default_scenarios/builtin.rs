@@ -1,13 +1,11 @@
-use std::path::Path;
-
 use super::fill_block::{fill_block, FillBlockArgs, FillBlockCliArgs};
 use crate::{
-    commands::SpamCliArgs,
     default_scenarios::{
         blobs::BlobsCliArgs,
         custom_contract::{CustomContractArgs, CustomContractCliArgs},
         erc20::{Erc20Args, Erc20CliArgs},
         eth_functions::{opcodes::EthereumOpcode, EthFunctionsArgs, EthFunctionsCliArgs},
+        fill_block::SpamRate,
         revert::RevertCliArgs,
         setcode::{SetCodeArgs, SetCodeCliArgs, SetCodeSubCommand},
         storage::{StorageStressArgs, StorageStressCliArgs},
@@ -16,7 +14,7 @@ use crate::{
         uni_v2::{UniV2Args, UniV2CliArgs},
     },
     error::CliError,
-    util::{bold, load_seedfile},
+    util::bold,
 };
 use alloy::primitives::U256;
 use clap::Subcommand;
@@ -26,11 +24,12 @@ use contender_core::{
     generator::{constants::setcode_placeholder, types::AnyProvider, RandSeed},
 };
 use contender_testfile::TestConfig;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use tracing::warn;
 
-#[derive(Clone, Debug, Subcommand, Deserialize)]
+#[derive(Clone, Debug, Subcommand, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum BuiltinScenarioCli {
     /// Send EIP-4844 blob transactions.
     Blobs(BlobsCliArgs),
@@ -77,12 +76,18 @@ pub trait ToTestConfig {
     fn to_testconfig(&self) -> TestConfig;
 }
 
+#[derive(Default)]
+pub struct BuiltinOptions {
+    pub accounts_per_agent: Option<u64>,
+    pub seed: RandSeed,
+    pub spam_rate: Option<SpamRate>,
+}
+
 impl BuiltinScenarioCli {
     pub async fn to_builtin_scenario(
         &self,
         provider: &AnyProvider,
-        spam_args: &SpamCliArgs,
-        data_dir: &Path,
+        options: BuiltinOptions,
     ) -> Result<BuiltinScenario, CliError> {
         match self.to_owned() {
             BuiltinScenarioCli::Blobs(args) => Ok(BuiltinScenario::Blobs(args)),
@@ -92,21 +97,11 @@ impl BuiltinScenarioCli {
             )),
 
             BuiltinScenarioCli::Erc20(args) => {
-                let seed = spam_args
-                    .eth_json_rpc_args
-                    .rpc_args
-                    .seed
-                    .to_owned()
-                    .unwrap_or(load_seedfile(data_dir)?);
-                let seed = RandSeed::seed_from_str(&seed);
                 let mut agents = AgentStore::new();
                 agents.init(
                     &["spammers"],
-                    spam_args
-                        .eth_json_rpc_args
-                        .rpc_args
-                        .accounts_per_agent_or(10) as usize,
-                    &seed,
+                    options.accounts_per_agent.unwrap_or(10) as usize,
+                    &options.seed,
                 );
                 let spammers = agents
                     .get_agent("spammers")
@@ -119,7 +114,7 @@ impl BuiltinScenarioCli {
             }
 
             BuiltinScenarioCli::FillBlock(args) => {
-                fill_block(provider, &spam_args.spam_args, &args).await
+                fill_block(provider, options.spam_rate.unwrap_or_default(), &args).await
             }
 
             BuiltinScenarioCli::EthFunctions(args) => {

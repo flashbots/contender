@@ -62,6 +62,10 @@ impl ContenderSessionCache {
         }
     }
 
+    pub fn next_session_id(&self) -> usize {
+        self.sessions.len()
+    }
+
     /// Add a new session to the cache. The ID is simply the index of the session in the vector.
     /// The session is not initialized yet, the caller is responsible for calling initialize on the session's contender before it's returned by the RPC provider.
     ///

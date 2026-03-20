@@ -3,6 +3,7 @@
 use super::EngineArgs;
 use crate::commands::error::ArgsError;
 use crate::commands::SpamScenario;
+use crate::default_scenarios::fill_block::SpamRate;
 use crate::error::CliError;
 use crate::util::get_signers_with_defaults;
 use alloy::consensus::TxType;
@@ -334,6 +335,17 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         visible_aliases = ["indefinite", "indefinitely", "infinite"]
     )]
     pub run_forever: bool,
+}
+
+impl SendSpamCliArgs {
+    pub fn spam_rate(&self) -> Result<SpamRate, ArgsError> {
+        match (self.txs_per_second, self.txs_per_block) {
+            (Some(_), Some(_)) => Err(ArgsError::SpamRateNotFound),
+            (None, None) => Err(ArgsError::SpamRateNotFound),
+            (Some(tps), None) => Ok(SpamRate::TxsPerSecond(tps)),
+            (None, Some(tpb)) => Ok(SpamRate::TxsPerBlock(tpb)),
+        }
+    }
 }
 
 #[derive(Copy, Debug, Clone, clap::ValueEnum)]

@@ -96,7 +96,7 @@ async fn run() -> Result<(), contender_cli::Error> {
             } else if let Some(config) = builtin_scenario_config {
                 SpamScenario::Builtin(
                     config
-                        .to_builtin_scenario(&provider, &args, &data_dir)
+                        .to_builtin_scenario(&provider, args.builtin_options(&data_dir)?)
                         .await?,
                 )
             } else {
@@ -105,7 +105,7 @@ async fn run() -> Result<(), contender_cli::Error> {
                     BuiltinScenarioCli::FillBlock(FillBlockCliArgs {
                         max_gas_per_block: None,
                     })
-                    .to_builtin_scenario(&provider, &args, &data_dir)
+                    .to_builtin_scenario(&provider, args.builtin_options(&data_dir)?)
                     .await?,
                 )
             };
