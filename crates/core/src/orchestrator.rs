@@ -534,4 +534,9 @@ where
             )
             .await
     }
+
+    /// Materialize a fresh `TestScenario` using the context which was used to create this `Contender` instance.
+    pub async fn build_scenario(&self) -> Result<TestScenario<D, S, P>> {
+        self.ctx.build_scenario().await
+    }
 }

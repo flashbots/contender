@@ -1,15 +1,16 @@
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use contender_core::test_scenario::Url;
-use jsonrpsee::{
-    proc_macros::rpc,
-    types::{ErrorObject, ErrorObjectOwned},
-};
+use contender_testfile::TestConfig;
+use jsonrpsee::{proc_macros::rpc, types::ErrorObjectOwned};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use thiserror::Error;
+use std::{str::FromStr, sync::Arc};
 use tokio::sync::RwLock;
-use tracing::info;
+use tracing::{debug, info};
 
-use crate::sessions::{ContenderSessionCache, ContenderSessionInfo};
+use crate::{
+    error::ContenderRpcError,
+    sessions::{ContenderSessionCache, ContenderSessionInfo, NewSessionParams},
+};
 
 #[rpc(server)]
 pub trait ContenderRpc {
@@ -42,27 +43,36 @@ impl ContenderServer {
     }
 }
 
+/// RPC parameters for adding a new contender session.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AddSessionParams {
     pub name: String,
     pub rpc_url: Url,
+    /// Base64-encoded TOML test config. If omitted, the default uniV2 scenario is used.
+    pub test_config_b64: Option<String>,
+    // TODO: support builtin scenarios
 }
 
-#[derive(Debug, Error)]
-enum ContenderRpcError {
-    #[error("Failed to initialize contender session: {0}")]
-    SessionInitializationFailed(contender_core::Error),
-}
+impl AddSessionParams {
+    pub fn to_new_session_params(self) -> Result<NewSessionParams, ContenderRpcError> {
+        let config_str = match self.test_config_b64 {
+            Some(b64) => {
+                let bytes = BASE64.decode(&b64)?;
+                debug!(
+                    "Decoded test config from base64, length {} bytes",
+                    bytes.len()
+                );
+                String::from_utf8(bytes).map_err(ContenderRpcError::InvalidUtf8)?
+            }
+            None => include_str!("../../../scenarios/uniV2.toml").to_string(),
+        };
+        let test_config = TestConfig::from_str(&config_str)?;
 
-impl From<ContenderRpcError> for ErrorObjectOwned {
-    fn from(err: ContenderRpcError) -> Self {
-        match err {
-            ContenderRpcError::SessionInitializationFailed(e) => ErrorObject::owned(
-                1,
-                "Failed to initialize contender session".to_string(),
-                Some(e.to_string()),
-            ),
-        }
+        Ok(NewSessionParams {
+            name: self.name.clone(),
+            rpc_url: self.rpc_url.clone(),
+            test_config,
+        })
     }
 }
 
@@ -78,7 +88,8 @@ impl ContenderRpcServer for ContenderServer {
         params: AddSessionParams,
     ) -> jsonrpsee::core::RpcResult<ContenderSessionInfo> {
         let mut sessions = self.sessions.write().await;
-        let session = sessions.add_session(params);
+
+        let session = sessions.add_session(params.to_new_session_params()?);
         let info = session.info.clone();
 
         info!(

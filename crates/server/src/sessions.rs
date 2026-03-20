@@ -1,31 +1,29 @@
-use std::str::FromStr;
-
 use contender_core::{generator::RandSeed, test_scenario::Url, Contender};
 use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
 use serde::{Deserialize, Serialize};
-
-use crate::rpc::AddSessionParams;
 
 pub struct ContenderSession {
     pub info: ContenderSessionInfo,
     pub contender: Contender<SqliteDb, RandSeed, TestConfig>,
 }
 
+pub struct NewSessionParams {
+    pub name: String,
+    pub rpc_url: Url,
+    pub test_config: TestConfig,
+}
+
 impl ContenderSession {
     /// Should only be called by ContenderSessionCache when adding a new session, since the session ID is determined by the cache
-    fn new(sessions: &[ContenderSession], params: &AddSessionParams) -> Self {
+    fn new(sessions: &[ContenderSession], params: NewSessionParams) -> Self {
         let info = ContenderSessionInfo {
             id: sessions.len(),
-            name: params.name.clone(),
-            rpc_url: params.rpc_url.clone(),
+            name: params.name,
+            rpc_url: params.rpc_url,
         };
 
-        // TODO: get TestConfig params and put them here
-        let config = TestConfig::from_str(include_str!("../../../scenarios/uniV2.toml"))
-            .expect("valid test config");
-
-        let contender = info.create_contender(config);
+        let contender = info.create_contender(params.test_config);
         Self { info, contender }
     }
 }
@@ -69,8 +67,8 @@ impl ContenderSessionCache {
     ///
     /// Returns a mutable reference to the newly added session,
     /// which can be used to call initialize on it before it's returned by the RPC provider.
-    pub fn add_session(&mut self, params: AddSessionParams) -> &mut ContenderSession {
-        let session = ContenderSession::new(&self.sessions, &params);
+    pub fn add_session(&mut self, params: NewSessionParams) -> &mut ContenderSession {
+        let session = ContenderSession::new(&self.sessions, params);
         let info = session.info.clone();
 
         self.sessions.push(session);
