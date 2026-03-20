@@ -22,6 +22,7 @@ homepage = "https://github.com/flashbots/contender"
 repository = "https://github.com/flashbots/contender"
 
 [workspace.dependencies]
+contender_cli = { path = "crates/cli" }
 contender_core = { path = "crates/core/" }
 contender_sqlite = { path = "crates/sqlite_db/" }
 contender_testfile = { path = "crates/testfile/" }

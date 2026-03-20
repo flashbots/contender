@@ -6,13 +6,14 @@ use contender_core::generator::types::SpamRequest;
 use contender_core::generator::util::encode_calldata;
 use contender_core::generator::{CompiledContract, CreateDefinition, FunctionCallDefinition};
 use contender_testfile::TestConfig;
+use serde::Deserialize;
 use std::process::Command;
 use thiserror::Error;
 use tracing::debug;
 
 const ARTIFACTS_PATH: &str = "/tmp/contender-contracts";
 
-#[derive(Clone, Debug, clap::Parser)]
+#[derive(Clone, Debug, clap::Parser, Deserialize)]
 pub struct CustomContractCliArgs {
     /// Path to smart contract source. Format: <path/to/contract.sol>:<ContractName>
     contract_path: std::path::PathBuf,

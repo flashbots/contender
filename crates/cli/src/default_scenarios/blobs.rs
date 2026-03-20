@@ -1,10 +1,11 @@
 use clap::Parser;
 use contender_core::generator::{types::SpamRequest, FunctionCallDefinition};
 use contender_testfile::TestConfig;
+use serde::Deserialize;
 
 use crate::default_scenarios::builtin::ToTestConfig;
 
-#[derive(Parser, Clone, Debug)]
+#[derive(Parser, Clone, Debug, Deserialize)]
 /// Send blob transactions. Note: the tx type will always be overridden to eip4844.
 pub struct BlobsCliArgs {
     #[arg(

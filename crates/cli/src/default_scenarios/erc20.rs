@@ -3,6 +3,7 @@ use contender_core::generator::{
     types::SpamRequest, util::parse_value, CreateDefinition, FunctionCallDefinition, FuzzParam,
 };
 use contender_testfile::TestConfig;
+use serde::Deserialize;
 use std::str::FromStr;
 
 use crate::default_scenarios::{builtin::ToTestConfig, contracts::test_token};
@@ -10,7 +11,7 @@ use crate::default_scenarios::{builtin::ToTestConfig, contracts::test_token};
 pub static DEFAULT_TOKENS_SENT: &str = "0.00001 ether";
 pub static DEFAULT_TOKENS_FUNDED: &str = "1000000 ether";
 
-#[derive(Clone, Debug, clap::Parser)]
+#[derive(Clone, Debug, clap::Parser, Deserialize)]
 pub struct Erc20CliArgs {
     #[arg(
         short,

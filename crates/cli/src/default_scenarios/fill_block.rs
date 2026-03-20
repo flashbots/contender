@@ -10,9 +10,10 @@ use contender_core::generator::{
     CreateDefinition, FunctionCallDefinition,
 };
 use contender_testfile::TestConfig;
+use serde::Deserialize;
 use tracing::{info, warn};
 
-#[derive(Parser, Clone, Debug)]
+#[derive(Parser, Clone, Debug, Deserialize)]
 /// Taken from the CLI, this is used to fill a block with transactions.
 pub struct FillBlockCliArgs {
     #[arg(short = 'g', long, long_help = "Override gas used per block. By default, the block limit is used.", visible_aliases = ["gas"])]

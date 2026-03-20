@@ -18,6 +18,7 @@ base64.workspace = true
 contender_core.workspace = true
 contender_testfile.workspace = true
 contender_sqlite.workspace = true
+contender_cli.workspace = true
 
 async-trait = { workspace = true }
 jsonrpsee = { workspace = true, features = ["server", "macros"] }

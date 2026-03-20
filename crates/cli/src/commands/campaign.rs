@@ -5,10 +5,10 @@ use crate::commands::{
     common::{ScenarioSendTxsCliArgs, SendTxsCliArgsInner},
     SpamCliArgs,
 };
+use crate::default_scenarios::BuiltinScenarioCli;
 use crate::error::CliError;
 use crate::util::load_testconfig;
 use crate::util::{load_seedfile, parse_duration};
-use crate::BuiltinScenarioCli;
 use alloy::primitives::{keccak256, U256};
 use clap::Args;
 use contender_core::db::DbOps;

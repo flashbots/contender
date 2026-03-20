@@ -26,10 +26,11 @@ use contender_core::{
     generator::{constants::setcode_placeholder, types::AnyProvider, RandSeed},
 };
 use contender_testfile::TestConfig;
+use serde::Deserialize;
 use strum::IntoEnumIterator;
 use tracing::warn;
 
-#[derive(Clone, Debug, Subcommand)]
+#[derive(Clone, Debug, Subcommand, Deserialize)]
 pub enum BuiltinScenarioCli {
     /// Send EIP-4844 blob transactions.
     Blobs(BlobsCliArgs),
