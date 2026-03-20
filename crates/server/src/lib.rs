@@ -1,6 +1,6 @@
 pub mod config;
 pub mod error;
 pub mod log_layer;
-pub mod rpc;
+pub mod rpc_server;
 pub mod sessions;
 pub mod sse;

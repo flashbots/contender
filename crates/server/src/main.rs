@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use contender_server::config::{init_tracing, load_server_config};
-use contender_server::rpc::{ContenderRpcServer as _, ContenderServer};
+use contender_server::rpc_server::{ContenderRpcServer as _, ContenderServer};
 use contender_server::sessions::ContenderSessionCache;
 use contender_server::sse::sse_router;
 use jsonrpsee::server::{Server, ServerHandle};
