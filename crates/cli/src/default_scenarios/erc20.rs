@@ -1,6 +1,7 @@
 use alloy::primitives::{Address, U256};
 use contender_core::generator::{
-    types::SpamRequest, util::parse_value, CreateDefinition, FunctionCallDefinition, FuzzParam,
+    types::SpamRequest, util::parse_value, util::deserialize_value, CreateDefinition,
+    FunctionCallDefinition, FuzzParam,
 };
 use contender_testfile::TestConfig;
 use serde::{Deserialize, Serialize};
@@ -20,6 +21,7 @@ pub struct Erc20CliArgs {
         default_value = DEFAULT_TOKENS_SENT,
         value_parser = parse_value,
     )]
+    #[serde(deserialize_with = "deserialize_value")]
     pub send_amount: U256,
 
     #[arg(
@@ -29,6 +31,7 @@ pub struct Erc20CliArgs {
         default_value = DEFAULT_TOKENS_FUNDED,
         value_parser = parse_value,
     )]
+    #[serde(deserialize_with = "deserialize_value")]
     pub fund_amount: U256,
 
     #[arg(
