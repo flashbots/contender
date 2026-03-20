@@ -136,7 +136,7 @@ impl OnTxSent for LogCallback {
         tx_actors: Option<HashMap<String, Arc<TxActorHandle>>>,
     ) -> Option<JoinHandle<CallbackResult<()>>> {
         let cancel_token = self.cancel_token.clone();
-        let handle = tokio::task::spawn(async move {
+        let handle = crate::spawn_with_session(async move {
             if let Some(tx_actors) = tx_actors {
                 let tx_actor = tx_actors["default"].clone();
                 let tx = CacheTx {
@@ -165,7 +165,7 @@ impl OnBatchSent for LogCallback {
         }
         if let Some(provider) = &self.auth_provider {
             let provider = provider.clone();
-            return Some(tokio::task::spawn(async move {
+            return Some(crate::spawn_with_session(async move {
                 provider
                     .advance_chain(DEFAULT_BLOCK_TIME)
                     .await

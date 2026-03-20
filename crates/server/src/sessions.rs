@@ -2,6 +2,9 @@ use contender_core::{generator::RandSeed, test_scenario::Url, Contender};
 use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
 use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast;
+
+use crate::log_layer::SessionLogSinks;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum SessionStatus {
@@ -13,6 +16,7 @@ pub enum SessionStatus {
 pub struct ContenderSession {
     pub info: ContenderSessionInfo,
     pub contender: Option<Contender<SqliteDb, RandSeed, TestConfig>>,
+    pub log_tx: broadcast::Sender<String>,
 }
 
 pub struct NewSessionParams {
@@ -32,9 +36,11 @@ impl ContenderSession {
         };
 
         let contender = info.create_contender(params.test_config);
+        let (log_tx, _) = broadcast::channel(256);
         Self {
             info,
             contender: Some(contender),
+            log_tx,
         }
     }
 }
@@ -65,12 +71,14 @@ impl ContenderSessionInfo {
 
 pub struct ContenderSessionCache {
     sessions: Vec<ContenderSession>,
+    log_sinks: SessionLogSinks,
 }
 
 impl ContenderSessionCache {
-    pub fn new() -> Self {
+    pub fn new(log_sinks: SessionLogSinks) -> Self {
         Self {
             sessions: Vec::new(),
+            log_sinks,
         }
     }
 
@@ -86,6 +94,12 @@ impl ContenderSessionCache {
     pub fn add_session(&mut self, params: NewSessionParams) -> &mut ContenderSession {
         let session = ContenderSession::new(&self.sessions, params);
         let info = session.info.clone();
+        let log_tx = session.log_tx.clone();
+
+        // Register the broadcast sender in the log sinks so the tracing layer can route to it.
+        if let Ok(mut sinks) = self.log_sinks.try_write() {
+            sinks.insert(info.id, log_tx);
+        }
 
         self.sessions.push(session);
         &mut self.sessions[info.id]
@@ -119,6 +133,10 @@ impl ContenderSessionCache {
     }
 
     pub fn remove_session(&mut self, id: usize) {
+        // Deregister the log sink.
+        if let Ok(mut sinks) = self.log_sinks.try_write() {
+            sinks.remove(&id);
+        }
         self.sessions.retain(|s| s.info.id != id);
     }
 

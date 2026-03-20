@@ -13,6 +13,10 @@ description = "Contender server"
 name = "contender-server"
 path = "src/main.rs"
 
+[[bin]]
+name = "contender-log-client"
+path = "src/log_client.rs"
+
 [dependencies]
 base64.workspace = true
 contender_core.workspace = true
@@ -21,7 +25,7 @@ contender_sqlite.workspace = true
 contender_cli.workspace = true
 
 async-trait = { workspace = true }
-jsonrpsee = { workspace = true, features = ["server", "macros"] }
+jsonrpsee = { workspace = true, features = ["server", "macros", "ws-client"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }

@@ -71,31 +71,33 @@ where
             let auth_provider = scenario.auth_provider.clone();
 
             // run loop in background to call fcu when spamming is done
-            let fcu_handle: tokio::task::JoinHandle<Result<()>> = tokio::task::spawn(async move {
-                if let Some(auth_client) = &auth_provider {
-                    loop {
-                        let fcu_done = is_fcu_done.load(std::sync::atomic::Ordering::SeqCst);
-                        let sending_done =
-                            is_sending_done.load(std::sync::atomic::Ordering::SeqCst);
-                        if fcu_done {
-                            info!("FCU is done, stopping block production...");
-                            break;
-                        }
-                        if sending_done {
-                            auth_client
-                                .advance_chain(DEFAULT_BLOCK_TIME)
-                                .await
-                                .map_err(|e| {
-                                    is_fcu_done.store(true, std::sync::atomic::Ordering::SeqCst);
-                                    CallbackError::AuthProvider(e)
-                                })?;
-                        } else {
-                            tokio::time::sleep(Duration::from_secs(1)).await;
+            let fcu_handle: tokio::task::JoinHandle<Result<()>> =
+                crate::spawn_with_session(async move {
+                    if let Some(auth_client) = &auth_provider {
+                        loop {
+                            let fcu_done = is_fcu_done.load(std::sync::atomic::Ordering::SeqCst);
+                            let sending_done =
+                                is_sending_done.load(std::sync::atomic::Ordering::SeqCst);
+                            if fcu_done {
+                                info!("FCU is done, stopping block production...");
+                                break;
+                            }
+                            if sending_done {
+                                auth_client
+                                    .advance_chain(DEFAULT_BLOCK_TIME)
+                                    .await
+                                    .map_err(|e| {
+                                        is_fcu_done
+                                            .store(true, std::sync::atomic::Ordering::SeqCst);
+                                        CallbackError::AuthProvider(e)
+                                    })?;
+                            } else {
+                                tokio::time::sleep(Duration::from_secs(1)).await;
+                            }
                         }
                     }
-                }
-                Ok(())
-            });
+                    Ok(())
+                });
 
             let tx_req_chunks = scenario
                 .get_spam_tx_chunks(txs_per_period, num_periods)

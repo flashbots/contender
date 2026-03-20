@@ -596,20 +596,20 @@ impl TxActorHandle {
         let mut actor = TxActor::new(receiver, flush_receiver, fb_receiver, db.clone());
 
         // Spawn the message handler task (owns the cache)
-        tokio::task::spawn(async move {
+        crate::spawn_with_session(async move {
             if let Err(e) = actor.run().await {
                 error!("TxActor message handler terminated with error: {:?}", e);
             }
         });
 
         // Spawn the independent flush task (communicates via channels)
-        tokio::task::spawn(async move {
+        crate::spawn_with_session(async move {
             flush_loop(flush_sender, db, rpc).await;
         });
 
         // Spawn the flashblocks listener task if URL is provided
         if let Some(ws_url) = flashblocks_ws_url {
-            tokio::task::spawn(async move {
+            crate::spawn_with_session(async move {
                 if let Err(e) = FlashblocksClient::listen(&ws_url, fb_sender, cancel_token).await {
                     error!("{}", e);
                 }

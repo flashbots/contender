@@ -9,11 +9,11 @@ use contender_core::{
     test_scenario::Url,
 };
 use contender_testfile::TestConfig;
-use jsonrpsee::proc_macros::rpc;
+use jsonrpsee::{proc_macros::rpc, PendingSubscriptionSink, SubscriptionMessage};
 use serde::{Deserialize, Serialize};
 use std::{str::FromStr, sync::Arc};
 use tokio::sync::RwLock;
-use tracing::{debug, info};
+use tracing::{debug, info, Instrument};
 
 use crate::{
     error::ContenderRpcError,
@@ -39,6 +39,9 @@ pub trait ContenderRpc {
 
     #[method(name = "remove_session")]
     async fn remove_session(&self, id: usize) -> jsonrpsee::core::RpcResult<()>;
+
+    #[subscription(name = "subscribe_logs" => "session_log", item = String)]
+    async fn subscribe_logs(&self, session_id: usize) -> jsonrpsee::core::SubscriptionResult;
 }
 
 pub struct ContenderServer {
@@ -160,36 +163,47 @@ impl ContenderRpcServer for ContenderServer {
             info.name, info.rpc_url
         );
 
-        tokio::spawn(async move {
-            // Take the contender out so we can initialize without holding the lock.
-            let contender = {
-                let mut lock = sessions.write().await;
-                lock.take_contender(session_id)
-            };
+        let span = tracing::info_span!("session_init", id = session_id);
+        tokio::spawn(
+            contender_core::CURRENT_SESSION_ID.scope(
+                session_id,
+                async move {
+                    // Take the contender out so we can initialize without holding the lock.
+                    let contender = {
+                        let mut lock = sessions.write().await;
+                        lock.take_contender(session_id)
+                    };
 
-            let Some(mut contender) = contender else {
-                return;
-            };
+                    let Some(mut contender) = contender else {
+                        return;
+                    };
 
-            let result = contender.initialize().await;
+                    let result = contender.initialize().await;
 
-            // Put the contender back and update status.
-            let mut lock = sessions.write().await;
-            lock.put_contender(session_id, contender);
-            if let Some(session) = lock.get_session_mut(session_id) {
-                match result {
-                    Ok(()) => {
-                        session.info.status = SessionStatus::Ready;
-                        info!("Session {} initialized successfully", session_id);
-                    }
-                    Err(e) => {
-                        let msg = e.to_string();
-                        session.info.status = SessionStatus::Failed(msg.clone());
-                        tracing::error!("Session {} initialization failed: {}", session_id, msg);
+                    // Put the contender back and update status.
+                    let mut lock = sessions.write().await;
+                    lock.put_contender(session_id, contender);
+                    if let Some(session) = lock.get_session_mut(session_id) {
+                        match result {
+                            Ok(()) => {
+                                session.info.status = SessionStatus::Ready;
+                                info!("Session {} initialized successfully", session_id);
+                            }
+                            Err(e) => {
+                                let msg = e.to_string();
+                                session.info.status = SessionStatus::Failed(msg.clone());
+                                tracing::error!(
+                                    "Session {} initialization failed: {}",
+                                    session_id,
+                                    msg
+                                );
+                            }
+                        }
                     }
                 }
-            }
-        });
+                .instrument(span),
+            ),
+        );
 
         Ok(info)
     }
@@ -205,6 +219,40 @@ impl ContenderRpcServer for ContenderServer {
     async fn remove_session(&self, id: usize) -> jsonrpsee::core::RpcResult<()> {
         let mut sessions = self.sessions.write().await;
         sessions.remove_session(id);
+        Ok(())
+    }
+
+    async fn subscribe_logs(
+        &self,
+        pending: PendingSubscriptionSink,
+        session_id: usize,
+    ) -> jsonrpsee::core::SubscriptionResult {
+        let sessions = self.sessions.read().await; // TODO: replace self.sessions calls with wrappers to avoid accidental improper locking patterns
+        let Some(session) = sessions.get_session(session_id) else {
+            pending
+                .reject(jsonrpsee::types::ErrorObject::owned(
+                    5,
+                    format!("Session {session_id} not found"),
+                    None::<()>,
+                ))
+                .await;
+            return Ok(());
+        };
+        let mut rx = session.log_tx.subscribe();
+        drop(sessions);
+
+        let sink = pending.accept().await?;
+
+        tokio::spawn(async move {
+            while let Ok(msg) = rx.recv().await {
+                let sub_msg =
+                    SubscriptionMessage::from_json(&msg).expect("failed to serialize log message");
+                if sink.send(sub_msg).await.is_err() {
+                    break;
+                }
+            }
+        });
+
         Ok(())
     }
 }
