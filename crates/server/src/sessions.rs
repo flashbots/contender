@@ -3,9 +3,16 @@ use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum SessionStatus {
+    Initializing,
+    Ready,
+    Failed(String),
+}
+
 pub struct ContenderSession {
     pub info: ContenderSessionInfo,
-    pub contender: Contender<SqliteDb, RandSeed, TestConfig>,
+    pub contender: Option<Contender<SqliteDb, RandSeed, TestConfig>>,
 }
 
 pub struct NewSessionParams {
@@ -21,10 +28,14 @@ impl ContenderSession {
             id: sessions.len(),
             name: params.name,
             rpc_url: params.rpc_url,
+            status: SessionStatus::Initializing,
         };
 
         let contender = info.create_contender(params.test_config);
-        Self { info, contender }
+        Self {
+            info,
+            contender: Some(contender),
+        }
     }
 }
 
@@ -33,6 +44,7 @@ pub struct ContenderSessionInfo {
     pub id: usize,
     pub name: String,
     pub rpc_url: Url,
+    pub status: SessionStatus,
 }
 
 impl ContenderSessionInfo {
@@ -81,6 +93,29 @@ impl ContenderSessionCache {
 
     pub fn get_session(&self, id: usize) -> Option<&ContenderSession> {
         self.sessions.iter().find(|s| s.info.id == id)
+    }
+
+    pub fn get_session_mut(&mut self, id: usize) -> Option<&mut ContenderSession> {
+        self.sessions.iter_mut().find(|s| s.info.id == id)
+    }
+
+    /// Take the Contender out of a session so it can be used outside the lock.
+    pub fn take_contender(
+        &mut self,
+        id: usize,
+    ) -> Option<Contender<SqliteDb, RandSeed, TestConfig>> {
+        self.get_session_mut(id).and_then(|s| s.contender.take())
+    }
+
+    /// Put the Contender back into a session after initialization.
+    pub fn put_contender(
+        &mut self,
+        id: usize,
+        contender: Contender<SqliteDb, RandSeed, TestConfig>,
+    ) {
+        if let Some(session) = self.get_session_mut(id) {
+            session.contender = Some(contender);
+        }
     }
 
     pub fn remove_session(&mut self, id: usize) {

@@ -9,7 +9,7 @@ use contender_core::{
     test_scenario::Url,
 };
 use contender_testfile::TestConfig;
-use jsonrpsee::{proc_macros::rpc, types::ErrorObjectOwned};
+use jsonrpsee::proc_macros::rpc;
 use serde::{Deserialize, Serialize};
 use std::{str::FromStr, sync::Arc};
 use tokio::sync::RwLock;
@@ -17,7 +17,7 @@ use tracing::{debug, info};
 
 use crate::{
     error::ContenderRpcError,
-    sessions::{ContenderSessionCache, ContenderSessionInfo, NewSessionParams},
+    sessions::{ContenderSessionCache, ContenderSessionInfo, NewSessionParams, SessionStatus},
 };
 
 #[rpc(server)]
@@ -143,23 +143,54 @@ impl ContenderRpcServer for ContenderServer {
         &self,
         params: AddSessionParams,
     ) -> jsonrpsee::core::RpcResult<ContenderSessionInfo> {
-        let mut sessions = self.sessions.write().await;
+        let session_seed;
+        let info;
+        {
+            let mut sessions = self.sessions.write().await;
+            session_seed = RandSeed::seed_from_bytes(&sessions.num_sessions().to_be_bytes());
+            let session = sessions.add_session(params.to_new_session_params(session_seed).await?);
+            info = session.info.clone();
+        }
 
-        let session_seed = RandSeed::seed_from_bytes(&sessions.num_sessions().to_be_bytes());
-        let session = sessions.add_session(params.to_new_session_params(session_seed).await?);
-        let info = session.info.clone();
+        let session_id = info.id;
+        let sessions = Arc::clone(&self.sessions);
 
         info!(
-            "Initializing session {} with RPC URL {}",
+            "Spawning initialization for session {} with RPC URL {}",
             info.name, info.rpc_url
         );
-        session
-            .contender
-            .initialize()
-            .await
-            .map_err(ContenderRpcError::SessionInitializationFailed)
-            .map_err(ErrorObjectOwned::from)?;
-        info!("Session {} initialized successfully", info.name);
+
+        tokio::spawn(async move {
+            // Take the contender out so we can initialize without holding the lock.
+            let contender = {
+                let mut lock = sessions.write().await;
+                lock.take_contender(session_id)
+            };
+
+            let Some(mut contender) = contender else {
+                return;
+            };
+
+            let result = contender.initialize().await;
+
+            // Put the contender back and update status.
+            let mut lock = sessions.write().await;
+            lock.put_contender(session_id, contender);
+            if let Some(session) = lock.get_session_mut(session_id) {
+                match result {
+                    Ok(()) => {
+                        session.info.status = SessionStatus::Ready;
+                        info!("Session {} initialized successfully", session_id);
+                    }
+                    Err(e) => {
+                        let msg = e.to_string();
+                        session.info.status = SessionStatus::Failed(msg.clone());
+                        tracing::error!("Session {} initialization failed: {}", session_id, msg);
+                    }
+                }
+            }
+        });
+
         Ok(info)
     }
 
