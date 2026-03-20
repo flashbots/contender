@@ -26,17 +26,18 @@ pub struct NewSessionParams {
 }
 
 impl ContenderSession {
-    /// Should only be called by ContenderSessionCache when adding a new session, since the session ID is determined by the cache
-    fn new(sessions: &[ContenderSession], params: NewSessionParams) -> Self {
+    /// Should only be called by ContenderSessionCache when adding a new session,
+    /// since the session ID is determined by the cache
+    fn new(id: usize, params: NewSessionParams) -> Self {
         let info = ContenderSessionInfo {
-            id: sessions.len(),
+            id,
             name: params.name,
             rpc_url: params.rpc_url,
             status: SessionStatus::Initializing,
         };
 
         let contender = info.create_contender(params.test_config);
-        let (log_tx, _) = broadcast::channel(256);
+        let (log_tx, _) = broadcast::channel(4096);
         Self {
             info,
             contender: Some(contender),
@@ -92,7 +93,7 @@ impl ContenderSessionCache {
     /// Returns a mutable reference to the newly added session,
     /// which can be used to call initialize on it before it's returned by the RPC provider.
     pub fn add_session(&mut self, params: NewSessionParams) -> &mut ContenderSession {
-        let session = ContenderSession::new(&self.sessions, params);
+        let session = ContenderSession::new(self.next_session_id(), params);
         let info = session.info.clone();
         let log_tx = session.log_tx.clone();
 
