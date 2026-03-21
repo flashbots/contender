@@ -543,6 +543,11 @@ async fn process_block_receipts<D: DbOps + Send + Sync + 'static>(
         .collect();
 
     if !run_txs.is_empty() {
+        info!(
+            "receipts found: {} confirmed txs in block {}",
+            run_txs.len(),
+            target_block_num
+        );
         db.insert_run_txs(run_id, &run_txs).map_err(|e| e.into())?;
     }
 

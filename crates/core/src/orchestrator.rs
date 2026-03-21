@@ -9,6 +9,7 @@ use crate::{
         agent_pools::AgentSpec,
         seeder::{rand_seed::SeedGenerator, Seeder},
         templater::Templater,
+        types::AnyProvider,
         PlanConfig, RandSeed,
     },
     spammer::{tx_actor::TxActorHandle, OnBatchSent, OnTxSent, Spammer},
@@ -17,8 +18,13 @@ use crate::{
     Result,
 };
 use alloy::{
-    consensus::TxType, node_bindings::WEI_IN_ETHER, primitives::U256,
-    signers::local::PrivateKeySigner, transports::http::reqwest::Url,
+    consensus::TxType,
+    network::AnyNetwork,
+    node_bindings::WEI_IN_ETHER,
+    primitives::U256,
+    providers::{DynProvider, Provider},
+    signers::local::PrivateKeySigner,
+    transports::http::reqwest::Url,
 };
 use contender_bundle_provider::bundle::BundleType;
 use contender_engine_provider::ControlChain;
@@ -523,6 +529,14 @@ where
         );
         let run_id = scenario.db.insert_run(&run_req).map_err(|e| e.into())?;
 
+        // Initialize TxActor contexts so flush_loop can match receipts.
+        let current_block = scenario.rpc_client.get_block_number().await?;
+        let actor_ctx = crate::spammer::tx_actor::ActorContext::new(current_block, run_id)
+            .with_pending_tx_timeout(Duration::from_secs(self.ctx.pending_tx_timeout_secs));
+        for handle in scenario.msg_handles.values() {
+            handle.init_ctx(actor_ctx.clone()).await?;
+        }
+
         // send spam
         spammer
             .spam_rpc(
@@ -538,5 +552,14 @@ where
     /// Materialize a fresh `TestScenario` using the context which was used to create this `Contender` instance.
     pub async fn build_scenario(&self) -> Result<TestScenario<D, S, P>> {
         self.ctx.build_scenario().await
+    }
+
+    /// Produce a web3 provider connected to the current instance's RPC URL.
+    pub fn provider(&self) -> AnyProvider {
+        DynProvider::new(
+            alloy::providers::ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .connect_http(self.ctx.rpc_url.clone()),
+        )
     }
 }

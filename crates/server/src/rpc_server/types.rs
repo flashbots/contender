@@ -8,6 +8,7 @@ use contender_core::{
     },
     generator::RandSeed,
     test_scenario::Url,
+    RunOpts,
 };
 use contender_testfile::TestConfig;
 use serde::{Deserialize, Serialize};
@@ -92,6 +93,48 @@ impl TestConfigSource {
                 Ok(scenario)
             }
         }
+    }
+}
+
+/// RPC parameters for the `spam` method.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SpamParams {
+    pub session_id: usize,
+    /// Number of transactions per period. Defaults to 10.
+    pub txs_per_period: Option<u64>,
+    /// Number of periods (seconds or blocks). Defaults to 10.
+    pub duration: Option<u64>,
+    /// Which spammer to use. Defaults to `Timed`.
+    pub spammer: Option<SpammerType>,
+    /// Human-readable name for this spam run.
+    pub name: Option<String>,
+    /// Whether to look for receipts while spamming; enables onchain metrics collection.
+    pub save_receipts: Option<bool>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SpammerType {
+    /// Send a batch of txs at a fixed time interval (1 second).
+    #[default]
+    Timed,
+    /// Send a batch of txs every new block.
+    Blockwise,
+}
+
+impl SpamParams {
+    pub fn to_run_opts(&self) -> RunOpts {
+        let mut opts = RunOpts::new();
+        if let Some(n) = self.txs_per_period {
+            opts = opts.txs_per_period(n);
+        }
+        if let Some(n) = self.duration {
+            opts = opts.periods(n);
+        }
+        if let Some(name) = &self.name {
+            opts = opts.name(name);
+        }
+        opts
     }
 }
 

@@ -1,12 +1,14 @@
 use contender_core::generator::RandSeed;
+use contender_core::spammer::{BlockwiseSpammer, LogCallback, NilCallback, TimedSpammer};
 use jsonrpsee::{proc_macros::rpc, PendingSubscriptionSink, SubscriptionMessage};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{info, Instrument};
 
 use crate::{
     error::ContenderRpcError,
-    rpc_server::types::AddSessionParams,
+    rpc_server::types::{AddSessionParams, SpamParams, SpammerType},
     sessions::{ContenderSessionCache, ContenderSessionInfo, SessionStatus},
 };
 
@@ -33,7 +35,7 @@ pub trait ContenderRpc {
     async fn remove_session(&self, id: usize) -> jsonrpsee::core::RpcResult<()>;
 
     #[method(name = "spam")]
-    async fn spam(&self, session_id: usize) -> jsonrpsee::core::RpcResult<String>;
+    async fn spam(&self, params: SpamParams) -> jsonrpsee::core::RpcResult<String>;
 
     // ================ WS Methods ================
 
@@ -172,7 +174,8 @@ impl ContenderRpcServer for ContenderServer {
         Ok(())
     }
 
-    async fn spam(&self, session_id: usize) -> jsonrpsee::core::RpcResult<String> {
+    async fn spam(&self, params: SpamParams) -> jsonrpsee::core::RpcResult<String> {
+        let session_id = params.session_id;
         let sessions = self.sessions.read().await;
         let Some(session) = sessions.get_session(session_id) else {
             return Err(ContenderRpcError::SessionNotFound(session_id).into());
@@ -181,16 +184,67 @@ impl ContenderRpcServer for ContenderServer {
         if session.info.status != SessionStatus::Ready {
             return Err(ContenderRpcError::SessionNotInitialized(session.info.clone()).into());
         }
+        let save_receipts = params.save_receipts.unwrap_or(false);
+        println!("{}saving receipts", if save_receipts { "" } else { "not " });
+
         drop(sessions);
 
+        // Take the contender out so we can spam without holding the lock.
+        let contender = {
+            let mut lock = self.sessions.write().await;
+            lock.take_contender(session_id)
+        };
+
+        let Some(contender) = contender else {
+            return Err(ContenderRpcError::SessionNotFound(session_id).into());
+        };
+
+        let sessions = Arc::clone(&self.sessions);
         let span = tracing::info_span!("session_spam", id = session_id);
         tokio::spawn(
-            contender_core::CURRENT_SESSION_ID
-                .scope(session_id, async move {
-                    println!("spawned task for spamming session {session_id}");
-                    // TODO: spam with contender here
-                })
+            contender_core::CURRENT_SESSION_ID.scope(
+                session_id,
+                async move {
+                    let mut contender = contender;
+                    let opts = params.to_run_opts();
+                    let spammer_type = params.spammer.unwrap_or_default();
+
+                    macro_rules! run_spam {
+                        ($callback:expr) => {
+                            match spammer_type {
+                                SpammerType::Timed => {
+                                    let spammer = TimedSpammer::new(Duration::from_secs(1));
+                                    contender.spam(spammer, Arc::new($callback), opts).await
+                                }
+                                SpammerType::Blockwise => {
+                                    let spammer = BlockwiseSpammer::new();
+                                    contender.spam(spammer, Arc::new($callback), opts).await
+                                }
+                            }
+                        };
+                    }
+
+                    let result = if save_receipts {
+                        let provider = contender.provider();
+                        run_spam!(LogCallback::new(Arc::new(provider)))
+                    } else {
+                        run_spam!(NilCallback)
+                    };
+
+                    // Put the contender back and log outcome.
+                    let mut lock = sessions.write().await;
+                    lock.put_contender(session_id, contender);
+                    match result {
+                        Ok(()) => {
+                            info!("Session {} spam completed successfully", session_id);
+                        }
+                        Err(e) => {
+                            tracing::error!("Session {} spam failed: {}", session_id, e);
+                        }
+                    }
+                }
                 .instrument(span),
+            ),
         );
 
         Ok(format!("Spamming session {session_id}"))

@@ -55,7 +55,7 @@ where
         };
 
         // Format the event.
-        let formatted = format_event(event);
+        let formatted = format_event(event, session_id);
 
         // Try to send non-blocking (don't await the RwLock — use try_read).
         if let Ok(sinks) = self.sinks.try_read() {
@@ -102,7 +102,7 @@ impl Visit for SessionSpanFields {
     fn record_debug(&mut self, _field: &tracing::field::Field, _value: &dyn fmt::Debug) {}
 }
 
-fn format_event(event: &Event<'_>) -> String {
+fn format_event(event: &Event<'_>, session_id: usize) -> String {
     let metadata = event.metadata();
     let mut visitor = MessageVisitor {
         message: String::new(),
@@ -114,7 +114,14 @@ fn format_event(event: &Event<'_>) -> String {
         &mut tracing_subscriber::fmt::format::Writer::new(&mut timestamp),
     );
 
-    format!("{} {}: {}", timestamp, metadata.level(), visitor.message)
+    format!(
+        "{} {} session[{}] {}: {}",
+        timestamp,
+        metadata.level(),
+        session_id,
+        metadata.target(),
+        visitor.message
+    )
 }
 
 struct MessageVisitor {
