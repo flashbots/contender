@@ -7,8 +7,8 @@ bytecode = "0x6080604052348015600e575f80fd5b5061027f8061001c5f395ff3fe6080604052
 
 # SHA256 precompile (0x02) stress
 [[spam]]
-from_pool = "sha256_pool"
 [spam.tx]
+from_pool = "sha256_pool"
 to = "{PrecompileHammer}"
 signature = "hashSHA256(uint256 iterations, bytes memory data)"
 args = ["200", "0xdeadbeef"]
@@ -18,8 +18,8 @@ fuzz = [
 
 # RIPEMD160 precompile (0x03) stress
 [[spam]]
-from_pool = "ripemd160_pool"
 [spam.tx]
+from_pool = "ripemd160_pool"
 to = "{PrecompileHammer}"
 signature = "hashRIPEMD160(uint256 iterations2, bytes memory data2)"
 args = ["200", "0xdeadbeef"]
@@ -29,8 +29,8 @@ fuzz = [
 
 # Identity precompile (0x04) stress — cheaper per call, so higher iteration range
 [[spam]]
-from_pool = "identity_pool"
 [spam.tx]
+from_pool = "identity_pool"
 to = "{PrecompileHammer}"
 signature = "callIdentity(uint256 iterations3, bytes memory data3)"
 args = ["1000", "0xdeadbeef"]
@@ -40,8 +40,8 @@ fuzz = [
 
 # Batch all three precompiles per iteration
 [[spam]]
-from_pool = "batch_pool"
 [spam.tx]
+from_pool = "batch_pool"
 to = "{PrecompileHammer}"
 signature = "batchPrecompiles(uint256 iterations4, bytes memory data4)"
 args = ["100", "0xdeadbeef"]

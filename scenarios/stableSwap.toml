@@ -137,6 +137,7 @@ to = "{StableSwap}"
 from_pool = "spammer"
 signature = "swap(uint256 i, uint256 j, uint256 dx) returns (uint256 dy)"
 args = ["0", "1", "10000000000000000"]
+gas_limit = 300000
 fuzz = [{ param = "dx", min = "10000000000000000", max = "10000000000000000000" }]
 
 # Swap TokenB for TokenA (index 1 -> 0)
@@ -148,6 +149,7 @@ to = "{StableSwap}"
 from_pool = "spammer"
 signature = "swap(uint256 i, uint256 j, uint256 dx) returns (uint256 dy)"
 args = ["1", "0", "10000000000000000"]
+gas_limit = 300000
 fuzz = [{ param = "dx", min = "10000000000000000", max = "10000000000000000000" }]
 
 # Add liquidity with fuzzed amounts
@@ -159,6 +161,7 @@ to = "{StableSwap}"
 from_pool = "spammer"
 signature = "addLiquidity(uint256 amountA, uint256 amountB) returns (uint256 lpAmount)"
 args = ["10000000000000000", "10000000000000000"]
+gas_limit = 300000
 fuzz = [
     { param = "amountA", min = "10000000000000000", max = "1000000000000000000" },
     { param = "amountB", min = "10000000000000000", max = "1000000000000000000" },

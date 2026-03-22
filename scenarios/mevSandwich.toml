@@ -161,6 +161,7 @@ to = "{SandwichPool}"
 from_pool = "victims"
 signature = "swap(address tokenIn, uint256 amountIn, uint256 minAmountOut) returns (uint256)"
 args = ["{TokenA}", "1000000000000000000", "0"]
+gas_limit = 300000
 fuzz = [{ param = "amountIn", min = "100000000000000000", max = "5000000000000000000" }]
 
 # Pattern 2: MEV Sandwich bundle (frontrun + victim + backrun)

@@ -77,43 +77,34 @@ gas_limit = 200000
 [[setup]]
 kind = "launchpad_create_token_1"
 to = "{TokenLaunchpad}"
-signature = "createToken(bytes32 salt, uint256 basePrice, uint256 slope) returns (address)"
+signature = "createToken(uint256 salt, uint256 basePrice, uint256 slope) returns (address)"
 args = ["{salt1}", "{basePrice}", "{slope}"]
-value = "0.1 eth"
+value = "0.01 eth"
 gas_limit = 1000000
 
 [[setup]]
 kind = "launchpad_create_token_2"
 to = "{TokenLaunchpad}"
-signature = "createToken(bytes32 salt, uint256 basePrice, uint256 slope) returns (address)"
+signature = "createToken(uint256 salt, uint256 basePrice, uint256 slope) returns (address)"
 args = ["{salt2}", "{basePrice}", "{slope2}"]
-value = "0.1 eth"
+value = "0.01 eth"
 gas_limit = 1000000
 
 [[setup]]
 kind = "launchpad_create_token_3"
 to = "{TokenLaunchpad}"
-signature = "createToken(bytes32 salt, uint256 basePrice, uint256 slope) returns (address)"
+signature = "createToken(uint256 salt, uint256 basePrice, uint256 slope) returns (address)"
 args = ["{salt3}", "{basePrice}", "{slope3}"]
-value = "0.1 eth"
+value = "0.01 eth"
 gas_limit = 1000000
 
 [[setup]]
 kind = "launchpad_create_token_4"
 to = "{TokenLaunchpad}"
-signature = "createToken(bytes32 salt, uint256 basePrice, uint256 slope) returns (address)"
+signature = "createToken(uint256 salt, uint256 basePrice, uint256 slope) returns (address)"
 args = ["{salt4}", "{basePrice}", "{slope4}"]
-value = "0.1 eth"
+value = "0.01 eth"
 gas_limit = 1000000
-
-[[setup]]
-kind = "launchpad_create_token_5"
-to = "{TokenLaunchpad}"
-signature = "createToken(bytes32 salt, uint256 basePrice, uint256 slope) returns (address)"
-args = ["{salt5}", "{basePrice}", "{slope5}"]
-value = "0.1 eth"
-gas_limit = 1000000
-
 
 ### Spam patterns ##############################################################
 
@@ -125,12 +116,12 @@ gas_limit = 1000000
 kind = "create_token"
 to = "{TokenLaunchpad}"
 from_pool = "spammer"
-signature = "createToken(bytes32 salt, uint256 basePrice, uint256 slope) returns (address)"
+signature = "createToken(uint256 salt, uint256 basePrice, uint256 slope) returns (address)"
 args = ["{salt1}", "{basePrice}", "{slope}"]
 value = "0.01 eth"
 gas_limit = 500000
 fuzz = [
-    { param = "salt", min = "0", max = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" },
+    { param = "salt", min = "1000000", max = "999999999" },
 ]
 
 # 2. Buy tokens on the standalone BondingCurveToken directly

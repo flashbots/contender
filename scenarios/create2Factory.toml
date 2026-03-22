@@ -17,7 +17,7 @@
 # a unique contract (CREATE2 addresses are deterministic from salt).
 
 [env]
-# Pre-defined salts for setup verification
+# Pre-defined salts for setup verification (full 32-byte hex to avoid odd-length hex parsing errors)
 salt_one = "0x0000000000000000000000000000000000000000000000000000000000000001"
 salt_two = "0x0000000000000000000000000000000000000000000000000000000000000002"
 salt_three = "0x0000000000000000000000000000000000000000000000000000000000000003"
@@ -51,21 +51,21 @@ bytecode = "0x6080604052348015600e575f80fd5b506103d98061001c5f395ff3fe6080604052
 kind = "setup_clone_1"
 to = "{CloneFactory}"
 from_pool = "admin"
-signature = "createClone(bytes32 salt) returns (address)"
+signature = "createClone(uint256 salt) returns (address)"
 args = ["{salt_one}"]
 
 [[setup]]
 kind = "setup_clone_2"
 to = "{CloneFactory}"
 from_pool = "admin"
-signature = "createClone(bytes32 salt) returns (address)"
+signature = "createClone(uint256 salt) returns (address)"
 args = ["{salt_two}"]
 
 [[setup]]
 kind = "setup_clone_3"
 to = "{CloneFactory}"
 from_pool = "admin"
-signature = "createAndInitialize(bytes32 salt, address owner) returns (address)"
+signature = "createAndInitialize(uint256 salt, address owner) returns (address)"
 args = ["{salt_three}", "{_sender}"]
 
 
@@ -78,10 +78,10 @@ args = ["{salt_three}", "{_sender}"]
 kind = "create_clone"
 to = "{CloneFactory}"
 from_pool = "clone_deployers"
-signature = "createClone(bytes32 salt) returns (address)"
+signature = "createClone(uint256 salt) returns (address)"
 args = ["{salt_one}"]
 gas_limit = 150000
-fuzz = [{ param = "salt", min = "0x0000000000000000000000000000000000000000000000000000000100000000", max = "0x00000000000000000000000000000000ffffffffffffffffffffffffffffffff" }]
+fuzz = [{ param = "salt", min = "1000000", max = "999999999" }]
 
 # Spam 2: Deploy + initialize in one tx (proxy creation + storage writes)
 # Passes {_sender} as owner so each clone is owned by its deployer
@@ -90,10 +90,10 @@ fuzz = [{ param = "salt", min = "0x000000000000000000000000000000000000000000000
 kind = "create_and_init"
 to = "{CloneFactory}"
 from_pool = "init_deployers"
-signature = "createAndInitialize(bytes32 salt, address owner) returns (address)"
+signature = "createAndInitialize(uint256 salt, address owner) returns (address)"
 args = ["{salt_one}", "{_sender}"]
 gas_limit = 200000
-fuzz = [{ param = "salt", min = "0x0000000000000000000000000000000100000000000000000000000000000000", max = "0x000000000000000000000000000000010000000000000000ffffffffffffffff" }]
+fuzz = [{ param = "salt", min = "2000000000", max = "3999999999" }]
 
 # Spam 3: Full contract deployment via CREATE2 (most expensive — full initcode)
 # Deploys a complete SimpleImplementation, not a minimal proxy
@@ -102,7 +102,7 @@ fuzz = [{ param = "salt", min = "0x000000000000000000000000000000010000000000000
 kind = "full_deploy"
 to = "{FullDeployFactory}"
 from_pool = "full_deployers"
-signature = "deploy(bytes32 salt) returns (address)"
+signature = "deploy(uint256 salt) returns (address)"
 args = ["{salt_one}"]
 gas_limit = 300000
-fuzz = [{ param = "salt", min = "0x0000000000000000000000000000000200000000000000000000000000000000", max = "0x00000000000000000000000000000002ffffffffffffffffffffffffffffffff" }]
+fuzz = [{ param = "salt", min = "4000000000", max = "5999999999" }]

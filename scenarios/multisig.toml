@@ -107,7 +107,7 @@ signature = "function confirmTransaction(uint256 txId) external"
 args = ["0"]
 gas_limit = 120000
 fuzz = [
-    { param = "txId", min = "0", max = "{max_tx_id}" },
+    { param = "txId", min = "0", max = "99" },
 ]
 
 ## Spam 3: execute transactions (may revert if not enough confirmations)
@@ -120,5 +120,5 @@ signature = "function executeTransaction(uint256 txId) external"
 args = ["0"]
 gas_limit = 150000
 fuzz = [
-    { param = "txId", min = "0", max = "{max_tx_id}" },
+    { param = "txId", min = "0", max = "99" },
 ]

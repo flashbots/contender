@@ -2,10 +2,10 @@
 # Tests: storage-heavy registration, renewals, record updates with keccak256 hashing
 
 [env]
-# Pre-defined names for setup (as bytes32 values)
-name_alice = "0x616c696365000000000000000000000000000000000000000000000000000000"
-name_bob = "0x626f620000000000000000000000000000000000000000000000000000000000"
-name_carol = "0x6361726f6c000000000000000000000000000000000000000000000000000000"
+# Pre-defined names for setup (full 32-byte hex to avoid odd-length hex parsing errors)
+name_alice = "0x0000000000000000000000000000000000000000000000000000000000000001"
+name_bob = "0x0000000000000000000000000000000000000000000000000000000000000002"
+name_carol = "0x0000000000000000000000000000000000000000000000000000000000000003"
 
 
 # Deploy SimpleNameRegistry
@@ -45,11 +45,10 @@ value = "0.001 eth"
 kind = "register_new_name"
 to = "{SimpleNameRegistry}"
 from_pool = "registrants"
-signature = "function register(bytes32 name) payable"
-args = ["{name_alice}"]
+signature = "function register(uint256 name) payable"
+args = ["12345678"]
 value = "0.001 eth"
 gas_limit = 150000
-fuzz = [{ param = "name", min = "0", max = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" }]
 
 # Spam 2: Renew an existing name (registered in setup)
 [[spam]]

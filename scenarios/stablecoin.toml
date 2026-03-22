@@ -34,6 +34,7 @@ from_pool = "spammer"
 signature = "mint()"
 args = []
 value = "0.005 eth"
+gas_limit = 300000
 fuzz = [{ param = "value", min = "1000000000000000", max = "10000000000000000" }]
 
 # Spam 2: Burn stablecoins - fuzz amount from 1e15 to 1e16
@@ -56,6 +57,7 @@ to = "{SimpleStablecoin}"
 from_pool = "spammer"
 signature = "function transfer(address to, uint256 amount) returns (bool)"
 args = ["{_sender}", "500000000000000000"]
+gas_limit = 300000
 fuzz = [{ param = "amount", min = "100000000000000000", max = "1000000000000000000" }]
 
 # Spam 4: Flash mint+burn - heavy storage ops, no ETH needed
@@ -67,4 +69,5 @@ to = "{SimpleStablecoin}"
 from_pool = "spammer"
 signature = "function flashMintBurn(uint256 amount)"
 args = ["1000000000000000000000"]
+gas_limit = 300000
 fuzz = [{ param = "amount", min = "1000000000000000000", max = "1000000000000000000000" }]

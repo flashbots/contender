@@ -222,4 +222,5 @@ kind = "nft_transfer"
 to = "{SimpleERC721}"
 signature = "transferFrom(address from, address to, uint256 tokenId)"
 args = ["{_sender}", "{_sender}", "1"]
+gas_limit = 300000
 fuzz = [{ param = "tokenId", min = "1", max = "1000" }]

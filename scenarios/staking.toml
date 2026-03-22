@@ -74,6 +74,7 @@ to = "{SimpleStaking}"
 from_pool = "spammer"
 signature = "stake(uint256 amount)"
 args = ["50000000000000000"]
+gas_limit = 300000
 fuzz = [{ param = "amount", min = "1000000000000000", max = "100000000000000000" }]
 
 # 2. Unstake tokens (fuzz amount, with gas_limit)

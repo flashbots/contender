@@ -105,6 +105,7 @@ to = "{SimpleLending}"
 from_pool = "spammer"
 signature = "depositCollateral(uint256 amount)"
 args = ["50000000000000000"]
+gas_limit = 300000
 fuzz = [
     { param = "amount", min = "1000000000000000", max = "100000000000000000" },
 ]
