@@ -576,11 +576,6 @@ async fn process_block_receipts<D: DbOps + Send + Sync + 'static>(
         .collect();
 
     if !run_txs.is_empty() {
-        info!(
-            "receipts found: {} confirmed txs in block {}",
-            run_txs.len(),
-            target_block_num
-        );
         db.insert_run_txs(run_id, &run_txs).map_err(|e| e.into())?;
     }
 
@@ -602,6 +597,7 @@ fn get_tx_error(
 #[derive(Debug)]
 pub struct TxActorHandle {
     sender: mpsc::Sender<TxActorMessage>,
+    flush_complete: CancellationToken,
 }
 
 #[derive(Debug)]
@@ -642,8 +638,11 @@ impl TxActorHandle {
 
         // Spawn the independent flush task (communicates via channels)
         let flush_cancel = cancel_token.clone();
+        let flush_complete = CancellationToken::new();
+        let flush_done = flush_complete.clone();
         crate::spawn_with_session(async move {
             flush_loop(flush_sender, db, rpc, flush_cancel).await;
+            flush_done.cancel();
         });
 
         // Spawn the flashblocks listener task if URL is provided
@@ -655,7 +654,15 @@ impl TxActorHandle {
             });
         }
 
-        Ok(Self { sender })
+        Ok(Self {
+            sender,
+            flush_complete,
+        })
+    }
+
+    /// Waits until the flush loop has finished processing all receipts.
+    pub async fn await_flush(&self) {
+        self.flush_complete.cancelled().await;
     }
 
     /// Adds a new tx to the cache.

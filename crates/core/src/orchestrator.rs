@@ -552,6 +552,11 @@ where
         // once all receipts are processed (or after the stale block timeout).
         scenario.ctx.cancel_token.cancel();
 
+        // Wait for all flush loops to finish collecting receipts.
+        for handle in scenario.msg_handles.values() {
+            handle.await_flush().await;
+        }
+
         result
     }
 
