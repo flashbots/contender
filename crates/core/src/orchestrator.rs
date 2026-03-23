@@ -538,7 +538,7 @@ where
         }
 
         // send spam
-        spammer
+        let result = spammer
             .spam_rpc(
                 &mut scenario,
                 opts.txs_per_period,
@@ -546,7 +546,13 @@ where
                 Some(run_id),
                 callback,
             )
-            .await
+            .await;
+
+        // Signal the flush loop that sending is done so it can shut down
+        // once all receipts are processed (or after the stale block timeout).
+        scenario.ctx.cancel_token.cancel();
+
+        result
     }
 
     /// Materialize a fresh `TestScenario` using the context which was used to create this `Contender` instance.
