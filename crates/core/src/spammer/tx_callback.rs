@@ -32,10 +32,10 @@ pub trait SpamCallback: OnTxSent + OnBatchSent + Send + Sync {}
 
 #[derive(Clone, Debug)]
 pub struct RuntimeTxInfo {
-    start_timestamp_ms: u128,
-    end_timestamp_ms: Option<u128>,
-    kind: Option<String>,
-    error: Option<String>,
+    pub start_timestamp_ms: u128,
+    pub end_timestamp_ms: Option<u128>,
+    pub kind: Option<String>,
+    pub error: Option<String>,
 }
 
 impl RuntimeTxInfo {
@@ -72,23 +72,6 @@ impl RuntimeTxInfo {
     pub fn with_end_timestamp(mut self, end_timestamp_ms: u128) -> Self {
         self.end_timestamp_ms = Some(end_timestamp_ms);
         self
-    }
-
-
-    pub fn start_timestamp_ms(&self) -> u128 {
-        self.start_timestamp_ms
-    }
-
-    pub fn end_timestamp_ms(&self) -> Option<u128> {
-        self.end_timestamp_ms
-    }
-
-    pub fn kind(&self) -> Option<&String> {
-        self.kind.as_ref()
-    }
-
-    pub fn error(&self) -> Option<&String> {
-        self.error.as_ref()
     }
 }
 
