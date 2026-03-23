@@ -157,16 +157,23 @@ impl ContenderRpcServer for ContenderServer {
             return Ok(());
         };
         let mut rx = session.log_channel.subscribe();
+        let cancel = session.cancel.clone();
         drop(sessions);
 
         let sink = pending.accept().await?;
 
         tokio::spawn(async move {
-            while let Ok(msg) = rx.recv().await {
-                let sub_msg =
-                    SubscriptionMessage::from_json(&msg).expect("failed to serialize log message");
-                if sink.send(sub_msg).await.is_err() {
-                    break;
+            loop {
+                tokio::select! {
+                    result = rx.recv() => {
+                        let Ok(msg) = result else { break };
+                        let sub_msg =
+                            SubscriptionMessage::from_json(&msg).expect("failed to serialize log message");
+                        if sink.send(sub_msg).await.is_err() {
+                            break;
+                        }
+                    }
+                    _ = cancel.cancelled() => break,
                 }
             }
         });

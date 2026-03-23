@@ -3,6 +3,7 @@ use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     log_layer::SessionLogSinks,
@@ -44,6 +45,8 @@ pub struct ContenderSession {
     pub info: ContenderSessionInfo,
     pub contender: Option<Contender<SqliteDb, RandSeed, TestConfig>>,
     pub log_channel: broadcast::Sender<String>,
+    /// Cancelled when the session is removed; subscriber tasks should select on this.
+    pub cancel: CancellationToken,
 }
 
 pub struct NewSessionParams {
@@ -69,6 +72,7 @@ impl ContenderSession {
             info,
             contender: Some(contender),
             log_channel,
+            cancel: CancellationToken::new(),
         }
     }
 }
@@ -161,6 +165,10 @@ impl ContenderSessionCache {
     }
 
     pub fn remove_session(&mut self, id: usize) {
+        // Cancel subscriber streams before dropping the session.
+        if let Some(session) = self.get_session(id) {
+            session.cancel.cancel();
+        }
         // Deregister the log sink.
         if let Ok(mut sinks) = self.log_sinks.try_write() {
             sinks.remove(&id);

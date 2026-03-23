@@ -28,6 +28,7 @@ async-trait = { workspace = true }
 jsonrpsee = { workspace = true, features = ["server", "macros", "ws-client"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 serde.workspace = true

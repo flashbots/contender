@@ -7,7 +7,8 @@ use axum::{
     Router,
 };
 use tokio::sync::RwLock;
-use tokio_stream::{wrappers::BroadcastStream, StreamExt};
+use tokio_stream::{wrappers::ReceiverStream, Stream};
+use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
 use crate::sessions::ContenderSessionCache;
@@ -27,7 +28,7 @@ async fn logs_handler(
     Path(session_id): Path<usize>,
     State(sessions): State<SharedSessions>,
 ) -> Result<
-    Sse<impl tokio_stream::Stream<Item = Result<Event, std::convert::Infallible>>>,
+    Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>,
     (axum::http::StatusCode, String),
 > {
     let sessions = sessions.read().await;
@@ -38,15 +39,39 @@ async fn logs_handler(
         )
     })?;
     let rx = session.log_channel.subscribe();
+    let cancel = session.cancel.clone();
     drop(sessions);
 
-    let stream = BroadcastStream::new(rx).filter_map(|res| match res {
-        Ok(msg) => Some(Ok(Event::default().data(msg))),
-        Err(e) => {
-            warn!("SSE broadcast lag: {e}");
-            None
-        }
-    });
+    let stream = cancel_on_remove(rx, cancel);
 
     Ok(Sse::new(stream))
+}
+
+/// Wraps a broadcast receiver into a stream that terminates when the cancel token fires.
+fn cancel_on_remove(
+    mut rx: tokio::sync::broadcast::Receiver<String>,
+    cancel: CancellationToken,
+) -> impl Stream<Item = Result<Event, std::convert::Infallible>> {
+    let (tx, mpsc_rx) = tokio::sync::mpsc::channel::<Result<Event, std::convert::Infallible>>(256);
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                result = rx.recv() => {
+                    match result {
+                        Ok(msg) => {
+                            if tx.send(Ok(Event::default().data(msg))).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            warn!("SSE broadcast lag: skipped {n} messages");
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+                _ = cancel.cancelled() => break,
+            }
+        }
+    });
+    ReceiverStream::new(mpsc_rx)
 }
