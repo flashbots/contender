@@ -270,7 +270,7 @@ fn error_if_session_not_ready(
             .into())
         }
         SessionStatus::Spamming(_) => {
-            return Err(ContenderRpcError::SessionSpamming(session_info.clone()).into())
+            return Err(ContenderRpcError::SessionBusy(session_info.clone()).into())
         }
         SessionStatus::Ready => (),
         _ => return Err(ContenderRpcError::SessionNotInitialized(session_info.clone()).into()),

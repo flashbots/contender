@@ -21,8 +21,8 @@ pub enum ContenderRpcError {
         error: String,
     },
 
-    #[error("Session {} is currently spamming with params: {:?}", _0.id, _0.status)]
-    SessionSpamming(ContenderSessionInfo),
+    #[error("Session {} is currently busy: {:?}", _0.id, _0.status)]
+    SessionBusy(ContenderSessionInfo),
 
     #[error("Invalid test config: {0}")]
     InvalidTestConfig(#[from] contender_testfile::Error),
@@ -80,12 +80,9 @@ impl From<ContenderRpcError> for ErrorObjectOwned {
                 Option::<String>::None,
             ),
 
-            ContenderRpcError::SessionSpamming(info) => ErrorObject::owned(
+            ContenderRpcError::SessionBusy(info) => ErrorObject::owned(
                 7,
-                format!(
-                    "Session {} is currently spamming with params: {:?}",
-                    info.id, info.status
-                ),
+                format!("Session {} is currently busy: {}", info.id, info.status),
                 Option::<String>::None,
             ),
 
