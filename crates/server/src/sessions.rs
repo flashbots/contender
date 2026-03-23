@@ -4,12 +4,16 @@ use contender_testfile::TestConfig;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
-use crate::log_layer::SessionLogSinks;
+use crate::{
+    log_layer::SessionLogSinks,
+    rpc_server::{SpamParams, SpammerType},
+};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum SessionStatus {
     Initializing,
     Ready,
+    Spamming(SpamParams),
     Failed(String),
 }
 
@@ -18,6 +22,19 @@ impl std::fmt::Display for SessionStatus {
         match self {
             SessionStatus::Initializing => write!(f, "Initializing"),
             SessionStatus::Ready => write!(f, "Ready"),
+            SessionStatus::Spamming(params) => {
+                let res = params.to_run_opts();
+                let spammer_type = params.spammer.clone().unwrap_or_default();
+                let units = match spammer_type {
+                    SpammerType::Timed => ("tps", "seconds"),
+                    SpammerType::Blockwise => ("tpb", "blocks"),
+                };
+                write!(
+                    f,
+                    "Spamming ({} {} for {} {})",
+                    res.txs_per_period, units.0, res.periods, units.1
+                )
+            }
             SessionStatus::Failed(err) => write!(f, "Failed: {err}"),
         }
     }

@@ -15,6 +15,15 @@ pub enum ContenderRpcError {
     #[error("Session {} is not initialized", _0.id)]
     SessionNotInitialized(ContenderSessionInfo),
 
+    #[error("Session {} failed: {error}", info.id)]
+    SessionFailed {
+        info: ContenderSessionInfo,
+        error: String,
+    },
+
+    #[error("Session {} is currently spamming with params: {:?}", _0.id, _0.status)]
+    SessionSpamming(ContenderSessionInfo),
+
     #[error("Invalid test config: {0}")]
     InvalidTestConfig(#[from] contender_testfile::Error),
 
@@ -68,6 +77,21 @@ impl From<ContenderRpcError> for ErrorObjectOwned {
                     "Session {} not ready (status: {}); must be initialized before spamming",
                     info.id, info.status
                 ),
+                Option::<String>::None,
+            ),
+
+            ContenderRpcError::SessionSpamming(info) => ErrorObject::owned(
+                7,
+                format!(
+                    "Session {} is currently spamming with params: {:?}",
+                    info.id, info.status
+                ),
+                Option::<String>::None,
+            ),
+
+            ContenderRpcError::SessionFailed { info, error } => ErrorObject::owned(
+                8,
+                format!("Session {} failed with error: {error}", info.id),
                 Option::<String>::None,
             ),
 

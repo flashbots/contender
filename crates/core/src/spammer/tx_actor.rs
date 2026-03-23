@@ -401,7 +401,7 @@ async fn flush_loop<D: DbOps + Send + Sync + 'static>(
 
         // If cancel_token is set (sending is done) and cache is empty, we're done.
         if cancel_token.is_cancelled() && cache_snapshot.is_empty() {
-            info!("all receipts processed, shutting down flush loop");
+            info!("all receipts processed, shutting down receipt collection.");
             break;
         }
 
@@ -451,7 +451,7 @@ async fn flush_loop<D: DbOps + Send + Sync + 'static>(
 
                     if cache_snapshot.is_empty() {
                         if cancel_token.is_cancelled() {
-                            info!("finished processing receipts.");
+                            info!("pending tx cache is empty, shutting down receipt collection.");
                             return;
                         }
                         break;
@@ -472,7 +472,7 @@ async fn flush_loop<D: DbOps + Send + Sync + 'static>(
             }
             if stale_blocks >= STALE_BLOCK_LIMIT {
                 warn!(
-                    "pending receipt count unchanged ({}) for {} blocks, shutting down flush loop",
+                    "pending receipt count unchanged ({}) for {} blocks, shutting down receipt collection.",
                     current_count, stale_blocks
                 );
                 break;

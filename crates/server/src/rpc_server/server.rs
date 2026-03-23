@@ -180,18 +180,16 @@ impl ContenderRpcServer for ContenderServer {
         let Some(session) = sessions.get_session(session_id) else {
             return Err(ContenderRpcError::SessionNotFound(session_id).into());
         };
-
-        if session.info.status != SessionStatus::Ready {
-            return Err(ContenderRpcError::SessionNotInitialized(session.info.clone()).into());
-        }
+        error_if_session_not_ready(&session.info)?;
         let save_receipts = params.save_receipts.unwrap_or(false);
-        println!("{}saving receipts", if save_receipts { "" } else { "not " });
-
         drop(sessions);
 
         // Take the contender out so we can spam without holding the lock.
         let contender = {
             let mut lock = self.sessions.write().await;
+            if let Some(session) = lock.get_session_mut(session_id) {
+                session.info.status = SessionStatus::Spamming(params.clone());
+            }
             lock.take_contender(session_id)
         };
 
@@ -236,9 +234,16 @@ impl ContenderRpcServer for ContenderServer {
                     lock.put_contender(session_id, contender);
                     match result {
                         Ok(()) => {
+                            if let Some(session) = lock.get_session_mut(session_id) {
+                                session.info.status = SessionStatus::Ready;
+                            }
                             info!("Session {} spam completed successfully", session_id);
                         }
                         Err(e) => {
+                            if let Some(session) = lock.get_session_mut(session_id) {
+                                session.info.status =
+                                    SessionStatus::Failed(format!("spam failed: {e}"));
+                            }
                             tracing::error!("Session {} spam failed: {}", session_id, e);
                         }
                     }
@@ -249,4 +254,25 @@ impl ContenderRpcServer for ContenderServer {
 
         Ok(format!("Spamming session {session_id}"))
     }
+}
+
+/// Helper function to check if a session is ready to spam,
+/// returning an appropriate RPC error if not.
+fn error_if_session_not_ready(
+    session_info: &ContenderSessionInfo,
+) -> jsonrpsee::core::RpcResult<()> {
+    Ok(match &session_info.status {
+        SessionStatus::Failed(msg) => {
+            return Err(ContenderRpcError::SessionFailed {
+                info: session_info.clone(),
+                error: msg.to_owned(),
+            }
+            .into())
+        }
+        SessionStatus::Spamming(_) => {
+            return Err(ContenderRpcError::SessionSpamming(session_info.clone()).into())
+        }
+        SessionStatus::Ready => (),
+        _ => return Err(ContenderRpcError::SessionNotInitialized(session_info.clone()).into()),
+    })
 }

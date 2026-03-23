@@ -97,7 +97,7 @@ impl TestConfigSource {
 }
 
 /// RPC parameters for the `spam` method.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct SpamParams {
     pub session_id: usize,
     /// Number of transactions per period. Defaults to 10.
@@ -112,7 +112,7 @@ pub struct SpamParams {
     pub save_receipts: Option<bool>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum SpammerType {
     /// Send a batch of txs at a fixed time interval (1 second).
