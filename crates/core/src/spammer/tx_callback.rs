@@ -90,7 +90,6 @@ impl Default for RuntimeTxInfo {
     }
 }
 
-
 impl<T: OnTxSent + OnBatchSent + Sized + Send + Sync> SpamCallback for T {}
 
 #[derive(Clone)]

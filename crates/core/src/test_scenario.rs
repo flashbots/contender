@@ -1040,6 +1040,7 @@ where
                 let error_sender = error_sender.clone();
                 let http_client = self.http_client.clone();
                 let rpc_url = self.rpc_url.clone();
+                let hist = self.prometheus.hist.get().cloned();
 
                 tasks.push(tokio::task::spawn(async move {
                 let extra = RuntimeTxInfo::now();
@@ -1060,6 +1061,7 @@ where
                             "method": "eth_sendRawTransactionSync",
                             "params": [raw_hex],
                         });
+                        let start_time = tokio::time::Instant::now();
                         let res = tokio::select! {
                             resp = http_client
                                 .post(rpc_url.as_str())
@@ -1067,6 +1069,11 @@ where
                                 .send() => Some(resp),
                             _ = cancel_token.cancelled() => None,
                         };
+                        // Record latency in Prometheus so it shows up in reports
+                        if let Some(h) = &hist {
+                            let elapsed = start_time.elapsed().as_secs_f64();
+                            h.with_label_values(&["eth_sendRawTransactionSync"]).observe(elapsed);
+                        }
                         let end_ts = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()

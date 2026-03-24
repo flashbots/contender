@@ -1,7 +1,7 @@
 use crate::chart::flashblock_index::FlashblockIndexData;
 use crate::chart::flashblock_time_to_inclusion::FlashblockTimeToInclusionData;
 use crate::chart::pending_txs::PendingTxsData;
-use crate::chart::rpc_latency::LatencyData;
+use crate::chart::rpc_latency::{LatencyData, MethodLatencyData};
 use crate::chart::time_to_inclusion::TimeToInclusionData;
 use crate::chart::tx_gas_used::TxGasUsedData;
 use crate::chart::{gas_per_block::GasPerBlockData, heatmap::HeatmapData};
@@ -38,7 +38,7 @@ pub struct ChartData {
     pub time_to_inclusion: TimeToInclusionData,
     pub tx_gas_used: TxGasUsedData,
     pub pending_txs: PendingTxsData,
-    pub latency_data_sendrawtransaction: LatencyData,
+    pub latency_charts: Vec<MethodLatencyData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flashblock_time_to_inclusion: Option<FlashblockTimeToInclusionData>,
     #[serde(skip_serializing_if = "Option::is_none")]
