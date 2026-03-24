@@ -146,6 +146,8 @@ where
     pub send_raw_tx_sync: bool,
     /// Shared HTTP client so spawned tasks reuse one connection pool.
     http_client: reqwest::Client,
+    /// Cached gas price from the last successful RPC fetch, used as fallback on transient errors.
+    last_fetched_gas_price: Option<u128>,
 }
 
 pub struct TestScenarioParams {
@@ -359,6 +361,7 @@ where
             scenario_label,
             send_raw_tx_sync,
             http_client: reqwest::Client::new(),
+            last_fetched_gas_price: None,
         })
     }
 
@@ -885,7 +888,20 @@ where
                 get_blob_fee_maybe(&self.rpc_client, self.tx_type).await,
             ),
             None => {
-                let gas_price = self.rpc_client.get_gas_price().await?;
+                let gas_price = match self.rpc_client.get_gas_price().await {
+                    Ok(price) => {
+                        self.last_fetched_gas_price = Some(price);
+                        price
+                    }
+                    Err(e) => {
+                        if let Some(cached) = self.last_fetched_gas_price {
+                            warn!("Failed to fetch gas price, using cached value: {:?}", e);
+                            cached
+                        } else {
+                            return Err(e.into());
+                        }
+                    }
+                };
                 let blob_gas_price = get_blob_fee_maybe(&self.rpc_client, self.tx_type).await;
                 let adjusted_gas_price = |price: u128| {
                     if self.ctx.gas_price_adder < 0 {
