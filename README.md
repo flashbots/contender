@@ -8,7 +8,26 @@ High-performance Ethereum transaction spammer and benchmarking tool.
 
 ## 🚀 Quick Start
 
-Install:
+### Pre-built Binaries
+
+Download pre-built binaries from the [GitHub Releases](https://github.com/flashbots/contender/releases) page. Binaries are available for:
+
+| Platform | Architecture | Artifact |
+|:---|:---|:---|
+| Linux | x86_64 | `contender-<version>-x86_64-unknown-linux-gnu.tar.gz` |
+| Linux | aarch64 | `contender-<version>-aarch64-unknown-linux-gnu.tar.gz` |
+| macOS | x86_64 | `contender-<version>-x86_64-apple-darwin.tar.gz` |
+| macOS | aarch64 (Apple Silicon) | `contender-<version>-aarch64-apple-darwin.tar.gz` |
+
+```bash
+# Example: download and install the latest linux/amd64 binary
+curl -L https://github.com/flashbots/contender/releases/latest/download/contender-x86_64-unknown-linux-gnu.tar.gz | tar xz
+sudo mv contender /usr/local/bin/
+```
+
+### Build from Source
+
+Install via cargo (requires Rust toolchain and `libsqlite3-dev` on Linux):
 ```bash
 cargo install --git https://github.com/flashbots/contender --locked
 ```
