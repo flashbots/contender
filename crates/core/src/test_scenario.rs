@@ -59,6 +59,22 @@ use tracing::{debug, info, trace, warn};
 
 pub use alloy::transports::http::reqwest::Url;
 
+/// Retry an async operation once on failure. Useful for transient connection errors.
+async fn retry_once<F, Fut, T, E>(op: F) -> std::result::Result<T, E>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = std::result::Result<T, E>>,
+    E: std::fmt::Debug,
+{
+    match op().await {
+        Ok(v) => Ok(v),
+        Err(first_err) => {
+            warn!("RPC call failed, retrying once: {first_err:?}");
+            op().await
+        }
+    }
+}
+
 /// Reads the SETUP_CONCURRENCY_LIMIT from the environment, defaults to 25 if not set or invalid.
 fn read_setup_concurrency_limit() -> usize {
     std::env::var("SETUP_CONCURRENCY_LIMIT")
@@ -1145,8 +1161,8 @@ where
                     }
                     ExecutionPayload::SignedTx(signed_tx, req) => {
                         let tx_hash = signed_tx.tx_hash().to_owned();
-                        let res = rpc_client
-                            .send_tx_envelope(AnyTxEnvelope::Ethereum(*signed_tx))
+                        let envelope = AnyTxEnvelope::Ethereum(*signed_tx);
+                        let res = retry_once(|| rpc_client.send_tx_envelope(envelope.clone()))
                             .await;
                         let ctx = SpamRunContext {
                             nonce_sender: &nonce_sender,
@@ -1328,21 +1344,24 @@ where
                         .start_timer()
                 });
 
-                let resp = match http_client.post(rpc_url).json(&requests).send().await {
-                    Ok(r) => {
-                        if let Some(t) = timer.take() {
-                            t.observe_duration()
+                let resp =
+                    match retry_once(|| http_client.post(rpc_url.clone()).json(&requests).send())
+                        .await
+                    {
+                        Ok(r) => {
+                            if let Some(t) = timer.take() {
+                                t.observe_duration()
+                            }
+                            r
                         }
-                        r
-                    }
-                    Err(e) => {
-                        if let Some(t) = timer.take() {
-                            t.observe_duration()
+                        Err(e) => {
+                            if let Some(t) = timer.take() {
+                                t.observe_duration()
+                            }
+                            warn!("failed to send JSON-RPC batch after retry: {e:?}");
+                            return;
                         }
-                        warn!("failed to send JSON-RPC batch: {e:?}");
-                        return;
-                    }
-                };
+                    };
 
                 let responses: Vec<serde_json::Value> = match resp.json().await {
                     Ok(v) => v,
