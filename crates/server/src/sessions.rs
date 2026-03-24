@@ -42,12 +42,19 @@ impl std::fmt::Display for SessionStatus {
 }
 
 pub struct ContenderSession {
+    /// Metadata about this session (id, name, rpc_url, status).
     pub info: ContenderSessionInfo,
+    /// The contender instance for this session. `None` while it is taken out for
+    /// initialization or spamming (to avoid holding the lock during long operations).
     pub contender: Option<Contender<SqliteDb, RandSeed, TestConfig>>,
+    /// Broadcast channel for per-session log lines. The tracing layer sends formatted
+    /// events here; WS and SSE subscribers receive from it.
     pub log_channel: broadcast::Sender<String>,
-    /// Cancelled when the session is removed; subscriber tasks should select on this.
+    /// Session-lifetime token. Cancelled when the session is removed, which terminates
+    /// all WS/SSE log subscriber tasks. Once cancelled the session cannot be reused.
     pub cancel: CancellationToken,
-    /// Cancelled to stop a running spam. Reset each time spam is started.
+    /// Per-spam-run token. Created fresh each time `spam` is called, cancelled by `stop`
+    /// (or `remove`). After cancellation the session returns to `Ready` and can spam again.
     pub spam_cancel: Option<CancellationToken>,
 }
 
@@ -168,8 +175,12 @@ impl ContenderSessionCache {
     }
 
     pub fn remove_session(&mut self, id: usize) {
-        // Cancel subscriber streams before dropping the session.
         if let Some(session) = self.get_session(id) {
+            // Stop any running spam before tearing down.
+            if let Some(ref token) = session.spam_cancel {
+                token.cancel();
+            }
+            // Cancel subscriber streams before dropping the session.
             session.cancel.cancel();
         }
         // Deregister the log sink.
