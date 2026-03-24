@@ -2858,6 +2858,20 @@ pub mod tests {
         // confirming both that sync sending works and that batching is bypassed.
         assert_eq!(scenario.num_rpc_batches_sent, total_txs);
 
+        // Verify latency metrics are recorded for eth_sendRawTransactionSync
+        let latency_metrics = scenario.collect_latency_metrics();
+        let sync_latency = latency_metrics.get("eth_sendRawTransactionSync");
+        assert!(
+            sync_latency.is_some(),
+            "eth_sendRawTransactionSync should have latency metrics"
+        );
+        let sync_buckets = sync_latency.unwrap();
+        let total_observations = sync_buckets.last().map(|b| b.cumulative_count).unwrap_or(0);
+        assert_eq!(
+            total_observations, total_txs,
+            "should have one latency observation per tx sent"
+        );
+
         Ok(())
     }
 
