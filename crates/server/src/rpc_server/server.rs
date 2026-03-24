@@ -276,6 +276,7 @@ impl ContenderRpcServer for ContenderServer {
     }
 
     async fn stop(&self, session_id: usize) -> jsonrpsee::core::RpcResult<String> {
+        let span = tracing::info_span!("session_stop", id = session_id);
         let sessions = self.sessions.read().await;
         let Some(session) = sessions.get_session(session_id) else {
             return Err(ContenderRpcError::SessionNotFound(session_id).into());
@@ -285,7 +286,10 @@ impl ContenderRpcServer for ContenderServer {
         };
         token.cancel();
         drop(sessions);
-        info!("Sent stop signal to session {session_id}");
+        {
+            let _enter = span.enter();
+            info!("Sent stop signal to session {session_id}");
+        }
         Ok(format!("Stopping session {session_id}"))
     }
 }

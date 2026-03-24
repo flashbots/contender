@@ -115,11 +115,10 @@ fn format_event(event: &Event<'_>, session_id: usize) -> String {
     );
 
     format!(
-        "{} {} session[{}] {}: {}",
+        "{} {} session[{}]: {}",
         timestamp,
         metadata.level(),
         session_id,
-        metadata.target(),
         visitor.message
     )
 }
