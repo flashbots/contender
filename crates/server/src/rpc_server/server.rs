@@ -4,6 +4,7 @@ use jsonrpsee::{proc_macros::rpc, PendingSubscriptionSink, SubscriptionMessage};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
 use tracing::{info, Instrument};
 
 use crate::{
@@ -36,6 +37,9 @@ pub trait ContenderRpc {
 
     #[method(name = "spam")]
     async fn spam(&self, params: SpamParams) -> jsonrpsee::core::RpcResult<String>;
+
+    #[method(name = "stop")]
+    async fn stop(&self, session_id: usize) -> jsonrpsee::core::RpcResult<String>;
 
     // ================ WS Methods ================
 
@@ -192,10 +196,12 @@ impl ContenderRpcServer for ContenderServer {
         drop(sessions);
 
         // Take the contender out so we can spam without holding the lock.
+        let spam_cancel = CancellationToken::new();
         let contender = {
             let mut lock = self.sessions.write().await;
             if let Some(session) = lock.get_session_mut(session_id) {
                 session.info.status = SessionStatus::Spamming(params.clone());
+                session.spam_cancel = Some(spam_cancel.clone());
             }
             lock.take_contender(session_id)
         };
@@ -219,11 +225,15 @@ impl ContenderRpcServer for ContenderServer {
                             match spammer_type {
                                 SpammerType::Timed => {
                                     let spammer = TimedSpammer::new(Duration::from_secs(1));
-                                    contender.spam(spammer, Arc::new($callback), opts).await
+                                    contender
+                                        .spam(spammer, Arc::new($callback), opts, Some(spam_cancel))
+                                        .await
                                 }
                                 SpammerType::Blockwise => {
                                     let spammer = BlockwiseSpammer::new();
-                                    contender.spam(spammer, Arc::new($callback), opts).await
+                                    contender
+                                        .spam(spammer, Arc::new($callback), opts, Some(spam_cancel))
+                                        .await
                                 }
                             }
                         };
@@ -239,6 +249,9 @@ impl ContenderRpcServer for ContenderServer {
                     // Put the contender back and log outcome.
                     let mut lock = sessions.write().await;
                     lock.put_contender(session_id, contender);
+                    if let Some(session) = lock.get_session_mut(session_id) {
+                        session.spam_cancel = None;
+                    }
                     match result {
                         Ok(()) => {
                             if let Some(session) = lock.get_session_mut(session_id) {
@@ -260,6 +273,20 @@ impl ContenderRpcServer for ContenderServer {
         );
 
         Ok(format!("Spamming session {session_id}"))
+    }
+
+    async fn stop(&self, session_id: usize) -> jsonrpsee::core::RpcResult<String> {
+        let sessions = self.sessions.read().await;
+        let Some(session) = sessions.get_session(session_id) else {
+            return Err(ContenderRpcError::SessionNotFound(session_id).into());
+        };
+        let Some(ref token) = session.spam_cancel else {
+            return Err(ContenderRpcError::SessionNotBusy(session_id).into());
+        };
+        token.cancel();
+        drop(sessions);
+        info!("Sent stop signal to session {session_id}");
+        Ok(format!("Stopping session {session_id}"))
     }
 }
 

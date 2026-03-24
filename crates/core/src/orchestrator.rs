@@ -29,6 +29,7 @@ use alloy::{
 use contender_bundle_provider::bundle::BundleType;
 use contender_engine_provider::ControlChain;
 use std::sync::LazyLock;
+use tokio_util::sync::CancellationToken;
 
 static SMOL_AMOUNT: LazyLock<U256> = LazyLock::new(|| WEI_IN_ETHER / U256::from(100));
 
@@ -504,11 +505,19 @@ where
     /// let callback = NilCallback;
     /// // initialize opts; slightly tweaking the defaults
     /// let opts = RunOpts::new().txs_per_period(50).periods(10);
+    /// // create a cancellation token that can be used to stop the spam run from outside the `Contender` (optional)
+    /// let cancel_token = tokio_util::sync::CancellationToken::new();
     ///
     /// // run spammer
-    /// contender.spam(spammer, callback.into(), opts).await.unwrap();
+    /// contender.spam(spammer, callback.into(), opts, Some(cancel_token.clone())).await.unwrap();
     /// ```
-    pub async fn spam<F, SP>(&mut self, spammer: SP, callback: Arc<F>, opts: RunOpts) -> Result<()>
+    pub async fn spam<F, SP>(
+        &mut self,
+        spammer: SP,
+        callback: Arc<F>,
+        opts: RunOpts,
+        cancel_token: Option<CancellationToken>,
+    ) -> Result<()>
     where
         F: OnTxSent + OnBatchSent + Send + Sync + 'static,
         SP: Spammer<F, D, S, P>,
@@ -537,16 +546,34 @@ where
             handle.init_ctx(actor_ctx.clone()).await?;
         }
 
-        // send spam
-        let result = spammer
-            .spam_rpc(
-                &mut scenario,
-                opts.txs_per_period,
-                opts.periods,
-                Some(run_id),
-                callback,
-            )
-            .await;
+        // send spam; if an external cancel token was provided, select on it
+        // so we can abort mid-run (the cursor.next() inside spam_rpc won't
+        // check cancellation on its own).
+        let result = if let Some(external) = cancel_token {
+            tokio::select! {
+                res = spammer.spam_rpc(
+                    &mut scenario,
+                    opts.txs_per_period,
+                    opts.periods,
+                    Some(run_id),
+                    callback,
+                ) => res,
+                _ = external.cancelled() => {
+                    scenario.shutdown().await;
+                    Ok(())
+                }
+            }
+        } else {
+            spammer
+                .spam_rpc(
+                    &mut scenario,
+                    opts.txs_per_period,
+                    opts.periods,
+                    Some(run_id),
+                    callback,
+                )
+                .await
+        };
 
         // Signal the flush loop that sending is done so it can shut down
         // once all receipts are processed (or after the stale block timeout).

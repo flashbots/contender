@@ -47,6 +47,8 @@ pub struct ContenderSession {
     pub log_channel: broadcast::Sender<String>,
     /// Cancelled when the session is removed; subscriber tasks should select on this.
     pub cancel: CancellationToken,
+    /// Cancelled to stop a running spam. Reset each time spam is started.
+    pub spam_cancel: Option<CancellationToken>,
 }
 
 pub struct NewSessionParams {
@@ -73,6 +75,7 @@ impl ContenderSession {
             contender: Some(contender),
             log_channel,
             cancel: CancellationToken::new(),
+            spam_cancel: None,
         }
     }
 }
