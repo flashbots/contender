@@ -33,6 +33,9 @@ pub trait ContenderRpc {
         id: usize,
     ) -> jsonrpsee::core::RpcResult<Option<ContenderSessionInfo>>;
 
+    #[method(name = "get_all_sessions")]
+    async fn get_all_sessions(&self) -> jsonrpsee::core::RpcResult<Vec<ContenderSessionInfo>>;
+
     #[method(name = "remove_session")]
     async fn remove_session(&self, id: usize) -> jsonrpsee::core::RpcResult<()>;
 
@@ -139,6 +142,11 @@ impl ContenderRpcServer for ContenderServer {
     ) -> jsonrpsee::core::RpcResult<Option<ContenderSessionInfo>> {
         let sessions = self.sessions.read().await;
         Ok(sessions.get_session(id).map(|s| s.info.clone()))
+    }
+
+    async fn get_all_sessions(&self) -> jsonrpsee::core::RpcResult<Vec<ContenderSessionInfo>> {
+        let sessions = self.sessions.read().await;
+        Ok(sessions.all_sessions())
     }
 
     async fn remove_session(&self, id: usize) -> jsonrpsee::core::RpcResult<()> {

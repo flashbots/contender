@@ -15,6 +15,7 @@
     --input-bg: #0f3460;
     --success: #4ecca3;
     --error: #e94560;
+    --warning: #f0a500;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -22,10 +23,10 @@
     background: var(--bg);
     color: var(--text);
     padding: 24px;
-    max-width: 860px;
     margin: 0 auto;
   }
   h1 { font-size: 1.4rem; margin-bottom: 8px; }
+  h2 { font-size: 1rem; margin-bottom: 10px; color: var(--muted); }
   .server-bar {
     display: flex; gap: 8px; align-items: center; margin-bottom: 20px;
   }
@@ -33,6 +34,13 @@
     flex: 1; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border);
     background: var(--input-bg); color: var(--text); font-family: inherit; font-size: .85rem;
   }
+  .columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  .column { min-width: 0; }
   .cabinet {
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -50,6 +58,7 @@
   }
   .cabinet-header:hover { background: var(--border); }
   .cabinet-header .name { font-weight: bold; font-size: .95rem; }
+  .cabinet-header .meta { font-size: .78rem; color: var(--muted); display: flex; align-items: center; gap: 6px; }
   .cabinet-header .arrow { transition: transform .2s; }
   .cabinet.open .cabinet-header .arrow { transform: rotate(90deg); }
   .cabinet-body {
@@ -83,12 +92,12 @@
   .result.ok { background: rgba(78,204,163,.12); border: 1px solid var(--success); }
   .result.err { background: rgba(233,69,96,.12); border: 1px solid var(--error); }
   .log-box {
-    margin-top: 10px; background: #111; border: 1px solid var(--border); border-radius: 4px;
+    background: #111; border: 1px solid var(--border); border-radius: 4px;
     padding: 8px 10px; font-size: .78rem; max-height: 300px; overflow-y: auto;
     white-space: pre-wrap; word-break: break-all; color: var(--muted);
   }
   .log-box .line { color: var(--text); }
-  .log-controls { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+  .log-controls { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
   .log-controls button {
     background: var(--surface); color: var(--text); border: 1px solid var(--border);
     padding: 4px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: .8rem;
@@ -99,6 +108,14 @@
   }
   .status-dot.connected { background: var(--success); }
   .status-dot.disconnected { background: var(--error); }
+  .status-badge {
+    font-size: .72rem; padding: 2px 8px; border-radius: 3px; font-weight: bold;
+  }
+  .status-badge.initializing { background: var(--warning); color: #000; }
+  .status-badge.ready { background: var(--success); color: #000; }
+  .status-badge.spamming { background: var(--accent); color: #fff; }
+  .status-badge.failed { background: var(--error); color: #fff; }
+  .no-sessions { font-size: .85rem; color: var(--muted); padding: 20px 0; text-align: center; }
 </style>
 </head>
 <body>
@@ -111,7 +128,15 @@
   <span id="server-status" style="font-size:.78rem;color:var(--muted)">disconnected</span>
 </div>
 
-<div id="cabinets"></div>
+<div class="columns">
+  <div class="column" id="controls-col">
+    <h2>Controls</h2>
+  </div>
+  <div class="column" id="sessions-col">
+    <h2>Sessions</h2>
+    <div id="sessions-list"><div class="no-sessions">No sessions</div></div>
+  </div>
+</div>
 
 <script src="builtin_scenarios.js"></script>
 <script>
@@ -124,31 +149,6 @@ function wsUrl() { return serverUrl().replace(/^http/, 'ws'); }
 function isValidUrl(s) {
   try { const u = new URL(s); return u.protocol === 'http:' || u.protocol === 'https:'; }
   catch { return false; }
-}
-
-let statusTimer = null;
-function setServerStatus(ok, text) {
-  const dot = $('#server-dot');
-  const label = $('#server-status');
-  dot.className = 'status-dot ' + (ok ? 'connected' : 'disconnected');
-  label.textContent = text;
-}
-
-async function checkStatus() {
-  const url = serverUrl();
-  if (!isValidUrl(url)) { setServerStatus(false, 'invalid URL'); return; }
-  try {
-    const result = await rpc('status', []);
-    setServerStatus(true, `sessions: ${result.num_sessions}`);
-  } catch {
-    setServerStatus(false, 'disconnected');
-  }
-}
-
-function restartStatusPoll() {
-  if (statusTimer) clearInterval(statusTimer);
-  checkStatus();
-  statusTimer = setInterval(checkStatus, 5000);
 }
 
 let rpcId = 1;
@@ -164,8 +164,38 @@ async function rpc(method, params) {
   return json.result;
 }
 
+// ── server status ──
+
+let statusTimer = null;
+function setServerStatus(ok, text) {
+  const dot = $('#server-dot');
+  const label = $('#server-status');
+  dot.className = 'status-dot ' + (ok ? 'connected' : 'disconnected');
+  label.textContent = text;
+}
+
+async function pollSessions() {
+  const url = serverUrl();
+  if (!isValidUrl(url)) { setServerStatus(false, 'invalid URL'); return; }
+  try {
+    const sessions = await rpc('get_all_sessions', []);
+    setServerStatus(true, `sessions: ${sessions.length}`);
+    renderSessions(sessions);
+  } catch {
+    setServerStatus(false, 'disconnected');
+  }
+}
+
+function restartStatusPoll() {
+  if (statusTimer) clearInterval(statusTimer);
+  pollSessions();
+  statusTimer = setInterval(pollSessions, 1000);
+}
+
 $('#server-url').addEventListener('input', restartStatusPoll);
 restartStatusPoll();
+
+// ── helpers ──
 
 function showResult(container, ok, data) {
   let el = $('.result', container);
@@ -174,18 +204,35 @@ function showResult(container, ok, data) {
   el.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
 }
 
-function makeCabinet(name, buildBody) {
+function makeCabinet(name, buildBody, opts = {}) {
   const cab = document.createElement('div');
   cab.className = 'cabinet';
   const header = document.createElement('div');
   header.className = 'cabinet-header';
-  header.innerHTML = `<span class="name">${name}</span><span class="arrow">&#9654;</span>`;
-  header.onclick = () => cab.classList.toggle('open');
+  const nameSpan = document.createElement('span');
+  nameSpan.className = 'name';
+  nameSpan.textContent = name;
+  const right = document.createElement('span');
+  right.className = 'meta';
+  if (opts.metaHtml) right.innerHTML = opts.metaHtml;
+  const arrow = document.createElement('span');
+  arrow.className = 'arrow';
+  arrow.innerHTML = '&#9654;';
+  right.appendChild(arrow);
+  header.appendChild(nameSpan);
+  header.appendChild(right);
+  header.onclick = () => {
+    const opening = !cab.classList.contains('open');
+    cab.classList.toggle('open');
+    if (opts.onToggle) opts.onToggle(opening);
+  };
   const body = document.createElement('div');
   body.className = 'cabinet-body';
   buildBody(body);
   cab.appendChild(header);
   cab.appendChild(body);
+  cab._nameSpan = nameSpan;
+  cab._metaRight = right;
   return cab;
 }
 
@@ -223,10 +270,181 @@ function sendBtn(text = 'Send') {
   return b;
 }
 
-const root = $('#cabinets');
+// ── sessions column ──
+
+// ── log storage ──
+
+const LOG_KEY_PREFIX = 'contender_logs_';
+
+function loadLogs(sessionId) {
+  try { return JSON.parse(localStorage.getItem(LOG_KEY_PREFIX + sessionId)) || []; }
+  catch { return []; }
+}
+
+function appendLog(sessionId, text) {
+  const logs = loadLogs(sessionId);
+  logs.push(text);
+  localStorage.setItem(LOG_KEY_PREFIX + sessionId, JSON.stringify(logs));
+}
+
+function clearLogs(sessionId) {
+  localStorage.removeItem(LOG_KEY_PREFIX + sessionId);
+}
+
+// Track per-session state: { ws, logBox, cab }
+const sessionState = {};
+
+function statusBadgeClass(status) {
+  if (typeof status === 'string') return status.toLowerCase();
+  if (status.Spamming) return 'spamming';
+  if (status.Failed) return 'failed';
+  return 'ready';
+}
+
+function statusText(status) {
+  if (typeof status === 'string') return status;
+  if (status.Spamming) {
+    const p = status.Spamming;
+    const type = p.spammer || 'timed';
+    const units = type === 'blockwise' ? ['tpb', 'blocks'] : ['tps', 'seconds'];
+    return `Spamming (${p.txs_per_period || 10} ${units[0]} for ${p.duration || 10} ${units[1]})`;
+  }
+  if (status.Failed) return `Failed: ${status.Failed}`;
+  return JSON.stringify(status);
+}
+
+function addLogLine(logBox, text) {
+  const line = document.createElement('div');
+  line.className = 'line';
+  line.textContent = text;
+  logBox.appendChild(line);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+function restoreLogs(sessionId, logBox) {
+  const logs = loadLogs(sessionId);
+  if (logs.length) {
+    logBox.textContent = '';
+    for (const text of logs) addLogLine(logBox, text);
+  }
+}
+
+function subscribeToSession(sessionId) {
+  const state = sessionState[sessionId];
+  if (!state || state.ws) return;
+
+  const ws = new WebSocket(wsUrl());
+  state.ws = ws;
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({
+      jsonrpc: '2.0', method: 'subscribe_logs',
+      params: [sessionId], id: rpcId++,
+    }));
+  };
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.method === 'session_log' && msg.params) {
+      const text = msg.params.result;
+      appendLog(sessionId, text);
+      addLogLine(state.logBox, text);
+    }
+  };
+  ws.onclose = () => { state.ws = null; };
+  ws.onerror = () => { state.ws = null; };
+}
+
+function unsubscribeFromSession(sessionId) {
+  const state = sessionState[sessionId];
+  if (!state || !state.ws) return;
+  state.ws.close();
+  state.ws = null;
+}
+
+function renderSessions(sessions) {
+  const list = $('#sessions-list');
+
+  if (sessions.length === 0) {
+    // Clean up all session state and WS connections
+    for (const id of Object.keys(sessionState)) {
+      unsubscribeFromSession(Number(id));
+      if (sessionState[id].cab.parentNode) sessionState[id].cab.remove();
+      delete sessionState[id];
+    }
+    if (!$('.no-sessions', list)) {
+      list.innerHTML = '<div class="no-sessions">No sessions</div>';
+    }
+    return;
+  }
+
+  // Remove the "no sessions" placeholder
+  const placeholder = $('.no-sessions', list);
+  if (placeholder) placeholder.remove();
+
+  const currentIds = new Set(sessions.map(s => s.id));
+
+  // Remove cabinets for sessions that no longer exist
+  for (const id of Object.keys(sessionState)) {
+    if (!currentIds.has(Number(id))) {
+      unsubscribeFromSession(Number(id));
+      clearLogs(Number(id));
+      if (sessionState[id].cab.parentNode) sessionState[id].cab.remove();
+      delete sessionState[id];
+    }
+  }
+
+  for (const s of sessions) {
+    const badgeClass = statusBadgeClass(s.status);
+    const badgeText = statusText(s.status);
+    const badgeHtml = `<span class="status-badge ${badgeClass}">${badgeText}</span>`;
+
+    if (sessionState[s.id]) {
+      // Update existing cabinet header
+      const state = sessionState[s.id];
+      state.cab._nameSpan.textContent = `#${s.id} ${s.name}`;
+      // Update badge (preserve arrow)
+      const arrow = state.cab._metaRight.querySelector('.arrow');
+      state.cab._metaRight.innerHTML = badgeHtml + ' ';
+      state.cab._metaRight.appendChild(arrow);
+      // Re-attach if cabinet was detached from the DOM
+      if (!state.cab.parentNode) list.appendChild(state.cab);
+    } else {
+      // Create new session cabinet
+      const logBox = document.createElement('div');
+      logBox.className = 'log-box';
+      logBox.textContent = 'Waiting for logs...';
+
+      // Restore any logs saved from a previous page load
+      restoreLogs(s.id, logBox);
+
+      const cab = makeCabinet(`#${s.id} ${s.name}`, body => {
+        const controls = document.createElement('div');
+        controls.className = 'log-controls';
+        const clearBtn = document.createElement('button');
+        clearBtn.textContent = 'Clear logs';
+        clearBtn.onclick = (e) => { e.stopPropagation(); logBox.textContent = ''; clearLogs(s.id); };
+        controls.appendChild(clearBtn);
+        body.appendChild(controls);
+        body.appendChild(logBox);
+      }, {
+        metaHtml: badgeHtml + ' ',
+      });
+
+      sessionState[s.id] = { ws: null, logBox, cab };
+      list.appendChild(cab);
+
+      // Subscribe immediately so logs accumulate in the background
+      subscribeToSession(s.id);
+    }
+  }
+}
+
+// ── controls column ──
+
+const controls = $('#controls-col');
 
 // ========== add_session ==========
-root.appendChild(makeCabinet('add_session', body => {
+controls.appendChild(makeCabinet('add_session', body => {
   const nameF = field('name', 'text', { placeholder: 'my-session' });
   const urlF = field('rpc_url', 'text', { placeholder: 'http://localhost:8545' });
   const configTypeF = field('config type', 'select', {
@@ -248,8 +466,7 @@ root.appendChild(makeCabinet('add_session', body => {
   body.appendChild(tomlF.container);
   body.appendChild(jsonF.container);
 
-  // Dynamically render parameter fields for the selected builtin scenario.
-  let paramInputs = {}; // name -> { input, spec }
+  let paramInputs = {};
   function renderBuiltinParams() {
     paramsDiv.innerHTML = '';
     paramInputs = {};
@@ -300,18 +517,16 @@ root.appendChild(makeCabinet('add_session', body => {
     const params = { name: nameF.input.value || 'my-session', rpc_url: urlF.input.value || 'http://localhost:8545' };
     const ct = configTypeF.input.value;
     if (ct === 'builtin') {
-      // Build the Builtin variant: { Builtin: { VariantName: { field: value, ... } } }
       const scenario = builtinF.input.value;
       const args = {};
       for (const [name, { input, spec }] of Object.entries(paramInputs)) {
         const raw = input.value.trim();
-        if (!raw && spec.optional) continue; // skip empty optional fields
+        if (!raw && spec.optional) continue;
         if (spec.type === 'bool') {
           args[name] = raw === 'true';
         } else if (spec.type === 'number') {
           args[name] = raw ? Number(raw) : null;
         } else if (spec.type.startsWith('multi-select:')) {
-          // comma-separated list of enum variants
           args[name] = raw ? raw.split(',').map(s => s.trim()).filter(Boolean) : [];
         } else {
           args[name] = raw || null;
@@ -324,37 +539,37 @@ root.appendChild(makeCabinet('add_session', body => {
       try { params.test_config = { Json: JSON.parse(jsonF.input.value) }; }
       catch (e) { showResult(body, false, 'Invalid JSON: ' + e.message); return; }
     }
-    try { showResult(body, true, await rpc('add_session', [params])); }
-    catch (e) { showResult(body, false, e); }
-  };
-}));
-
-// ========== get_session ==========
-root.appendChild(makeCabinet('get_session', body => {
-  const idF = field('session_id', 'number', { value: '0', min: '0' });
-  body.appendChild(idF.container);
-  const btn = sendBtn('Get Session');
-  body.appendChild(btn);
-  btn.onclick = async () => {
-    try { showResult(body, true, await rpc('get_session', [parseInt(idF.input.value)])); }
+    try {
+      const result = await rpc('add_session', [params]);
+      if (result && typeof result.id === 'number') {
+        clearLogs(result.id);
+      }
+      showResult(body, true, result);
+      pollSessions();
+    }
     catch (e) { showResult(body, false, e); }
   };
 }));
 
 // ========== remove_session ==========
-root.appendChild(makeCabinet('remove_session', body => {
+controls.appendChild(makeCabinet('remove_session', body => {
   const idF = field('session_id', 'number', { value: '0', min: '0' });
   body.appendChild(idF.container);
   const btn = sendBtn('Remove');
   body.appendChild(btn);
   btn.onclick = async () => {
-    try { showResult(body, true, await rpc('remove_session', [parseInt(idF.input.value)])); }
+    const id = parseInt(idF.input.value);
+    try {
+      showResult(body, true, await rpc('remove_session', [id]));
+      clearLogs(id);
+      pollSessions();
+    }
     catch (e) { showResult(body, false, e); }
   };
 }));
 
 // ========== spam ==========
-root.appendChild(makeCabinet('spam', body => {
+controls.appendChild(makeCabinet('spam', body => {
   const idF = field('session_id', 'number', { value: '0', min: '0' });
   const tppF = field('txs_per_period', 'number', { value: '10', min: '1' });
   const durF = field('duration (periods)', 'number', { value: '10', min: '1' });
@@ -388,7 +603,7 @@ root.appendChild(makeCabinet('spam', body => {
 }));
 
 // ========== stop ==========
-root.appendChild(makeCabinet('stop', body => {
+controls.appendChild(makeCabinet('stop', body => {
   const idF = field('session_id', 'number', { value: '0', min: '0' });
   body.appendChild(idF.container);
   const btn = sendBtn('Stop');
@@ -397,78 +612,6 @@ root.appendChild(makeCabinet('stop', body => {
     try { showResult(body, true, await rpc('stop', [parseInt(idF.input.value)])); }
     catch (e) { showResult(body, false, e); }
   };
-}));
-
-// ========== subscribe_logs (WebSocket) ==========
-root.appendChild(makeCabinet('subscribe_logs', body => {
-  const idF = field('session_id', 'number', { value: '0', min: '0' });
-  body.appendChild(idF.container);
-
-  const controls = document.createElement('div');
-  controls.className = 'log-controls';
-  const subBtn = document.createElement('button'); subBtn.textContent = 'Subscribe';
-  const unsubBtn = document.createElement('button'); unsubBtn.textContent = 'Unsubscribe';
-  const clearBtn = document.createElement('button'); clearBtn.textContent = 'Clear';
-  const dot = document.createElement('span'); dot.className = 'status-dot disconnected';
-  const statusLabel = document.createElement('span');
-  statusLabel.style.cssText = 'font-size:.78rem;color:var(--muted)';
-  statusLabel.textContent = 'disconnected';
-  controls.appendChild(subBtn);
-  controls.appendChild(unsubBtn);
-  controls.appendChild(clearBtn);
-  controls.appendChild(dot);
-  controls.appendChild(statusLabel);
-  body.appendChild(controls);
-
-  const logBox = document.createElement('div');
-  logBox.className = 'log-box';
-  logBox.textContent = 'No logs yet.';
-  body.appendChild(logBox);
-
-  let ws = null;
-  let subId = null;
-
-  function setConnected(state, msg) {
-    dot.className = 'status-dot ' + (state ? 'connected' : 'disconnected');
-    statusLabel.textContent = msg || (state ? 'connected' : 'disconnected');
-  }
-
-  subBtn.onclick = () => {
-    if (ws) ws.close();
-    logBox.textContent = '';
-    ws = new WebSocket(wsUrl());
-    ws.onopen = () => {
-      setConnected(true, 'subscribing...');
-      ws.send(JSON.stringify({
-        jsonrpc: '2.0', method: 'subscribe_logs',
-        params: [parseInt(idF.input.value)], id: rpcId++,
-      }));
-    };
-    ws.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data);
-      if (msg.id && msg.result) {
-        subId = msg.result;
-        setConnected(true, 'subscribed to session ' + idF.input.value);
-        return;
-      }
-      if (msg.method === 'session_log' && msg.params) {
-        const line = document.createElement('div');
-        line.className = 'line';
-        line.textContent = msg.params.result;
-        logBox.appendChild(line);
-        logBox.scrollTop = logBox.scrollHeight;
-      }
-    };
-    ws.onclose = () => { setConnected(false); subId = null; };
-    ws.onerror = () => { setConnected(false, 'error'); };
-  };
-
-  unsubBtn.onclick = () => {
-    if (ws) { ws.close(); ws = null; subId = null; }
-    setConnected(false);
-  };
-
-  clearBtn.onclick = () => { logBox.textContent = ''; };
 }));
 </script>
 </body>

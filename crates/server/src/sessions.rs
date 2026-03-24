@@ -190,6 +190,10 @@ impl ContenderSessionCache {
         self.sessions.retain(|s| s.info.id != id);
     }
 
+    pub fn all_sessions(&self) -> Vec<ContenderSessionInfo> {
+        self.sessions.iter().map(|s| s.info.clone()).collect()
+    }
+
     pub fn num_sessions(&self) -> usize {
         self.sessions.len()
     }
