@@ -580,8 +580,8 @@ controls.appendChild(makeCabinet('remove_session', body => {
   body.appendChild(idF.container);
   const btn = sendBtn('Remove');
   body.appendChild(btn);
+  const id = parseInt(idF.input.value);
   btn.onclick = async () => {
-    const id = parseInt(idF.input.value);
     try {
       showResult(body, true, await rpc('remove_session', [id]));
       clearLogs(id);
@@ -599,6 +599,7 @@ controls.appendChild(makeCabinet('spam', body => {
   const spammerF = field('spammer', 'select', { options: ['timed', 'blockwise'] });
   const nameF = field('name (optional)', 'text', { placeholder: 'my-run' });
   const receiptsF = field('save_receipts', 'select', { options: ['false', 'true'] });
+  const sessionId = parseInt(idF.input.value);
 
   body.appendChild(idF.container);
   const row = document.createElement('div'); row.className = 'row';
@@ -609,19 +610,37 @@ controls.appendChild(makeCabinet('spam', body => {
   body.appendChild(nameF.container);
   body.appendChild(receiptsF.container);
 
+  // Message element for feedback
+  const msg = document.createElement('div');
+  msg.style.margin = '10px 0';
+  msg.style.fontSize = '.9rem';
+  msg.style.color = 'var(--success)';
+  msg.style.display = 'none';
+  body.appendChild(msg);
+
   const btn = sendBtn('Spam');
   body.appendChild(btn);
   btn.onclick = async () => {
     const params = {
-      session_id: parseInt(idF.input.value),
+      session_id: sessionId,
       txs_per_period: parseInt(tppF.input.value),
       duration: parseInt(durF.input.value),
       spammer: spammerF.input.value,
       save_receipts: receiptsF.input.value === 'true',
     };
     if (nameF.input.value) params.name = nameF.input.value;
-    try { showResult(body, true, await rpc('spam', [params])); }
-    catch (e) { showResult(body, false, e); }
+    try {
+      await rpc('spam', [params]);
+      msg.textContent = `Spamming session ${sessionId}...`;
+      msg.style.display = '';
+      setTimeout(() => { msg.style.display = 'none'; }, 3000);
+    }
+    catch (e) {
+      msg.textContent = 'Error: ' + (e && e.message ? e.message : e);
+      msg.style.color = 'var(--error)';
+      msg.style.display = '';
+      setTimeout(() => { msg.style.display = 'none'; msg.style.color = 'var(--success)'; }, 4000);
+    }
   };
 }));
 
