@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, Instrument};
 
+use crate::rpc_server::ServerStatus;
 use crate::{
     error::ContenderRpcError,
     rpc_server::types::{AddSessionParams, SpamParams, SpammerType},
@@ -18,7 +19,7 @@ pub trait ContenderRpc {
     // ================ RPC Methods ================
 
     #[method(name = "status")]
-    async fn status(&self) -> jsonrpsee::core::RpcResult<String>;
+    async fn status(&self) -> jsonrpsee::core::RpcResult<ServerStatus>;
 
     #[method(name = "add_session")]
     async fn add_session(
@@ -59,9 +60,11 @@ impl ContenderServer {
 
 #[async_trait::async_trait]
 impl ContenderRpcServer for ContenderServer {
-    async fn status(&self) -> jsonrpsee::core::RpcResult<String> {
+    async fn status(&self) -> jsonrpsee::core::RpcResult<ServerStatus> {
         let sessions = self.sessions.read().await;
-        Ok(format!("{} session(s) active", sessions.num_sessions()))
+        Ok(ServerStatus {
+            num_sessions: sessions.num_sessions(),
+        })
     }
 
     async fn add_session(

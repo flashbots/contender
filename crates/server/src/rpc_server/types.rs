@@ -15,6 +15,12 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use tracing::debug;
 
+/// Data returned from the `status` endpoint, containing general info about the server.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ServerStatus {
+    pub num_sessions: usize,
+}
+
 /// RPC parameters for adding a new contender session.
 #[derive(Clone, Debug, Deserialize)]
 pub struct AddSessionParams {

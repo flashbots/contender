@@ -7,6 +7,7 @@ use contender_server::sse::sse_router;
 use jsonrpsee::server::{Server, ServerHandle};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
+use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 
 #[tokio::main]
@@ -49,7 +50,15 @@ async fn start_rpc_server(
     sessions: Arc<RwLock<ContenderSessionCache>>,
     addr: &str,
 ) -> std::io::Result<ServerHandle> {
-    let server = Server::builder().build(addr).await?;
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    let server = Server::builder()
+        .set_http_middleware(tower::ServiceBuilder::new().layer(cors))
+        .build(addr)
+        .await?;
     let module = ContenderServer::new(sessions).into_rpc();
     let handle = server.start(module);
 

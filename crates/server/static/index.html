@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contender Server</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --border: #0f3460;
+    --accent: #e94560;
+    --text: #eee;
+    --muted: #888;
+    --input-bg: #0f3460;
+    --success: #4ecca3;
+    --error: #e94560;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Menlo', 'Consolas', monospace;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+    max-width: 860px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 1.4rem; margin-bottom: 8px; }
+  .server-bar {
+    display: flex; gap: 8px; align-items: center; margin-bottom: 20px;
+  }
+  .server-bar input {
+    flex: 1; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--input-bg); color: var(--text); font-family: inherit; font-size: .85rem;
+  }
+  .cabinet {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+  .cabinet-header {
+    background: var(--surface);
+    padding: 10px 14px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    user-select: none;
+  }
+  .cabinet-header:hover { background: var(--border); }
+  .cabinet-header .name { font-weight: bold; font-size: .95rem; }
+  .cabinet-header .arrow { transition: transform .2s; }
+  .cabinet.open .cabinet-header .arrow { transform: rotate(90deg); }
+  .cabinet-body {
+    display: none;
+    padding: 14px;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+  }
+  .cabinet.open .cabinet-body { display: block; }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: .75rem; color: var(--muted); margin-bottom: 3px; }
+  .field input, .field select, .field textarea {
+    width: 100%; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--input-bg); color: var(--text); font-family: inherit; font-size: .85rem;
+  }
+  .field textarea { resize: vertical; min-height: 60px; }
+  .row { display: flex; gap: 8px; }
+  .row .field { flex: 1; }
+  button.send {
+    background: var(--accent); color: #fff; border: none; padding: 7px 18px;
+    border-radius: 4px; cursor: pointer; font-family: inherit; font-weight: bold;
+    font-size: .85rem;
+  }
+  button.send:hover { opacity: .85; }
+  button.send:disabled { opacity: .4; cursor: not-allowed; }
+  .result {
+    margin-top: 10px; padding: 8px 10px; border-radius: 4px;
+    font-size: .8rem; white-space: pre-wrap; word-break: break-all;
+    max-height: 200px; overflow-y: auto;
+  }
+  .result.ok { background: rgba(78,204,163,.12); border: 1px solid var(--success); }
+  .result.err { background: rgba(233,69,96,.12); border: 1px solid var(--error); }
+  .log-box {
+    margin-top: 10px; background: #111; border: 1px solid var(--border); border-radius: 4px;
+    padding: 8px 10px; font-size: .78rem; max-height: 300px; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-all; color: var(--muted);
+  }
+  .log-box .line { color: var(--text); }
+  .log-controls { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+  .log-controls button {
+    background: var(--surface); color: var(--text); border: 1px solid var(--border);
+    padding: 4px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: .8rem;
+  }
+  .log-controls button:hover { background: var(--border); }
+  .status-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px;
+  }
+  .status-dot.connected { background: var(--success); }
+  .status-dot.disconnected { background: var(--error); }
+</style>
+</head>
+<body>
+
+<h1>Contender Server</h1>
+<div class="server-bar">
+  <label style="font-size:.8rem;color:var(--muted)">Server:</label>
+  <input id="server-url" value="http://localhost:3000" />
+  <span id="server-dot" class="status-dot disconnected"></span>
+  <span id="server-status" style="font-size:.78rem;color:var(--muted)">disconnected</span>
+</div>
+
+<div id="cabinets"></div>
+
+<script src="builtin_scenarios.js"></script>
+<script>
+const $ = (s, p) => (p || document).querySelector(s);
+const $$ = (s, p) => [...(p || document).querySelectorAll(s)];
+
+function serverUrl() { return $('#server-url').value.replace(/\/+$/, ''); }
+function wsUrl() { return serverUrl().replace(/^http/, 'ws'); }
+
+function isValidUrl(s) {
+  try { const u = new URL(s); return u.protocol === 'http:' || u.protocol === 'https:'; }
+  catch { return false; }
+}
+
+let statusTimer = null;
+function setServerStatus(ok, text) {
+  const dot = $('#server-dot');
+  const label = $('#server-status');
+  dot.className = 'status-dot ' + (ok ? 'connected' : 'disconnected');
+  label.textContent = text;
+}
+
+async function checkStatus() {
+  const url = serverUrl();
+  if (!isValidUrl(url)) { setServerStatus(false, 'invalid URL'); return; }
+  try {
+    const result = await rpc('status', []);
+    setServerStatus(true, `sessions: ${result.num_sessions}`);
+  } catch {
+    setServerStatus(false, 'disconnected');
+  }
+}
+
+function restartStatusPoll() {
+  if (statusTimer) clearInterval(statusTimer);
+  checkStatus();
+  statusTimer = setInterval(checkStatus, 5000);
+}
+
+let rpcId = 1;
+async function rpc(method, params) {
+  const body = { jsonrpc: '2.0', method, params, id: rpcId++ };
+  const res = await fetch(serverUrl(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json();
+  if (json.error) throw json.error;
+  return json.result;
+}
+
+$('#server-url').addEventListener('input', restartStatusPoll);
+restartStatusPoll();
+
+function showResult(container, ok, data) {
+  let el = $('.result', container);
+  if (!el) { el = document.createElement('div'); el.className = 'result'; container.appendChild(el); }
+  el.className = 'result ' + (ok ? 'ok' : 'err');
+  el.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+}
+
+function makeCabinet(name, buildBody) {
+  const cab = document.createElement('div');
+  cab.className = 'cabinet';
+  const header = document.createElement('div');
+  header.className = 'cabinet-header';
+  header.innerHTML = `<span class="name">${name}</span><span class="arrow">&#9654;</span>`;
+  header.onclick = () => cab.classList.toggle('open');
+  const body = document.createElement('div');
+  body.className = 'cabinet-body';
+  buildBody(body);
+  cab.appendChild(header);
+  cab.appendChild(body);
+  return cab;
+}
+
+function field(label, type, attrs = {}) {
+  const d = document.createElement('div');
+  d.className = 'field';
+  const l = document.createElement('label');
+  l.textContent = label;
+  d.appendChild(l);
+  let input;
+  if (type === 'select') {
+    input = document.createElement('select');
+    for (const opt of attrs.options || []) {
+      const o = document.createElement('option');
+      o.value = opt; o.textContent = opt;
+      input.appendChild(o);
+    }
+  } else if (type === 'textarea') {
+    input = document.createElement('textarea');
+  } else {
+    input = document.createElement('input');
+    input.type = type || 'text';
+  }
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k !== 'options') input[k] = v;
+  }
+  d.appendChild(input);
+  return { container: d, input };
+}
+
+function sendBtn(text = 'Send') {
+  const b = document.createElement('button');
+  b.className = 'send';
+  b.textContent = text;
+  return b;
+}
+
+const root = $('#cabinets');
+
+// ========== add_session ==========
+root.appendChild(makeCabinet('add_session', body => {
+  const nameF = field('name', 'text', { placeholder: 'my-session' });
+  const urlF = field('rpc_url', 'text', { placeholder: 'http://localhost:8545' });
+  const configTypeF = field('config type', 'select', {
+    options: ['none (default uniV2)', 'builtin', 'toml_base64', 'json']
+  });
+  const builtinF = field('builtin scenario', 'select', {
+    options: Object.keys(BUILTIN_SCENARIOS)
+  });
+  const paramsDiv = document.createElement('div');
+  paramsDiv.id = 'builtin-params';
+  const tomlF = field('TOML (paste raw, will be base64-encoded)', 'textarea');
+  const jsonF = field('JSON config', 'textarea', { placeholder: '{ ... }' });
+
+  body.appendChild(nameF.container);
+  body.appendChild(urlF.container);
+  body.appendChild(configTypeF.container);
+  body.appendChild(builtinF.container);
+  body.appendChild(paramsDiv);
+  body.appendChild(tomlF.container);
+  body.appendChild(jsonF.container);
+
+  // Dynamically render parameter fields for the selected builtin scenario.
+  let paramInputs = {}; // name -> { input, spec }
+  function renderBuiltinParams() {
+    paramsDiv.innerHTML = '';
+    paramInputs = {};
+    const scenario = builtinF.input.value;
+    const specs = BUILTIN_SCENARIOS[scenario] || [];
+    for (const spec of specs) {
+      let f;
+      if (spec.type === 'bool') {
+        f = field(spec.name, 'select', { options: ['false', 'true'] });
+        if (spec.default) f.input.value = spec.default;
+      } else if (spec.type.startsWith('multi-select:')) {
+        const opts = spec.type.slice('multi-select:'.length).split(',');
+        f = field(spec.name, 'textarea', {
+          placeholder: opts.slice(0, 4).join(', ') + ', ...',
+          rows: 2,
+        });
+        if (spec.default) f.input.value = spec.default;
+      } else if (spec.type.startsWith('select:')) {
+        const opts = spec.type.slice('select:'.length).split(',');
+        f = field(spec.name, 'select', { options: opts });
+        if (spec.default) f.input.value = spec.default;
+      } else if (spec.type === 'number') {
+        f = field(spec.name, 'number', { value: spec.default || '' });
+      } else {
+        f = field(spec.name, 'text', { value: spec.default || '', placeholder: spec.optional ? '(optional)' : '' });
+      }
+      if (spec.help) f.input.title = spec.help;
+      paramsDiv.appendChild(f.container);
+      paramInputs[spec.name] = { input: f.input, spec };
+    }
+  }
+  builtinF.input.onchange = renderBuiltinParams;
+  renderBuiltinParams();
+
+  function updateVisibility() {
+    const v = configTypeF.input.value;
+    builtinF.container.style.display = v === 'builtin' ? '' : 'none';
+    paramsDiv.style.display = v === 'builtin' ? '' : 'none';
+    tomlF.container.style.display = v === 'toml_base64' ? '' : 'none';
+    jsonF.container.style.display = v === 'json' ? '' : 'none';
+  }
+  configTypeF.input.onchange = () => { updateVisibility(); };
+  updateVisibility();
+
+  const btn = sendBtn('Add Session');
+  body.appendChild(btn);
+  btn.onclick = async () => {
+    const params = { name: nameF.input.value || 'my-session', rpc_url: urlF.input.value || 'http://localhost:8545' };
+    const ct = configTypeF.input.value;
+    if (ct === 'builtin') {
+      // Build the Builtin variant: { Builtin: { VariantName: { field: value, ... } } }
+      const scenario = builtinF.input.value;
+      const args = {};
+      for (const [name, { input, spec }] of Object.entries(paramInputs)) {
+        const raw = input.value.trim();
+        if (!raw && spec.optional) continue; // skip empty optional fields
+        if (spec.type === 'bool') {
+          args[name] = raw === 'true';
+        } else if (spec.type === 'number') {
+          args[name] = raw ? Number(raw) : null;
+        } else if (spec.type.startsWith('multi-select:')) {
+          // comma-separated list of enum variants
+          args[name] = raw ? raw.split(',').map(s => s.trim()).filter(Boolean) : [];
+        } else {
+          args[name] = raw || null;
+        }
+      }
+      params.test_config = { Builtin: { [scenario]: args } };
+    } else if (ct === 'toml_base64') {
+      params.test_config = { TomlBase64: btoa(tomlF.input.value) };
+    } else if (ct === 'json') {
+      try { params.test_config = { Json: JSON.parse(jsonF.input.value) }; }
+      catch (e) { showResult(body, false, 'Invalid JSON: ' + e.message); return; }
+    }
+    try { showResult(body, true, await rpc('add_session', [params])); }
+    catch (e) { showResult(body, false, e); }
+  };
+}));
+
+// ========== get_session ==========
+root.appendChild(makeCabinet('get_session', body => {
+  const idF = field('session_id', 'number', { value: '0', min: '0' });
+  body.appendChild(idF.container);
+  const btn = sendBtn('Get Session');
+  body.appendChild(btn);
+  btn.onclick = async () => {
+    try { showResult(body, true, await rpc('get_session', [parseInt(idF.input.value)])); }
+    catch (e) { showResult(body, false, e); }
+  };
+}));
+
+// ========== remove_session ==========
+root.appendChild(makeCabinet('remove_session', body => {
+  const idF = field('session_id', 'number', { value: '0', min: '0' });
+  body.appendChild(idF.container);
+  const btn = sendBtn('Remove');
+  body.appendChild(btn);
+  btn.onclick = async () => {
+    try { showResult(body, true, await rpc('remove_session', [parseInt(idF.input.value)])); }
+    catch (e) { showResult(body, false, e); }
+  };
+}));
+
+// ========== spam ==========
+root.appendChild(makeCabinet('spam', body => {
+  const idF = field('session_id', 'number', { value: '0', min: '0' });
+  const tppF = field('txs_per_period', 'number', { value: '10', min: '1' });
+  const durF = field('duration (periods)', 'number', { value: '10', min: '1' });
+  const spammerF = field('spammer', 'select', { options: ['timed', 'blockwise'] });
+  const nameF = field('name (optional)', 'text', { placeholder: 'my-run' });
+  const receiptsF = field('save_receipts', 'select', { options: ['false', 'true'] });
+
+  body.appendChild(idF.container);
+  const row = document.createElement('div'); row.className = 'row';
+  row.appendChild(tppF.container);
+  row.appendChild(durF.container);
+  body.appendChild(row);
+  body.appendChild(spammerF.container);
+  body.appendChild(nameF.container);
+  body.appendChild(receiptsF.container);
+
+  const btn = sendBtn('Spam');
+  body.appendChild(btn);
+  btn.onclick = async () => {
+    const params = {
+      session_id: parseInt(idF.input.value),
+      txs_per_period: parseInt(tppF.input.value),
+      duration: parseInt(durF.input.value),
+      spammer: spammerF.input.value,
+      save_receipts: receiptsF.input.value === 'true',
+    };
+    if (nameF.input.value) params.name = nameF.input.value;
+    try { showResult(body, true, await rpc('spam', [params])); }
+    catch (e) { showResult(body, false, e); }
+  };
+}));
+
+// ========== stop ==========
+root.appendChild(makeCabinet('stop', body => {
+  const idF = field('session_id', 'number', { value: '0', min: '0' });
+  body.appendChild(idF.container);
+  const btn = sendBtn('Stop');
+  body.appendChild(btn);
+  btn.onclick = async () => {
+    try { showResult(body, true, await rpc('stop', [parseInt(idF.input.value)])); }
+    catch (e) { showResult(body, false, e); }
+  };
+}));
+
+// ========== subscribe_logs (WebSocket) ==========
+root.appendChild(makeCabinet('subscribe_logs', body => {
+  const idF = field('session_id', 'number', { value: '0', min: '0' });
+  body.appendChild(idF.container);
+
+  const controls = document.createElement('div');
+  controls.className = 'log-controls';
+  const subBtn = document.createElement('button'); subBtn.textContent = 'Subscribe';
+  const unsubBtn = document.createElement('button'); unsubBtn.textContent = 'Unsubscribe';
+  const clearBtn = document.createElement('button'); clearBtn.textContent = 'Clear';
+  const dot = document.createElement('span'); dot.className = 'status-dot disconnected';
+  const statusLabel = document.createElement('span');
+  statusLabel.style.cssText = 'font-size:.78rem;color:var(--muted)';
+  statusLabel.textContent = 'disconnected';
+  controls.appendChild(subBtn);
+  controls.appendChild(unsubBtn);
+  controls.appendChild(clearBtn);
+  controls.appendChild(dot);
+  controls.appendChild(statusLabel);
+  body.appendChild(controls);
+
+  const logBox = document.createElement('div');
+  logBox.className = 'log-box';
+  logBox.textContent = 'No logs yet.';
+  body.appendChild(logBox);
+
+  let ws = null;
+  let subId = null;
+
+  function setConnected(state, msg) {
+    dot.className = 'status-dot ' + (state ? 'connected' : 'disconnected');
+    statusLabel.textContent = msg || (state ? 'connected' : 'disconnected');
+  }
+
+  subBtn.onclick = () => {
+    if (ws) ws.close();
+    logBox.textContent = '';
+    ws = new WebSocket(wsUrl());
+    ws.onopen = () => {
+      setConnected(true, 'subscribing...');
+      ws.send(JSON.stringify({
+        jsonrpc: '2.0', method: 'subscribe_logs',
+        params: [parseInt(idF.input.value)], id: rpcId++,
+      }));
+    };
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.id && msg.result) {
+        subId = msg.result;
+        setConnected(true, 'subscribed to session ' + idF.input.value);
+        return;
+      }
+      if (msg.method === 'session_log' && msg.params) {
+        const line = document.createElement('div');
+        line.className = 'line';
+        line.textContent = msg.params.result;
+        logBox.appendChild(line);
+        logBox.scrollTop = logBox.scrollHeight;
+      }
+    };
+    ws.onclose = () => { setConnected(false); subId = null; };
+    ws.onerror = () => { setConnected(false, 'error'); };
+  };
+
+  unsubBtn.onclick = () => {
+    if (ws) { ws.close(); ws = null; subId = null; }
+    setConnected(false);
+  };
+
+  clearBtn.onclick = () => { logBox.textContent = ''; };
+}));
+</script>
+</body>
+</html>
