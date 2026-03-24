@@ -490,6 +490,30 @@ impl DbOps for SqliteDb {
         Ok(res)
     }
 
+    fn get_all_named_txs(
+        &self,
+        rpc_url: &str,
+        genesis_hash: FixedBytes<32>,
+    ) -> Result<Vec<NamedTx>> {
+        let pool = self.get_pool()?;
+        let mut stmt = pool.prepare(
+            "SELECT name, tx_hash, contract_address FROM named_txs WHERE rpc_url_id = (
+                SELECT id FROM rpc_urls WHERE url = ?1 AND genesis_hash = ?2
+            ) ORDER BY id",
+        )?;
+
+        let rows = stmt.query_map(
+            params![rpc_url, genesis_hash.to_string().to_lowercase()],
+            NamedTxRow::from_row,
+        )?;
+        let res: Vec<NamedTx> = rows
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .into_iter()
+            .map(|r| r.into())
+            .collect();
+        Ok(res)
+    }
+
     fn get_named_tx_by_address(&self, address: &Address) -> Result<Option<NamedTx>> {
         let pool = self.get_pool()?;
         let mut stmt = pool

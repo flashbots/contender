@@ -119,6 +119,18 @@ pub struct SpamCliArgs {
     )]
     pub skip_setup: bool,
 
+    /// Load a snapshot JSON file to restore contract addresses into the DB before spamming.
+    /// When set, setup is skipped automatically.
+    #[arg(
+        long = "from-snapshot",
+        value_name = "PATH",
+        global = true,
+        long_help = "Path to a snapshot JSON file (created by `contender snapshot`). \
+                     Loads deployed contract addresses into the DB and skips setup, \
+                     enabling fast iteration for A/B benchmarking."
+    )]
+    pub from_snapshot: Option<std::path::PathBuf>,
+
     /// Max number of txs to send in a single json-rpc batch request.
     ///
     /// If set to 0 (default), contender sends one eth_sendRawTransaction request per tx.
@@ -435,8 +447,16 @@ impl SpamCommandArgs {
         )
         .await?;
 
+        // load snapshot if provided (implies skip_setup)
+        if let Some(snapshot_path) = &self.spam_args.from_snapshot {
+            info!("Loading snapshot from {}...", snapshot_path.display());
+            crate::commands::snapshot::load_snapshot(db, snapshot_path)?;
+            info!("Snapshot loaded — skipping setup.");
+        }
+
         // run deployments & setup for builtin scenarios
-        if self.scenario.is_builtin() && !self.spam_args.skip_setup {
+        let skip_setup = self.spam_args.skip_setup || self.spam_args.from_snapshot.is_some();
+        if self.scenario.is_builtin() && !skip_setup {
             let test_scenario = &mut test_scenario;
             let setup_cost = test_scenario.estimate_setup_cost().await?;
             if min_balance < setup_cost {
@@ -923,6 +943,7 @@ mod tests {
                     optimistic_nonces: true,
                     gen_report: false,
                     skip_setup: false,
+                    from_snapshot: None,
                     rpc_batch_size: 0,
                     spam_timeout: Duration::from_secs(5),
                     flashblocks_ws_url: None,

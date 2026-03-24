@@ -342,6 +342,7 @@ fn create_spam_cli_args(
         optimistic_nonces: args.optimistic_nonces,
         gen_report: false,
         skip_setup,
+        from_snapshot: None,
         rpc_batch_size: args.rpc_batch_size,
         spam_timeout: args.spam_timeout,
         flashblocks_ws_url: args.flashblocks_ws_url.clone(),

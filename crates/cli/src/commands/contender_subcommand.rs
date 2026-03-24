@@ -5,6 +5,7 @@ use crate::commands::campaign::CampaignCliArgs;
 use crate::commands::common::ScenarioSendTxsCliArgs;
 use crate::commands::replay::ReplayCliArgs;
 use crate::commands::rpc::RpcCliArgs;
+use crate::commands::snapshot::SnapshotCliArgs;
 use crate::default_scenarios::BuiltinScenarioCli;
 
 use super::admin::AdminCommand;
@@ -114,6 +115,15 @@ pub enum ContenderSubcommand {
     Rpc {
         #[command(flatten)]
         args: Box<RpcCliArgs>,
+    },
+
+    #[command(
+        name = "snapshot",
+        long_about = "Export deployed contract state (named txs) to a JSON snapshot file.\nUse with `spam --from-snapshot` to skip redeployment on subsequent runs."
+    )]
+    Snapshot {
+        #[command(flatten)]
+        args: Box<SnapshotCliArgs>,
     },
 }
 

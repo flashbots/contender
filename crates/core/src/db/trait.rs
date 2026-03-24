@@ -21,6 +21,13 @@ pub trait DbOps {
         genesis_hash: FixedBytes<32>,
     ) -> Result<Option<NamedTx>, Self::Error>;
 
+    /// Get all named txs for a given RPC URL and genesis hash.
+    fn get_all_named_txs(
+        &self,
+        rpc_url: &str,
+        genesis_hash: FixedBytes<32>,
+    ) -> Result<Vec<NamedTx>, Self::Error>;
+
     fn get_named_tx_by_address(&self, address: &Address) -> Result<Option<NamedTx>, Self::Error>;
 
     fn get_run(&self, run_id: u64) -> Result<Option<SpamRun>, Self::Error>;

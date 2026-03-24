@@ -1,7 +1,7 @@
 use alloy::primitives::{Address, TxHash};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NamedTx {
     pub name: String,
     pub tx_hash: TxHash,

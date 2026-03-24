@@ -7,6 +7,7 @@ pub mod error;
 pub mod replay;
 pub mod rpc;
 mod setup;
+pub mod snapshot;
 mod spam;
 
 use clap::{Parser, ValueEnum};

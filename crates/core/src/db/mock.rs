@@ -114,6 +114,14 @@ impl DbOps for MockDb {
         )))
     }
 
+    fn get_all_named_txs(
+        &self,
+        _rpc_url: &str,
+        _genesis_hash: FixedBytes<32>,
+    ) -> Result<Vec<NamedTx>, Self::Error> {
+        Ok(vec![])
+    }
+
     fn get_named_tx_by_address(&self, address: &Address) -> Result<Option<NamedTx>, Self::Error> {
         Ok(Some(NamedTx::new(
             String::default(),
