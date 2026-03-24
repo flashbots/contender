@@ -599,7 +599,6 @@ controls.appendChild(makeCabinet('spam', body => {
   const spammerF = field('spammer', 'select', { options: ['timed', 'blockwise'] });
   const nameF = field('name (optional)', 'text', { placeholder: 'my-run' });
   const receiptsF = field('save_receipts', 'select', { options: ['false', 'true'] });
-  const sessionId = parseInt(idF.input.value);
 
   body.appendChild(idF.container);
   const row = document.createElement('div'); row.className = 'row';
@@ -620,7 +619,33 @@ controls.appendChild(makeCabinet('spam', body => {
 
   const btn = sendBtn('Spam');
   body.appendChild(btn);
+
+  // --- Spam button enable/disable logic ---
+  let lastSessions = [];
+  function updateSpamButton() {
+    const sessionId = parseInt(idF.input.value);
+    const session = lastSessions.find(s => s.id === sessionId);
+    if (session && session.status && typeof session.status === 'object' && Object.keys(session.status).includes('Spamming')) {
+      btn.disabled = true;
+      btn.title = 'This session is currently spamming.';
+    } else {
+      btn.disabled = false;
+      btn.title = '';
+    }
+  }
+  idF.input.addEventListener('input', updateSpamButton);
+
+  // Patch renderSessions to call updateSpamButton with latest sessions
+  const origRenderSessions = window.renderSessions || renderSessions;
+  function patchedRenderSessions(sessions) {
+    lastSessions = sessions;
+    updateSpamButton();
+    return origRenderSessions.apply(this, arguments);
+  }
+  window.renderSessions = patchedRenderSessions;
+
   btn.onclick = async () => {
+    const sessionId = parseInt(idF.input.value);
     const params = {
       session_id: sessionId,
       txs_per_period: parseInt(tppF.input.value),
@@ -634,6 +659,8 @@ controls.appendChild(makeCabinet('spam', body => {
       msg.textContent = `Spamming session ${sessionId}...`;
       msg.style.display = '';
       setTimeout(() => { msg.style.display = 'none'; }, 3000);
+      btn.disabled = true;
+      btn.title = 'This session is currently spamming.';
     }
     catch (e) {
       msg.textContent = 'Error: ' + (e && e.message ? e.message : e);
