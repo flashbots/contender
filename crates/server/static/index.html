@@ -406,6 +406,10 @@ function renderSessions(sessions) {
       const arrow = state.cab._metaRight.querySelector('.arrow');
       state.cab._metaRight.innerHTML = badgeHtml + ' ';
       state.cab._metaRight.appendChild(arrow);
+      // Update stopButton visibility for live status
+      if (state.stopButton) {
+        state.stopButton.hidden = !(s.status && typeof s.status === 'object' && Object.keys(s.status).includes('Spamming'));
+      }
       // Re-attach if cabinet was detached from the DOM
       if (!state.cab.parentNode) list.appendChild(state.cab);
     } else {
@@ -420,17 +424,36 @@ function renderSessions(sessions) {
       const cab = makeCabinet(`#${s.id} ${s.name}`, body => {
         const controls = document.createElement('div');
         controls.className = 'log-controls';
+
         const clearBtn = document.createElement('button');
         clearBtn.textContent = 'Clear logs';
         clearBtn.onclick = (e) => { e.stopPropagation(); logBox.textContent = ''; clearLogs(s.id); };
+
+        const stopButton = sendBtn('Stop spammer');
+        stopButton.onclick = async (e) => {
+          e.stopPropagation();
+          try {
+            await rpc("stop", [s.id]);
+          } catch (e) {
+            console.error("failed to stop session", e)
+          }
+        };
+        stopButton.hidden = !(s.status && typeof s.status === 'object' && Object.keys(s.status).includes('Spamming'));
+
         controls.appendChild(clearBtn);
+        controls.appendChild(stopButton);
+
         body.appendChild(controls);
         body.appendChild(logBox);
+
+        // Store stopButton reference for live updates
+        if (!sessionState[s.id]) sessionState[s.id] = {};
+        sessionState[s.id].stopButton = stopButton;
       }, {
         metaHtml: badgeHtml + ' ',
       });
 
-      sessionState[s.id] = { ws: null, logBox, cab };
+      sessionState[s.id] = { ...sessionState[s.id], ws: null, logBox, cab };
       list.appendChild(cab);
 
       // Subscribe immediately so logs accumulate in the background
@@ -602,17 +625,6 @@ controls.appendChild(makeCabinet('spam', body => {
   };
 }));
 
-// ========== stop ==========
-controls.appendChild(makeCabinet('stop', body => {
-  const idF = field('session_id', 'number', { value: '0', min: '0' });
-  body.appendChild(idF.container);
-  const btn = sendBtn('Stop');
-  body.appendChild(btn);
-  btn.onclick = async () => {
-    try { showResult(body, true, await rpc('stop', [parseInt(idF.input.value)])); }
-    catch (e) { showResult(body, false, e); }
-  };
-}));
 </script>
 </body>
 </html>
