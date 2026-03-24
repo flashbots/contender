@@ -632,7 +632,8 @@ controls.appendChild(makeCabinet('add_session', body => {
 
 // ========== spam ==========
 controls.appendChild(makeCabinet('spam', body => {
-  const idF = field('session_id', 'number', { value: '0', min: '0' });
+  // Session dropdown will be populated dynamically
+  const idF = field('session_id', 'select', { options: [] });
   const tppF = field('txs_per_period', 'number', { value: '10', min: '1' });
   const durF = field('duration (periods)', 'number', { value: '10', min: '1' });
   const spammerF = field('spammer', 'select', { options: ['timed', 'blockwise'] });
@@ -661,9 +662,26 @@ controls.appendChild(makeCabinet('spam', body => {
 
   // --- Spam button enable/disable logic ---
   let lastSessions = [];
+  function updateSessionDropdown() {
+    // Save current selection
+    const prev = idF.input.value;
+    // Remove all options
+    idF.input.innerHTML = '';
+    for (const s of lastSessions) {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = `${s.name} (#${s.id})`;
+      idF.input.appendChild(opt);
+    }
+    // Restore previous selection if possible
+    if (prev && [...idF.input.options].some(o => o.value == prev)) {
+      idF.input.value = prev;
+    }
+  }
+
   function updateSpamButton() {
-    const sessionId = parseInt(idF.input.value);
-    const session = lastSessions.find(s => s.id === sessionId);
+    const sessionId = idF.input.value;
+    const session = lastSessions.find(s => String(s.id) === String(sessionId));
     if (session && session.status && typeof session.status === 'object' && Object.keys(session.status).includes('Spamming')) {
       btn.disabled = true;
       btn.title = 'This session is currently spamming.';
@@ -672,19 +690,20 @@ controls.appendChild(makeCabinet('spam', body => {
       btn.title = '';
     }
   }
-  idF.input.addEventListener('input', updateSpamButton);
+  idF.input.addEventListener('change', updateSpamButton);
 
-  // Patch renderSessions to call updateSpamButton with latest sessions
+  // Patch renderSessions to update dropdown and button
   const origRenderSessions = window.renderSessions || renderSessions;
   function patchedRenderSessions(sessions) {
     lastSessions = sessions;
+    updateSessionDropdown();
     updateSpamButton();
     return origRenderSessions.apply(this, arguments);
   }
   window.renderSessions = patchedRenderSessions;
 
   btn.onclick = async () => {
-    const sessionId = parseInt(idF.input.value);
+    const sessionId = idF.input.value;
     const params = {
       session_id: sessionId,
       txs_per_period: parseInt(tppF.input.value),
