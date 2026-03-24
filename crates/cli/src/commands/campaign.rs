@@ -345,6 +345,7 @@ fn create_spam_cli_args(
         rpc_batch_size: args.rpc_batch_size,
         spam_timeout: args.spam_timeout,
         flashblocks_ws_url: args.flashblocks_ws_url.clone(),
+        report_interval: None,
     }
 }
 
