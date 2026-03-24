@@ -471,36 +471,33 @@ function renderSessions(sessions) {
         controls.appendChild(clearBtn);
         controls.appendChild(stopButton);
         controls.appendChild(removeBtn);
-// ── Modal logic ──
-function showModal({ message, onConfirm }) {
-  const overlay = document.getElementById('modal-overlay');
-  const msg = document.getElementById('modal-message');
-  const confirmBtn = document.getElementById('modal-confirm');
-  const cancelBtn = document.getElementById('modal-cancel');
-  let confirmed = false;
-  msg.textContent = message;
-  overlay.style.display = 'flex';
-  function cleanup() {
-    overlay.style.display = 'none';
-    confirmBtn.onclick = null;
-    cancelBtn.onclick = null;
-  }
-  confirmBtn.onclick = () => {
-    confirmed = true;
-    cleanup();
-    if (onConfirm) onConfirm();
-  };
-  cancelBtn.onclick = () => {
-    cleanup();
-  };
-  // Allow Esc to close
-  overlay.onkeydown = (e) => {
-    if (e.key === 'Escape') {
-      cleanup();
-    }
-  };
-  overlay.focus();
-}
+
+        // ── Modal logic ──
+        function showModal({ message, onConfirm }) {
+            const overlay = document.getElementById('modal-overlay');
+            const msg = document.getElementById('modal-message');
+            const confirmBtn = document.getElementById('modal-confirm');
+            const cancelBtn = document.getElementById('modal-cancel');
+            let confirmed = false;
+            msg.textContent = message;
+            overlay.style.display = 'flex';
+            function cleanup() {
+                overlay.style.display = 'none';
+                confirmBtn.onclick = null;
+                cancelBtn.onclick = null;
+            }
+            confirmBtn.onclick = () => {
+                confirmed = true;
+                cleanup();
+                if (onConfirm) onConfirm();
+            };
+            cancelBtn.onclick = () => { cleanup(); };
+            // Allow Esc to close
+            overlay.onkeydown = (e) => {
+                if (e.key === 'Escape') { cleanup(); }
+            };
+            overlay.focus();
+        }
 
         body.appendChild(controls);
         body.appendChild(logBox);
@@ -627,23 +624,6 @@ controls.appendChild(makeCabinet('add_session', body => {
         clearLogs(result.id);
       }
       showResult(body, true, result);
-      pollSessions();
-    }
-    catch (e) { showResult(body, false, e); }
-  };
-}));
-
-// ========== remove_session ==========
-controls.appendChild(makeCabinet('remove_session', body => {
-  const idF = field('session_id', 'number', { value: '0', min: '0' });
-  body.appendChild(idF.container);
-  const btn = sendBtn('Remove');
-  body.appendChild(btn);
-  const id = parseInt(idF.input.value);
-  btn.onclick = async () => {
-    try {
-      showResult(body, true, await rpc('remove_session', [id]));
-      clearLogs(id);
       pollSessions();
     }
     catch (e) { showResult(body, false, e); }

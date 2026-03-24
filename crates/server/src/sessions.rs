@@ -10,6 +10,8 @@ use crate::{
     rpc_server::{SpamParams, SpammerType},
 };
 
+type SessionId = usize;
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum SessionStatus {
     Initializing,
@@ -67,7 +69,7 @@ pub struct NewSessionParams {
 impl ContenderSession {
     /// Should only be called by ContenderSessionCache when adding a new session,
     /// since the session ID is determined by the cache
-    fn new(id: usize, params: NewSessionParams) -> Self {
+    fn new(id: SessionId, params: NewSessionParams) -> Self {
         let info = ContenderSessionInfo {
             id,
             name: params.name,
@@ -89,7 +91,7 @@ impl ContenderSession {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ContenderSessionInfo {
-    pub id: usize,
+    pub id: SessionId,
     pub name: String,
     pub rpc_url: Url,
     pub status: SessionStatus,
@@ -124,8 +126,26 @@ impl ContenderSessionCache {
         }
     }
 
-    pub fn next_session_id(&self) -> usize {
-        self.sessions.len()
+    /// Generate a new session ID. This is currently just a random usize, but could be changed to something else (e.g. UUID) if we want to support more sessions or have better guarantees against collisions.
+    pub fn next_session_id(&self) -> SessionId {
+        self.gen_id(
+            self.sessions
+                .iter()
+                .map(|s| s.info.id)
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )
+    }
+
+    /// Generate a random session ID that is not currently in use. This is simpler than tracking used IDs and reusing them, and the ID space is large enough that collisions should be extremely rare.
+    /// In case of collision, we simply try again with a new random ID by recursing.
+    fn gen_id(&self, session_ids: &[SessionId]) -> SessionId {
+        let id = rand::random::<u32>() as SessionId;
+        if self.sessions.iter().all(|s| s.info.id != id) {
+            id
+        } else {
+            self.gen_id(session_ids)
+        }
     }
 
     /// Add a new session to the cache. The ID is simply the index of the session in the vector.
@@ -144,21 +164,21 @@ impl ContenderSessionCache {
         }
 
         self.sessions.push(session);
-        &mut self.sessions[info.id]
+        self.sessions.last_mut().expect("just pushed, should exist")
     }
 
-    pub fn get_session(&self, id: usize) -> Option<&ContenderSession> {
+    pub fn get_session(&self, id: SessionId) -> Option<&ContenderSession> {
         self.sessions.iter().find(|s| s.info.id == id)
     }
 
-    pub fn get_session_mut(&mut self, id: usize) -> Option<&mut ContenderSession> {
+    pub fn get_session_mut(&mut self, id: SessionId) -> Option<&mut ContenderSession> {
         self.sessions.iter_mut().find(|s| s.info.id == id)
     }
 
     /// Take the Contender out of a session so it can be used outside the lock.
     pub fn take_contender(
         &mut self,
-        id: usize,
+        id: SessionId,
     ) -> Option<Contender<SqliteDb, RandSeed, TestConfig>> {
         self.get_session_mut(id).and_then(|s| s.contender.take())
     }
@@ -166,7 +186,7 @@ impl ContenderSessionCache {
     /// Put the Contender back into a session after initialization.
     pub fn put_contender(
         &mut self,
-        id: usize,
+        id: SessionId,
         contender: Contender<SqliteDb, RandSeed, TestConfig>,
     ) {
         if let Some(session) = self.get_session_mut(id) {
@@ -174,7 +194,7 @@ impl ContenderSessionCache {
         }
     }
 
-    pub fn remove_session(&mut self, id: usize) {
+    pub fn remove_session(&mut self, id: SessionId) {
         if let Some(session) = self.get_session(id) {
             // Stop any running spam before tearing down.
             if let Some(ref token) = session.spam_cancel {
