@@ -224,7 +224,9 @@ impl SpamCommandArgs {
             duration,
             pending_timeout,
             run_forever,
+            duration_secs,
         } = self.spam_args.spam_args.clone();
+        let _ = duration_secs; // used later in spam_inner
         let SendTxsCliArgsInner {
             min_balance,
             tx_type,
@@ -632,6 +634,7 @@ where
         duration,
         pending_timeout,
         run_forever,
+        duration_secs,
         ..
     } = spam_args;
     let SendTxsCliArgsInner {
@@ -748,8 +751,29 @@ where
         .with_pending_tx_timeout(pending_timeout);
     test_scenario.tx_actor().init_ctx(actor_ctx).await?;
 
-    // loop spammer, break if CTRL-C is received, or run_forever is false
+    // Track wall-clock start time for --duration-secs
+    let wall_clock_start = tokio::time::Instant::now();
+    let wall_clock_deadline = duration_secs.map(|s| Duration::from_secs(s));
+
+    // If --duration-secs is set, it overrides --forever
+    let effective_run_forever = if duration_secs.is_some() {
+        false
+    } else {
+        run_forever
+    };
+
+    let mut total_batches: u64 = 0;
+
+    // loop spammer, break if CTRL-C is received, wall-clock deadline expires, or run_forever is false
     loop {
+        // Check wall-clock deadline before starting a new spam batch
+        if let Some(deadline) = wall_clock_deadline {
+            if wall_clock_start.elapsed() >= deadline {
+                info!("Wall-clock duration of {}s reached, stopping spam.", deadline.as_secs());
+                break;
+            }
+        }
+
         tokio::select! {
             res = {
                 spammer
@@ -762,6 +786,20 @@ where
                 )
             } => {
                 res.map_err(err_parse)?;
+                total_batches += 1;
+            }
+
+            _ = async {
+                if let Some(deadline) = wall_clock_deadline {
+                    let remaining = deadline.saturating_sub(wall_clock_start.elapsed());
+                    tokio::time::sleep(remaining).await;
+                } else {
+                    // Never resolves if no deadline set
+                    std::future::pending::<()>().await;
+                }
+            } => {
+                info!("Wall-clock duration of {}s reached during spam batch, stopping.", wall_clock_deadline.unwrap().as_secs());
+                break;
             }
 
             _ = tokio::signal::ctrl_c() => {
@@ -770,9 +808,20 @@ where
             }
         }
 
-        if !run_forever || test_scenario.is_shutdown().await {
+        if !effective_run_forever || test_scenario.is_shutdown().await {
             break;
         }
+    }
+
+    let elapsed = wall_clock_start.elapsed();
+
+    // Print drain message if duration-secs was used
+    if duration_secs.is_some() {
+        info!(
+            "Spam sending complete after {:.1}s ({} batches). Waiting for in-flight transactions to confirm...",
+            elapsed.as_secs_f64(),
+            total_batches,
+        );
     }
 
     // wait for tx results, or break for CTRL-C
@@ -784,6 +833,20 @@ where
             info!("CTRL-C received, stopping result collection.");
             test_scenario.shutdown().await;
         }
+    }
+
+    let total_elapsed = wall_clock_start.elapsed();
+
+    // Print summary when --duration-secs was used
+    if duration_secs.is_some() {
+        let drain_time = total_elapsed - elapsed;
+        info!(
+            "Summary: elapsed={:.1}s, drain_time={:.1}s, total_time={:.1}s, batches={}",
+            elapsed.as_secs_f64(),
+            drain_time.as_secs_f64(),
+            total_elapsed.as_secs_f64(),
+            total_batches,
+        );
     }
 
     Ok(run_id)
@@ -918,6 +981,7 @@ mod tests {
                         duration: 4,
                         pending_timeout: 10,
                         run_forever: false,
+                        duration_secs: None,
                     },
                     ignore_receipts: false,
                     optimistic_nonces: true,

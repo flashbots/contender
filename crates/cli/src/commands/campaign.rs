@@ -337,6 +337,7 @@ fn create_spam_cli_args(
             duration: spam_duration,
             pending_timeout: args.pending_timeout,
             run_forever: false,
+            duration_secs: None,
         },
         ignore_receipts: args.ignore_receipts,
         optimistic_nonces: args.optimistic_nonces,

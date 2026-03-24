@@ -334,6 +334,16 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         visible_aliases = ["indefinite", "indefinitely", "infinite"]
     )]
     pub run_forever: bool,
+
+    /// Wall-clock time limit in seconds. Stop sending new transactions after this many seconds
+    /// and wait for in-flight transactions to confirm (or timeout) before exiting.
+    /// Overrides --forever if both are set.
+    #[arg(
+        long,
+        long_help = "Wall-clock time limit in seconds. When set, contender stops sending new transactions after the specified duration and waits for all in-flight transactions to confirm or timeout before exiting with a summary.\nOverrides --forever if both are set.",
+        visible_aliases = ["ds", "time-limit"]
+    )]
+    pub duration_secs: Option<u64>,
 }
 
 #[derive(Copy, Debug, Clone, clap::ValueEnum)]
