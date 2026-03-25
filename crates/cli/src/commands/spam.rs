@@ -101,8 +101,11 @@ fn print_progress_report<D: GenericDb>(
         current_tps: (current_tps * 10.0).round() / 10.0,
     };
 
+    // tracing span annotates the log for easy identification later
+    let span = tracing::info_span!("spam_progress", run_id = run_id);
     if let Ok(json) = serde_json::to_string(&report) {
-        println!("{json}");
+        let _enter = span.enter();
+        info!("{json}");
     }
 
     Some(())
