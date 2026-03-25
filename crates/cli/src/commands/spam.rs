@@ -114,7 +114,7 @@ fn print_progress_report<D: GenericDb>(
 /// Spawns a background task that periodically queries the DB and prints
 /// a structured JSON progress report to stdout.
 /// Returns a cancellation token that should be cancelled when spam is done.
-fn spawn_report_task<D: GenericDb>(
+fn spawn_spam_report_task<D: GenericDb>(
     db: &D,
     run_id: u64,
     interval_secs: u64,
@@ -878,7 +878,12 @@ where
     let report_interval = args.spam_args.report_interval;
     let report_cancel = if let (Some(interval_secs), Some(rid)) = (report_interval, run_id) {
         let planned_tx_count = txs_per_batch * duration;
-        Some(spawn_report_task(db, rid, interval_secs, planned_tx_count))
+        Some(spawn_spam_report_task(
+            db,
+            rid,
+            interval_secs,
+            planned_tx_count,
+        ))
     } else {
         None
     };
