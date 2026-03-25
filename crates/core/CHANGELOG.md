@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.0](https://github.com/flashbots/contender/releases/tag/v0.9.0) - 2026-03-17
 
+- added `eth_sendRawTransactionSync` support with per-tx `end_timestamp_ms` tracking ([#459](https://github.com/flashbots/contender/pull/459))
 - remove artificial delay in timed spammer to achieve accurate timing ([#454](https://github.com/flashbots/contender/pull/454))
 - added `scenario_label` support to apply contract name labels at the DB boundary ([#456](https://github.com/flashbots/contender/pull/456/changes))
 - control `SETUP_CONCURRENCY_LIMIT` with env var ([#461](https://github.com/flashbots/contender/pull/461/changes))
@@ -16,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking changes
 
+- `TestScenarioParams` has a new required field `send_raw_tx_sync: bool`
 - `TestScenarioParams` has a new required field `scenario_label: Option<String>`
 - `Generator` trait has a new required method `get_scenario_label() -> Option<&str>`
 - `Templater` trait methods `find_placeholder_values`, `find_fncall_placeholders`, and `find_create_placeholders` have a new `scenario_label: Option<&str>` parameter
