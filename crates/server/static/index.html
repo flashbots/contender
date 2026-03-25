@@ -703,7 +703,7 @@ controls.appendChild(makeCabinet('spam', body => {
   window.renderSessions = patchedRenderSessions;
 
   btn.onclick = async () => {
-    const sessionId = idF.input.value;
+    const sessionId = parseInt(idF.input.value);
     const params = {
       session_id: sessionId,
       txs_per_period: parseInt(tppF.input.value),
