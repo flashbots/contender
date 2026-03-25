@@ -132,6 +132,7 @@ mod tests {
                 rpc_batch_size: 0,
                 gas_price: None,
                 scenario_label: None,
+                send_raw_tx_sync: false,
                 flashblocks_ws_url: None,
             },
             None,

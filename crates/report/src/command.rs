@@ -4,9 +4,13 @@ use crate::block_trace::{estimate_block_data, get_block_data, get_block_traces};
 use crate::cache::CacheFile;
 use crate::chart::{
     flashblock_index::FlashblockIndexChart,
-    flashblock_time_to_inclusion::FlashblockTimeToInclusionChart, gas_per_block::GasPerBlockChart,
-    heatmap::HeatMapChart, pending_txs::PendingTxsChart, rpc_latency::LatencyChart,
-    time_to_inclusion::TimeToInclusionChart, tx_gas_used::TxGasUsedChart,
+    flashblock_time_to_inclusion::FlashblockTimeToInclusionChart,
+    gas_per_block::GasPerBlockChart,
+    heatmap::HeatMapChart,
+    pending_txs::PendingTxsChart,
+    rpc_latency::{LatencyChart, MethodLatencyData},
+    time_to_inclusion::TimeToInclusionChart,
+    tx_gas_used::TxGasUsedChart,
 };
 use crate::gen_html::ChartData;
 use crate::util::write_run_txs;
@@ -229,6 +233,7 @@ pub async fn report(
     // collect latency data for all relevant methods
     let latency_methods = [
         "eth_sendRawTransaction",
+        "eth_sendRawTransactionSync",
         "eth_blockNumber",
         "eth_chainId",
         "eth_estimateGas",
@@ -285,6 +290,12 @@ pub async fn report(
         ),
         latency_quantiles: canonical_latency_map
             .iter()
+            .filter(|(_, latencies)| {
+                latencies
+                    .last()
+                    .map(|b| b.cumulative_count > 0)
+                    .unwrap_or(false)
+            })
             .map(|(method, latencies)| RpcLatencyQuantiles {
                 p50: to_ms(latencies.estimate_quantile(0.5)),
                 p90: to_ms(latencies.estimate_quantile(0.9)),
@@ -302,14 +313,28 @@ pub async fn report(
     let pending_txs = PendingTxsChart::new(&all_txs);
     let flashblock_tti = FlashblockTimeToInclusionChart::new(&all_txs);
     let flashblock_idx = FlashblockIndexChart::new(&all_txs);
-    let latency_chart_sendrawtx = LatencyChart::new(
-        canonical_latency_map
-            .get("eth_sendRawTransaction")
-            .ok_or(Error::LatencyMetricsEmpty(
-                "eth_sendRawTransaction".to_owned(),
-            ))?
-            .to_owned(),
-    );
+    // Build latency charts for tx-sending methods that have data.
+    // Methods like eth_sendRawTransaction and eth_sendRawTransactionSync get
+    // dedicated latency histogram charts; methods with no data are skipped.
+    let tx_send_methods = ["eth_sendRawTransaction", "eth_sendRawTransactionSync"];
+    let latency_charts: Vec<MethodLatencyData> = tx_send_methods
+        .iter()
+        .filter_map(|method| {
+            let buckets = canonical_latency_map.get(*method)?;
+            let has_data = buckets
+                .last()
+                .map(|b| b.cumulative_count > 0)
+                .unwrap_or(false);
+            if !has_data {
+                return None;
+            }
+            let chart = LatencyChart::new(buckets.to_owned());
+            Some(MethodLatencyData {
+                method: method.to_string(),
+                data: chart.echart_data(),
+            })
+        })
+        .collect();
 
     // compile report
     let mut blocks = cache_data.blocks;
@@ -328,7 +353,7 @@ pub async fn report(
             time_to_inclusion: tti.echart_data(),
             tx_gas_used: gas_used.echart_data(),
             pending_txs: pending_txs.echart_data(),
-            latency_data_sendrawtransaction: latency_chart_sendrawtx.echart_data(),
+            latency_charts,
             flashblock_time_to_inclusion: flashblock_tti.map(|c| c.echart_data()),
             flashblock_index: flashblock_idx.map(|c| c.echart_data()),
         },

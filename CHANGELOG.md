@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.0](https://github.com/flashbots/contender/releases/tag/v0.9.0) - 2026-03-17
 
+- added `--send-raw-tx-sync` flag to `spam` and `campaign` for `eth_sendRawTransactionSync` support ([#459](https://github.com/flashbots/contender/pull/459))
 - limit concurrent funding tasks to 25 ([#451](https://github.com/flashbots/contender/pull/451/changes))
 - added contender version to bottom of reports ([#452](https://github.com/flashbots/contender/pull/452/changes))
 - enable custom data dir at runtime ([453](https://github.com/flashbots/contender/pull/453/changes))

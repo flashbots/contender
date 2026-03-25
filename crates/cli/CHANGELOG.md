@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.0](https://github.com/flashbots/contender/releases/tag/v0.9.0) - 2026-03-17
 
+- added `--send-raw-tx-sync` flag to `spam` and `campaign` commands ([#459](https://github.com/flashbots/contender/pull/459))
 - changed internal erc20 defaults (didn't match cli defaults) ([#443](https://github.com/flashbots/contender/pull/443/changes))
 - added chainlink scenario to repo scenarios ([#446](https://github.com/flashbots/contender/pull/446))
 - use `std::path::Path` instead of `str` where applicable, add data_dir arg to enable custom data dir at runtime ([453](https://github.com/flashbots/contender/pull/453/changes))

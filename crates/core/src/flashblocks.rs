@@ -235,6 +235,7 @@ mod tests {
         PendingRunTx {
             tx_hash: TxHash::ZERO,
             start_timestamp_ms: start_ms,
+            end_timestamp_ms: None,
             kind: None,
             error: None,
             flashblock_timestamp_ms: fb_ts,
