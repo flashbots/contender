@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contender Server</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --border: #0f3460;
+    --accent: #e94560;
+    --text: #eee;
+    --muted: #888;
+    --input-bg: #0f3460;
+    --success: #4ecca3;
+    --error: #e94560;
+    --warning: #f0a500;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Menlo', 'Consolas', monospace;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 1.4rem; margin-bottom: 8px; }
+  h2 { font-size: 1rem; margin-bottom: 10px; color: var(--muted); }
+  .server-bar {
+    display: flex; gap: 8px; align-items: center; margin-bottom: 20px;
+  }
+  .server-bar input {
+    flex: 1; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--input-bg); color: var(--text); font-family: inherit; font-size: .85rem;
+  }
+  .columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  .column { min-width: 0; }
+  .cabinet {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+  .cabinet-header {
+    background: var(--surface);
+    padding: 10px 14px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    user-select: none;
+  }
+  .cabinet-header:hover { background: var(--border); }
+  .cabinet-header .name { font-weight: bold; font-size: .95rem; }
+  .cabinet-header .meta { font-size: .78rem; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .cabinet-header .arrow { transition: transform .2s; }
+  .cabinet.open .cabinet-header .arrow { transform: rotate(90deg); }
+  .cabinet-body {
+    display: none;
+    padding: 14px;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+  }
+  .cabinet.open .cabinet-body { display: block; }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: .75rem; color: var(--muted); margin-bottom: 3px; }
+  .field input, .field select, .field textarea {
+    width: 100%; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--input-bg); color: var(--text); font-family: inherit; font-size: .85rem;
+  }
+  .field textarea { resize: vertical; min-height: 60px; }
+  .row { display: flex; gap: 8px; }
+  .row .field { flex: 1; }
+  button.send {
+    background: var(--accent); color: #fff; border: none; padding: 7px 18px;
+    border-radius: 4px; cursor: pointer; font-family: inherit; font-weight: bold;
+    font-size: .85rem;
+  }
+  button.send:hover { opacity: .85; }
+  button.send:disabled { opacity: .4; cursor: not-allowed; }
+  .result {
+    margin-top: 10px; padding: 8px 10px; border-radius: 4px;
+    font-size: .8rem; white-space: pre-wrap; word-break: break-all;
+    max-height: 200px; overflow-y: auto;
+  }
+  .result.ok { background: rgba(78,204,163,.12); border: 1px solid var(--success); }
+  .result.err { background: rgba(233,69,96,.12); border: 1px solid var(--error); }
+  .log-box {
+    background: #111; border: 1px solid var(--border); border-radius: 4px;
+    padding: 8px 10px; font-size: .78rem; max-height: 300px; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-all; color: var(--muted);
+  }
+  .log-box .line { color: var(--text); }
+  .log-controls { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .log-controls button {
+    background: var(--surface); color: var(--text); border: 1px solid var(--border);
+    padding: 4px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: .8rem;
+  }
+  .log-controls button:hover { background: var(--border); }
+  .status-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px;
+  }
+  .status-dot.connected { background: var(--success); }
+  .status-dot.disconnected { background: var(--error); }
+  .status-badge {
+    font-size: .72rem; padding: 2px 8px; border-radius: 3px; font-weight: bold;
+  }
+  .status-badge.initializing { background: var(--warning); color: #000; }
+  .status-badge.ready { background: var(--success); color: #000; }
+  .status-badge.spamming { background: var(--accent); color: #fff; }
+  .status-badge.failed { background: var(--error); color: #fff; }
+  .no-sessions { font-size: .85rem; color: var(--muted); padding: 20px 0; text-align: center; }
+</style>
+</head>
+<body>
+
+<h1>Contender Server</h1>
+<div class="server-bar">
+  <label style="font-size:.8rem;color:var(--muted)">Server:</label>
+  <input id="server-url" value="http://localhost:3000" />
+  <span id="server-dot" class="status-dot disconnected"></span>
+  <span id="server-status" style="font-size:.78rem;color:var(--muted)">disconnected</span>
+</div>
+
+<div class="columns">
+  <div class="column" id="controls-col">
+    <h2>Controls</h2>
+  </div>
+  <div class="column" id="sessions-col">
+    <h2>Sessions</h2>
+    <div id="sessions-list"><div class="no-sessions">No sessions</div></div>
+  </div>
+</div>
+
+<div id="modal-overlay" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;">
+  <div id="modal-dialog" style="background:var(--surface);color:var(--text);padding:28px 24px 18px 24px;border-radius:8px;box-shadow:0 4px 32px #000a;max-width:340px;width:90vw;">
+    <div id="modal-message" style="margin-bottom:18px;font-size:1rem;"></div>
+    <div style="display:flex;gap:12px;justify-content:flex-end;">
+      <button id="modal-cancel" style="background:var(--muted);color:#fff;padding:6px 18px;border:none;border-radius:4px;cursor:pointer;font-size:.95rem;">Cancel</button>
+      <button id="modal-confirm" style="background:var(--error);color:#fff;padding:6px 18px;border:none;border-radius:4px;cursor:pointer;font-size:.95rem;font-weight:bold;">Remove</button>
+    </div>
+  </div>
+</div>
+<script src="builtin_scenarios.js"></script>
+<script>
+const $ = (s, p) => (p || document).querySelector(s);
+const $$ = (s, p) => [...(p || document).querySelectorAll(s)];
+
+function serverUrl() { return $('#server-url').value.replace(/\/+$/, ''); }
+function wsUrl() { return serverUrl().replace(/^http/, 'ws'); }
+
+function isValidUrl(s) {
+  try { const u = new URL(s); return u.protocol === 'http:' || u.protocol === 'https:'; }
+  catch { return false; }
+}
+
+let rpcId = 1;
+async function rpc(method, params) {
+  const body = { jsonrpc: '2.0', method, params, id: rpcId++ };
+  const res = await fetch(serverUrl(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json();
+  if (json.error) throw json.error;
+  return json.result;
+}
+
+// ── server status ──
+
+let statusTimer = null;
+function setServerStatus(ok, text) {
+  const dot = $('#server-dot');
+  const label = $('#server-status');
+  dot.className = 'status-dot ' + (ok ? 'connected' : 'disconnected');
+  label.textContent = text;
+}
+
+async function pollSessions() {
+  const url = serverUrl();
+  if (!isValidUrl(url)) { setServerStatus(false, 'invalid URL'); return; }
+  try {
+    const sessions = await rpc('get_all_sessions', []);
+    setServerStatus(true, `sessions: ${sessions.length}`);
+    renderSessions(sessions);
+  } catch {
+    setServerStatus(false, 'disconnected');
+  }
+}
+
+function restartStatusPoll() {
+  if (statusTimer) clearInterval(statusTimer);
+  pollSessions();
+  statusTimer = setInterval(pollSessions, 1000);
+}
+
+$('#server-url').addEventListener('input', restartStatusPoll);
+restartStatusPoll();
+
+// ── helpers ──
+
+function showResult(container, ok, data) {
+  let el = $('.result', container);
+  if (!el) { el = document.createElement('div'); el.className = 'result'; container.appendChild(el); }
+  el.className = 'result ' + (ok ? 'ok' : 'err');
+  el.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+}
+
+function makeCabinet(name, buildBody, opts = {}) {
+  const cab = document.createElement('div');
+  cab.className = 'cabinet';
+  const header = document.createElement('div');
+  header.className = 'cabinet-header';
+  const nameSpan = document.createElement('span');
+  nameSpan.className = 'name';
+  nameSpan.textContent = name;
+  const right = document.createElement('span');
+  right.className = 'meta';
+  if (opts.metaHtml) right.innerHTML = opts.metaHtml;
+  const arrow = document.createElement('span');
+  arrow.className = 'arrow';
+  arrow.innerHTML = '&#9654;';
+  right.appendChild(arrow);
+  header.appendChild(nameSpan);
+  header.appendChild(right);
+  header.onclick = () => {
+    const opening = !cab.classList.contains('open');
+    cab.classList.toggle('open');
+    if (opts.onToggle) opts.onToggle(opening);
+  };
+  const body = document.createElement('div');
+  body.className = 'cabinet-body';
+  buildBody(body);
+  cab.appendChild(header);
+  cab.appendChild(body);
+  cab._nameSpan = nameSpan;
+  cab._metaRight = right;
+  return cab;
+}
+
+function field(label, type, attrs = {}) {
+  const d = document.createElement('div');
+  d.className = 'field';
+  const l = document.createElement('label');
+  l.textContent = label;
+  d.appendChild(l);
+  let input;
+  if (type === 'select') {
+    input = document.createElement('select');
+    for (const opt of attrs.options || []) {
+      const o = document.createElement('option');
+      o.value = opt; o.textContent = opt;
+      input.appendChild(o);
+    }
+  } else if (type === 'textarea') {
+    input = document.createElement('textarea');
+  } else {
+    input = document.createElement('input');
+    input.type = type || 'text';
+  }
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k !== 'options') input[k] = v;
+  }
+  d.appendChild(input);
+  return { container: d, input };
+}
+
+function sendBtn(text = 'Send') {
+  const b = document.createElement('button');
+  b.className = 'send';
+  b.textContent = text;
+  return b;
+}
+
+// ── sessions column ──
+
+// ── log storage ──
+
+const LOG_KEY_PREFIX = 'contender_logs_';
+
+function loadLogs(sessionId) {
+  try { return JSON.parse(localStorage.getItem(LOG_KEY_PREFIX + sessionId)) || []; }
+  catch { return []; }
+}
+
+function appendLog(sessionId, text) {
+  const logs = loadLogs(sessionId);
+  logs.push(text);
+  localStorage.setItem(LOG_KEY_PREFIX + sessionId, JSON.stringify(logs));
+}
+
+function clearLogs(sessionId) {
+  localStorage.removeItem(LOG_KEY_PREFIX + sessionId);
+}
+
+// Track per-session state: { ws, logBox, cab }
+const sessionState = {};
+
+function statusBadgeClass(status) {
+  if (typeof status === 'string') return status.toLowerCase();
+  if (status.Spamming) return 'spamming';
+  if (status.Failed) return 'failed';
+  return 'ready';
+}
+
+function statusText(status) {
+  if (typeof status === 'string') return status;
+  if (status.Spamming) {
+    const p = status.Spamming;
+    const type = p.spammer || 'timed';
+    const units = type === 'blockwise' ? ['tpb', 'blocks'] : ['tps', 'seconds'];
+    return `Spamming (${p.txs_per_period || 10} ${units[0]} for ${p.duration || 10} ${units[1]})`;
+  }
+  if (status.Failed) return `Failed: ${status.Failed}`;
+  return JSON.stringify(status);
+}
+
+function addLogLine(logBox, text) {
+  const line = document.createElement('div');
+  line.className = 'line';
+  line.textContent = text;
+  logBox.appendChild(line);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+function restoreLogs(sessionId, logBox) {
+  const logs = loadLogs(sessionId);
+  if (logs.length) {
+    logBox.textContent = '';
+    for (const text of logs) addLogLine(logBox, text);
+  }
+}
+
+function subscribeToSession(sessionId) {
+  const state = sessionState[sessionId];
+  if (!state || state.ws) return;
+
+  const ws = new WebSocket(wsUrl());
+  state.ws = ws;
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({
+      jsonrpc: '2.0', method: 'subscribe_logs',
+      params: [sessionId], id: rpcId++,
+    }));
+  };
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.method === 'session_log' && msg.params) {
+      const text = msg.params.result;
+      appendLog(sessionId, text);
+      addLogLine(state.logBox, text);
+    }
+  };
+  ws.onclose = () => { state.ws = null; };
+  ws.onerror = () => { state.ws = null; };
+}
+
+function unsubscribeFromSession(sessionId) {
+  const state = sessionState[sessionId];
+  if (!state || !state.ws) return;
+  state.ws.close();
+  state.ws = null;
+}
+
+function renderSessions(sessions) {
+  const list = $('#sessions-list');
+
+  if (sessions.length === 0) {
+    // Clean up all session state and WS connections
+    for (const id of Object.keys(sessionState)) {
+      unsubscribeFromSession(Number(id));
+      if (sessionState[id].cab.parentNode) sessionState[id].cab.remove();
+      delete sessionState[id];
+    }
+    if (!$('.no-sessions', list)) {
+      list.innerHTML = '<div class="no-sessions">No sessions</div>';
+    }
+    return;
+  }
+
+  // Remove the "no sessions" placeholder
+  const placeholder = $('.no-sessions', list);
+  if (placeholder) placeholder.remove();
+
+  const currentIds = new Set(sessions.map(s => s.id));
+
+  // Remove cabinets for sessions that no longer exist
+  for (const id of Object.keys(sessionState)) {
+    if (!currentIds.has(Number(id))) {
+      unsubscribeFromSession(Number(id));
+      clearLogs(Number(id));
+      if (sessionState[id].cab.parentNode) sessionState[id].cab.remove();
+      delete sessionState[id];
+    }
+  }
+
+  for (const s of sessions) {
+    const badgeClass = statusBadgeClass(s.status);
+    const badgeText = statusText(s.status);
+    const badgeHtml = `<span class="status-badge ${badgeClass}">${badgeText}</span>`;
+
+    if (sessionState[s.id]) {
+      // Update existing cabinet header
+      const state = sessionState[s.id];
+      state.cab._nameSpan.textContent = `#${s.id} ${s.name}`;
+      // Update badge (preserve arrow)
+      const arrow = state.cab._metaRight.querySelector('.arrow');
+      state.cab._metaRight.innerHTML = badgeHtml + ' ';
+      state.cab._metaRight.appendChild(arrow);
+      // Update stopButton visibility for live status
+      if (state.stopButton) {
+        state.stopButton.hidden = !(s.status && typeof s.status === 'object' && Object.keys(s.status).includes('Spamming'));
+      }
+      // Re-attach if cabinet was detached from the DOM
+      if (!state.cab.parentNode) list.appendChild(state.cab);
+    } else {
+      // Create new session cabinet
+      const logBox = document.createElement('div');
+      logBox.className = 'log-box';
+      logBox.textContent = 'Waiting for logs...';
+
+      // Restore any logs saved from a previous page load
+      restoreLogs(s.id, logBox);
+
+      const cab = makeCabinet(`#${s.id} ${s.name}`, body => {
+        const controls = document.createElement('div');
+        controls.className = 'log-controls';
+
+        const clearBtn = document.createElement('button');
+        clearBtn.textContent = 'Clear logs';
+        clearBtn.onclick = (e) => { e.stopPropagation(); logBox.textContent = ''; clearLogs(s.id); };
+
+        const stopButton = sendBtn('Stop spammer');
+        stopButton.onclick = async (e) => {
+          e.stopPropagation();
+          try {
+            await rpc("stop", [s.id]);
+          } catch (e) {
+            console.error("failed to stop session", e)
+          }
+        };
+        stopButton.hidden = !(s.status && typeof s.status === 'object' && Object.keys(s.status).includes('Spamming'));
+
+
+        const removeBtn = sendBtn('Remove session');
+        removeBtn.style.background = 'var(--error)';
+        removeBtn.onclick = (e) => {
+          e.stopPropagation();
+          showModal({
+            message: 'Are you sure you want to remove this session? All session data (metrics, deployed contract addresses) will be lost.',
+            onConfirm: async () => {
+              try {
+                await rpc('remove_session', [s.id]);
+                clearLogs(s.id);
+                pollSessions();
+              } catch (err) {
+                console.error('failed to remove session', err);
+              }
+            }
+          });
+        };
+
+        controls.appendChild(clearBtn);
+        controls.appendChild(stopButton);
+        controls.appendChild(removeBtn);
+
+        // ── Modal logic ──
+        function showModal({ message, onConfirm }) {
+            const overlay = document.getElementById('modal-overlay');
+            const msg = document.getElementById('modal-message');
+            const confirmBtn = document.getElementById('modal-confirm');
+            const cancelBtn = document.getElementById('modal-cancel');
+            let confirmed = false;
+            msg.textContent = message;
+            overlay.style.display = 'flex';
+            function cleanup() {
+                overlay.style.display = 'none';
+                confirmBtn.onclick = null;
+                cancelBtn.onclick = null;
+            }
+            confirmBtn.onclick = () => {
+                confirmed = true;
+                cleanup();
+                if (onConfirm) onConfirm();
+            };
+            cancelBtn.onclick = () => { cleanup(); };
+            // Allow Esc to close
+            overlay.onkeydown = (e) => {
+                if (e.key === 'Escape') { cleanup(); }
+            };
+            overlay.focus();
+        }
+
+        body.appendChild(controls);
+        body.appendChild(logBox);
+
+        // Store stopButton reference for live updates
+        if (!sessionState[s.id]) sessionState[s.id] = {};
+        sessionState[s.id].stopButton = stopButton;
+      }, {
+        metaHtml: badgeHtml + ' ',
+      });
+
+      sessionState[s.id] = { ...sessionState[s.id], ws: null, logBox, cab };
+      list.appendChild(cab);
+
+      // Subscribe immediately so logs accumulate in the background
+      subscribeToSession(s.id);
+    }
+  }
+}
+
+// ── controls column ──
+
+const controls = $('#controls-col');
+
+// ========== add_session ==========
+controls.appendChild(makeCabinet('add_session', body => {
+  const nameF = field('name', 'text', { placeholder: 'my-session' });
+  const urlF = field('rpc_url', 'text', { placeholder: 'http://localhost:8545' });
+  const configTypeF = field('config type', 'select', {
+    options: ['none (default uniV2)', 'builtin', 'toml_base64', 'json']
+  });
+  const builtinF = field('builtin scenario', 'select', {
+    options: Object.keys(BUILTIN_SCENARIOS)
+  });
+  const paramsDiv = document.createElement('div');
+  paramsDiv.id = 'builtin-params';
+  const tomlF = field('TOML (paste raw, will be base64-encoded)', 'textarea');
+  const jsonF = field('JSON config', 'textarea', { placeholder: '{ ... }' });
+
+  body.appendChild(nameF.container);
+  body.appendChild(urlF.container);
+  body.appendChild(configTypeF.container);
+  body.appendChild(builtinF.container);
+  body.appendChild(paramsDiv);
+  body.appendChild(tomlF.container);
+  body.appendChild(jsonF.container);
+
+  let paramInputs = {};
+  function renderBuiltinParams() {
+    paramsDiv.innerHTML = '';
+    paramInputs = {};
+    const scenario = builtinF.input.value;
+    const specs = BUILTIN_SCENARIOS[scenario] || [];
+    for (const spec of specs) {
+      let f;
+      if (spec.type === 'bool') {
+        f = field(spec.name, 'select', { options: ['false', 'true'] });
+        if (spec.default) f.input.value = spec.default;
+      } else if (spec.type.startsWith('multi-select:')) {
+        const opts = spec.type.slice('multi-select:'.length).split(',');
+        f = field(spec.name, 'textarea', {
+          placeholder: opts.slice(0, 4).join(', ') + ', ...',
+          rows: 2,
+        });
+        if (spec.default) f.input.value = spec.default;
+      } else if (spec.type.startsWith('select:')) {
+        const opts = spec.type.slice('select:'.length).split(',');
+        f = field(spec.name, 'select', { options: opts });
+        if (spec.default) f.input.value = spec.default;
+      } else if (spec.type === 'number') {
+        f = field(spec.name, 'number', { value: spec.default || '' });
+      } else {
+        f = field(spec.name, 'text', { value: spec.default || '', placeholder: spec.optional ? '(optional)' : '' });
+      }
+      if (spec.help) f.input.title = spec.help;
+      paramsDiv.appendChild(f.container);
+      paramInputs[spec.name] = { input: f.input, spec };
+    }
+  }
+  builtinF.input.onchange = renderBuiltinParams;
+  renderBuiltinParams();
+
+  function updateVisibility() {
+    const v = configTypeF.input.value;
+    builtinF.container.style.display = v === 'builtin' ? '' : 'none';
+    paramsDiv.style.display = v === 'builtin' ? '' : 'none';
+    tomlF.container.style.display = v === 'toml_base64' ? '' : 'none';
+    jsonF.container.style.display = v === 'json' ? '' : 'none';
+  }
+  configTypeF.input.onchange = () => { updateVisibility(); };
+  updateVisibility();
+
+  const btn = sendBtn('Add Session');
+  body.appendChild(btn);
+  btn.onclick = async () => {
+    const params = { name: nameF.input.value || 'my-session', rpc_url: urlF.input.value || 'http://localhost:8545' };
+    const ct = configTypeF.input.value;
+    if (ct === 'builtin') {
+      const scenario = builtinF.input.value;
+      const args = {};
+      for (const [name, { input, spec }] of Object.entries(paramInputs)) {
+        const raw = input.value.trim();
+        if (!raw && spec.optional) continue;
+        if (spec.type === 'bool') {
+          args[name] = raw === 'true';
+        } else if (spec.type === 'number') {
+          args[name] = raw ? Number(raw) : null;
+        } else if (spec.type.startsWith('multi-select:')) {
+          args[name] = raw ? raw.split(',').map(s => s.trim()).filter(Boolean) : [];
+        } else {
+          args[name] = raw || null;
+        }
+      }
+      params.test_config = { Builtin: { [scenario]: args } };
+    } else if (ct === 'toml_base64') {
+      params.test_config = { TomlBase64: btoa(tomlF.input.value) };
+    } else if (ct === 'json') {
+      try { params.test_config = { Json: JSON.parse(jsonF.input.value) }; }
+      catch (e) { showResult(body, false, 'Invalid JSON: ' + e.message); return; }
+    }
+    try {
+      const result = await rpc('add_session', [params]);
+      if (result && typeof result.id === 'number') {
+        clearLogs(result.id);
+      }
+      showResult(body, true, result);
+      pollSessions();
+    }
+    catch (e) { showResult(body, false, e); }
+  };
+}));
+
+// ========== spam ==========
+controls.appendChild(makeCabinet('spam', body => {
+  // Session dropdown will be populated dynamically
+  const idF = field('session_id', 'select', { options: [] });
+  const tppF = field('txs_per_period', 'number', { value: '10', min: '1' });
+  const durF = field('duration (periods)', 'number', { value: '10', min: '1' });
+  const spammerF = field('spammer', 'select', { options: ['timed', 'blockwise'] });
+  const nameF = field('name (optional)', 'text', { placeholder: 'my-run' });
+  const receiptsF = field('save_receipts', 'select', { options: ['false', 'true'] });
+
+  body.appendChild(idF.container);
+  const row = document.createElement('div'); row.className = 'row';
+  row.appendChild(tppF.container);
+  row.appendChild(durF.container);
+  body.appendChild(row);
+  body.appendChild(spammerF.container);
+  body.appendChild(nameF.container);
+  body.appendChild(receiptsF.container);
+
+  // Message element for feedback
+  const msg = document.createElement('div');
+  msg.style.margin = '10px 0';
+  msg.style.fontSize = '.9rem';
+  msg.style.color = 'var(--success)';
+  msg.style.display = 'none';
+  body.appendChild(msg);
+
+  const btn = sendBtn('Spam');
+  body.appendChild(btn);
+
+  // --- Spam button enable/disable logic ---
+  let lastSessions = [];
+  function updateSessionDropdown() {
+    // Save current selection
+    const prev = idF.input.value;
+    // Remove all options
+    idF.input.innerHTML = '';
+    for (const s of lastSessions) {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = `${s.name} (#${s.id})`;
+      idF.input.appendChild(opt);
+    }
+    // Restore previous selection if possible
+    if (prev && [...idF.input.options].some(o => o.value == prev)) {
+      idF.input.value = prev;
+    }
+  }
+
+  function updateSpamButton() {
+    const sessionId = idF.input.value;
+    const session = lastSessions.find(s => String(s.id) === String(sessionId));
+    if (session && session.status != "Ready") {
+      btn.disabled = true;
+      btn.title = 'This session is currently spamming.';
+    } else {
+      btn.disabled = false;
+      btn.title = '';
+    }
+  }
+  idF.input.addEventListener('change', updateSpamButton);
+
+  // Patch renderSessions to update dropdown and button
+  const origRenderSessions = window.renderSessions || renderSessions;
+  function patchedRenderSessions(sessions) {
+    lastSessions = sessions;
+    updateSessionDropdown();
+    updateSpamButton();
+    return origRenderSessions.apply(this, arguments);
+  }
+  window.renderSessions = patchedRenderSessions;
+
+  btn.onclick = async () => {
+    const sessionId = parseInt(idF.input.value);
+    const params = {
+      session_id: sessionId,
+      txs_per_period: parseInt(tppF.input.value),
+      duration: parseInt(durF.input.value),
+      spammer: spammerF.input.value,
+      save_receipts: receiptsF.input.value === 'true',
+    };
+    if (nameF.input.value) params.name = nameF.input.value;
+    try {
+      await rpc('spam', [params]);
+      msg.textContent = `Spamming session ${sessionId}...`;
+      msg.style.display = '';
+      setTimeout(() => { msg.style.display = 'none'; }, 3000);
+      btn.disabled = true;
+      btn.title = 'This session is currently spamming.';
+    }
+    catch (e) {
+      msg.textContent = 'Error: ' + (e && e.message ? e.message : e);
+      msg.style.color = 'var(--error)';
+      msg.style.display = '';
+      setTimeout(() => { msg.style.display = 'none'; msg.style.color = 'var(--success)'; }, 4000);
+    }
+  };
+}));
+
+</script>
+</body>
+</html>

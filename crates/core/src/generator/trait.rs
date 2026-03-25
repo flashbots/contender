@@ -478,7 +478,7 @@ where
                         if let Some(handle) = handle {
                             // Wait for sender's previous task, then run this one
                             let prev_handle = pending_per_sender.remove(&from);
-                            let chained = tokio::task::spawn(async move {
+                            let chained = crate::spawn_with_session(async move {
                                 if let Some(prev) = prev_handle {
                                     // Ignore errors from previous task - they'll be reported separately
                                     let _ = prev.await;

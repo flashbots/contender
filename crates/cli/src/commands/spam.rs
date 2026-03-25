@@ -5,7 +5,7 @@ use crate::{
         error::ArgsError,
         Result,
     },
-    default_scenarios::BuiltinScenario,
+    default_scenarios::{BuiltinOptions, BuiltinScenario},
     error::CliError,
     util::{
         bold, check_private_keys, fund_accounts, load_seedfile, load_testconfig, parse_duration,
@@ -151,6 +151,24 @@ pub struct SpamCliArgs {
     )]
     pub flashblocks_ws_url: Option<Url>,
 }
+
+impl SpamCliArgs {
+    pub fn builtin_options(&self, data_dir: &PathBuf) -> Result<BuiltinOptions> {
+        let seed = self
+            .eth_json_rpc_args
+            .rpc_args
+            .seed
+            .clone()
+            .unwrap_or(load_seedfile(data_dir)?);
+        let seed = RandSeed::seed_from_str(&seed);
+        Ok(BuiltinOptions {
+            accounts_per_agent: self.eth_json_rpc_args.rpc_args.accounts_per_agent,
+            seed,
+            spam_rate: Some(self.spam_args.spam_rate()?),
+        })
+    }
+}
+
 #[derive(Clone)]
 pub enum SpamScenario {
     Testfile(String),

@@ -9,8 +9,9 @@ use crate::default_scenarios::{
 use clap::Parser;
 use contender_core::generator::CreateDefinition;
 use contender_testfile::TestConfig;
+use serde::{Deserialize, Serialize};
 
-#[derive(Parser, Clone, Debug)]
+#[derive(Parser, Clone, Debug, Deserialize, Serialize)]
 pub struct EthFunctionsCliArgs {
     #[arg(
         short,

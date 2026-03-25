@@ -558,7 +558,7 @@ where
                 let http_client = self.http_client.clone();
 
                 let scenario_label = self.scenario_label.clone();
-                let handle = tokio::task::spawn(async move {
+                let handle = crate::spawn_with_session(async move {
                     Self::deploy_contract(DeployContractParams {
                         db: &db,
                         tx_req: &tx_req,
@@ -717,7 +717,7 @@ where
                 let http_client = self.http_client.clone();
                 let sem = semaphore.clone();
 
-                let handle = tokio::task::spawn(async move {
+                let handle = crate::spawn_with_session(async move {
                     let _permit = sem.acquire().await.expect("semaphore closed");
                     let transport = Http::with_client(http_client, rpc_url.to_owned());
                     let rpc_client = ClientBuilder::default().transport(transport, false);
@@ -1030,7 +1030,7 @@ where
                 let cancel_token = self.ctx.cancel_token.clone();
                 let error_sender = error_sender.clone();
 
-                tasks.push(tokio::task::spawn(async move {
+                tasks.push(crate::spawn_with_session(async move {
                 let extra = RuntimeTxInfo::now();
                 let handles = match payload {
                     ExecutionPayload::SignedTx(signed_tx, req) => {
@@ -1190,7 +1190,7 @@ where
                 .collect();
 
             let hist = self.prometheus.hist.get();
-            tasks.push(tokio::task::spawn(async move {
+            tasks.push(crate::spawn_with_session(async move {
                 // Build json-rpc batch payload with multiple eth_sendRawTransaction requests
                 let mut requests = Vec::with_capacity(signed_chunk.len());
                 for (i, (signed_tx, _)) in signed_chunk.iter().enumerate() {
@@ -1772,7 +1772,7 @@ async fn sync_nonces(
     for addr in all_addrs {
         let send = sender.clone();
         let rpc_client = Arc::new(rpc_client.clone());
-        tasks.push(tokio::task::spawn(async move {
+        tasks.push(crate::spawn_with_session(async move {
             let nonce = rpc_client.get_transaction_count(addr).await?;
             send.send((addr, nonce))
                 .await

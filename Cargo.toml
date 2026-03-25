@@ -5,6 +5,7 @@ members = [
     "crates/core/",
     "crates/engine_provider",
     "crates/report",
+    "crates/server",
     "crates/sqlite_db/",
     "crates/testfile/",
 ]
@@ -21,12 +22,14 @@ homepage = "https://github.com/flashbots/contender"
 repository = "https://github.com/flashbots/contender"
 
 [workspace.dependencies]
+contender_cli = { path = "crates/cli" }
 contender_core = { path = "crates/core/" }
 contender_sqlite = { path = "crates/sqlite_db/" }
 contender_testfile = { path = "crates/testfile/" }
 contender_bundle_provider = { path = "crates/bundle_provider/" }
 contender_engine_provider = { path = "crates/engine_provider/" }
 contender_report = { path = "crates/report/" }
+contender_server = { path = "crates/server/" }
 
 tokio = { version = "1.40.0" }
 tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
@@ -49,6 +52,11 @@ csv = "1.3.0"
 miette = { version = "7.6.0" }
 url = "2.5.7"
 uuid = "1.19.0"
+base64 = "0.22"
+
+## server
+axum = "0.8"
+tokio-stream = "0.1"
 
 ## core
 futures = "0.3.30"
@@ -57,6 +65,7 @@ jsonrpsee = { version = "0.24" }
 alloy-serde = "0.5.4"
 serde_json = "1.0.132"
 tower = "0.5.2"
+tower-http = { version = "0.6", features = ["cors"] }
 alloy-rpc-types-engine = { version = "1.0.22", default-features = false }
 alloy-json-rpc = { version = "1.0.22", default-features = false }
 alloy-chains = { version = "0.2.5", default-features = false }

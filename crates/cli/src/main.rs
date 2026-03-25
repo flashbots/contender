@@ -1,43 +1,36 @@
-mod commands;
-mod default_scenarios;
-mod error;
-mod util;
-
-use crate::commands::{error::ArgsError, ReportFormat, SpamCampaignContext};
 use alloy::{
     network::AnyNetwork,
     providers::{DynProvider, ProviderBuilder},
     rpc::client::ClientBuilder,
 };
-use commands::{
-    admin::handle_admin_command,
-    common::ScenarioSendTxsCliArgs,
-    db::{drop_db, export_db, import_db, reset_db},
-    replay::ReplayArgs,
-    ContenderCli, ContenderSubcommand, DbCommand, SetupCommandArgs, SpamCliArgs, SpamCommandArgs,
-    SpamScenario,
+use contender_cli::commands;
+use contender_cli::{
+    commands::{
+        admin::handle_admin_command,
+        common::ScenarioSendTxsCliArgs,
+        db::{drop_db, export_db, import_db, reset_db},
+        error::ArgsError,
+        replay::ReplayArgs,
+        ContenderCli, ContenderSubcommand, DbCommand, ReportFormat, SetupCommandArgs,
+        SpamCampaignContext, SpamCliArgs, SpamCommandArgs, SpamScenario,
+    },
+    default_scenarios::{fill_block::FillBlockCliArgs, BuiltinScenarioCli},
+    util::{db_file_in, init_reports_dir, resolve_data_dir},
+    Error,
 };
 use contender_core::{db::DbOps, util::TracingOptions};
 use contender_sqlite::{SqliteDb, DB_VERSION};
-use default_scenarios::{fill_block::FillBlockCliArgs, BuiltinScenarioCli};
-use error::CliError;
 use regex::Regex;
 use std::str::FromStr;
-use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
-use util::{db_file_in, init_reports_dir, resolve_data_dir};
-
-// prometheus
-static PROM: OnceCell<prometheus::Registry> = OnceCell::const_new();
-static LATENCY_HIST: OnceCell<prometheus::HistogramVec> = OnceCell::const_new();
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> miette::Result<()> {
     run().await.map_err(|e| e.into())
 }
 
-async fn run() -> Result<(), CliError> {
+async fn run() -> Result<(), contender_cli::Error> {
     init_tracing();
 
     let args = ContenderCli::parse_args();
@@ -103,7 +96,7 @@ async fn run() -> Result<(), CliError> {
             } else if let Some(config) = builtin_scenario_config {
                 SpamScenario::Builtin(
                     config
-                        .to_builtin_scenario(&provider, &args, &data_dir)
+                        .to_builtin_scenario(&provider, args.builtin_options(&data_dir)?)
                         .await?,
                 )
             } else {
@@ -112,7 +105,7 @@ async fn run() -> Result<(), CliError> {
                     BuiltinScenarioCli::FillBlock(FillBlockCliArgs {
                         max_gas_per_block: None,
                     })
-                    .to_builtin_scenario(&provider, &args, &data_dir)
+                    .to_builtin_scenario(&provider, args.builtin_options(&data_dir)?)
                     .await?,
                 )
             };
@@ -135,13 +128,11 @@ async fn run() -> Result<(), CliError> {
         } => {
             if let Some(campaign_id) = campaign_id {
                 let resolved_campaign_id = if campaign_id == "__LATEST_CAMPAIGN__" {
-                    db.latest_campaign_id()
-                        .map_err(CliError::Db)?
-                        .ok_or_else(|| {
-                            CliError::Report(contender_report::Error::CampaignNotFound(
-                                "latest".to_string(),
-                            ))
-                        })?
+                    db.latest_campaign_id().map_err(Error::Db)?.ok_or_else(|| {
+                        Error::Report(contender_report::Error::CampaignNotFound(
+                            "latest".to_string(),
+                        ))
+                    })?
                 } else {
                     campaign_id
                 };
@@ -155,7 +146,7 @@ async fn run() -> Result<(), CliError> {
                     skip_tx_traces,
                 )
                 .await
-                .map_err(CliError::Report)?;
+                .map_err(Error::Report)?;
             } else {
                 let use_json = matches!(format, ReportFormat::Json);
                 contender_report::command::report(
@@ -167,7 +158,7 @@ async fn run() -> Result<(), CliError> {
                     skip_tx_traces,
                 )
                 .await
-                .map_err(CliError::Report)?;
+                .map_err(Error::Report)?;
             }
         }
 
@@ -195,8 +186,8 @@ async fn run() -> Result<(), CliError> {
 }
 
 /// Check DB version, throw error if version is incompatible with currently-running version of contender.
-fn init_db(command: &ContenderSubcommand, db: &SqliteDb) -> Result<(), CliError> {
-    if db.table_exists("run_txs").map_err(CliError::Db)? {
+fn init_db(command: &ContenderSubcommand, db: &SqliteDb) -> Result<(), Error> {
+    if db.table_exists("run_txs").map_err(Error::Db)? {
         // check version and exit if DB version is incompatible
         let quit_early = db.version() != DB_VERSION
             && !matches!(
@@ -221,31 +212,37 @@ fn init_db(command: &ContenderSubcommand, db: &SqliteDb) -> Result<(), CliError>
                 DB_VERSION
             );
             warn!("{recommendation}");
-            return Err(CliError::DbVersion);
+            return Err(Error::DbVersion);
         }
     } else {
         info!("no DB found, creating new DB");
-        db.create_tables().map_err(CliError::Db)?;
+        db.create_tables().map_err(Error::Db)?;
     }
     Ok(())
 }
 
-fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env().ok(); // fallback if RUST_LOG is unset
-
-    let mut opts = TracingOptions::default();
+/// Reads the RUST_LOG environment variable and extracts log levels.
+pub fn read_rust_log() -> Vec<tracing::Level> {
     let rustlog = std::env::var("RUST_LOG").unwrap_or_default().to_lowercase();
 
     // interpret log levels from words matching `=[a-zA-Z]+`
     let level_regex = Regex::new(r"=[a-zA-Z]+").unwrap();
-    let matches: Vec<tracing::Level> = level_regex
+    level_regex
         .find_iter(&rustlog)
         .map(|m| m.as_str().trim_start_matches('='))
         .map(|m| tracing::Level::from_str(m).unwrap_or(tracing::Level::INFO))
-        .collect();
+        .collect()
+}
+
+fn init_tracing() {
+    let filter = EnvFilter::try_from_default_env().ok(); // fallback if RUST_LOG is unset
+    let mut opts = TracingOptions::default();
 
     // if user provides any log level > info, print line num & source file in logs
-    if matches.iter().any(|lvl| *lvl > tracing::Level::INFO) {
+    if read_rust_log()
+        .iter()
+        .any(|lvl| *lvl > tracing::Level::INFO)
+    {
         opts = opts.with_line_number(true).with_target(true);
     }
 

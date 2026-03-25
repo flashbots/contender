@@ -13,28 +13,38 @@ pub struct FunctionCallDefinition {
     /// Address of the contract to call.
     pub to: String,
     /// Address of the tx sender.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub from: Option<String>,
     /// Get a `from` address from the pool of signers specified here.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub from_pool: Option<String>,
     /// Name of the function to call.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
     /// Parameters to pass to the function.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<Vec<String>>,
     /// Value in wei to send with the tx.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
     /// Parameters to fuzz during the test.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fuzz: Option<Vec<FuzzParam>>,
     /// Optional type of the spam transaction for categorization.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
     /// Optional gas limit, which will skip gas estimation. This allows reverting txs to be sent.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub gas_limit: Option<u64>,
     /// Optional blob data; tx type must be set to EIP4844 by spammer
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub blob_data: Option<String>,
     /// Optional setCode data; tx type must be set to EIP7702 by spammer
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub authorization_address: Option<String>,
     /// If true and `from_pool` is set, run this setup transaction for all accounts in the pool.
     /// Defaults to false (only runs for the first account).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub for_all_accounts: bool,
 }
 

@@ -367,8 +367,13 @@ async fn flush_loop<D: DbOps + Send + Sync + 'static>(
     flush_sender: mpsc::Sender<FlushRequest>,
     db: Arc<D>,
     rpc: Arc<AnyProvider>,
+    cancel_token: CancellationToken,
 ) {
     let mut interval = tokio::time::interval(Duration::from_secs(1));
+    /// Number of consecutive blocks with no change in pending count before giving up.
+    const STALE_BLOCK_LIMIT: u64 = 6;
+    let mut stale_blocks: u64 = 0;
+    let mut last_pending_count: usize = usize::MAX;
 
     loop {
         interval.tick().await;
@@ -393,6 +398,12 @@ async fn flush_loop<D: DbOps + Send + Sync + 'static>(
             debug!("TxActor context not initialized.");
             continue;
         };
+
+        // If cancel_token is set (sending is done) and cache is empty, we're done.
+        if cancel_token.is_cancelled() && cache_snapshot.is_empty() {
+            info!("all receipts processed, shutting down receipt collection.");
+            break;
+        }
 
         // Get current block number
         let new_block = match rpc.get_block_number().await {
@@ -439,10 +450,32 @@ async fn flush_loop<D: DbOps + Send + Sync + 'static>(
                     }
 
                     if cache_snapshot.is_empty() {
+                        if cancel_token.is_cancelled() {
+                            info!("pending tx cache is empty, shutting down receipt collection.");
+                            return;
+                        }
                         break;
                     }
                 }
                 Err(e) => warn!("flush_cache error for block {}: {:?}", bn, e),
+            }
+        }
+
+        // Track stale blocks: if sending is done and pending count hasn't changed, increment.
+        if cancel_token.is_cancelled() && !cache_snapshot.is_empty() {
+            let current_count = cache_snapshot.len();
+            if current_count == last_pending_count {
+                stale_blocks += new_block.saturating_sub(ctx.target_block).max(1);
+            } else {
+                stale_blocks = 0;
+                last_pending_count = current_count;
+            }
+            if stale_blocks >= STALE_BLOCK_LIMIT {
+                warn!(
+                    "pending receipt count unchanged ({}) for {} blocks, shutting down receipt collection.",
+                    current_count, stale_blocks
+                );
+                break;
             }
         }
     }
@@ -564,6 +597,7 @@ fn get_tx_error(
 #[derive(Debug)]
 pub struct TxActorHandle {
     sender: mpsc::Sender<TxActorMessage>,
+    flush_complete: CancellationToken,
 }
 
 #[derive(Debug)]
@@ -596,27 +630,39 @@ impl TxActorHandle {
         let mut actor = TxActor::new(receiver, flush_receiver, fb_receiver, db.clone());
 
         // Spawn the message handler task (owns the cache)
-        tokio::task::spawn(async move {
+        crate::spawn_with_session(async move {
             if let Err(e) = actor.run().await {
                 error!("TxActor message handler terminated with error: {:?}", e);
             }
         });
 
         // Spawn the independent flush task (communicates via channels)
-        tokio::task::spawn(async move {
-            flush_loop(flush_sender, db, rpc).await;
+        let flush_cancel = cancel_token.clone();
+        let flush_complete = CancellationToken::new();
+        let flush_done = flush_complete.clone();
+        crate::spawn_with_session(async move {
+            flush_loop(flush_sender, db, rpc, flush_cancel).await;
+            flush_done.cancel();
         });
 
         // Spawn the flashblocks listener task if URL is provided
         if let Some(ws_url) = flashblocks_ws_url {
-            tokio::task::spawn(async move {
+            crate::spawn_with_session(async move {
                 if let Err(e) = FlashblocksClient::listen(&ws_url, fb_sender, cancel_token).await {
                     error!("{}", e);
                 }
             });
         }
 
-        Ok(Self { sender })
+        Ok(Self {
+            sender,
+            flush_complete,
+        })
+    }
+
+    /// Waits until the flush loop has finished processing all receipts.
+    pub async fn await_flush(&self) {
+        self.flush_complete.cancelled().await;
     }
 
     /// Adds a new tx to the cache.

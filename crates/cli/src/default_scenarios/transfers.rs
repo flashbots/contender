@@ -1,9 +1,14 @@
 use crate::default_scenarios::builtin::ToTestConfig;
 use alloy::primitives::{Address, U256};
 use clap::Parser;
-use contender_core::generator::{types::SpamRequest, util::parse_value, FunctionCallDefinition};
+use contender_core::generator::{
+    types::SpamRequest,
+    util::{deserialize_value, parse_value},
+    FunctionCallDefinition,
+};
+use serde::{Deserialize, Serialize};
 
-#[derive(Parser, Clone, Debug)]
+#[derive(Parser, Clone, Debug, Deserialize, Serialize)]
 pub struct TransferStressCliArgs {
     #[arg(
         short = 'a',
@@ -13,13 +18,14 @@ pub struct TransferStressCliArgs {
         value_parser = parse_value,
         help = "Amount of tokens to transfer in each transaction."
     )]
+    #[serde(deserialize_with = "deserialize_value")]
     pub amount: U256,
+
     #[arg(
         short,
         long = "transfer.recipient",
         visible_aliases = ["tr", "recipient"],
         help = "Address to receive ether sent from spammers.",
-        value_parser = |s: &str| s.parse::<Address>().map_err(|_| "Invalid address format".to_string())
     )]
     pub recipient: Option<Address>,
 }

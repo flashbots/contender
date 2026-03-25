@@ -9,6 +9,7 @@ use crate::{
         agent_pools::AgentSpec,
         seeder::{rand_seed::SeedGenerator, Seeder},
         templater::Templater,
+        types::AnyProvider,
         PlanConfig, RandSeed,
     },
     spammer::{tx_actor::TxActorHandle, OnBatchSent, OnTxSent, Spammer},
@@ -17,12 +18,18 @@ use crate::{
     Result,
 };
 use alloy::{
-    consensus::TxType, node_bindings::WEI_IN_ETHER, primitives::U256,
-    signers::local::PrivateKeySigner, transports::http::reqwest::Url,
+    consensus::TxType,
+    network::AnyNetwork,
+    node_bindings::WEI_IN_ETHER,
+    primitives::U256,
+    providers::{DynProvider, Provider},
+    signers::local::PrivateKeySigner,
+    transports::http::reqwest::Url,
 };
 use contender_bundle_provider::bundle::BundleType;
 use contender_engine_provider::ControlChain;
 use std::sync::LazyLock;
+use tokio_util::sync::CancellationToken;
 
 static SMOL_AMOUNT: LazyLock<U256> = LazyLock::new(|| WEI_IN_ETHER / U256::from(100));
 
@@ -498,11 +505,19 @@ where
     /// let callback = NilCallback;
     /// // initialize opts; slightly tweaking the defaults
     /// let opts = RunOpts::new().txs_per_period(50).periods(10);
+    /// // create a cancellation token that can be used to stop the spam run from outside the `Contender` (optional)
+    /// let cancel_token = tokio_util::sync::CancellationToken::new();
     ///
     /// // run spammer
-    /// contender.spam(spammer, callback.into(), opts).await.unwrap();
+    /// contender.spam(spammer, callback.into(), opts, Some(cancel_token.clone())).await.unwrap();
     /// ```
-    pub async fn spam<F, SP>(&mut self, spammer: SP, callback: Arc<F>, opts: RunOpts) -> Result<()>
+    pub async fn spam<F, SP>(
+        &mut self,
+        spammer: SP,
+        callback: Arc<F>,
+        opts: RunOpts,
+        cancel_token: Option<CancellationToken>,
+    ) -> Result<()>
     where
         F: OnTxSent + OnBatchSent + Send + Sync + 'static,
         SP: Spammer<F, D, S, P>,
@@ -523,15 +538,66 @@ where
         );
         let run_id = scenario.db.insert_run(&run_req).map_err(|e| e.into())?;
 
-        // send spam
-        spammer
-            .spam_rpc(
-                &mut scenario,
-                opts.txs_per_period,
-                opts.periods,
-                Some(run_id),
-                callback,
-            )
-            .await
+        // Initialize TxActor contexts so flush_loop can match receipts.
+        let current_block = scenario.rpc_client.get_block_number().await?;
+        let actor_ctx = crate::spammer::tx_actor::ActorContext::new(current_block, run_id)
+            .with_pending_tx_timeout(Duration::from_secs(self.ctx.pending_tx_timeout_secs));
+        for handle in scenario.msg_handles.values() {
+            handle.init_ctx(actor_ctx.clone()).await?;
+        }
+
+        // send spam; if an external cancel token was provided, select on it
+        // so we can abort mid-run (the cursor.next() inside spam_rpc won't
+        // check cancellation on its own).
+        let result = if let Some(external) = cancel_token {
+            tokio::select! {
+                res = spammer.spam_rpc(
+                    &mut scenario,
+                    opts.txs_per_period,
+                    opts.periods,
+                    Some(run_id),
+                    callback,
+                ) => res,
+                _ = external.cancelled() => {
+                    scenario.shutdown().await;
+                    Ok(())
+                }
+            }
+        } else {
+            spammer
+                .spam_rpc(
+                    &mut scenario,
+                    opts.txs_per_period,
+                    opts.periods,
+                    Some(run_id),
+                    callback,
+                )
+                .await
+        };
+
+        // Signal the flush loop that sending is done so it can shut down
+        // once all receipts are processed (or after the stale block timeout).
+        scenario.ctx.cancel_token.cancel();
+
+        // Wait for all flush loops to finish collecting receipts.
+        for handle in scenario.msg_handles.values() {
+            handle.await_flush().await;
+        }
+
+        result
+    }
+
+    /// Materialize a fresh `TestScenario` using the context which was used to create this `Contender` instance.
+    pub async fn build_scenario(&self) -> Result<TestScenario<D, S, P>> {
+        self.ctx.build_scenario().await
+    }
+
+    /// Produce a web3 provider connected to the current instance's RPC URL.
+    pub fn provider(&self) -> AnyProvider {
+        DynProvider::new(
+            alloy::providers::ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .connect_http(self.ctx.rpc_url.clone()),
+        )
     }
 }

@@ -1,0 +1,44 @@
+[package]
+name = "contender_server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Contender server"
+
+[[bin]]
+name = "contender-server"
+path = "src/main.rs"
+
+[[bin]]
+name = "contender-log-client"
+path = "src/log_client.rs"
+
+[dependencies]
+base64.workspace = true
+contender_core.workspace = true
+contender_testfile.workspace = true
+contender_sqlite.workspace = true
+contender_cli.workspace = true
+
+async-trait = { workspace = true }
+jsonrpsee = { workspace = true, features = ["server", "macros", "ws-client"] }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+serde.workspace = true
+serde_json.workspace = true
+rand.workspace = true
+axum = { workspace = true }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors"] }
+tokio-stream.workspace = true
+
+[build-dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
