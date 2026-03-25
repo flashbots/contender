@@ -10,6 +10,7 @@ mod setup;
 mod spam;
 
 use clap::{Parser, ValueEnum};
+use contender_core::db::DbOps;
 pub use contender_subcommand::*;
 pub use setup::*;
 pub use spam::*;
@@ -18,6 +19,10 @@ use std::path::PathBuf;
 use crate::error::CliError;
 
 pub type Result<T> = std::result::Result<T, CliError>;
+
+/// Generic trait wrapper for thread-safe DB implementation.
+pub trait GenericDb: DbOps + Clone + Send + Sync + 'static {}
+impl<T: DbOps + Clone + Send + Sync + 'static> GenericDb for T {}
 
 /// Output format for reports.
 #[derive(Clone, Copy, Debug, Default, ValueEnum)]
