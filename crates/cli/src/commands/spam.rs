@@ -3,7 +3,7 @@ use crate::{
     commands::{
         common::{EngineParams, SendTxsCliArgsInner, TxTypeCli},
         error::ArgsError,
-        Result,
+        GenericDb, Result,
     },
     default_scenarios::BuiltinScenario,
     error::CliError,
@@ -59,92 +59,34 @@ pub struct SpamProgressReport {
     pub current_tps: f64,
 }
 
-/// Spawns a background task that periodically queries the DB and prints
-/// a structured JSON progress report to stdout.
-/// Returns a cancellation token that should be cancelled when spam is done.
-fn spawn_report_task<D: DbOps + Clone + Send + Sync + 'static>(
-    db: D,
+/// Prints incremental progress report for a spam run. Returns None if call to db's `get_run_txs` fails.
+fn print_progress_report<D: GenericDb>(
+    db: &D,
     run_id: u64,
-    interval_secs: u64,
-    planned_tx_count: u64,
-) -> CancellationToken {
-    let cancel = CancellationToken::new();
-    let cancel_clone = cancel.clone();
-
-    tokio::task::spawn(async move {
-        let start = std::time::Instant::now();
-        let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
-        // Skip the first immediate tick
-        interval.tick().await;
-
-        loop {
-            tokio::select! {
-                _ = cancel_clone.cancelled() => break,
-                _ = interval.tick() => {
-                    let elapsed = start.elapsed();
-                    let elapsed_s = elapsed.as_secs();
-
-                    let (txs_confirmed, txs_failed) = match db.get_run_txs(run_id) {
-                        Ok(txs) => {
-                            let confirmed = txs.iter().filter(|tx| tx.block_number.is_some() && tx.error.is_none()).count() as u64;
-                            let failed = txs.iter().filter(|tx| tx.error.is_some()).count() as u64;
-                            (confirmed, failed)
-                        }
-                        Err(_) => continue,
-                    };
-
-                    // txs_sent is the planned count capped by elapsed time,
-                    // or confirmed + failed if we have more data than planned
-                    let txs_sent = (txs_confirmed + txs_failed).max(
-                        planned_tx_count.min(
-                            // rough estimate based on elapsed time
-                            txs_confirmed + txs_failed
-                        )
-                    );
-
-                    let current_tps = if elapsed_s > 0 {
-                        txs_confirmed as f64 / elapsed_s as f64
-                    } else {
-                        0.0
-                    };
-
-                    let report = SpamProgressReport {
-                        elapsed_s,
-                        txs_sent,
-                        txs_confirmed,
-                        txs_failed,
-                        current_tps: (current_tps * 10.0).round() / 10.0,
-                    };
-
-                    if let Ok(json) = serde_json::to_string(&report) {
-                        println!("{json}");
-                    }
-                }
-            }
-        }
-    });
-
-    cancel
-}
-
-/// Prints a final structured JSON summary after spam completes.
-fn print_final_report<D: DbOps>(db: &D, run_id: u64, start_time: std::time::Instant) {
-    let elapsed = start_time.elapsed();
+    start: std::time::Instant,
+    planned_tx_count: Option<u64>,
+) -> Option<()> {
+    let elapsed = start.elapsed();
     let elapsed_s = elapsed.as_secs();
 
-    let (txs_confirmed, txs_failed) = match db.get_run_txs(run_id) {
-        Ok(txs) => {
-            let confirmed = txs
-                .iter()
-                .filter(|tx| tx.block_number.is_some() && tx.error.is_none())
-                .count() as u64;
-            let failed = txs.iter().filter(|tx| tx.error.is_some()).count() as u64;
-            (confirmed, failed)
-        }
-        Err(_) => return,
+    let Ok((txs_confirmed, txs_failed)) = db.get_run_txs(run_id).map(|txs| {
+        let confirmed = txs
+            .iter()
+            .filter(|tx| tx.block_number.is_some() && tx.error.is_none())
+            .count() as u64;
+        let failed = txs.iter().filter(|tx| tx.error.is_some()).count() as u64;
+        (confirmed, failed)
+    }) else {
+        return None;
     };
 
-    let txs_sent = txs_confirmed + txs_failed;
+    // txs_sent is the planned count capped by elapsed time,
+    // or confirmed + failed if we have more data than planned
+    let txs_sent = (txs_confirmed + txs_failed).max(planned_tx_count.unwrap_or(0).min(
+        // rough estimate based on elapsed time
+        txs_confirmed + txs_failed,
+    ));
+
     let current_tps = if elapsed_s > 0 {
         txs_confirmed as f64 / elapsed_s as f64
     } else {
@@ -162,6 +104,42 @@ fn print_final_report<D: DbOps>(db: &D, run_id: u64, start_time: std::time::Inst
     if let Ok(json) = serde_json::to_string(&report) {
         println!("{json}");
     }
+
+    Some(())
+}
+
+/// Spawns a background task that periodically queries the DB and prints
+/// a structured JSON progress report to stdout.
+/// Returns a cancellation token that should be cancelled when spam is done.
+fn spawn_report_task<D: GenericDb>(
+    db: &D,
+    run_id: u64,
+    interval_secs: u64,
+    planned_tx_count: u64,
+) -> CancellationToken {
+    let cancel = CancellationToken::new();
+    let cancel_clone = cancel.clone();
+    let db = Arc::new(db.to_owned());
+
+    tokio::task::spawn(async move {
+        let start = std::time::Instant::now();
+        let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+        // Skip the first immediate tick
+        interval.tick().await;
+
+        loop {
+            tokio::select! {
+                _ = cancel_clone.cancelled() => break,
+                _ = interval.tick() => {
+                    if print_progress_report(db.clone().as_ref(), run_id, start, Some(planned_tx_count)).is_none() {
+                        continue;
+                    }
+                }
+            }
+        }
+    });
+
+    cancel
 }
 
 #[derive(Debug)]
@@ -736,7 +714,7 @@ pub async fn spam_inner<D, S, P>(
     run_context: SpamCampaignContext,
 ) -> Result<Option<u64>>
 where
-    D: DbOps + Clone + Send + Sync + 'static,
+    D: GenericDb,
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
@@ -880,12 +858,7 @@ where
     let report_interval = args.spam_args.report_interval;
     let report_cancel = if let (Some(interval_secs), Some(rid)) = (report_interval, run_id) {
         let planned_tx_count = txs_per_batch * duration;
-        Some(spawn_report_task(
-            db.clone(),
-            rid,
-            interval_secs,
-            planned_tx_count,
-        ))
+        Some(spawn_report_task(db, rid, interval_secs, planned_tx_count))
     } else {
         None
     };
@@ -934,14 +907,14 @@ where
         cancel.cancel();
     }
     if let (Some(_), Some(rid)) = (report_interval, run_id) {
-        print_final_report(db, rid, spam_start_time);
+        print_progress_report(db, rid, spam_start_time, None);
     }
 
     Ok(run_id)
 }
 
 /// Runs spammer and returns run ID.
-pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
+pub async fn spam<D: GenericDb>(
     db: &D,
     args: &SpamCommandArgs,
     run_context: SpamCampaignContext,
