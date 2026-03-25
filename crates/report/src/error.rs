@@ -33,9 +33,6 @@ pub enum Error {
     #[error("io error")]
     Io(#[from] io::Error),
 
-    #[error("no latency metrics found for method {0}")]
-    LatencyMetricsEmpty(String),
-
     #[error("mpsc failed to send trace receipt")]
     MpscSendTraceReceipt(#[from] Box<mpsc::error::SendError<TxTraceReceipt>>),
 
