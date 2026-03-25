@@ -94,8 +94,14 @@ impl AgentStore {
             .collect()
     }
 
+    /// Returns all signer addresses in deterministic (sorted) order.
+    /// Sorting ensures that operations depending on address order (e.g., funding
+    /// transactions with sequential nonces) produce the same results across runs,
+    /// regardless of HashMap iteration order.
     pub fn all_signer_addresses(&self) -> Vec<Address> {
-        self.all_signers().iter().map(|s| s.address()).collect()
+        let mut addresses: Vec<Address> = self.all_signers().iter().map(|s| s.address()).collect();
+        addresses.sort();
+        addresses
     }
 }
 

@@ -151,8 +151,13 @@ pub async fn fund_accounts(
         engine_provider,
         call_fcu,
     } = engine_params;
-    let insufficient_balances =
+    let mut insufficient_balances =
         find_insufficient_balances(recipient_addresses, min_balance, rpc_client).await?;
+    // Sort by address to ensure deterministic nonce assignment when funding
+    // accounts. Without sorting, the iteration order could vary between runs,
+    // causing different nonce-to-recipient mappings and thus different
+    // contract deployment addresses downstream.
+    insufficient_balances.sort_by_key(|(addr, _)| *addr);
 
     let admin_nonce = rpc_client
         .get_transaction_count(fund_with.address())
