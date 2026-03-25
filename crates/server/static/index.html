@@ -682,7 +682,7 @@ controls.appendChild(makeCabinet('spam', body => {
   function updateSpamButton() {
     const sessionId = idF.input.value;
     const session = lastSessions.find(s => String(s.id) === String(sessionId));
-    if (session && session.status && typeof session.status === 'object' && Object.keys(session.status).includes('Spamming')) {
+    if (session && session.status != "Ready") {
       btn.disabled = true;
       btn.title = 'This session is currently spamming.';
     } else {
