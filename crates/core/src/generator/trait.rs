@@ -492,7 +492,10 @@ where
                 }
 
                 // Await all remaining pending tasks to ensure all setup completes.
-                for (_, handle) in pending_per_sender {
+                // Sort by sender address for deterministic completion order.
+                let mut pending_sorted: Vec<_> = pending_per_sender.into_iter().collect();
+                pending_sorted.sort_by_key(|(addr, _)| *addr);
+                for (_, handle) in pending_sorted {
                     handle.await.map_err(CallbackError::Join)??;
                 }
             }

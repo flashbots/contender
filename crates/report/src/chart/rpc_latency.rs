@@ -19,6 +19,12 @@ pub struct LatencyData {
     pub quantiles: LatencyQuantiles,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MethodLatencyData {
+    pub method: String,
+    pub data: LatencyData,
+}
+
 impl LatencyChart {
     pub fn new(buckets: Vec<Bucket>) -> Self {
         Self { buckets }

@@ -322,10 +322,12 @@
     <div class="chart" id="pending-txs"></div>
   </section>
 
+  {{#each data.chart_data.latency_charts}}
   <section>
-    <h2>eth_sendRawTransaction Latency</h2>
-    <div class="chart" id="eth_sendRawTransaction-latency"></div>
+    <h2>{{this.method}} Latency</h2>
+    <div class="chart" id="{{this.method}}-latency"></div>
   </section>
+  {{/each}}
 
   {{!-- ==================== ====== ==================== --}}
 
@@ -721,18 +723,29 @@
       chart.setOption(option);
     }
 
+    // Latency chart data injected per-method by the report generator.
+    // Only methods that were actually called during the run are included.
+    const latencyCharts = [
+      {{#each data.chart_data.latency_charts}}
+      {
+        method: "{{this.method}}",
+        buckets: [{{#each this.data.buckets}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}}],
+        counts: {{this.data.counts}},
+        p50: {{this.data.quantiles.p50}},
+        p90: {{this.data.quantiles.p90}},
+        p99: {{this.data.quantiles.p99}},
+      },
+      {{/each}}
+    ];
+
     // histogram showing latency for given RPC method
-    async function renderMethodLatency(method) {
-      // Initialize the echarts instance based on the prepared dom
-      var chart = echarts.init(document.getElementById(`${method}-latency`));
+    async function renderMethodLatency(entry) {
+      var chart = echarts.init(document.getElementById(`${entry.method}-latency`));
 
-      const buckets = [{{#each data.chart_data.latency_data_sendrawtransaction.buckets}}"{{this}}"{{#if @last}}{{else}}, {{/if}}{{/each}}];
-      const counts = {{data.chart_data.latency_data_sendrawtransaction.counts}};
-      const p50 = {{data.chart_data.latency_data_sendrawtransaction.quantiles.p50}}.toPrecision(3);
-      const p90 = {{data.chart_data.latency_data_sendrawtransaction.quantiles.p90}}.toPrecision(3);
-      const p99 = {{data.chart_data.latency_data_sendrawtransaction.quantiles.p99}}.toPrecision(3);
+      const p50 = entry.p50.toPrecision(3);
+      const p90 = entry.p90.toPrecision(3);
+      const p99 = entry.p99.toPrecision(3);
 
-      // Specify the configuration items and data for the chart
       var option = {
         tooltip: {
           trigger: 'axis',
@@ -745,7 +758,7 @@
         },
         xAxis: {
           type: 'category',
-          data: buckets,
+          data: entry.buckets,
           name: 'Latency (ms)',
           axisLabel: {
             interval: 0,
@@ -756,7 +769,7 @@
           type: 'value',
           name: 'Num. Requests',
           min: 0,
-          max: Math.max(...counts),
+          max: Math.max(...entry.counts),
         },
         visualMap: false,
         graphic: [
@@ -793,16 +806,15 @@
           }
         ],
         series: [{
-          name: method,
+          name: entry.method,
           type: 'bar',
-          data: counts,
+          data: entry.counts,
           itemStyle: {
             color: '#fac858'
           }
         }]
       };
 
-      // Display the chart using the configuration items and data just specified.
       chart.setOption(option);
     }
 
@@ -814,8 +826,7 @@
       renderFlashblockIndex(),
       renderTxGasUsed(),
       renderPendingTxs(),
-      renderMethodLatency('eth_sendRawTransaction'),
-      // Add any other chart-rendering functions here
+      ...latencyCharts.map(entry => renderMethodLatency(entry)),
     ]).then(() => {
       console.log('All charts rendered');
     });
