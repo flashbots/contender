@@ -99,8 +99,7 @@ impl AgentStore {
     /// transactions with sequential nonces) produce the same results across runs,
     /// regardless of HashMap iteration order.
     pub fn all_signer_addresses(&self) -> Vec<Address> {
-        let mut addresses: Vec<Address> =
-            self.all_signers().iter().map(|s| s.address()).collect();
+        let mut addresses: Vec<Address> = self.all_signers().iter().map(|s| s.address()).collect();
         addresses.sort();
         addresses
     }
