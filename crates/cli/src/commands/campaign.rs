@@ -1,5 +1,6 @@
 use super::{setup::SetupCommandArgs, spam::SpamCommandArgs, SpamScenario};
 use crate::commands::spam::SpamCampaignContext;
+use crate::commands::GenericDb;
 use crate::commands::{
     self,
     common::{ScenarioSendTxsCliArgs, SendTxsCliArgsInner},
@@ -11,7 +12,6 @@ use crate::util::{load_seedfile, parse_duration};
 use crate::BuiltinScenarioCli;
 use alloy::primitives::{keccak256, U256};
 use clap::Args;
-use contender_core::db::DbOps;
 use contender_core::error::RuntimeParamErrorKind;
 use contender_testfile::{CampaignConfig, CampaignMode, ResolvedMixEntry, ResolvedStage};
 use std::path::Path;
@@ -101,6 +101,14 @@ pub struct CampaignCliArgs {
     )]
     pub spam_timeout: Duration,
 
+    /// Use eth_sendRawTransactionSync instead of eth_sendRawTransaction.
+    #[arg(
+        long = "send-raw-tx-sync",
+        default_value_t = false,
+        long_help = "Use eth_sendRawTransactionSync instead of eth_sendRawTransaction. The RPC blocks until the tx is included, giving precise TTI. NOTE: incompatible with --rpc-batch-size."
+    )]
+    pub send_raw_tx_sync: bool,
+
     /// Run campaign in a loop, indefinitely.
     #[arg(
         global = true,
@@ -134,7 +142,7 @@ fn bump_seed(base_seed: &str, stage_name: &str) -> String {
 }
 
 pub async fn run_campaign(
-    db: &(impl DbOps + Clone + Send + Sync + 'static),
+    db: &impl GenericDb,
     data_dir: &Path,
     args: CampaignCliArgs,
 ) -> Result<(), CliError> {
@@ -343,8 +351,10 @@ fn create_spam_cli_args(
         gen_report: false,
         skip_setup,
         rpc_batch_size: args.rpc_batch_size,
+        send_raw_tx_sync: args.send_raw_tx_sync,
         spam_timeout: args.spam_timeout,
         flashblocks_ws_url: args.flashblocks_ws_url.clone(),
+        report_interval: None,
     }
 }
 
@@ -471,7 +481,7 @@ async fn prepare_scenario(
 }
 
 async fn execute_stage(
-    db: &(impl DbOps + Clone + Send + Sync + 'static),
+    db: &impl GenericDb,
     campaign: &CampaignConfig,
     stage: &ResolvedStage,
     args: &CampaignCliArgs,

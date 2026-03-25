@@ -3,7 +3,7 @@ use crate::{
     commands::{
         common::{EngineParams, SendTxsCliArgsInner, TxTypeCli},
         error::ArgsError,
-        Result,
+        GenericDb, Result,
     },
     default_scenarios::BuiltinScenario,
     error::CliError,
@@ -40,12 +40,110 @@ use contender_engine_provider::{
 };
 use contender_testfile::TestConfig;
 use op_alloy_network::{Ethereum, Optimism};
+use serde::Serialize;
 use std::{
     path::{Path, PathBuf},
     sync::atomic::AtomicBool,
 };
 use std::{sync::Arc, time::Duration};
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
+
+/// Structured JSON report emitted periodically during spam runs.
+#[derive(Debug, Clone, Serialize)]
+pub struct SpamProgressReport {
+    pub elapsed_s: u64,
+    pub txs_sent: u64,
+    pub txs_confirmed: u64,
+    pub txs_failed: u64,
+    pub current_tps: f64,
+}
+
+/// Prints incremental progress report for a spam run. Returns None if call to db's `get_run_txs` fails.
+fn print_progress_report<D: GenericDb>(
+    db: &D,
+    run_id: u64,
+    start: std::time::Instant,
+    planned_tx_count: Option<u64>,
+) -> Option<()> {
+    let elapsed = start.elapsed();
+    let elapsed_s = elapsed.as_secs();
+
+    let Ok((txs_confirmed, txs_failed)) = db.get_run_txs(run_id).map(|txs| {
+        let confirmed = txs
+            .iter()
+            .filter(|tx| tx.block_number.is_some() && tx.error.is_none())
+            .count() as u64;
+        let failed = txs.iter().filter(|tx| tx.error.is_some()).count() as u64;
+        (confirmed, failed)
+    }) else {
+        return None;
+    };
+
+    // txs_sent is the planned count capped by elapsed time,
+    // or confirmed + failed if we have more data than planned
+    let txs_sent = (txs_confirmed + txs_failed).max(planned_tx_count.unwrap_or(0).min(
+        // rough estimate based on elapsed time
+        txs_confirmed + txs_failed,
+    ));
+
+    let current_tps = if elapsed_s > 0 {
+        txs_confirmed as f64 / elapsed_s as f64
+    } else {
+        0.0
+    };
+
+    let report = SpamProgressReport {
+        elapsed_s,
+        txs_sent,
+        txs_confirmed,
+        txs_failed,
+        current_tps: (current_tps * 10.0).round() / 10.0,
+    };
+
+    // tracing span annotates the log for easy identification later
+    let span = tracing::info_span!("spam_progress", run_id = run_id);
+    if let Ok(json) = serde_json::to_string(&report) {
+        let _enter = span.enter();
+        info!("{json}");
+    }
+
+    Some(())
+}
+
+/// Spawns a background task that periodically queries the DB and prints
+/// a structured JSON progress report to stdout.
+/// Returns a cancellation token that should be cancelled when spam is done.
+fn spawn_spam_report_task<D: GenericDb>(
+    db: &D,
+    run_id: u64,
+    interval_secs: u64,
+    planned_tx_count: u64,
+) -> CancellationToken {
+    let cancel = CancellationToken::new();
+    let cancel_clone = cancel.clone();
+    let db = Arc::new(db.to_owned());
+
+    tokio::task::spawn(async move {
+        let start = std::time::Instant::now();
+        let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+        // Skip the first immediate tick
+        interval.tick().await;
+
+        loop {
+            tokio::select! {
+                _ = cancel_clone.cancelled() => break,
+                _ = interval.tick() => {
+                    if print_progress_report(db.clone().as_ref(), run_id, start, Some(planned_tx_count)).is_none() {
+                        continue;
+                    }
+                }
+            }
+        }
+    });
+
+    cancel
+}
 
 #[derive(Debug)]
 pub struct EngineArgs {
@@ -134,6 +232,14 @@ pub struct SpamCliArgs {
     )]
     pub rpc_batch_size: u64,
 
+    /// Use eth_sendRawTransactionSync instead of eth_sendRawTransaction.
+    #[arg(
+        long = "send-raw-tx-sync",
+        default_value_t = false,
+        long_help = "Use eth_sendRawTransactionSync instead of eth_sendRawTransaction. The RPC blocks until the tx is included, giving precise TTI. NOTE: incompatible with --rpc-batch-size."
+    )]
+    pub send_raw_tx_sync: bool,
+
     #[arg(
         long = "timeout",
         long_help = "The time to wait for spammer to recover from failure before stopping contender. NOTE: this flag is deprecated and currently does nothing. It will be removed in a future release.",
@@ -150,6 +256,17 @@ pub struct SpamCliArgs {
         long_help = "WebSocket URL for subscribing to flashblock pre-confirmations. When set, contender will track sub-block inclusion latency alongside full-block metrics."
     )]
     pub flashblocks_ws_url: Option<Url>,
+
+    /// Interval (in seconds) for printing structured JSON transaction reports to stdout.
+    /// When set, a periodic summary of txs_sent, txs_confirmed, txs_failed, and current_tps
+    /// is printed as a JSON line to stdout.
+    #[arg(
+        long = "report-interval",
+        value_name = "SECONDS",
+        long_help = "Interval in seconds for printing structured JSON transaction rate reports to stdout during spam. \
+                     Each report is a single JSON line with elapsed_s, txs_sent, txs_confirmed, txs_failed, and current_tps."
+    )]
+    pub report_interval: Option<u64>,
 }
 #[derive(Clone)]
 pub enum SpamScenario {
@@ -241,8 +358,16 @@ impl SpamCommandArgs {
         let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam_len as u64));
         let engine_params = self.engine_params().await?;
 
-        // Clamp rpc_batch_size to txs_per_duration (tps or tpb) if needed.
+        // If send_raw_tx_sync is set alongside rpc_batch_size, warn and disable batching.
         let mut rpc_batch_size = self.spam_args.rpc_batch_size;
+        if self.spam_args.send_raw_tx_sync && rpc_batch_size > 0 {
+            tracing::warn!(
+                "--send-raw-tx-sync is incompatible with --rpc-batch-size; disabling JSON-RPC batching"
+            );
+            rpc_batch_size = 0;
+        }
+
+        // Clamp rpc_batch_size to txs_per_duration (tps or tpb) if needed.
         if rpc_batch_size > 0 {
             if txs_per_duration == 0 {
                 tracing::warn!(
@@ -423,6 +548,7 @@ impl SpamCommandArgs {
                 .rpc_args
                 .scenario_label
                 .clone(),
+            send_raw_tx_sync: self.spam_args.send_raw_tx_sync,
             flashblocks_ws_url: self.spam_args.flashblocks_ws_url.clone(),
         };
         let mut test_scenario = TestScenario::new(
@@ -608,7 +734,7 @@ pub async fn spam_inner<D, S, P>(
     run_context: SpamCampaignContext,
 ) -> Result<Option<u64>>
 where
-    D: DbOps + Clone + Send + Sync + 'static,
+    D: GenericDb,
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
@@ -748,6 +874,21 @@ where
         .with_pending_tx_timeout(pending_timeout);
     test_scenario.tx_actor().init_ctx(actor_ctx).await?;
 
+    // Spawn periodic reporting task if --report-interval is set and we have a run_id
+    let report_interval = args.spam_args.report_interval;
+    let report_cancel = if let (Some(interval_secs), Some(rid)) = (report_interval, run_id) {
+        let planned_tx_count = txs_per_batch * duration;
+        Some(spawn_spam_report_task(
+            db,
+            rid,
+            interval_secs,
+            planned_tx_count,
+        ))
+    } else {
+        None
+    };
+    let spam_start_time = std::time::Instant::now();
+
     // loop spammer, break if CTRL-C is received, or run_forever is false
     loop {
         tokio::select! {
@@ -786,11 +927,19 @@ where
         }
     }
 
+    // Stop periodic reporting and print final summary
+    if let Some(cancel) = report_cancel {
+        cancel.cancel();
+    }
+    if let (Some(_), Some(rid)) = (report_interval, run_id) {
+        print_progress_report(db, rid, spam_start_time, None);
+    }
+
     Ok(run_id)
 }
 
 /// Runs spammer and returns run ID.
-pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
+pub async fn spam<D: GenericDb>(
     db: &D,
     args: &SpamCommandArgs,
     run_context: SpamCampaignContext,
@@ -924,8 +1073,10 @@ mod tests {
                     gen_report: false,
                     skip_setup: false,
                     rpc_batch_size: 0,
+                    send_raw_tx_sync: false,
                     spam_timeout: Duration::from_secs(5),
                     flashblocks_ws_url: None,
+                    report_interval: None,
                 },
                 seed: rand_seed.clone(),
             },
