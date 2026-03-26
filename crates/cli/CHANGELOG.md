@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- add `--time-to-inclusion-bucket` flag to configure histogram bucket size in reports
+
 ## [0.9.0](https://github.com/flashbots/contender/releases/tag/v0.9.0) - 2026-03-17
 
 - added `--send-raw-tx-sync` flag to `spam` and `campaign` commands ([#459](https://github.com/flashbots/contender/pull/459))

@@ -134,6 +134,10 @@ pub struct CampaignCliArgs {
         long_help = "Skip per-transaction debug traces (debug_traceTransaction) when generating the campaign report. This significantly speeds up report generation for large runs at the cost of omitting the storage heatmap and tx gas used charts."
     )]
     pub skip_tx_traces: bool,
+
+    /// Bucket size in milliseconds for the time-to-inclusion histogram.
+    #[arg(long, default_value_t = 1000, value_name = "MS", value_parser = clap::value_parser!(u64).range(1..=10000))]
+    pub time_to_inclusion_bucket: u64,
 }
 
 fn bump_seed(base_seed: &str, stage_name: &str) -> String {
@@ -273,6 +277,7 @@ pub async fn run_campaign(
                 data_dir,
                 false, // use HTML format by default for campaign reports
                 args.skip_tx_traces,
+                args.time_to_inclusion_bucket,
             )
             .await?;
         }

@@ -955,6 +955,7 @@ pub async fn spam<D: GenericDb>(
                 &resolve_data_dir(None)?,
                 false, // TODO: support JSON reports, maybe add a CLI flag for it
                 false,
+                1000,
             )
             .await?;
         } else {

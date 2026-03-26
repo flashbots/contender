@@ -5,6 +5,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Note: this file did not exist until after `v0.5.6`.
 
+## Unreleased
+
+- add `--time-to-inclusion-bucket` flag to configure histogram bucket size in reports
+
 ## [0.9.0](https://github.com/flashbots/contender/releases/tag/v0.9.0) - 2026-03-17
 
 - added `--send-raw-tx-sync` flag to `spam` and `campaign` for `eth_sendRawTransactionSync` support ([#459](https://github.com/flashbots/contender/pull/459))

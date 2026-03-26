@@ -132,6 +132,7 @@ async fn run() -> Result<(), CliError> {
             campaign_id,
             format,
             skip_tx_traces,
+            time_to_inclusion_bucket,
         } => {
             if let Some(campaign_id) = campaign_id {
                 let resolved_campaign_id = if campaign_id == "__LATEST_CAMPAIGN__" {
@@ -153,6 +154,7 @@ async fn run() -> Result<(), CliError> {
                     &db,
                     &data_dir,
                     skip_tx_traces,
+                    time_to_inclusion_bucket,
                 )
                 .await
                 .map_err(CliError::Report)?;
@@ -165,6 +167,7 @@ async fn run() -> Result<(), CliError> {
                     &data_dir,
                     use_json,
                     skip_tx_traces,
+                    time_to_inclusion_bucket,
                 )
                 .await
                 .map_err(CliError::Report)?;

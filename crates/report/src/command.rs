@@ -47,6 +47,7 @@ pub async fn report(
     data_dir: &Path,
     use_json: bool,
     skip_tx_traces: bool,
+    time_to_inclusion_bucket: u64,
 ) -> Result<()> {
     let num_runs = db.num_runs().map_err(|e| e.into())?;
 
@@ -308,7 +309,7 @@ pub async fn report(
 
     let heatmap = HeatMapChart::new(&cache_data.traces)?;
     let gas_per_block = GasPerBlockChart::new(&cache_data.blocks);
-    let tti = TimeToInclusionChart::new(&all_txs);
+    let tti = TimeToInclusionChart::new(&all_txs, time_to_inclusion_bucket);
     let gas_used = TxGasUsedChart::new(&cache_data.traces, 4000);
     let pending_txs = PendingTxsChart::new(&all_txs);
     let flashblock_tti = FlashblockTimeToInclusionChart::new(&all_txs);
@@ -443,6 +444,7 @@ pub async fn report_campaign(
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     data_dir: &Path,
     skip_tx_traces: bool,
+    time_to_inclusion_bucket: u64,
 ) -> Result<()> {
     let runs = db.get_runs_by_campaign(campaign_id).map_err(|e| e.into())?;
     if runs.is_empty() {
@@ -468,7 +470,16 @@ pub async fn report_campaign(
     let run_generation_result: Result<()> = async {
         for run in &runs {
             // generate per-run report (single run) - always use HTML for campaign runs
-            report(Some(run.id), 0, db, data_dir, false, skip_tx_traces).await?;
+            report(
+                Some(run.id),
+                0,
+                db,
+                data_dir,
+                false,
+                skip_tx_traces,
+                time_to_inclusion_bucket,
+            )
+            .await?;
             let run_txs = db.get_run_txs(run.id).map_err(|e| e.into())?;
             let (run_tx_count_from_logs, run_error_count_from_logs) =
                 tx_and_error_counts(&run_txs, run.tx_count);
