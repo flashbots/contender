@@ -1344,6 +1344,7 @@ where
                         .start_timer()
                 });
 
+                let send_start = std::time::Instant::now();
                 let resp =
                     match retry_once(|| http_client.post(rpc_url.clone()).json(&requests).send())
                         .await
@@ -1352,13 +1353,18 @@ where
                             if let Some(t) = timer.take() {
                                 t.observe_duration()
                             }
+                            let elapsed = send_start.elapsed();
+                            if elapsed > Duration::from_secs(1) {
+                                warn!("JSON-RPC batch took {elapsed:?}");
+                            }
                             r
                         }
                         Err(e) => {
                             if let Some(t) = timer.take() {
                                 t.observe_duration()
                             }
-                            warn!("failed to send JSON-RPC batch after retry: {e:?}");
+                            let elapsed = send_start.elapsed();
+                            warn!("failed to send JSON-RPC batch after retry ({elapsed:?}): {e:?}");
                             return;
                         }
                     };
