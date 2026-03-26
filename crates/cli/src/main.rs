@@ -18,6 +18,7 @@ use commands::{
     SpamScenario,
 };
 use contender_core::{db::DbOps, util::TracingOptions};
+use contender_report::command::ReportParams;
 use contender_sqlite::{SqliteDb, DB_VERSION};
 use default_scenarios::{fill_block::FillBlockCliArgs, BuiltinScenarioCli};
 use error::CliError;
@@ -134,6 +135,7 @@ async fn run() -> Result<(), CliError> {
             skip_tx_traces,
             time_to_inclusion_bucket,
         } => {
+            let use_json = matches!(format, ReportFormat::Json);
             if let Some(campaign_id) = campaign_id {
                 let resolved_campaign_id = if campaign_id == "__LATEST_CAMPAIGN__" {
                     db.latest_campaign_id()
@@ -149,28 +151,30 @@ async fn run() -> Result<(), CliError> {
                 if preceding_runs > 0 {
                     warn!("--preceding-runs is ignored when --campaign is provided");
                 }
+                let report_params = ReportParams::new()
+                    .with_skip_tx_traces(skip_tx_traces)
+                    .with_time_to_inclusion_bucket(time_to_inclusion_bucket)
+                    .with_use_json(use_json);
                 contender_report::command::report_campaign(
                     &resolved_campaign_id,
                     &db,
                     &data_dir,
-                    skip_tx_traces,
-                    time_to_inclusion_bucket,
+                    report_params,
                 )
                 .await
                 .map_err(CliError::Report)?;
             } else {
-                let use_json = matches!(format, ReportFormat::Json);
-                contender_report::command::report(
-                    last_run_id,
-                    preceding_runs,
-                    &db,
-                    &data_dir,
-                    use_json,
-                    skip_tx_traces,
-                    time_to_inclusion_bucket,
-                )
-                .await
-                .map_err(CliError::Report)?;
+                let mut report_params = ReportParams::new()
+                    .with_preceding_runs(preceding_runs)
+                    .with_skip_tx_traces(skip_tx_traces)
+                    .with_time_to_inclusion_bucket(time_to_inclusion_bucket)
+                    .with_use_json(use_json);
+                if let Some(last_run_id) = last_run_id {
+                    report_params = report_params.with_last_run_id(last_run_id);
+                }
+                contender_report::command::report(&db, &data_dir, report_params)
+                    .await
+                    .map_err(CliError::Report)?;
             }
         }
 

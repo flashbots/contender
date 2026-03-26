@@ -13,6 +13,7 @@ use crate::BuiltinScenarioCli;
 use alloy::primitives::{keccak256, U256};
 use clap::Args;
 use contender_core::error::RuntimeParamErrorKind;
+use contender_report::command::ReportParams;
 use contender_testfile::{CampaignConfig, CampaignMode, ResolvedMixEntry, ResolvedStage};
 use std::path::Path;
 use std::time::Duration;
@@ -270,16 +271,12 @@ pub async fn run_campaign(
             run_ids.sort_unstable();
             let first_run = *run_ids.first().expect("run IDs exist");
             let last_run = *run_ids.last().expect("run IDs exist");
-            contender_report::command::report(
-                Some(last_run),
-                last_run - first_run,
-                db,
-                data_dir,
-                false, // use HTML format by default for campaign reports
-                args.skip_tx_traces,
-                args.time_to_inclusion_bucket,
-            )
-            .await?;
+            let report_params = ReportParams::new()
+                .with_skip_tx_traces(args.skip_tx_traces)
+                .with_time_to_inclusion_bucket(args.time_to_inclusion_bucket)
+                .with_last_run_id(last_run)
+                .with_preceding_runs(last_run - first_run);
+            contender_report::command::report(db, data_dir, report_params).await?;
         }
     }
 
