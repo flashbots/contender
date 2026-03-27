@@ -97,7 +97,7 @@ Flags mirror `spam` where they make sense:
 - Campaign summary: `contender report --campaign [<campaign_id>]` (alias: `--campaign-id`)
   - If `<campaign_id>` is omitted, the latest campaign is used.
   - Generates per-run HTML for all runs in the campaign.
-  - Writes `campaign-<campaign_id>.html` and `campaign-<campaign_id>.json` under `~/.contender/reports/` with links, aggregate metrics, and per-stage/per-scenario rollups.
+  - Writes `campaign-<campaign_id>.html` and `campaign-<campaign_id>.json` under `~/.local/state/contender/reports/` with links, aggregate metrics, and per-stage/per-scenario rollups.
   - If you pass `--report` to `contender campaign ...`, contender will also generate a report for the run-id range at the end of the campaign.
   - If transaction logs are incomplete for any run (e.g., tracing/storage gaps), the campaign report will use stored run metadata for totals/durations and will display a notice; error counts may be under-reported in that case.
 - When a stage has multiple `[[spam.stage.mix]]` entries, do not combine it with `--override-senders`; using a single sender across mixes is rejected because it would cause nonce conflicts.
