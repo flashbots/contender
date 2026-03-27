@@ -18,7 +18,7 @@ use crate::{
         tx_actor::TxActorHandle, CallbackError, ExecutionPayload, RuntimeTxInfo, SpamCallback,
         SpamTrigger,
     },
-    util::{get_blob_fee_maybe, get_block_time, ExtraTxParams},
+    util::{get_block_time, ExtraTxParams},
     Result,
 };
 use alloy::{
@@ -58,6 +58,34 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
 
 pub use alloy::transports::http::reqwest::Url;
+
+/// Fetch a u128 value via an async RPC call, caching on success and falling back
+/// to the cached value on transient failure.
+async fn fetch_with_cache<F, Fut, E>(
+    cache: &mut Option<u128>,
+    label: &str,
+    fetch: F,
+) -> Result<u128>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = std::result::Result<u128, E>>,
+    E: std::fmt::Debug + Into<crate::error::Error>,
+{
+    match fetch().await {
+        Ok(value) => {
+            *cache = Some(value);
+            Ok(value)
+        }
+        Err(e) => {
+            if let Some(cached) = *cache {
+                warn!("Failed to fetch {}, using cached value: {:?}", label, e);
+                Ok(cached)
+            } else {
+                Err(e.into())
+            }
+        }
+    }
+}
 
 /// Retry an async operation once on failure. Useful for transient connection errors.
 async fn retry_once<F, Fut, T, E>(op: F) -> std::result::Result<T, E>
@@ -164,6 +192,8 @@ where
     http_client: reqwest::Client,
     /// Cached gas price from the last successful RPC fetch, used as fallback on transient errors.
     last_fetched_gas_price: Option<u128>,
+    /// Cached blob gas price from the last successful RPC fetch, used as fallback on transient errors.
+    last_fetched_blob_gas_price: Option<u128>,
 }
 
 pub struct TestScenarioParams {
@@ -378,6 +408,7 @@ where
             send_raw_tx_sync,
             http_client: reqwest::Client::new(),
             last_fetched_gas_price: None,
+            last_fetched_blob_gas_price: None,
         })
     }
 
@@ -555,10 +586,9 @@ where
     }
 
     pub async fn deploy_contracts(&mut self) -> Result<()> {
-        let pub_provider = &self.rpc_client;
-        let gas_price = pub_provider.get_gas_price().await?;
-        let blob_gas_price = get_blob_fee_maybe(&self.rpc_client, self.tx_type).await;
-        let chain_id = pub_provider.get_chain_id().await?;
+        let gas_price = self.rpc_client.get_gas_price().await?;
+        let blob_gas_price = self.fetch_blob_gas_price().await;
+        let chain_id = self.rpc_client.get_chain_id().await?;
 
         // we do everything in the callback so no need to actually capture the returned txs
         // we have to do this to populate the database with new named transaction after each deployment
@@ -713,7 +743,7 @@ where
     pub async fn run_setup(&mut self) -> Result<()> {
         let chain_id = self.chain_id;
         let genesis_hash = self.ctx.genesis_hash;
-        let blob_base_fee = get_blob_fee_maybe(&self.rpc_client, self.tx_type).await;
+        let blob_base_fee = self.fetch_blob_gas_price().await;
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(*SETUP_CONCURRENCY_LIMIT));
 
@@ -894,31 +924,40 @@ where
         Ok((full_tx, EthereumWallet::from(signer)))
     }
 
+    /// Fetch blob gas price with cached fallback. Returns 0 for non-EIP-4844 tx types.
+    async fn fetch_blob_gas_price(&mut self) -> u128 {
+        if self.tx_type != TxType::Eip4844 {
+            return 0;
+        }
+        match fetch_with_cache(
+            &mut self.last_fetched_blob_gas_price,
+            "blob gas price",
+            || self.rpc_client.get_blob_base_fee(),
+        )
+        .await
+        {
+            Ok(price) => price,
+            Err(e) => {
+                debug!("failed to get blob base fee; defaulting to 0: {:?}", e);
+                0
+            }
+        }
+    }
+
     pub async fn prepare_spam(
         &mut self,
         tx_requests: &[ExecutionRequest],
     ) -> Result<Vec<ExecutionPayload>> {
+        let blob_gas_price = self.fetch_blob_gas_price().await;
+
         let (gas_price, blob_gas_price) = match self.gas_price {
-            Some(override_price) => (
-                override_price.to::<u128>(),
-                get_blob_fee_maybe(&self.rpc_client, self.tx_type).await,
-            ),
+            Some(override_price) => (override_price.to::<u128>(), blob_gas_price),
             None => {
-                let gas_price = match self.rpc_client.get_gas_price().await {
-                    Ok(price) => {
-                        self.last_fetched_gas_price = Some(price);
-                        price
-                    }
-                    Err(e) => {
-                        if let Some(cached) = self.last_fetched_gas_price {
-                            warn!("Failed to fetch gas price, using cached value: {:?}", e);
-                            cached
-                        } else {
-                            return Err(e.into());
-                        }
-                    }
-                };
-                let blob_gas_price = get_blob_fee_maybe(&self.rpc_client, self.tx_type).await;
+                let gas_price =
+                    fetch_with_cache(&mut self.last_fetched_gas_price, "gas price", || {
+                        self.rpc_client.get_gas_price()
+                    })
+                    .await?;
                 let adjusted_gas_price = |price: u128| {
                     if self.ctx.gas_price_adder < 0 {
                         price - self.ctx.gas_price_adder.unsigned_abs()
@@ -1670,15 +1709,10 @@ where
             .collect::<Vec<_>>()
             .concat();
 
-        let (gas_price, blob_gas_price) = match scenario.gas_price {
-            Some(override_price) => (
-                override_price.to::<u128>(),
-                get_blob_fee_maybe(&scenario.rpc_client, scenario.tx_type).await,
-            ),
-            None => (
-                scenario.rpc_client.get_gas_price().await?,
-                get_blob_fee_maybe(&scenario.rpc_client, scenario.tx_type).await,
-            ),
+        let blob_gas_price = scenario.fetch_blob_gas_price().await;
+        let gas_price = match scenario.gas_price {
+            Some(override_price) => override_price.to::<u128>(),
+            None => scenario.rpc_client.get_gas_price().await?,
         };
 
         // get gas limit for each tx
