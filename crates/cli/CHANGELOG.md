@@ -7,13 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-- add `--time-to-inclusion-bucket` flag to configure histogram bucket size in reports
+- add `--time-to-inclusion-bucket` flag to configure histogram bucket size in reports ([#498](https://github.com/flashbots/contender/pull/498/changes))
+- move default data dir from `~/.contender` to `$XDG_STATE_HOME/contender` (defaults to `~/.local/state/contender`), with automatic migration of existing data ([#460](https://github.com/flashbots/contender/issues/460/changes))
 
 ## [0.9.0](https://github.com/flashbots/contender/releases/tag/v0.9.0) - 2026-03-17
 
-- added `--send-raw-tx-sync` flag to `spam` and `campaign` commands ([#459](https://github.com/flashbots/contender/pull/459))
+- added `--send-raw-tx-sync` flag to `spam` and `campaign` commands ([#459](https://github.com/flashbots/contender/pull/459/changes))
 - changed internal erc20 defaults (didn't match cli defaults) ([#443](https://github.com/flashbots/contender/pull/443/changes))
-- added chainlink scenario to repo scenarios ([#446](https://github.com/flashbots/contender/pull/446))
+- added chainlink scenario to repo scenarios ([#446](https://github.com/flashbots/contender/pull/446/changes))
 - use `std::path::Path` instead of `str` where applicable, add data_dir arg to enable custom data dir at runtime ([453](https://github.com/flashbots/contender/pull/453/changes))
 - add json option to `report` ([#453](https://github.com/flashbots/contender/pull/453/changes))
 - added `--scenario-label` flag to deploy and spam the same scenario under different labels ([#456](https://github.com/flashbots/contender/pull/456/changes))

@@ -40,7 +40,7 @@ pub enum ReportFormat {
     about = "A flexible JSON-RPC spammer for EVM chains."
 )]
 pub struct ContenderCli {
-    /// Override the default data directory (~/.contender).
+    /// Override the default data directory (~/.local/state/contender).
     /// This directory stores the database and reports.
     #[arg(long, global = true, env = "CONTENDER_DATA_DIR", value_name = "PATH")]
     pub data_dir: Option<PathBuf>,

@@ -48,7 +48,7 @@ async fn run() -> Result<(), CliError> {
     let db_path = db_file_in(&data_dir);
     init_reports_dir(&data_dir);
 
-    debug!("data directory: {data_dir:?}");
+    info!("data directory: {}", data_dir.display());
     debug!("opening DB at {db_path:?}");
 
     let db = SqliteDb::from_file(&db_path)?;
