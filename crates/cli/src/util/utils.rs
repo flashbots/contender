@@ -380,15 +380,43 @@ pub async fn find_insufficient_balances(
 
 /// Returns the path to the default data directory.
 /// The directory is created if it does not exist.
+///
+/// Uses `$XDG_STATE_HOME/contender` (defaulting to `~/.local/state/contender`).
+/// If the legacy `~/.contender` directory exists, it is migrated to the new location.
 pub fn default_data_dir() -> Result<PathBuf, UtilError> {
-    let home_dir = if cfg!(windows) {
-        std::env::var("USERPROFILE")?
-    } else {
-        std::env::var("HOME")?
-    };
-    let home_dir = PathBuf::from(&home_dir);
+    let home_dir = PathBuf::from(std::env::var("HOME")?);
+    let xdg_state_home = std::env::var("XDG_STATE_HOME").ok();
+    resolve_default_data_dir(&home_dir, xdg_state_home.as_deref())
+}
 
-    let dir = home_dir.join(".contender");
+/// Core logic for resolving the default data directory. Extracted for testability.
+fn resolve_default_data_dir(
+    home_dir: &Path,
+    xdg_state_home: Option<&str>,
+) -> Result<PathBuf, UtilError> {
+    let state_home = match xdg_state_home {
+        Some(val) if !val.is_empty() => PathBuf::from(val),
+        _ => home_dir.join(".local").join("state"),
+    };
+
+    let dir = state_home.join("contender");
+
+    // migrate legacy ~/.contender to the new location
+    let legacy_dir = home_dir.join(".contender");
+    if legacy_dir.exists() && !dir.exists() {
+        if let Some(parent) = dir.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        if std::fs::rename(&legacy_dir, &dir).is_err() {
+            // rename can fail across filesystem boundaries; warn and continue
+            eprintln!(
+                "warning: failed to migrate legacy data dir '{}' to '{}'. \
+                 You can move it manually or set CONTENDER_DATA_DIR.",
+                legacy_dir.display(),
+                dir.display()
+            );
+        }
+    }
 
     // ensure directory exists
     std::fs::create_dir_all(&dir)?;
@@ -398,7 +426,7 @@ pub fn default_data_dir() -> Result<PathBuf, UtilError> {
 /// Resolves the data directory with the following priority:
 /// 1. CLI argument (if provided)
 /// 2. CONTENDER_DATA_DIR environment variable (if set)
-/// 3. Default: $HOME/.contender
+/// 3. Default: $XDG_STATE_HOME/contender (or ~/.local/state/contender)
 ///
 /// Creates the directory if it does not exist.
 pub fn resolve_data_dir(cli_arg: Option<std::path::PathBuf>) -> Result<PathBuf, UtilError> {
@@ -849,6 +877,77 @@ mod test {
         assert!(
             res.is_ok(),
             "fund_accounts should ignore duplicate transactions in mempool"
+        );
+    }
+
+    #[test]
+    fn default_data_dir_uses_xdg_state_home() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let xdg = tmp.path().join("custom_state");
+        std::fs::create_dir_all(&home).unwrap();
+
+        let result = super::resolve_default_data_dir(&home, Some(xdg.to_str().unwrap())).unwrap();
+        assert_eq!(result, xdg.join("contender"));
+        assert!(result.exists());
+    }
+
+    #[test]
+    fn default_data_dir_falls_back_to_local_state() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+
+        let result = super::resolve_default_data_dir(&home, None).unwrap();
+        assert_eq!(result, home.join(".local").join("state").join("contender"));
+        assert!(result.exists());
+    }
+
+    #[test]
+    fn default_data_dir_ignores_empty_xdg() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+
+        let result = super::resolve_default_data_dir(&home, Some("")).unwrap();
+        assert_eq!(result, home.join(".local").join("state").join("contender"));
+    }
+
+    #[test]
+    fn default_data_dir_migrates_legacy_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let legacy = home.join(".contender");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join("contender.db"), b"test data").unwrap();
+
+        let result = super::resolve_default_data_dir(&home, None).unwrap();
+        assert_eq!(result, home.join(".local").join("state").join("contender"));
+        // legacy dir should be gone, data should be at new location
+        assert!(!legacy.exists());
+        assert_eq!(
+            std::fs::read_to_string(result.join("contender.db")).unwrap(),
+            "test data"
+        );
+    }
+
+    #[test]
+    fn default_data_dir_skips_migration_if_new_dir_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let legacy = home.join(".contender");
+        let new_dir = home.join(".local").join("state").join("contender");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(&new_dir).unwrap();
+        std::fs::write(legacy.join("old.db"), b"old").unwrap();
+        std::fs::write(new_dir.join("new.db"), b"new").unwrap();
+
+        let result = super::resolve_default_data_dir(&home, None).unwrap();
+        // both dirs should still exist, no overwrite
+        assert!(legacy.exists());
+        assert_eq!(
+            std::fs::read_to_string(result.join("new.db")).unwrap(),
+            "new"
         );
     }
 
