@@ -1,0 +1,50 @@
+# Focused precompile stress test: SHA256, RIPEMD160, identity, and batch calls.
+# Contract: PrecompileHammer (Solidity 0.8.26, optimized)
+
+[[create]]
+name = "PrecompileHammer"
+bytecode = "0x6080604052348015600e575f80fd5b5061027f8061001c5f395ff3fe608060405234801561000f575f80fd5b506004361061004a575f3560e01c80635a4b5af11461004e5780638ec9117714610063578063a58a5f7f14610076578063c074b16614610089575b5f80fd5b61006161005c36600461018c565b61009c565b005b61006161007136600461018c565b6100cb565b61006161008436600461018c565b6100f5565b61006161009736600461018c565b61011f565b60045f5b838110156100c55782515f8160208601855afa806100bc575f80fd5b506001016100a0565b50505050565b60025f5b838110156100c55760205f845160208601855afa806100ec575f80fd5b506001016100cf565b60035f5b838110156100c55760205f845160208601855afa80610116575f80fd5b506001016100f9565b5f5b828110156101735781516020830160205f838360025afa80610141575f80fd5b60205f848460035afa905080610155575f80fd5b825f848460045afa905080610168575f80fd5b505050600101610121565b505050565b634e487b7160e01b5f52604160045260245ffd5b5f806040838503121561019d575f80fd5b82359150602083013567ffffffffffffffff8111156101ba575f80fd5b8301601f810185136101ca575f80fd5b803567ffffffffffffffff8111156101e4576101e4610178565b604051601f8201601f19908116603f0116810167ffffffffffffffff8111828210171561021357610213610178565b60405281815282820160200187101561022a575f80fd5b816020840160208301375f60208383010152809350505050925092905056fea26469706673582212209e3c9c53805c700a69bd48aac177fa8f0cd631f448c2aec5ce07bdd5c24b1b0664736f6c634300081a0033"
+
+# SHA256 precompile (0x02) stress
+[[spam]]
+from_pool = "sha256_pool"
+[spam.tx]
+to = "{PrecompileHammer}"
+signature = "hashSHA256(uint256 iterations, bytes memory data)"
+args = ["200", "0xdeadbeef"]
+fuzz = [
+    { param = "iterations", min = "100", max = "500" },
+]
+
+# RIPEMD160 precompile (0x03) stress
+[[spam]]
+from_pool = "ripemd160_pool"
+[spam.tx]
+to = "{PrecompileHammer}"
+signature = "hashRIPEMD160(uint256 iterations2, bytes memory data2)"
+args = ["200", "0xdeadbeef"]
+fuzz = [
+    { param = "iterations2", min = "100", max = "500" },
+]
+
+# Identity precompile (0x04) stress — cheaper per call, so higher iteration range
+[[spam]]
+from_pool = "identity_pool"
+[spam.tx]
+to = "{PrecompileHammer}"
+signature = "callIdentity(uint256 iterations3, bytes memory data3)"
+args = ["1000", "0xdeadbeef"]
+fuzz = [
+    { param = "iterations3", min = "500", max = "2000" },
+]
+
+# Batch all three precompiles per iteration
+[[spam]]
+from_pool = "batch_pool"
+[spam.tx]
+to = "{PrecompileHammer}"
+signature = "batchPrecompiles(uint256 iterations4, bytes memory data4)"
+args = ["100", "0xdeadbeef"]
+fuzz = [
+    { param = "iterations4", min = "50", max = "200" },
+]
