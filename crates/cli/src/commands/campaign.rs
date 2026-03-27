@@ -13,6 +13,7 @@ use crate::BuiltinScenarioCli;
 use alloy::primitives::{keccak256, U256};
 use clap::Args;
 use contender_core::error::RuntimeParamErrorKind;
+use contender_report::command::ReportParams;
 use contender_testfile::{CampaignConfig, CampaignMode, ResolvedMixEntry, ResolvedStage};
 use std::path::Path;
 use std::time::Duration;
@@ -134,6 +135,10 @@ pub struct CampaignCliArgs {
         long_help = "Skip per-transaction debug traces (debug_traceTransaction) when generating the campaign report. This significantly speeds up report generation for large runs at the cost of omitting the storage heatmap and tx gas used charts."
     )]
     pub skip_tx_traces: bool,
+
+    /// Bucket size in milliseconds for the time-to-inclusion histogram.
+    #[arg(long, default_value_t = 1000, value_name = "MS", value_parser = clap::value_parser!(u64).range(1..=10000))]
+    pub time_to_inclusion_bucket: u64,
 }
 
 fn bump_seed(base_seed: &str, stage_name: &str) -> String {
@@ -266,15 +271,12 @@ pub async fn run_campaign(
             run_ids.sort_unstable();
             let first_run = *run_ids.first().expect("run IDs exist");
             let last_run = *run_ids.last().expect("run IDs exist");
-            contender_report::command::report(
-                Some(last_run),
-                last_run - first_run,
-                db,
-                data_dir,
-                false, // use HTML format by default for campaign reports
-                args.skip_tx_traces,
-            )
-            .await?;
+            let report_params = ReportParams::new()
+                .with_skip_tx_traces(args.skip_tx_traces)
+                .with_time_to_inclusion_bucket(args.time_to_inclusion_bucket)
+                .with_last_run_id(last_run)
+                .with_preceding_runs(last_run - first_run);
+            contender_report::command::report(db, data_dir, report_params).await?;
         }
     }
 

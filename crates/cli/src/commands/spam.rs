@@ -38,6 +38,7 @@ use contender_core::{
 use contender_engine_provider::{
     reth_node_api::EngineApiMessageVersion, AuthProvider, ControlChain,
 };
+use contender_report::command::ReportParams;
 use contender_testfile::TestConfig;
 use op_alloy_network::{Ethereum, Optimism};
 use serde::Serialize;
@@ -972,15 +973,8 @@ pub async fn spam<D: GenericDb>(
     let run_id = spam_inner(db, &mut test_scenario, args, run_context).await?;
     if args.spam_args.gen_report {
         if let Some(run_id) = &run_id {
-            contender_report::command::report(
-                Some(*run_id),
-                0,
-                db,
-                &resolve_data_dir(None)?,
-                false, // TODO: support JSON reports, maybe add a CLI flag for it
-                false,
-            )
-            .await?;
+            let report_params = ReportParams::new().with_last_run_id(*run_id);
+            contender_report::command::report(db, &resolve_data_dir(None)?, report_params).await?;
         } else {
             warn!("Cannot generate report: no run ID found.");
         }
