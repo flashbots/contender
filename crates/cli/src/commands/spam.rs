@@ -945,7 +945,31 @@ pub async fn spam<D: GenericDb>(
     args: &SpamCommandArgs,
     run_context: SpamCampaignContext,
 ) -> Result<Option<u64>> {
-    let mut test_scenario = args.init_scenario(db).await?;
+    let mut test_scenario = {
+        let max_attempts = 3;
+        let mut last_err = None;
+        let mut scenario = None;
+        for attempt in 1..=max_attempts {
+            match args.init_scenario(db).await {
+                Ok(s) => {
+                    scenario = Some(s);
+                    break;
+                }
+                Err(e) => {
+                    if attempt < max_attempts {
+                        let backoff = Duration::from_secs(5 * attempt as u64);
+                        warn!("Setup failed (attempt {attempt}/{max_attempts}), retrying in {backoff:?}: {e:?}");
+                        tokio::time::sleep(backoff).await;
+                    }
+                    last_err = Some(e);
+                }
+            }
+        }
+        match scenario {
+            Some(s) => s,
+            None => return Err(last_err.unwrap()),
+        }
+    };
     let run_id = spam_inner(db, &mut test_scenario, args, run_context).await?;
     if args.spam_args.gen_report {
         if let Some(run_id) = &run_id {
