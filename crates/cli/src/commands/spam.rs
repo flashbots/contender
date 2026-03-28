@@ -112,6 +112,32 @@ fn print_progress_report<D: GenericDb>(
     Some(())
 }
 
+/// Computes how often (in seconds) to re-fund spammer accounts.
+///
+/// Estimates how long before accounts drain, then returns 90% of that,
+/// floored at `min_run_duration_secs`. Uses total spend rate
+/// (`txs_per_period * max_spam_cost`) rather than per-account rate,
+/// so we refund sooner than strictly necessary.
+/// `secs_per_period` is 1 for tps mode, or block_time for tpb mode
+/// (clamped to >= 1s, so sub-second chains are conservative).
+fn compute_refund_interval_secs(
+    min_balance: U256,
+    max_spam_cost: U256,
+    txs_per_period: u64,
+    secs_per_period: u64,
+    min_run_duration_secs: u64,
+) -> u64 {
+    let cost_per_period = U256::from(txs_per_period) * max_spam_cost;
+    let depletion_secs = min_balance * U256::from(secs_per_period) / cost_per_period;
+    if depletion_secs > U256::from(u64::MAX) {
+        u64::MAX
+    } else {
+        (depletion_secs * U256::from(9) / U256::from(10))
+            .to::<u64>()
+            .max(min_run_duration_secs)
+    }
+}
+
 /// Spawns a background task that periodically re-funds spammer accounts.
 /// Returns a cancellation token that should be cancelled when spam is done.
 fn spawn_funding_task(
@@ -936,26 +962,15 @@ where
             if max_spam_cost > U256::ZERO {
                 let min_balance = rpc_args.min_balance;
 
-                // Estimate how long before accounts drain, then refund at 90% of that.
-                // Uses total spend rate (txs_per_batch * max_spam_cost) rather than
-                // per-account rate, so we refund sooner than strictly necessary.
-                // block_time is clamped to >= 1s, so sub-second chains are conservative.
-                let secs_per_period: u64 = if txs_per_second.is_some() {
-                    1
-                } else {
-                    block_time
-                };
-                let cost_per_period = U256::from(txs_per_batch) * max_spam_cost;
-                let depletion_secs =
-                    min_balance * U256::from(secs_per_period) / cost_per_period;
-                let run_duration_secs = duration * secs_per_period;
-                let refund_interval_secs = if depletion_secs > U256::from(u64::MAX) {
-                    u64::MAX
-                } else {
-                    (depletion_secs * U256::from(9) / U256::from(10))
-                        .to::<u64>()
-                        .max(run_duration_secs)
-                };
+                let secs_per_period: u64 =
+                    if txs_per_second.is_some() { 1 } else { block_time };
+                let refund_interval_secs = compute_refund_interval_secs(
+                    min_balance,
+                    max_spam_cost,
+                    txs_per_batch,
+                    secs_per_period,
+                    duration * secs_per_period,
+                );
 
                 info!("Auto-funding enabled. Refunding every {refund_interval_secs}s.");
 
@@ -1233,6 +1248,62 @@ mod tests {
                 }
             )*
         };
+    }
+
+    mod funding_tests {
+        use super::*;
+
+        #[test]
+        fn compute_refund_interval() {
+            let bal = WEI_IN_ETHER / U256::from(100); // 0.01 ETH
+            let cost = U256::from(50_000u64 * 1_000_000_000u64); // 50k gas @ 1 gwei
+
+            // tps mode: depletion=20s, 90%=18s, floor=10s
+            assert_eq!(compute_refund_interval_secs(bal, cost, 10, 1, 10), 18);
+            // tpb mode (2s blocks): depletion=40s, 90%=36s, floor=10s
+            assert_eq!(compute_refund_interval_secs(bal, cost, 10, 2, 10), 36);
+            // tiny balance: depletion≈0s, floors at run_duration=30s
+            assert_eq!(compute_refund_interval_secs(U256::from(1_000_000u64), U256::from(1_000_000u64), 10, 1, 30), 30);
+        }
+
+        #[tokio::test]
+        async fn funding_task_refunds_drained_account() {
+            let anvil = Anvil::new().block_time(1).try_spawn().unwrap();
+            let rpc_url: Url = anvil.endpoint().parse().unwrap();
+            let rpc_client = Arc::new(AnyProvider::new(
+                alloy::providers::ProviderBuilder::new()
+                    .network::<alloy::network::AnyNetwork>()
+                    .connect_http(rpc_url),
+            ));
+
+            // Anvil account 0 is the funder (has 10,000 ETH)
+            let funder: PrivateKeySigner = anvil.keys()[0].clone().into();
+            // Generate a fresh recipient with zero balance
+            let recipient = PrivateKeySigner::random();
+            let recipient_addr = recipient.address();
+            let min_balance = WEI_IN_ETHER / U256::from(100); // 0.01 ETH
+
+            let engine_params = EngineParams::default();
+
+            let cancel = spawn_funding_task(
+                vec![recipient_addr],
+                funder,
+                rpc_client.clone(),
+                min_balance,
+                engine_params,
+                1, // 1-second interval
+            );
+
+            // Wait for 2 ticks to ensure the task runs
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            cancel.cancel();
+
+            let balance = rpc_client.get_balance(recipient_addr).await.unwrap();
+            assert!(
+                balance >= min_balance,
+                "expected balance >= {min_balance}, got {balance}"
+            );
+        }
     }
 
     #[allow(non_snake_case)]
