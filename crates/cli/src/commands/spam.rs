@@ -15,8 +15,9 @@ use crate::{
 };
 use alloy::{
     consensus::TxType,
-    primitives::{utils::format_ether, U256},
+    primitives::{utils::format_ether, Address, U256},
     providers::Provider,
+    signers::local::PrivateKeySigner,
     transports::http::reqwest::Url,
 };
 use contender_core::{
@@ -109,6 +110,48 @@ fn print_progress_report<D: GenericDb>(
     }
 
     Some(())
+}
+
+/// Spawns a background task that periodically re-funds spammer accounts.
+/// Returns a cancellation token that should be cancelled when spam is done.
+fn spawn_funding_task(
+    recipient_addresses: Vec<Address>,
+    fund_with: PrivateKeySigner,
+    rpc_client: Arc<AnyProvider>,
+    min_balance: U256,
+    engine_params: EngineParams,
+    interval_secs: u64,
+) -> CancellationToken {
+    let cancel = CancellationToken::new();
+    let cancel_clone = cancel.clone();
+
+    tokio::task::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // Skip the first immediate tick
+        interval.tick().await;
+
+        loop {
+            tokio::select! {
+                _ = cancel_clone.cancelled() => break,
+                _ = interval.tick() => {
+                    info!("Auto-funding spammer accounts...");
+                    if let Err(e) = fund_accounts(
+                        &recipient_addresses,
+                        &fund_with,
+                        &rpc_client,
+                        min_balance,
+                        TxType::Legacy,
+                        &engine_params,
+                    ).await {
+                        warn!("Auto-funding failed: {e}");
+                    }
+                }
+            }
+        }
+    });
+
+    cancel
 }
 
 /// Spawns a background task that periodically queries the DB and prints
@@ -618,13 +661,7 @@ impl SpamCommandArgs {
             duration_unit.to_owned()
         };
         if run_forever {
-            warn!("Spammer agents will eventually run out of funds. Each batch of spam (sent over {duration} {duration_units}) will cost {} ETH.", format_ether(total_cost));
-            // we use println! after warn! because warn! doesn't properly format bold strings
-            println!(
-                "Make sure you add plenty of funds with {} (set your pre-funded account with {}).",
-                bold("spam --min-balance"),
-                bold("spam -p"),
-            );
+            info!("Each batch of spam (sent over {duration} {duration_units}) will cost {} ETH. Accounts will be auto-funded periodically.", format_ether(total_cost));
         }
 
         Ok(test_scenario)
@@ -889,6 +926,51 @@ where
     };
     let spam_start_time = std::time::Instant::now();
 
+    // Spawn periodic funding task when running forever to keep accounts funded
+    let funding_cancel =
+        if run_forever && !args.spam_args.eth_json_rpc_args.rpc_args.override_senders {
+            let rpc_args = &args.spam_args.eth_json_rpc_args.rpc_args;
+            let user_signers = rpc_args.user_signers_with_defaults();
+            let max_spam_cost = test_scenario.get_max_spam_cost(&user_signers).await?;
+
+            if max_spam_cost > U256::ZERO {
+                let min_balance = rpc_args.min_balance;
+                let cost_per_period = U256::from(txs_per_batch) * max_spam_cost;
+                let depletion_secs = if txs_per_second.is_some() {
+                    min_balance / cost_per_period
+                } else {
+                    min_balance * U256::from(block_time) / cost_per_period
+                };
+                let run_duration_secs = if txs_per_second.is_some() {
+                    duration
+                } else {
+                    duration * block_time
+                };
+                let refund_interval_secs = if depletion_secs > U256::from(u64::MAX) {
+                    u64::MAX
+                } else {
+                    (depletion_secs * U256::from(9) / U256::from(10))
+                        .to::<u64>()
+                        .max(run_duration_secs)
+                };
+
+                info!("Auto-funding enabled. Refunding every {refund_interval_secs}s.");
+
+                Some(spawn_funding_task(
+                    test_scenario.agent_store.all_signer_addresses(),
+                    rpc_args.primary_signer(),
+                    test_scenario.rpc_client.clone(),
+                    min_balance,
+                    engine_params.clone(),
+                    refund_interval_secs,
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
     // loop spammer, break if CTRL-C is received, or run_forever is false
     loop {
         tokio::select! {
@@ -927,7 +1009,10 @@ where
         }
     }
 
-    // Stop periodic reporting and print final summary
+    // Stop background tasks and print final summary
+    if let Some(cancel) = funding_cancel {
+        cancel.cancel();
+    }
     if let Some(cancel) = report_cancel {
         cancel.cancel();
     }
