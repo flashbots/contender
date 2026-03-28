@@ -96,6 +96,10 @@ pub enum ContenderSubcommand {
         /// at the cost of omitting the storage heatmap and tx gas used charts.
         #[arg(long)]
         skip_tx_traces: bool,
+
+        /// Bucket size in milliseconds for the time-to-inclusion histogram.
+        #[arg(long, default_value_t = 1000, value_name = "MS", value_parser = clap::value_parser!(u64).range(1..=10000))]
+        time_to_inclusion_bucket: u64,
     },
 
     #[command(
