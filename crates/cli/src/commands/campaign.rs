@@ -3,7 +3,10 @@ use crate::commands::spam::SpamCampaignContext;
 use crate::commands::GenericDb;
 use crate::commands::{
     self,
-    common::{ScenarioSendTxsCliArgs, SendTxsCliArgsInner},
+    common::{
+        ScenarioSendTxsCliArgs, SendTxsCliArgsInner, HELP_HEADING_COMMON, HELP_HEADING_PAYLOAD,
+        HELP_HEADING_RUNTIME,
+    },
     SpamCliArgs,
 };
 use crate::error::CliError;
@@ -24,7 +27,7 @@ use uuid::Uuid;
 #[derive(Clone, Debug, Args)]
 pub struct CampaignCliArgs {
     /// Path to campaign config TOML
-    #[arg(help = "Path to campaign config TOML")]
+    #[arg(help = "Path to campaign config TOML", help_heading = HELP_HEADING_COMMON)]
     pub campaign: String,
 
     #[command(flatten)]
@@ -36,7 +39,8 @@ pub struct CampaignCliArgs {
         short,
         long,
         long_help = "HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`)",
-        visible_aliases = ["builder", "builder-rpc-url", "builder-rpc"]
+        visible_aliases = ["builder", "builder-rpc-url", "builder-rpc"],
+        help_heading = HELP_HEADING_COMMON,
     )]
     pub builder_url: Option<Url>,
 
@@ -46,7 +50,8 @@ pub struct CampaignCliArgs {
         long,
         default_value_t = 12,
         long_help = "The number of blocks to wait for pending transactions to land. If transactions land within the timeout, it resets.",
-        visible_aliases = ["wait"]
+        visible_aliases = ["wait"],
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub pending_timeout: u64,
 
@@ -55,7 +60,8 @@ pub struct CampaignCliArgs {
         long = "rpc-batch-size",
         value_name = "N",
         default_value_t = 0,
-        long_help = "Max number of eth_sendRawTransaction calls to send in a single JSON-RPC batch request. 0 (default) disables batching and sends one eth_sendRawTransaction per tx."
+        long_help = "Max number of eth_sendRawTransaction calls to send in a single JSON-RPC batch request. 0 (default) disables batching and sends one eth_sendRawTransaction per tx.",
+        help_heading = HELP_HEADING_PAYLOAD,
     )]
     pub rpc_batch_size: u64,
 
@@ -64,7 +70,8 @@ pub struct CampaignCliArgs {
         long,
         help = "Ignore transaction receipts.",
         long_help = "Keep sending transactions without waiting for receipts.",
-        visible_aliases = ["ir", "no-receipts"]
+        visible_aliases = ["ir", "no-receipts"],
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub ignore_receipts: bool,
 
@@ -72,7 +79,8 @@ pub struct CampaignCliArgs {
     #[arg(
         long,
         help = "Disable nonce synchronization between batches.",
-        visible_aliases = ["disable-nonce-sync", "fast-nonces"]
+        visible_aliases = ["disable-nonce-sync", "fast-nonces"],
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub optimistic_nonces: bool,
 
@@ -81,7 +89,8 @@ pub struct CampaignCliArgs {
         global = true,
         long,
         long_help = "Generate a report for the spam run(s) after the campaign completes.",
-        visible_aliases = ["report"]
+        visible_aliases = ["report"],
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub gen_report: bool,
 
@@ -89,7 +98,8 @@ pub struct CampaignCliArgs {
     #[arg(
         long,
         global = true,
-        long_help = "If set, skip contract deployment & setup transactions when running builtin scenarios. Does nothing when running a scenario file."
+        long_help = "If set, skip contract deployment & setup transactions when running builtin scenarios. Does nothing when running a scenario file.",
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub skip_setup: bool,
 
@@ -98,7 +108,8 @@ pub struct CampaignCliArgs {
         long = "timeout",
         long_help = "The time to wait for spammer to recover from failure before stopping contender.",
         value_parser = parse_duration,
-        default_value = "5min"
+        default_value = "5min",
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub spam_timeout: Duration,
 
@@ -106,7 +117,8 @@ pub struct CampaignCliArgs {
     #[arg(
         long = "send-raw-tx-sync",
         default_value_t = false,
-        long_help = "Use eth_sendRawTransactionSync instead of eth_sendRawTransaction. The RPC blocks until the tx is included, giving precise TTI. NOTE: incompatible with --rpc-batch-size."
+        long_help = "Use eth_sendRawTransactionSync instead of eth_sendRawTransaction. The RPC blocks until the tx is included, giving precise TTI. NOTE: incompatible with --rpc-batch-size.",
+        help_heading = HELP_HEADING_PAYLOAD,
     )]
     pub send_raw_tx_sync: bool,
 
@@ -115,7 +127,8 @@ pub struct CampaignCliArgs {
         global = true,
         default_value_t = false,
         long = "forever",
-        visible_aliases = ["indefinite", "indefinitely", "infinite"]
+        visible_aliases = ["indefinite", "indefinitely", "infinite"],
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub run_forever: bool,
 
@@ -124,7 +137,8 @@ pub struct CampaignCliArgs {
         long = "flashblocks-ws-url",
         value_name = "URL",
         env = "FLASHBLOCKS_WS_URL",
-        long_help = "WebSocket URL for subscribing to flashblock pre-confirmations. When set, contender will track sub-block inclusion latency alongside full-block metrics."
+        long_help = "WebSocket URL for subscribing to flashblock pre-confirmations. When set, contender will track sub-block inclusion latency alongside full-block metrics.",
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub flashblocks_ws_url: Option<Url>,
 
@@ -132,12 +146,19 @@ pub struct CampaignCliArgs {
     #[arg(
         long,
         global = true,
-        long_help = "Skip per-transaction debug traces (debug_traceTransaction) when generating the campaign report. This significantly speeds up report generation for large runs at the cost of omitting the storage heatmap and tx gas used charts."
+        long_help = "Skip per-transaction debug traces (debug_traceTransaction) when generating the campaign report. This significantly speeds up report generation for large runs at the cost of omitting the storage heatmap and tx gas used charts.",
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub skip_tx_traces: bool,
 
     /// Bucket size in milliseconds for the time-to-inclusion histogram.
-    #[arg(long, default_value_t = 1000, value_name = "MS", value_parser = clap::value_parser!(u64).range(1..=10000))]
+    #[arg(
+        long,
+        default_value_t = 1000,
+        value_name = "MS",
+        value_parser = clap::value_parser!(u64).range(1..=10000),
+        help_heading = HELP_HEADING_RUNTIME
+    )]
     pub time_to_inclusion_bucket: u64,
 }
 
