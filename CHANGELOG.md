@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - add `--time-to-inclusion-bucket` flag to configure histogram bucket size in reports ([#498](https://github.com/flashbots/contender/pull/498))
 - move default data dir to `$XDG_STATE_HOME/contender` (`~/.local/state/contender`), with automatic migration from legacy `~/.contender` ([#460](https://github.com/flashbots/contender/issues/460))
+- organize `--help` output into logical sections for `spam` and `campaign` flags ([#408](https://github.com/flashbots/contender/issues/408))
 
 ## [0.9.0](https://github.com/flashbots/contender/releases/tag/v0.9.0) - 2026-03-17
 
