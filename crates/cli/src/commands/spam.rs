@@ -48,7 +48,7 @@ use std::{
 };
 use std::{sync::Arc, time::Duration};
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// Structured JSON report emitted periodically during spam runs.
 #[derive(Debug, Clone, Serialize)]
@@ -135,7 +135,7 @@ fn spawn_funding_task(
             tokio::select! {
                 _ = cancel_clone.cancelled() => break,
                 _ = interval.tick() => {
-                    info!("Auto-funding spammer accounts...");
+                    debug!("Auto-funding spammer accounts...");
                     if let Err(e) = fund_accounts(
                         &recipient_addresses,
                         &fund_with,
@@ -935,17 +935,20 @@ where
 
             if max_spam_cost > U256::ZERO {
                 let min_balance = rpc_args.min_balance;
+
+                // Estimate how long before accounts drain, then refund at 90% of that.
+                // Uses total spend rate (txs_per_batch * max_spam_cost) rather than
+                // per-account rate, so we refund sooner than strictly necessary.
+                // block_time is clamped to >= 1s, so sub-second chains are conservative.
+                let secs_per_period: u64 = if txs_per_second.is_some() {
+                    1
+                } else {
+                    block_time
+                };
                 let cost_per_period = U256::from(txs_per_batch) * max_spam_cost;
-                let depletion_secs = if txs_per_second.is_some() {
-                    min_balance / cost_per_period
-                } else {
-                    min_balance * U256::from(block_time) / cost_per_period
-                };
-                let run_duration_secs = if txs_per_second.is_some() {
-                    duration
-                } else {
-                    duration * block_time
-                };
+                let depletion_secs =
+                    min_balance * U256::from(secs_per_period) / cost_per_period;
+                let run_duration_secs = duration * secs_per_period;
                 let refund_interval_secs = if depletion_secs > U256::from(u64::MAX) {
                     u64::MAX
                 } else {
@@ -958,7 +961,7 @@ where
 
                 Some(spawn_funding_task(
                     test_scenario.agent_store.all_signer_addresses(),
-                    rpc_args.primary_signer(),
+                    user_signers[0].clone(),
                     test_scenario.rpc_client.clone(),
                     min_balance,
                     engine_params.clone(),
