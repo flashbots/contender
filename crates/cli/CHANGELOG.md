@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- auto-fund spammer accounts periodically when running with `--forever` to prevent ETH depletion; refund interval is derived from `--min-balance`, `get_max_spam_cost()`, and `--tps`/`--tpb`
 - add `--time-to-inclusion-bucket` flag to configure histogram bucket size in reports ([#498](https://github.com/flashbots/contender/pull/498/changes))
 - move default data dir from `~/.contender` to `$XDG_STATE_HOME/contender` (defaults to `~/.local/state/contender`), with automatic migration of existing data ([#460](https://github.com/flashbots/contender/issues/460/changes))
 
