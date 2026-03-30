@@ -21,11 +21,17 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tracing::info;
 
+pub const HELP_HEADING_COMMON: &str = "Common";
+pub const HELP_HEADING_PAYLOAD: &str = "Payload Adjustments";
+pub const HELP_HEADING_RUNTIME: &str = "Runtime Adjustments";
+pub const HELP_HEADING_ENGINE: &str = "Engine API Settings";
+
 #[derive(Clone, Debug, clap::Args)]
 pub struct ScenarioSendTxsCliArgs {
     /// The path to the test file to use for spamming/setup. Use default scenarios with "scenario:<filename>".
     /// Default scenarios can be found at https://github.com/flashbots/contender/tree/main/scenarios
     /// Example: `scenario:simple.toml` or `scenario:precompiles/modexp.toml`
+    #[arg(help_heading = HELP_HEADING_COMMON)]
     pub testfile: Option<String>,
 
     #[command(flatten)]
@@ -34,77 +40,6 @@ pub struct ScenarioSendTxsCliArgs {
 
 #[derive(Clone, Debug, clap::Args)]
 pub struct SendTxsCliArgsInner {
-    /// RPC URL to send requests.
-    #[arg(
-        env = "RPC_URL",
-        short,
-        long,
-        long_help = "RPC URL to send requests from the `eth_` namespace. Set --builder-url or --auth-rpc-url to enable other namespaces.",
-        default_value = "http://localhost:8545",
-        visible_aliases = ["el-rpc", "el-rpc-url"]
-    )]
-    pub rpc_url: Url,
-
-    /// The seed to use for generating spam transactions.
-    #[arg(
-        env = "CONTENDER_SEED",
-        short,
-        long,
-        long_help = "The seed to use for generating spam transactions"
-    )]
-    pub seed: Option<String>,
-
-    /// Private key(s) to use for funding agent accounts or signing transactions.
-    #[arg(
-        env = "CONTENDER_PRIVATE_KEY",
-        short,
-        long = "priv-key",
-        long_help = "Add private keys to fund agent accounts. Scenarios with hard-coded `from` addresses may also use these to sign transactions.
-Flag may be specified multiple times."
-    )]
-    pub private_keys: Option<Vec<String>>,
-
-    /// The minimum balance to keep in each spammer EOA.
-    #[arg(
-        long,
-        long_help = "The minimum balance to keep in each spammer EOA, with units.",
-        default_value = "0.01 ether",
-        value_parser = parse_value,
-    )]
-    pub min_balance: U256,
-
-    /// Transaction type
-    #[arg(
-            short = 't',
-            long,
-            long_help = "Transaction type for generated transactions.",
-            value_enum,
-            default_value_t = TxTypeCli::Eip1559,
-        )]
-    pub tx_type: TxTypeCli,
-
-    /// Bundle type
-    #[arg(
-        long,
-        long_help = "Bundle type for generated bundles.",
-        value_enum,
-        default_value_t = BundleTypeCli::default(),
-        visible_aliases = ["bt"]
-    )]
-    pub bundle_type: BundleTypeCli,
-
-    #[command(flatten)]
-    pub auth_args: AuthCliArgs,
-
-    /// Enable block-building.
-    #[arg(
-        long,
-        long_help = "Enable block-building by calling engine_forkchoiceUpdated on Auth RPC after each spam batch.
-Requires --auth-rpc-url and --jwt-secret to be set.",
-        visible_aliases = ["fcu", "build-blocks"]
-    )]
-    pub call_forkchoice: bool,
-
     #[arg(
         short,
         long,
@@ -112,22 +47,92 @@ Requires --auth-rpc-url and --jwt-secret to be set.",
         long_help = "Key-value pairs to override the parameters in scenario files.",
         value_parser = cli_env_vars_parser,
         action = clap::ArgAction::Append,
+        help_heading = HELP_HEADING_COMMON,
     )]
     pub env: Option<Vec<(String, String)>>,
 
+    /// The minimum balance to keep in each spammer EOA.
     #[arg(
         long,
-        long_help = "Override senders to send all transactions from one account."
+        long_help = "The minimum balance to keep in each spammer EOA, with units.",
+        default_value = "0.01 ether",
+        value_parser = parse_value,
+        help_heading = HELP_HEADING_COMMON,
     )]
-    pub override_senders: bool,
+    pub min_balance: U256,
+
+    /// Private key(s) to use for funding agent accounts or signing transactions.
+    #[arg(
+        env = "CONTENDER_PRIVATE_KEY",
+        short,
+        long = "priv-key",
+        long_help = "Add private keys to fund agent accounts. Scenarios with hard-coded `from` addresses may also use these to sign transactions.
+Flag may be specified multiple times.",
+        help_heading = HELP_HEADING_COMMON,
+    )]
+    pub private_keys: Option<Vec<String>>,
+
+    /// RPC URL to send requests.
+    #[arg(
+        env = "RPC_URL",
+        short,
+        long,
+        long_help = "RPC URL to send requests from the `eth_` namespace. Set --builder-url or --auth-rpc-url to enable other namespaces.",
+        default_value = "http://localhost:8545",
+        visible_aliases = ["el-rpc", "el-rpc-url"],
+        help_heading = HELP_HEADING_COMMON,
+    )]
+    pub rpc_url: Url,
+
+    /// Label to differentiate multiple deployments of the same scenario.
+    #[arg(
+        long = "scenario-label",
+        visible_aliases = ["sl"],
+        long_help = "Label to differentiate multiple deployments of the same scenario. Appends _{label} to contract names in the DB.",
+        help_heading = HELP_HEADING_COMMON,
+    )]
+    pub scenario_label: Option<String>,
+
+    /// The seed to use for generating spam transactions.
+    #[arg(
+        env = "CONTENDER_SEED",
+        short,
+        long,
+        long_help = "The seed to use for generating spam transactions",
+        help_heading = HELP_HEADING_COMMON,
+    )]
+    pub seed: Option<String>,
+
+    /// Bundle type
+    #[arg(
+        long,
+        long_help = "Bundle type for generated bundles.",
+        value_enum,
+        default_value_t = BundleTypeCli::default(),
+        visible_aliases = ["bt"],
+        help_heading = HELP_HEADING_PAYLOAD,
+    )]
+    pub bundle_type: BundleTypeCli,
 
     /// The gas price to use for the spammer.
     #[arg(
         long,
         long_help = "The gas price to use for the spammer, with units, defaults to Wei.",
         value_parser = parse_value,
+        help_heading = HELP_HEADING_PAYLOAD,
     )]
     pub gas_price: Option<U256>,
+
+    /// Transaction type
+    #[arg(
+        short = 't',
+        long,
+        long_help = "Transaction type for generated transactions.",
+        value_enum,
+        default_value_t = TxTypeCli::Eip1559,
+        help_heading = HELP_HEADING_PAYLOAD,
+    )]
+    pub tx_type: TxTypeCli,
 
     /// The number of accounts to generate for each agent (`from_pool` in scenario files).
     /// Defaults to 1 for standalone setup, 10 for spam and campaign.
@@ -135,16 +140,29 @@ Requires --auth-rpc-url and --jwt-secret to be set.",
         short = 'a',
         long,
         visible_aliases = ["na", "accounts"],
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub accounts_per_agent: Option<u64>,
 
-    /// Label to differentiate multiple deployments of the same scenario.
     #[arg(
-        long = "scenario-label",
-        visible_aliases = ["sl"],
-        long_help = "Label to differentiate multiple deployments of the same scenario. Appends _{label} to contract names in the DB.",
+        long,
+        long_help = "Override senders to send all transactions from one account.",
+        help_heading = HELP_HEADING_RUNTIME,
     )]
-    pub scenario_label: Option<String>,
+    pub override_senders: bool,
+
+    /// Enable block-building.
+    #[arg(
+        long,
+        long_help = "Enable block-building by calling engine_forkchoiceUpdated on Auth RPC after each spam batch.
+Requires --auth-rpc-url and --jwt-secret to be set.",
+        visible_aliases = ["fcu", "build-blocks"],
+        help_heading = HELP_HEADING_ENGINE,
+    )]
+    pub call_forkchoice: bool,
+
+    #[command(flatten)]
+    pub auth_args: AuthCliArgs,
 }
 
 impl SendTxsCliArgsInner {
@@ -196,7 +214,8 @@ pub struct AuthCliArgs {
         env = "AUTH_RPC_URL",
         long,
         long_help = "Provide this URL to enable use of engine_ calls.",
-        visible_aliases = ["auth", "auth-rpc", "auth-url"]
+        visible_aliases = ["auth", "auth-rpc", "auth-url"],
+        help_heading = HELP_HEADING_ENGINE,
     )]
     pub auth_rpc_url: Option<Url>,
 
@@ -206,26 +225,29 @@ pub struct AuthCliArgs {
         long,
         long_help = "Path to file containing JWT secret used for `engine_` calls.
 Required if --auth-rpc-url is set.",
-        visible_aliases = ["jwt"]
+        visible_aliases = ["jwt"],
+        help_heading = HELP_HEADING_ENGINE,
     )]
     pub jwt_secret: Option<PathBuf>,
-
-    /// Use OP engine provider
-    #[arg(
-        long = "optimism",
-        long_help = "Use OP types in the engine provider. Set this flag when targeting an OP node.",
-        visible_aliases = ["op"]
-    )]
-    pub use_op: bool,
 
     /// Engine API Message Version
     #[arg(
         long,
         short,
         value_enum,
-        default_value_t = EngineMessageVersion::V4
+        default_value_t = EngineMessageVersion::V4,
+        help_heading = HELP_HEADING_ENGINE,
     )]
     message_version: EngineMessageVersion,
+
+    /// Use OP engine provider
+    #[arg(
+        long = "optimism",
+        long_help = "Use OP types in the engine provider. Set this flag when targeting an OP node.",
+        visible_aliases = ["op"],
+        help_heading = HELP_HEADING_ENGINE,
+    )]
+    pub use_op: bool,
 }
 
 impl Default for AuthCliArgs {
@@ -281,19 +303,15 @@ impl AuthCliArgs {
 
 #[derive(Clone, Debug, clap::Args)]
 pub struct SendSpamCliArgs {
-    /// HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`).
-    #[arg(
-        env = "BUILDER_RPC_URL",
-        short,
-        long,
-        long_help = "HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`)",
-        visible_aliases = ["builder", "builder-rpc-url", "builder-rpc"]
-    )]
-    pub builder_url: Option<Url>,
-
     /// The number of txs to send per second using the timed spammer.
     /// May not be set if `txs_per_block` is set.
-    #[arg(global = true, long, long_help = "Number of txs to send per second. Must not be set if --txs-per-block is set.", visible_aliases = ["tps"])]
+    #[arg(
+        global = true,
+        long,
+        long_help = "Number of txs to send per second. Must not be set if --txs-per-block is set.",
+        visible_aliases = ["tps"],
+        help_heading = HELP_HEADING_COMMON,
+    )]
     pub txs_per_second: Option<u64>,
 
     /// The number of txs to send per block using the blockwise spammer.
@@ -304,7 +322,9 @@ pub struct SendSpamCliArgs {
             long_help =
 "Number of txs to send per block. Must not be set if --txs-per-second is set.
 Requires --priv-key to be set for each 'from' address in the given testfile.",
-        visible_aliases = ["tpb"])]
+        visible_aliases = ["tpb"],
+        help_heading = HELP_HEADING_COMMON,
+    )]
     pub txs_per_block: Option<u64>,
 
     /// The duration of the spamming run in seconds or blocks, depending on whether `txs_per_second` or `txs_per_block` is set.
@@ -312,9 +332,21 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         short,
         long,
         default_value_t = 10,
-        long_help = "Duration of the spamming run in seconds or blocks, depending on whether --txs-per-second or --txs-per-block is set."
+        long_help = "Duration of the spamming run in seconds or blocks, depending on whether --txs-per-second or --txs-per-block is set.",
+        help_heading = HELP_HEADING_COMMON,
     )]
     pub duration: u64, // TODO: make a new enum to represent seconds or blocks
+
+    /// HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`).
+    #[arg(
+        env = "BUILDER_RPC_URL",
+        short,
+        long,
+        long_help = "HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`)",
+        visible_aliases = ["builder", "builder-rpc-url", "builder-rpc"],
+        help_heading = HELP_HEADING_COMMON,
+    )]
+    pub builder_url: Option<Url>,
 
     /// The time to wait for pending transactions to land, in blocks.
     #[arg(
@@ -322,7 +354,8 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         long,
         default_value_t = 12,
         long_help = "The number of blocks to wait for pending transactions to land. If transactions land within the timeout, it resets.",
-        visible_aliases = ["wait"]
+        visible_aliases = ["wait"],
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub pending_timeout: u64,
 
@@ -331,7 +364,8 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         global = true,
         default_value_t = false,
         long = "forever",
-        visible_aliases = ["indefinite", "indefinitely", "infinite"]
+        visible_aliases = ["indefinite", "indefinitely", "infinite"],
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub run_forever: bool,
 }

@@ -1,4 +1,6 @@
-use super::common::{ScenarioSendTxsCliArgs, SendSpamCliArgs};
+use super::common::{
+    ScenarioSendTxsCliArgs, SendSpamCliArgs, HELP_HEADING_PAYLOAD, HELP_HEADING_RUNTIME,
+};
 use crate::{
     commands::{
         common::{EngineParams, SendTxsCliArgsInner, TxTypeCli},
@@ -251,23 +253,25 @@ impl EngineArgs {
 #[derive(Clone, Debug, clap::Args)]
 pub struct SpamCliArgs {
     #[command(flatten)]
-    pub eth_json_rpc_args: ScenarioSendTxsCliArgs,
+    pub spam_args: SendSpamCliArgs,
 
     #[command(flatten)]
-    pub spam_args: SendSpamCliArgs,
+    pub eth_json_rpc_args: ScenarioSendTxsCliArgs,
 
     #[arg(
         long,
         help = "Ignore transaction receipts.",
         long_help = "Keep sending transactions without waiting for receipts.",
-        visible_aliases = ["ir", "no-receipts"]
+        visible_aliases = ["ir", "no-receipts"],
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub ignore_receipts: bool,
 
     #[arg(
         long,
         help = "Disable nonce synchronization between batches.",
-        visible_aliases = ["disable-nonce-sync", "fast-nonces"]
+        visible_aliases = ["disable-nonce-sync", "fast-nonces"],
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub optimistic_nonces: bool,
 
@@ -275,7 +279,8 @@ pub struct SpamCliArgs {
         global = true,
         long,
         long_help = "Set this to generate a report for the spam run(s) after spamming.",
-        visible_aliases = ["report"]
+        visible_aliases = ["report"],
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub gen_report: bool,
 
@@ -283,7 +288,8 @@ pub struct SpamCliArgs {
     #[arg(
         long,
         global = true,
-        long_help = "If set, skip contract deployment & setup transactions when running builtin scenarios. Does nothing when running a scenario file."
+        long_help = "If set, skip contract deployment & setup transactions when running builtin scenarios. Does nothing when running a scenario file.",
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub skip_setup: bool,
 
@@ -298,7 +304,8 @@ pub struct SpamCliArgs {
         value_name = "N",
         default_value_t = 0,
         long_help = "Max number of eth_sendRawTransaction calls to send in a single JSON-RPC batch request. \
-                     0 (default) disables batching and sends one eth_sendRawTransaction per tx."
+                     0 (default) disables batching and sends one eth_sendRawTransaction per tx.",
+        help_heading = HELP_HEADING_PAYLOAD,
     )]
     pub rpc_batch_size: u64,
 
@@ -306,7 +313,8 @@ pub struct SpamCliArgs {
     #[arg(
         long = "send-raw-tx-sync",
         default_value_t = false,
-        long_help = "Use eth_sendRawTransactionSync instead of eth_sendRawTransaction. The RPC blocks until the tx is included, giving precise TTI. NOTE: incompatible with --rpc-batch-size."
+        long_help = "Use eth_sendRawTransactionSync instead of eth_sendRawTransaction. The RPC blocks until the tx is included, giving precise TTI. NOTE: incompatible with --rpc-batch-size.",
+        help_heading = HELP_HEADING_PAYLOAD,
     )]
     pub send_raw_tx_sync: bool,
 
@@ -314,7 +322,8 @@ pub struct SpamCliArgs {
         long = "timeout",
         long_help = "The time to wait for spammer to recover from failure before stopping contender. NOTE: this flag is deprecated and currently does nothing. It will be removed in a future release.",
         value_parser = parse_duration,
-        default_value = "5min"
+        default_value = "5min",
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub spam_timeout: Duration,
 
@@ -323,7 +332,8 @@ pub struct SpamCliArgs {
         long = "flashblocks-ws-url",
         value_name = "URL",
         env = "FLASHBLOCKS_WS_URL",
-        long_help = "WebSocket URL for subscribing to flashblock pre-confirmations. When set, contender will track sub-block inclusion latency alongside full-block metrics."
+        long_help = "WebSocket URL for subscribing to flashblock pre-confirmations. When set, contender will track sub-block inclusion latency alongside full-block metrics.",
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub flashblocks_ws_url: Option<Url>,
 
