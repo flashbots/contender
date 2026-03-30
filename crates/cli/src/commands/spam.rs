@@ -963,8 +963,11 @@ where
             if max_spam_cost > U256::ZERO {
                 let min_balance = rpc_args.min_balance;
 
-                let secs_per_period: u64 =
-                    if txs_per_second.is_some() { 1 } else { block_time };
+                let secs_per_period: u64 = if txs_per_second.is_some() {
+                    1
+                } else {
+                    block_time
+                };
                 let refund_interval_secs = compute_refund_interval_secs(
                     min_balance,
                     max_spam_cost,
@@ -1257,7 +1260,16 @@ mod tests {
             // tpb mode (2s blocks): depletion=40s, 90%=36s, floor=10s
             assert_eq!(compute_refund_interval_secs(bal, cost, 10, 2, 10), 36);
             // tiny balance: depletion≈0s, floors at run_duration=30s
-            assert_eq!(compute_refund_interval_secs(U256::from(1_000_000u64), U256::from(1_000_000u64), 10, 1, 30), 30);
+            assert_eq!(
+                compute_refund_interval_secs(
+                    U256::from(1_000_000u64),
+                    U256::from(1_000_000u64),
+                    10,
+                    1,
+                    30
+                ),
+                30
+            );
         }
 
         #[tokio::test]
