@@ -303,27 +303,6 @@ impl AuthCliArgs {
 
 #[derive(Clone, Debug, clap::Args)]
 pub struct SendSpamCliArgs {
-    /// HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`).
-    #[arg(
-        env = "BUILDER_RPC_URL",
-        short,
-        long,
-        long_help = "HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`)",
-        visible_aliases = ["builder", "builder-rpc-url", "builder-rpc"],
-        help_heading = HELP_HEADING_COMMON,
-    )]
-    pub builder_url: Option<Url>,
-
-    /// The duration of the spamming run in seconds or blocks, depending on whether `txs_per_second` or `txs_per_block` is set.
-    #[arg(
-        short,
-        long,
-        default_value_t = 10,
-        long_help = "Duration of the spamming run in seconds or blocks, depending on whether --txs-per-second or --txs-per-block is set.",
-        help_heading = HELP_HEADING_COMMON,
-    )]
-    pub duration: u64, // TODO: make a new enum to represent seconds or blocks
-
     /// The number of txs to send per second using the timed spammer.
     /// May not be set if `txs_per_block` is set.
     #[arg(
@@ -347,6 +326,27 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
         help_heading = HELP_HEADING_COMMON,
     )]
     pub txs_per_block: Option<u64>,
+
+    /// The duration of the spamming run in seconds or blocks, depending on whether `txs_per_second` or `txs_per_block` is set.
+    #[arg(
+        short,
+        long,
+        default_value_t = 10,
+        long_help = "Duration of the spamming run in seconds or blocks, depending on whether --txs-per-second or --txs-per-block is set.",
+        help_heading = HELP_HEADING_COMMON,
+    )]
+    pub duration: u64, // TODO: make a new enum to represent seconds or blocks
+
+    /// HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`).
+    #[arg(
+        env = "BUILDER_RPC_URL",
+        short,
+        long,
+        long_help = "HTTP JSON-RPC URL to use for bundle spamming (must support `eth_sendBundle`)",
+        visible_aliases = ["builder", "builder-rpc-url", "builder-rpc"],
+        help_heading = HELP_HEADING_COMMON,
+    )]
+    pub builder_url: Option<Url>,
 
     /// The time to wait for pending transactions to land, in blocks.
     #[arg(

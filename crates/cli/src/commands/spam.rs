@@ -253,10 +253,10 @@ impl EngineArgs {
 #[derive(Clone, Debug, clap::Args)]
 pub struct SpamCliArgs {
     #[command(flatten)]
-    pub eth_json_rpc_args: ScenarioSendTxsCliArgs,
+    pub spam_args: SendSpamCliArgs,
 
     #[command(flatten)]
-    pub spam_args: SendSpamCliArgs,
+    pub eth_json_rpc_args: ScenarioSendTxsCliArgs,
 
     #[arg(
         long,
