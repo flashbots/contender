@@ -45,11 +45,11 @@ export RPC="http://host.docker.internal:8545"
 Run contender in a container with persistent state:
 
 ```bash
-docker run -it -v /tmp/.contender:/root/.contender \
+docker run -it -v /tmp/.contender:/root/.local/state/contender \
 contender spam --tps 20 -r $RPC transfers
 ```
 
-> `-v` maps `/tmp/.contender` on the host machine to `/root/.contender` in the container, which contains the DB; used for generating reports and saving contract deployments.
+> `-v` maps `/tmp/.contender` on the host machine to `/root/.local/state/contender` in the container, which contains the DB; used for generating reports and saving contract deployments.
 
 ## ⚙️ Prerequisites
 

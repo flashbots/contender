@@ -1,9 +1,11 @@
-use super::common::{ScenarioSendTxsCliArgs, SendSpamCliArgs};
+use super::common::{
+    ScenarioSendTxsCliArgs, SendSpamCliArgs, HELP_HEADING_PAYLOAD, HELP_HEADING_RUNTIME,
+};
 use crate::{
     commands::{
         common::{EngineParams, SendTxsCliArgsInner, TxTypeCli},
         error::ArgsError,
-        Result,
+        GenericDb, Result,
     },
     default_scenarios::{BuiltinOptions, BuiltinScenario},
     error::CliError,
@@ -15,8 +17,9 @@ use crate::{
 };
 use alloy::{
     consensus::TxType,
-    primitives::{utils::format_ether, U256},
+    primitives::{utils::format_ether, Address, U256},
     providers::Provider,
+    signers::local::PrivateKeySigner,
     transports::http::reqwest::Url,
 };
 use contender_core::{
@@ -38,14 +41,181 @@ use contender_core::{
 use contender_engine_provider::{
     reth_node_api::EngineApiMessageVersion, AuthProvider, ControlChain,
 };
+use contender_report::command::ReportParams;
 use contender_testfile::TestConfig;
 use op_alloy_network::{Ethereum, Optimism};
+use serde::Serialize;
 use std::{
     path::{Path, PathBuf},
     sync::atomic::AtomicBool,
 };
 use std::{sync::Arc, time::Duration};
-use tracing::{info, warn};
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, info, warn};
+
+/// Structured JSON report emitted periodically during spam runs.
+#[derive(Debug, Clone, Serialize)]
+pub struct SpamProgressReport {
+    pub elapsed_s: u64,
+    pub txs_sent: u64,
+    pub txs_confirmed: u64,
+    pub txs_failed: u64,
+    pub current_tps: f64,
+}
+
+/// Prints incremental progress report for a spam run. Returns None if call to db's `get_run_txs` fails.
+fn print_progress_report<D: GenericDb>(
+    db: &D,
+    run_id: u64,
+    start: std::time::Instant,
+    planned_tx_count: Option<u64>,
+) -> Option<()> {
+    let elapsed = start.elapsed();
+    let elapsed_s = elapsed.as_secs();
+
+    let Ok((txs_confirmed, txs_failed)) = db.get_run_txs(run_id).map(|txs| {
+        let confirmed = txs
+            .iter()
+            .filter(|tx| tx.block_number.is_some() && tx.error.is_none())
+            .count() as u64;
+        let failed = txs.iter().filter(|tx| tx.error.is_some()).count() as u64;
+        (confirmed, failed)
+    }) else {
+        return None;
+    };
+
+    // txs_sent is the planned count capped by elapsed time,
+    // or confirmed + failed if we have more data than planned
+    let txs_sent = (txs_confirmed + txs_failed).max(planned_tx_count.unwrap_or(0).min(
+        // rough estimate based on elapsed time
+        txs_confirmed + txs_failed,
+    ));
+
+    let current_tps = if elapsed_s > 0 {
+        txs_confirmed as f64 / elapsed_s as f64
+    } else {
+        0.0
+    };
+
+    let report = SpamProgressReport {
+        elapsed_s,
+        txs_sent,
+        txs_confirmed,
+        txs_failed,
+        current_tps: (current_tps * 10.0).round() / 10.0,
+    };
+
+    // tracing span annotates the log for easy identification later
+    let span = tracing::info_span!("spam_progress", run_id = run_id);
+    if let Ok(json) = serde_json::to_string(&report) {
+        let _enter = span.enter();
+        info!("{json}");
+    }
+
+    Some(())
+}
+
+/// Computes how often (in seconds) to re-fund spammer accounts.
+///
+/// Estimates how long before accounts drain, then returns 90% of that,
+/// floored at `min_run_duration_secs`. Uses total spend rate
+/// (`txs_per_period * max_spam_cost`) rather than per-account rate,
+/// so we refund sooner than strictly necessary.
+/// `secs_per_period` is 1 for tps mode, or block_time for tpb mode
+/// (clamped to >= 1s, so sub-second chains are conservative).
+fn compute_refund_interval_secs(
+    min_balance: U256,
+    max_spam_cost: U256,
+    txs_per_period: u64,
+    secs_per_period: u64,
+    min_run_duration_secs: u64,
+) -> u64 {
+    let cost_per_period = U256::from(txs_per_period) * max_spam_cost;
+    let depletion_secs = min_balance * U256::from(secs_per_period) / cost_per_period;
+    if depletion_secs > U256::from(u64::MAX) {
+        u64::MAX
+    } else {
+        (depletion_secs * U256::from(9) / U256::from(10))
+            .to::<u64>()
+            .max(min_run_duration_secs)
+    }
+}
+
+/// Spawns a background task that periodically re-funds spammer accounts.
+/// Returns a cancellation token that should be cancelled when spam is done.
+fn spawn_funding_task(
+    recipient_addresses: Vec<Address>,
+    fund_with: PrivateKeySigner,
+    rpc_client: Arc<AnyProvider>,
+    min_balance: U256,
+    engine_params: EngineParams,
+    interval_secs: u64,
+) -> CancellationToken {
+    let cancel = CancellationToken::new();
+    let cancel_clone = cancel.clone();
+
+    tokio::task::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // Skip the first immediate tick
+        interval.tick().await;
+
+        loop {
+            tokio::select! {
+                _ = cancel_clone.cancelled() => break,
+                _ = interval.tick() => {
+                    debug!("Auto-funding spammer accounts...");
+                    if let Err(e) = fund_accounts(
+                        &recipient_addresses,
+                        &fund_with,
+                        &rpc_client,
+                        min_balance,
+                        TxType::Legacy,
+                        &engine_params,
+                    ).await {
+                        warn!("Auto-funding failed: {e}");
+                    }
+                }
+            }
+        }
+    });
+
+    cancel
+}
+
+/// Spawns a background task that periodically queries the DB and prints
+/// a structured JSON progress report to stdout.
+/// Returns a cancellation token that should be cancelled when spam is done.
+fn spawn_spam_report_task<D: GenericDb>(
+    db: &D,
+    run_id: u64,
+    interval_secs: u64,
+    planned_tx_count: u64,
+) -> CancellationToken {
+    let cancel = CancellationToken::new();
+    let cancel_clone = cancel.clone();
+    let db = Arc::new(db.to_owned());
+
+    tokio::task::spawn(async move {
+        let start = std::time::Instant::now();
+        let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+        // Skip the first immediate tick
+        interval.tick().await;
+
+        loop {
+            tokio::select! {
+                _ = cancel_clone.cancelled() => break,
+                _ = interval.tick() => {
+                    if print_progress_report(db.clone().as_ref(), run_id, start, Some(planned_tx_count)).is_none() {
+                        continue;
+                    }
+                }
+            }
+        }
+    });
+
+    cancel
+}
 
 #[derive(Debug)]
 pub struct EngineArgs {
@@ -83,23 +253,25 @@ impl EngineArgs {
 #[derive(Clone, Debug, clap::Args)]
 pub struct SpamCliArgs {
     #[command(flatten)]
-    pub eth_json_rpc_args: ScenarioSendTxsCliArgs,
+    pub spam_args: SendSpamCliArgs,
 
     #[command(flatten)]
-    pub spam_args: SendSpamCliArgs,
+    pub eth_json_rpc_args: ScenarioSendTxsCliArgs,
 
     #[arg(
         long,
         help = "Ignore transaction receipts.",
         long_help = "Keep sending transactions without waiting for receipts.",
-        visible_aliases = ["ir", "no-receipts"]
+        visible_aliases = ["ir", "no-receipts"],
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub ignore_receipts: bool,
 
     #[arg(
         long,
         help = "Disable nonce synchronization between batches.",
-        visible_aliases = ["disable-nonce-sync", "fast-nonces"]
+        visible_aliases = ["disable-nonce-sync", "fast-nonces"],
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub optimistic_nonces: bool,
 
@@ -107,7 +279,8 @@ pub struct SpamCliArgs {
         global = true,
         long,
         long_help = "Set this to generate a report for the spam run(s) after spamming.",
-        visible_aliases = ["report"]
+        visible_aliases = ["report"],
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub gen_report: bool,
 
@@ -115,7 +288,8 @@ pub struct SpamCliArgs {
     #[arg(
         long,
         global = true,
-        long_help = "If set, skip contract deployment & setup transactions when running builtin scenarios. Does nothing when running a scenario file."
+        long_help = "If set, skip contract deployment & setup transactions when running builtin scenarios. Does nothing when running a scenario file.",
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub skip_setup: bool,
 
@@ -130,15 +304,26 @@ pub struct SpamCliArgs {
         value_name = "N",
         default_value_t = 0,
         long_help = "Max number of eth_sendRawTransaction calls to send in a single JSON-RPC batch request. \
-                     0 (default) disables batching and sends one eth_sendRawTransaction per tx."
+                     0 (default) disables batching and sends one eth_sendRawTransaction per tx.",
+        help_heading = HELP_HEADING_PAYLOAD,
     )]
     pub rpc_batch_size: u64,
+
+    /// Use eth_sendRawTransactionSync instead of eth_sendRawTransaction.
+    #[arg(
+        long = "send-raw-tx-sync",
+        default_value_t = false,
+        long_help = "Use eth_sendRawTransactionSync instead of eth_sendRawTransaction. The RPC blocks until the tx is included, giving precise TTI. NOTE: incompatible with --rpc-batch-size.",
+        help_heading = HELP_HEADING_PAYLOAD,
+    )]
+    pub send_raw_tx_sync: bool,
 
     #[arg(
         long = "timeout",
         long_help = "The time to wait for spammer to recover from failure before stopping contender. NOTE: this flag is deprecated and currently does nothing. It will be removed in a future release.",
         value_parser = parse_duration,
-        default_value = "5min"
+        default_value = "5min",
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub spam_timeout: Duration,
 
@@ -147,9 +332,21 @@ pub struct SpamCliArgs {
         long = "flashblocks-ws-url",
         value_name = "URL",
         env = "FLASHBLOCKS_WS_URL",
-        long_help = "WebSocket URL for subscribing to flashblock pre-confirmations. When set, contender will track sub-block inclusion latency alongside full-block metrics."
+        long_help = "WebSocket URL for subscribing to flashblock pre-confirmations. When set, contender will track sub-block inclusion latency alongside full-block metrics.",
+        help_heading = HELP_HEADING_RUNTIME,
     )]
     pub flashblocks_ws_url: Option<Url>,
+
+    /// Interval (in seconds) for printing structured JSON transaction reports to stdout.
+    /// When set, a periodic summary of txs_sent, txs_confirmed, txs_failed, and current_tps
+    /// is printed as a JSON line to stdout.
+    #[arg(
+        long = "report-interval",
+        value_name = "SECONDS",
+        long_help = "Interval in seconds for printing structured JSON transaction rate reports to stdout during spam. \
+                     Each report is a single JSON line with elapsed_s, txs_sent, txs_confirmed, txs_failed, and current_tps."
+    )]
+    pub report_interval: Option<u64>,
 }
 
 impl SpamCliArgs {
@@ -259,8 +456,16 @@ impl SpamCommandArgs {
         let txs_per_duration = txs_per_block.unwrap_or(txs_per_second.unwrap_or(spam_len as u64));
         let engine_params = self.engine_params().await?;
 
-        // Clamp rpc_batch_size to txs_per_duration (tps or tpb) if needed.
+        // If send_raw_tx_sync is set alongside rpc_batch_size, warn and disable batching.
         let mut rpc_batch_size = self.spam_args.rpc_batch_size;
+        if self.spam_args.send_raw_tx_sync && rpc_batch_size > 0 {
+            tracing::warn!(
+                "--send-raw-tx-sync is incompatible with --rpc-batch-size; disabling JSON-RPC batching"
+            );
+            rpc_batch_size = 0;
+        }
+
+        // Clamp rpc_batch_size to txs_per_duration (tps or tpb) if needed.
         if rpc_batch_size > 0 {
             if txs_per_duration == 0 {
                 tracing::warn!(
@@ -441,6 +646,7 @@ impl SpamCommandArgs {
                 .rpc_args
                 .scenario_label
                 .clone(),
+            send_raw_tx_sync: self.spam_args.send_raw_tx_sync,
             flashblocks_ws_url: self.spam_args.flashblocks_ws_url.clone(),
         };
         let mut test_scenario = TestScenario::new(
@@ -510,13 +716,7 @@ impl SpamCommandArgs {
             duration_unit.to_owned()
         };
         if run_forever {
-            warn!("Spammer agents will eventually run out of funds. Each batch of spam (sent over {duration} {duration_units}) will cost {} ETH.", format_ether(total_cost));
-            // we use println! after warn! because warn! doesn't properly format bold strings
-            println!(
-                "Make sure you add plenty of funds with {} (set your pre-funded account with {}).",
-                bold("spam --min-balance"),
-                bold("spam -p"),
-            );
+            info!("Each batch of spam (sent over {duration} {duration_units}) will cost {} ETH. Accounts will be auto-funded periodically.", format_ether(total_cost));
         }
 
         Ok(test_scenario)
@@ -626,7 +826,7 @@ pub async fn spam_inner<D, S, P>(
     run_context: SpamCampaignContext,
 ) -> Result<Option<u64>>
 where
-    D: DbOps + Clone + Send + Sync + 'static,
+    D: GenericDb,
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
@@ -766,6 +966,61 @@ where
         .with_pending_tx_timeout(pending_timeout);
     test_scenario.tx_actor().init_ctx(actor_ctx).await?;
 
+    // Spawn periodic reporting task if --report-interval is set and we have a run_id
+    let report_interval = args.spam_args.report_interval;
+    let report_cancel = if let (Some(interval_secs), Some(rid)) = (report_interval, run_id) {
+        let planned_tx_count = txs_per_batch * duration;
+        Some(spawn_spam_report_task(
+            db,
+            rid,
+            interval_secs,
+            planned_tx_count,
+        ))
+    } else {
+        None
+    };
+    let spam_start_time = std::time::Instant::now();
+
+    // Spawn periodic funding task when running forever to keep accounts funded
+    let funding_cancel =
+        if run_forever && !args.spam_args.eth_json_rpc_args.rpc_args.override_senders {
+            let rpc_args = &args.spam_args.eth_json_rpc_args.rpc_args;
+            let user_signers = rpc_args.user_signers_with_defaults();
+            let max_spam_cost = test_scenario.get_max_spam_cost(&user_signers).await?;
+
+            if max_spam_cost > U256::ZERO {
+                let min_balance = rpc_args.min_balance;
+
+                let secs_per_period: u64 = if txs_per_second.is_some() {
+                    1
+                } else {
+                    block_time
+                };
+                let refund_interval_secs = compute_refund_interval_secs(
+                    min_balance,
+                    max_spam_cost,
+                    txs_per_batch,
+                    secs_per_period,
+                    duration * secs_per_period,
+                );
+
+                info!("Auto-funding enabled. Refunding every {refund_interval_secs}s.");
+
+                Some(spawn_funding_task(
+                    test_scenario.agent_store.all_signer_addresses(),
+                    user_signers[0].clone(),
+                    test_scenario.rpc_client.clone(),
+                    min_balance,
+                    engine_params.clone(),
+                    refund_interval_secs,
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
     // loop spammer, break if CTRL-C is received, or run_forever is false
     loop {
         tokio::select! {
@@ -804,28 +1059,67 @@ where
         }
     }
 
+    // Stop background tasks and print final summary
+    if let Some(cancel) = funding_cancel {
+        cancel.cancel();
+    }
+    if let Some(cancel) = report_cancel {
+        cancel.cancel();
+    }
+    if let (Some(_), Some(rid)) = (report_interval, run_id) {
+        print_progress_report(db, rid, spam_start_time, None);
+    }
+
     Ok(run_id)
 }
 
 /// Runs spammer and returns run ID.
-pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
+pub async fn spam<D: GenericDb>(
     db: &D,
     args: &SpamCommandArgs,
     run_context: SpamCampaignContext,
 ) -> Result<Option<u64>> {
-    let mut test_scenario = args.init_scenario(db).await?;
+    let mut test_scenario = {
+        let max_attempts = 3;
+        let mut last_err = None;
+        let mut scenario = None;
+        for attempt in 1..=max_attempts {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    info!("\nCTRL-C received, aborting scenario initialization.");
+                    return Err(CliError::Aborted);
+                }
+                res = args.init_scenario(db) => {
+                    match res {
+                        Ok(s) => {
+                            scenario = Some(s);
+                            break;
+                        }
+                        Err(e) => {
+                            if !e.is_recoverable() {
+                                return Err(e);
+                            }
+                            if attempt < max_attempts {
+                                let backoff = Duration::from_secs(5 * attempt as u64);
+                                warn!("Setup failed (attempt {attempt}/{max_attempts}), retrying in {backoff:?}: {e:?}");
+                                tokio::time::sleep(backoff).await;
+                            }
+                            last_err = Some(e);
+                        }
+                    }
+                }
+            }
+        }
+        match scenario {
+            Some(s) => s,
+            None => return Err(last_err.unwrap()),
+        }
+    };
     let run_id = spam_inner(db, &mut test_scenario, args, run_context).await?;
     if args.spam_args.gen_report {
         if let Some(run_id) = &run_id {
-            contender_report::command::report(
-                Some(*run_id),
-                0,
-                db,
-                &resolve_data_dir(None)?,
-                false, // TODO: support JSON reports, maybe add a CLI flag for it
-                false,
-            )
-            .await?;
+            let report_params = ReportParams::new().with_last_run_id(*run_id);
+            contender_report::command::report(db, &resolve_data_dir(None)?, report_params).await?;
         } else {
             warn!("Cannot generate report: no run ID found.");
         }
@@ -835,11 +1129,12 @@ pub async fn spam<D: DbOps + Clone + Send + Sync + 'static>(
 
 #[cfg(test)]
 mod tests {
-    use crate::commands::common::AuthCliArgs;
     use crate::commands::SetupCommandArgs;
+    use crate::{commands::common::AuthCliArgs, default_scenarios::fill_block::FillBlockArgs};
 
     use super::*;
     use alloy::node_bindings::{Anvil, AnvilInstance, WEI_IN_ETHER};
+    use contender_core::generator::util::parse_value;
     use contender_sqlite::SqliteDb;
     use std::{
         collections::HashMap,
@@ -942,8 +1237,10 @@ mod tests {
                     gen_report: false,
                     skip_setup: false,
                     rpc_batch_size: 0,
+                    send_raw_tx_sync: false,
                     spam_timeout: Duration::from_secs(5),
                     flashblocks_ws_url: None,
+                    report_interval: None,
                 },
                 seed: rand_seed.clone(),
             },
@@ -988,6 +1285,159 @@ mod tests {
                 }
             )*
         };
+    }
+
+    mod funding_tests {
+        use super::*;
+
+        #[test]
+        fn compute_refund_interval() {
+            let bal = WEI_IN_ETHER / U256::from(100); // 0.01 ETH
+            let cost = U256::from(50_000u64 * 1_000_000_000u64); // 50k gas @ 1 gwei
+
+            // tps mode: depletion=20s, 90%=18s, floor=10s
+            assert_eq!(compute_refund_interval_secs(bal, cost, 10, 1, 10), 18);
+            // tpb mode (2s blocks): depletion=40s, 90%=36s, floor=10s
+            assert_eq!(compute_refund_interval_secs(bal, cost, 10, 2, 10), 36);
+            // tiny balance: depletion≈0s, floors at run_duration=30s
+            assert_eq!(
+                compute_refund_interval_secs(
+                    U256::from(1_000_000u64),
+                    U256::from(1_000_000u64),
+                    10,
+                    1,
+                    30
+                ),
+                30
+            );
+        }
+
+        #[tokio::test]
+        async fn funding_task_refunds_drained_account() {
+            let anvil = Anvil::new().block_time(1).try_spawn().unwrap();
+            let rpc_url: Url = anvil.endpoint().parse().unwrap();
+            let rpc_client = Arc::new(AnyProvider::new(
+                alloy::providers::ProviderBuilder::new()
+                    .network::<alloy::network::AnyNetwork>()
+                    .connect_http(rpc_url),
+            ));
+
+            // Anvil account 0 is the funder (has 10,000 ETH)
+            let funder: PrivateKeySigner = anvil.keys()[0].clone().into();
+            // Generate a fresh recipient with zero balance
+            let recipient = PrivateKeySigner::random();
+            let recipient_addr = recipient.address();
+            let min_balance = WEI_IN_ETHER / U256::from(100); // 0.01 ETH
+
+            let engine_params = EngineParams::default();
+
+            let cancel = spawn_funding_task(
+                vec![recipient_addr],
+                funder,
+                rpc_client.clone(),
+                min_balance,
+                engine_params,
+                1, // 1-second interval
+            );
+
+            // Wait for 2 ticks to ensure the task runs
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            cancel.cancel();
+
+            let balance = rpc_client.get_balance(recipient_addr).await.unwrap();
+            assert!(
+                balance >= min_balance,
+                "expected balance >= {min_balance}, got {balance}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn spam_terminates_on_unrecoverable_error() -> Result<()> {
+        let anvil = Anvil::new().block_time_f64(0.5).spawn();
+        let rpc_url: Url = anvil.endpoint().parse().unwrap();
+
+        // Initialize tracing for test output
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("contender_core=debug,info")
+            .with_test_writer()
+            .try_init();
+
+        // Set up in-memory DB
+        let db = SqliteDb::new_memory();
+        db.create_tables()?;
+
+        let provider = alloy::providers::ProviderBuilder::new()
+            .network::<alloy::network::AnyNetwork>()
+            .connect_http(rpc_url.clone());
+        let block = provider
+            .get_block_by_number(0.into())
+            .await
+            .unwrap()
+            .unwrap();
+
+        // Use default fill-block scenario
+        let scenario = SpamScenario::Builtin(BuiltinScenario::FillBlock(FillBlockArgs {
+            max_gas_per_block: block.header.gas_limit,
+            num_txs: 10,
+        }));
+
+        // Use small min_balance to trigger "insufficient funds" error
+        let spam_args = SpamCliArgs {
+            spam_args: SendSpamCliArgs {
+                builder_url: None,
+                txs_per_second: Some(10),
+                txs_per_block: None,
+                duration: 2,
+                pending_timeout: 10,
+                run_forever: false,
+            },
+            eth_json_rpc_args: ScenarioSendTxsCliArgs {
+                testfile: None,
+                rpc_args: SendTxsCliArgsInner {
+                    rpc_url: rpc_url.clone(),
+                    seed: None,
+                    private_keys: None,
+                    min_balance: parse_value("0.001 eth").unwrap(),
+                    tx_type: TxTypeCli::Eip1559,
+                    bundle_type: crate::commands::common::BundleTypeCli::L1,
+                    auth_args: AuthCliArgs::default(),
+                    call_forkchoice: false,
+                    env: None,
+                    override_senders: false,
+                    gas_price: None,
+                    accounts_per_agent: None,
+                    scenario_label: None,
+                },
+            },
+            ignore_receipts: false,
+            optimistic_nonces: true,
+            gen_report: false,
+            skip_setup: false,
+            rpc_batch_size: 0,
+            send_raw_tx_sync: false,
+            spam_timeout: Duration::from_secs(5),
+            flashblocks_ws_url: None,
+            report_interval: None,
+        };
+
+        let args = SpamCommandArgs {
+            scenario,
+            spam_args,
+            seed: RandSeed::new(),
+        };
+
+        let res = spam(&db, &args, SpamCampaignContext::default()).await;
+        println!("res: {:?}", res);
+        assert!(res.is_err(), "Expected spam to fail, but it succeeded");
+        assert!(
+            matches!(
+                res.err().unwrap(),
+                CliError::Args(ArgsError::MinBalanceInsufficient { .. })
+            ),
+            "Expected MinBalanceInsufficient error, got something else"
+        );
+        Ok(())
     }
 
     #[allow(non_snake_case)]

@@ -62,6 +62,7 @@ where
     pub sync_nonces_after_batch: bool,
     pub rpc_batch_size: u64,
     pub scenario_label: Option<String>,
+    pub send_raw_tx_sync: bool,
 }
 
 impl<P> ContenderCtx<MockDb, RandSeed, P>
@@ -126,6 +127,7 @@ where
             sync_nonces_after_batch: true,
             rpc_batch_size: 0,
             scenario_label: None,
+            send_raw_tx_sync: false,
         }
     }
 }
@@ -200,6 +202,7 @@ where
             sync_nonces_after_batch: true,
             rpc_batch_size: 0,
             scenario_label: None,
+            send_raw_tx_sync: false,
         }
     }
 
@@ -218,6 +221,7 @@ where
             rpc_batch_size: self.rpc_batch_size,
             gas_price: None,
             scenario_label: self.scenario_label.clone(),
+            send_raw_tx_sync: self.send_raw_tx_sync,
             flashblocks_ws_url: None,
         };
 
@@ -258,6 +262,7 @@ where
     sync_nonces_after_batch: bool,
     rpc_batch_size: u64,
     scenario_label: Option<String>,
+    send_raw_tx_sync: bool,
 }
 
 impl<D, S, P> ContenderCtxBuilder<D, S, P>
@@ -338,6 +343,7 @@ where
             sync_nonces_after_batch: self.sync_nonces_after_batch,
             rpc_batch_size: self.rpc_batch_size,
             scenario_label: self.scenario_label,
+            send_raw_tx_sync: self.send_raw_tx_sync,
         }
     }
 }

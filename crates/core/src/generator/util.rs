@@ -195,7 +195,9 @@ where
     }
 }
 
-/// Parses a string like "1eth" or "20 gwei" into a U256.
+/// Parses a string like "1eth" or "0.1 eth" or "20 gwei" into a U256.
+/// All standard eth units are supported (wei, gwei, eth, etc).
+/// If the string is a plain number without units, it is parsed as wei.
 pub fn parse_value(input: &str) -> Result<U256, UtilError> {
     let input = input.trim().to_lowercase();
 

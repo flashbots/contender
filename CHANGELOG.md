@@ -5,8 +5,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Note: this file did not exist until after `v0.5.6`.
 
+## Unreleased
+
+- auto-fund spammer accounts periodically when running with `--forever` to prevent ETH depletion
+- add `--time-to-inclusion-bucket` flag to configure histogram bucket size in reports ([#498](https://github.com/flashbots/contender/pull/498))
+- move default data dir to `$XDG_STATE_HOME/contender` (`~/.local/state/contender`), with automatic migration from legacy `~/.contender` ([#460](https://github.com/flashbots/contender/issues/460))
+- organize `--help` output into logical sections for `spam` and `campaign` flags ([#408](https://github.com/flashbots/contender/issues/408))
+- bugfix: only retry recoverable errors in `init_scenario` (within spam), allow CTRL-C to terminate it ([#503](https://github.com/flashbots/contender/pull/503))
+
 ## [0.9.0](https://github.com/flashbots/contender/releases/tag/v0.9.0) - 2026-03-17
 
+- added `--send-raw-tx-sync` flag to `spam` and `campaign` for `eth_sendRawTransactionSync` support ([#459](https://github.com/flashbots/contender/pull/459))
 - limit concurrent funding tasks to 25 ([#451](https://github.com/flashbots/contender/pull/451/changes))
 - added contender version to bottom of reports ([#452](https://github.com/flashbots/contender/pull/452/changes))
 - enable custom data dir at runtime ([453](https://github.com/flashbots/contender/pull/453/changes))

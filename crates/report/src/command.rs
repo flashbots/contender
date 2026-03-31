@@ -4,9 +4,13 @@ use crate::block_trace::{estimate_block_data, get_block_data, get_block_traces};
 use crate::cache::CacheFile;
 use crate::chart::{
     flashblock_index::FlashblockIndexChart,
-    flashblock_time_to_inclusion::FlashblockTimeToInclusionChart, gas_per_block::GasPerBlockChart,
-    heatmap::HeatMapChart, pending_txs::PendingTxsChart, rpc_latency::LatencyChart,
-    time_to_inclusion::TimeToInclusionChart, tx_gas_used::TxGasUsedChart,
+    flashblock_time_to_inclusion::FlashblockTimeToInclusionChart,
+    gas_per_block::GasPerBlockChart,
+    heatmap::HeatMapChart,
+    pending_txs::PendingTxsChart,
+    rpc_latency::{LatencyChart, MethodLatencyData},
+    time_to_inclusion::TimeToInclusionChart,
+    tx_gas_used::TxGasUsedChart,
 };
 use crate::gen_html::ChartData;
 use crate::util::write_run_txs;
@@ -36,13 +40,61 @@ pub struct GasQuantiles {
     pub p99: u128,
 }
 
-pub async fn report(
+pub struct ReportParams {
     last_run_id: Option<u64>,
     preceding_runs: u64,
-    db: &(impl DbOps + Clone + Send + Sync + 'static),
-    data_dir: &Path,
     use_json: bool,
     skip_tx_traces: bool,
+    time_to_inclusion_bucket: u64,
+}
+
+impl Default for ReportParams {
+    fn default() -> Self {
+        ReportParams {
+            last_run_id: None,
+            preceding_runs: 0,
+            use_json: false,
+            skip_tx_traces: false,
+            time_to_inclusion_bucket: 1000,
+        }
+    }
+}
+
+impl ReportParams {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_last_run_id(mut self, run_id: u64) -> Self {
+        self.last_run_id = Some(run_id);
+        self
+    }
+
+    pub fn with_preceding_runs(mut self, preceding_runs: u64) -> Self {
+        self.preceding_runs = preceding_runs;
+        self
+    }
+
+    pub fn with_use_json(mut self, use_json: bool) -> Self {
+        self.use_json = use_json;
+        self
+    }
+
+    pub fn with_skip_tx_traces(mut self, skip_tx_traces: bool) -> Self {
+        self.skip_tx_traces = skip_tx_traces;
+        self
+    }
+
+    pub fn with_time_to_inclusion_bucket(mut self, time_to_inclusion_bucket: u64) -> Self {
+        self.time_to_inclusion_bucket = time_to_inclusion_bucket;
+        self
+    }
+}
+
+pub async fn report(
+    db: &(impl DbOps + Clone + Send + Sync + 'static),
+    data_dir: &Path,
+    params: ReportParams,
 ) -> Result<()> {
     let num_runs = db.num_runs().map_err(|e| e.into())?;
 
@@ -57,7 +109,7 @@ pub async fn report(
     }
 
     // if id is provided, check if it's valid
-    let end_run_id = if let Some(id) = last_run_id {
+    let end_run_id = if let Some(id) = params.last_run_id {
         if id == 0 || id > num_runs {
             return Err(Error::InvalidRunId(id));
         }
@@ -75,7 +127,7 @@ pub async fn report(
         .rpc_url;
 
     // collect CSV report for each run_id
-    let start_run_id = end_run_id - preceding_runs;
+    let start_run_id = end_run_id - params.preceding_runs;
     let mut all_txs = vec![];
     let reports_dir = data_dir.join("reports");
     for id in start_run_id..=end_run_id {
@@ -149,7 +201,7 @@ pub async fn report(
         } else {
             get_block_data(&all_txs, &rpc_client).await?
         };
-        let trace_data = if skip_tx_traces {
+        let trace_data = if params.skip_tx_traces {
             info!("Skipping per-transaction traces (--skip-tx-traces)");
             vec![]
         } else {
@@ -229,6 +281,7 @@ pub async fn report(
     // collect latency data for all relevant methods
     let latency_methods = [
         "eth_sendRawTransaction",
+        "eth_sendRawTransactionSync",
         "eth_blockNumber",
         "eth_chainId",
         "eth_estimateGas",
@@ -285,6 +338,12 @@ pub async fn report(
         ),
         latency_quantiles: canonical_latency_map
             .iter()
+            .filter(|(_, latencies)| {
+                latencies
+                    .last()
+                    .map(|b| b.cumulative_count > 0)
+                    .unwrap_or(false)
+            })
             .map(|(method, latencies)| RpcLatencyQuantiles {
                 p50: to_ms(latencies.estimate_quantile(0.5)),
                 p90: to_ms(latencies.estimate_quantile(0.9)),
@@ -297,19 +356,33 @@ pub async fn report(
 
     let heatmap = HeatMapChart::new(&cache_data.traces)?;
     let gas_per_block = GasPerBlockChart::new(&cache_data.blocks);
-    let tti = TimeToInclusionChart::new(&all_txs);
+    let tti = TimeToInclusionChart::new(&all_txs, params.time_to_inclusion_bucket);
     let gas_used = TxGasUsedChart::new(&cache_data.traces, 4000);
     let pending_txs = PendingTxsChart::new(&all_txs);
     let flashblock_tti = FlashblockTimeToInclusionChart::new(&all_txs);
     let flashblock_idx = FlashblockIndexChart::new(&all_txs);
-    let latency_chart_sendrawtx = LatencyChart::new(
-        canonical_latency_map
-            .get("eth_sendRawTransaction")
-            .ok_or(Error::LatencyMetricsEmpty(
-                "eth_sendRawTransaction".to_owned(),
-            ))?
-            .to_owned(),
-    );
+    // Build latency charts for tx-sending methods that have data.
+    // Methods like eth_sendRawTransaction and eth_sendRawTransactionSync get
+    // dedicated latency histogram charts; methods with no data are skipped.
+    let tx_send_methods = ["eth_sendRawTransaction", "eth_sendRawTransactionSync"];
+    let latency_charts: Vec<MethodLatencyData> = tx_send_methods
+        .iter()
+        .filter_map(|method| {
+            let buckets = canonical_latency_map.get(*method)?;
+            let has_data = buckets
+                .last()
+                .map(|b| b.cumulative_count > 0)
+                .unwrap_or(false);
+            if !has_data {
+                return None;
+            }
+            let chart = LatencyChart::new(buckets.to_owned());
+            Some(MethodLatencyData {
+                method: method.to_string(),
+                data: chart.echart_data(),
+            })
+        })
+        .collect();
 
     // compile report
     let mut blocks = cache_data.blocks;
@@ -328,7 +401,7 @@ pub async fn report(
             time_to_inclusion: tti.echart_data(),
             tx_gas_used: gas_used.echart_data(),
             pending_txs: pending_txs.echart_data(),
-            latency_data_sendrawtransaction: latency_chart_sendrawtx.echart_data(),
+            latency_charts,
             flashblock_time_to_inclusion: flashblock_tti.map(|c| c.echart_data()),
             flashblock_index: flashblock_idx.map(|c| c.echart_data()),
         },
@@ -337,7 +410,7 @@ pub async fn report(
 
     let reports_dir = data_dir.join("reports");
 
-    if use_json {
+    if params.use_json {
         // JSON output - no browser opening
         let report_path = build_json_report(&report_metadata, &reports_dir)?;
         info!("saved JSON report to {report_path:?}");
@@ -417,7 +490,7 @@ pub async fn report_campaign(
     campaign_id: &str,
     db: &(impl DbOps + Clone + Send + Sync + 'static),
     data_dir: &Path,
-    skip_tx_traces: bool,
+    params: ReportParams,
 ) -> Result<()> {
     let runs = db.get_runs_by_campaign(campaign_id).map_err(|e| e.into())?;
     if runs.is_empty() {
@@ -443,7 +516,11 @@ pub async fn report_campaign(
     let run_generation_result: Result<()> = async {
         for run in &runs {
             // generate per-run report (single run) - always use HTML for campaign runs
-            report(Some(run.id), 0, db, data_dir, false, skip_tx_traces).await?;
+            let params = ReportParams::new()
+                .with_skip_tx_traces(params.skip_tx_traces)
+                .with_time_to_inclusion_bucket(params.time_to_inclusion_bucket)
+                .with_last_run_id(run.id);
+            report(db, data_dir, params).await?;
             let run_txs = db.get_run_txs(run.id).map_err(|e| e.into())?;
             let (run_tx_count_from_logs, run_error_count_from_logs) =
                 tx_and_error_counts(&run_txs, run.tx_count);

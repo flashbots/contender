@@ -18,7 +18,7 @@ use crate::{
         tx_actor::TxActorHandle, CallbackError, ExecutionPayload, RuntimeTxInfo, SpamCallback,
         SpamTrigger,
     },
-    util::{get_blob_fee_maybe, get_block_time, ExtraTxParams},
+    util::{get_block_time, ExtraTxParams},
     Result,
 };
 use alloy::{
@@ -58,6 +58,50 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
 
 pub use alloy::transports::http::reqwest::Url;
+
+/// Fetch a u128 value via an async RPC call, caching on success and falling back
+/// to the cached value on transient failure.
+async fn fetch_with_cache<F, Fut, E>(
+    cache: &mut Option<u128>,
+    label: &str,
+    fetch: F,
+) -> Result<u128>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = std::result::Result<u128, E>>,
+    E: std::fmt::Debug + Into<crate::error::Error>,
+{
+    match fetch().await {
+        Ok(value) => {
+            *cache = Some(value);
+            Ok(value)
+        }
+        Err(e) => {
+            if let Some(cached) = *cache {
+                warn!("Failed to fetch {}, using cached value: {:?}", label, e);
+                Ok(cached)
+            } else {
+                Err(e.into())
+            }
+        }
+    }
+}
+
+/// Retry an async operation once on failure. Useful for transient connection errors.
+async fn retry_once<F, Fut, T, E>(op: F) -> std::result::Result<T, E>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = std::result::Result<T, E>>,
+    E: std::fmt::Debug,
+{
+    match op().await {
+        Ok(v) => Ok(v),
+        Err(first_err) => {
+            warn!("RPC call failed, retrying once: {first_err:?}");
+            op().await
+        }
+    }
+}
 
 /// Reads the SETUP_CONCURRENCY_LIMIT from the environment, defaults to 25 if not set or invalid.
 fn read_setup_concurrency_limit() -> usize {
@@ -142,8 +186,14 @@ where
     pub num_rpc_batches_sent: u64,
     pub gas_price: Option<U256>,
     pub scenario_label: Option<String>,
+    /// Use `eth_sendRawTransactionSync` instead of `eth_sendRawTransaction`.
+    pub send_raw_tx_sync: bool,
     /// Shared HTTP client so spawned tasks reuse one connection pool.
     http_client: reqwest::Client,
+    /// Cached gas price from the last successful RPC fetch, used as fallback on transient errors.
+    last_fetched_gas_price: Option<u128>,
+    /// Cached blob gas price from the last successful RPC fetch, used as fallback on transient errors.
+    last_fetched_blob_gas_price: Option<u128>,
 }
 
 pub struct TestScenarioParams {
@@ -159,6 +209,7 @@ pub struct TestScenarioParams {
     pub rpc_batch_size: u64,
     pub gas_price: Option<U256>,
     pub scenario_label: Option<String>,
+    pub send_raw_tx_sync: bool,
     pub flashblocks_ws_url: Option<Url>,
 }
 
@@ -230,6 +281,7 @@ where
             rpc_batch_size,
             gas_price,
             scenario_label,
+            send_raw_tx_sync,
             flashblocks_ws_url,
         } = params;
         let agent_store = config.build_agent_store(&rand_seed, agent_spec.clone());
@@ -353,7 +405,10 @@ where
             num_rpc_batches_sent: 0,
             gas_price,
             scenario_label,
+            send_raw_tx_sync,
             http_client: reqwest::Client::new(),
+            last_fetched_gas_price: None,
+            last_fetched_blob_gas_price: None,
         })
     }
 
@@ -473,6 +528,7 @@ where
                 rpc_batch_size: self.rpc_batch_size,
                 gas_price: self.gas_price,
                 scenario_label: self.scenario_label.clone(),
+                send_raw_tx_sync: self.send_raw_tx_sync,
                 flashblocks_ws_url: None,
             },
             None,
@@ -530,10 +586,9 @@ where
     }
 
     pub async fn deploy_contracts(&mut self) -> Result<()> {
-        let pub_provider = &self.rpc_client;
-        let gas_price = pub_provider.get_gas_price().await?;
-        let blob_gas_price = get_blob_fee_maybe(&self.rpc_client, self.tx_type).await;
-        let chain_id = pub_provider.get_chain_id().await?;
+        let gas_price = self.rpc_client.get_gas_price().await?;
+        let blob_gas_price = self.fetch_blob_gas_price().await;
+        let chain_id = self.rpc_client.get_chain_id().await?;
 
         // we do everything in the callback so no need to actually capture the returned txs
         // we have to do this to populate the database with new named transaction after each deployment
@@ -688,7 +743,7 @@ where
     pub async fn run_setup(&mut self) -> Result<()> {
         let chain_id = self.chain_id;
         let genesis_hash = self.ctx.genesis_hash;
-        let blob_base_fee = get_blob_fee_maybe(&self.rpc_client, self.tx_type).await;
+        let blob_base_fee = self.fetch_blob_gas_price().await;
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(*SETUP_CONCURRENCY_LIMIT));
 
@@ -869,18 +924,40 @@ where
         Ok((full_tx, EthereumWallet::from(signer)))
     }
 
+    /// Fetch blob gas price with cached fallback. Returns 0 for non-EIP-4844 tx types.
+    async fn fetch_blob_gas_price(&mut self) -> u128 {
+        if self.tx_type != TxType::Eip4844 {
+            return 0;
+        }
+        match fetch_with_cache(
+            &mut self.last_fetched_blob_gas_price,
+            "blob gas price",
+            || self.rpc_client.get_blob_base_fee(),
+        )
+        .await
+        {
+            Ok(price) => price,
+            Err(e) => {
+                debug!("failed to get blob base fee; defaulting to 0: {:?}", e);
+                0
+            }
+        }
+    }
+
     pub async fn prepare_spam(
         &mut self,
         tx_requests: &[ExecutionRequest],
     ) -> Result<Vec<ExecutionPayload>> {
+        let blob_gas_price = self.fetch_blob_gas_price().await;
+
         let (gas_price, blob_gas_price) = match self.gas_price {
-            Some(override_price) => (
-                override_price.to::<u128>(),
-                get_blob_fee_maybe(&self.rpc_client, self.tx_type).await,
-            ),
+            Some(override_price) => (override_price.to::<u128>(), blob_gas_price),
             None => {
-                let gas_price = self.rpc_client.get_gas_price().await?;
-                let blob_gas_price = get_blob_fee_maybe(&self.rpc_client, self.tx_type).await;
+                let gas_price =
+                    fetch_with_cache(&mut self.last_fetched_gas_price, "gas price", || {
+                        self.rpc_client.get_gas_price()
+                    })
+                    .await?;
                 let adjusted_gas_price = |price: u128| {
                     if self.ctx.gas_price_adder < 0 {
                         price - self.ctx.gas_price_adder.unsigned_abs()
@@ -1009,13 +1086,16 @@ where
         let (error_sender, error_receiver) = tokio::sync::mpsc::channel::<Error>(1);
         let error_sender = Arc::new(error_sender);
 
-        // Should use json-rpc batching for this tick if both conditions are met:
-        //  - rpc_batch_size > 0
-        //  - all payloads are SignedTx (no builder bundles)
+        // Batching groups multiple eth_sendRawTransaction calls into one HTTP request.
+        // This is incompatible with sync mode because we need per-tx timestamps
+        // from individual HTTP responses to measure time-to-inclusion accurately.
         let should_batch_rpc = self.rpc_batch_size > 0
+            && !self.send_raw_tx_sync
             && payloads
                 .iter()
                 .all(|p| matches!(p, ExecutionPayload::SignedTx(_, _)));
+
+        let send_raw_tx_sync = self.send_raw_tx_sync;
 
         if !should_batch_rpc {
             for payload in payloads {
@@ -1029,14 +1109,99 @@ where
                 let nonce_sender = nonce_sender.clone();
                 let cancel_token = self.ctx.cancel_token.clone();
                 let error_sender = error_sender.clone();
+                let http_client = self.http_client.clone();
+                let rpc_url = self.rpc_url.clone();
+                let hist = self.prometheus.hist.get().cloned();
 
                 tasks.push(crate::spawn_with_session(async move {
                 let extra = RuntimeTxInfo::now();
                 let handles = match payload {
+                    ExecutionPayload::SignedTx(signed_tx, req) if send_raw_tx_sync => {
+                        // eth_sendRawTransactionSync path: use raw HTTP POST so we can
+                        // record the end timestamp when the RPC responds.
+                        let tx_hash = signed_tx.tx_hash().to_owned();
+                        debug!("sending tx via eth_sendRawTransactionSync: {tx_hash}");
+                        let mut raw_tx = Vec::new();
+                        signed_tx.encode_2718(&mut raw_tx);
+                        let mut raw_hex = String::with_capacity(2 + raw_tx.len() * 2);
+                        raw_hex.push_str("0x");
+                        raw_hex.push_str(&raw_tx.encode_hex());
+                        let request_body = json!({
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "method": "eth_sendRawTransactionSync",
+                            "params": [raw_hex],
+                        });
+                        let start_time = tokio::time::Instant::now();
+                        let res = tokio::select! {
+                            resp = http_client
+                                .post(rpc_url.as_str())
+                                .json(&request_body)
+                                .send() => Some(resp),
+                            _ = cancel_token.cancelled() => None,
+                        };
+                        // Record latency in Prometheus so it shows up in reports
+                        if let Some(h) = &hist {
+                            let elapsed = start_time.elapsed().as_secs_f64();
+                            h.with_label_values(&["eth_sendRawTransactionSync"]).observe(elapsed);
+                        }
+                        let end_ts = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis();
+                        let extra = extra.with_end_timestamp(end_ts);
+
+                        let ctx = SpamRunContext {
+                            nonce_sender: &nonce_sender,
+                            success_sender: &success_sender,
+                            gas_sender: &gas_sender,
+                            callback_handler: callback_handler.as_ref(),
+                            tx_handlers: &tx_handlers,
+                            cancel_token: &cancel_token,
+                        };
+
+                        match res {
+                            Some(Ok(resp)) => {
+                                // Parse the JSON-RPC response to check for errors
+                                let error_msg = match resp.json::<serde_json::Value>().await {
+                                    Ok(body) => body
+                                        .get("error")
+                                        .and_then(|e| e.get("message"))
+                                        .and_then(|m| m.as_str())
+                                        .map(|s| s.to_string()),
+                                    Err(e) => Some(format!(
+                                        "failed to parse sendRawTransactionSync response: {e}"
+                                    )),
+                                };
+                                handle_tx_outcome(
+                                    tx_hash,
+                                    &req,
+                                    extra,
+                                    error_msg.as_deref(),
+                                    &ctx,
+                                )
+                                .await;
+                            }
+                            Some(Err(e)) => {
+                                handle_tx_outcome(
+                                    tx_hash,
+                                    &req,
+                                    extra,
+                                    Some(&format!("sendRawTransactionSync HTTP error: {e}")),
+                                    &ctx,
+                                )
+                                .await;
+                            }
+                            None => {
+                                // Cancelled — don't record the tx
+                            }
+                        }
+                        Vec::<Option<tokio::task::JoinHandle<_>>>::new()
+                    }
                     ExecutionPayload::SignedTx(signed_tx, req) => {
                         let tx_hash = signed_tx.tx_hash().to_owned();
-                        let res = rpc_client
-                            .send_tx_envelope(AnyTxEnvelope::Ethereum(*signed_tx))
+                        let envelope = AnyTxEnvelope::Ethereum(*signed_tx);
+                        let res = retry_once(|| rpc_client.send_tx_envelope(envelope.clone()))
                             .await;
                         let ctx = SpamRunContext {
                             nonce_sender: &nonce_sender,
@@ -1218,21 +1383,30 @@ where
                         .start_timer()
                 });
 
-                let resp = match http_client.post(rpc_url).json(&requests).send().await {
-                    Ok(r) => {
-                        if let Some(t) = timer.take() {
-                            t.observe_duration()
+                let send_start = std::time::Instant::now();
+                let resp =
+                    match retry_once(|| http_client.post(rpc_url.clone()).json(&requests).send())
+                        .await
+                    {
+                        Ok(r) => {
+                            if let Some(t) = timer.take() {
+                                t.observe_duration()
+                            }
+                            let elapsed = send_start.elapsed();
+                            if elapsed > Duration::from_secs(1) {
+                                warn!("JSON-RPC batch took {elapsed:?}");
+                            }
+                            r
                         }
-                        r
-                    }
-                    Err(e) => {
-                        if let Some(t) = timer.take() {
-                            t.observe_duration()
+                        Err(e) => {
+                            if let Some(t) = timer.take() {
+                                t.observe_duration()
+                            }
+                            let elapsed = send_start.elapsed();
+                            warn!("failed to send JSON-RPC batch after retry ({elapsed:?}): {e:?}");
+                            return;
                         }
-                        warn!("failed to send JSON-RPC batch: {e:?}");
-                        return;
-                    }
-                };
+                    };
 
                 let responses: Vec<serde_json::Value> = match resp.json().await {
                     Ok(v) => v,
@@ -1499,6 +1673,7 @@ where
                 rpc_batch_size: self.rpc_batch_size,
                 gas_price: self.gas_price,
                 scenario_label: self.scenario_label.clone(),
+                send_raw_tx_sync: self.send_raw_tx_sync,
                 flashblocks_ws_url: None,
             },
             None,
@@ -1534,15 +1709,10 @@ where
             .collect::<Vec<_>>()
             .concat();
 
-        let (gas_price, blob_gas_price) = match scenario.gas_price {
-            Some(override_price) => (
-                override_price.to::<u128>(),
-                get_blob_fee_maybe(&scenario.rpc_client, scenario.tx_type).await,
-            ),
-            None => (
-                scenario.rpc_client.get_gas_price().await?,
-                get_blob_fee_maybe(&scenario.rpc_client, scenario.tx_type).await,
-            ),
+        let blob_gas_price = scenario.fetch_blob_gas_price().await;
+        let gas_price = match scenario.gas_price {
+            Some(override_price) => override_price.to::<u128>(),
+            None => scenario.rpc_client.get_gas_price().await?,
         };
 
         // get gas limit for each tx
@@ -2113,6 +2283,7 @@ pub mod tests {
                 rpc_batch_size: 0,
                 gas_price,
                 scenario_label: None,
+                send_raw_tx_sync: false,
                 flashblocks_ws_url: None,
             },
             None,
@@ -2654,6 +2825,7 @@ pub mod tests {
                 rpc_batch_size: 0,
                 gas_price: None,
                 scenario_label: None,
+                send_raw_tx_sync: false,
                 flashblocks_ws_url: None,
             },
             None,
@@ -2726,6 +2898,56 @@ pub mod tests {
             "run_setup() should succeed with high concurrency (got: {:?})",
             result.err()
         );
+    }
+
+    #[tokio::test]
+    async fn send_raw_tx_sync_sends_txs_and_disables_batching() -> Result<()> {
+        let txs_per_duration: u64 = 35;
+        let num_periods = 2;
+        let total_txs = txs_per_duration * num_periods;
+        let anvil = spawn_anvil();
+
+        let mut scenario = get_test_scenario(&anvil, None, None).await?;
+        scenario.send_raw_tx_sync = true;
+
+        // Set rpc_batch_size to verify sync mode overrides it.
+        // Normally batch_size=10 would group 35 txs into 4 batches per period (8 total),
+        // but sync mode needs per-tx HTTP responses for end_timestamp_ms tracking,
+        // so batching must be bypassed — every tx is sent individually.
+        scenario.rpc_batch_size = 10;
+
+        let spammer = BlockwiseSpammer::new();
+        let callback = NilCallback;
+
+        spammer
+            .spam_rpc(
+                &mut scenario,
+                txs_per_duration,
+                num_periods,
+                None,
+                Arc::new(callback),
+            )
+            .await?;
+
+        // All 70 txs sent individually via eth_sendRawTransactionSync,
+        // confirming both that sync sending works and that batching is bypassed.
+        assert_eq!(scenario.num_rpc_batches_sent, total_txs);
+
+        // Verify latency metrics are recorded for eth_sendRawTransactionSync
+        let latency_metrics = scenario.collect_latency_metrics();
+        let sync_latency = latency_metrics.get("eth_sendRawTransactionSync");
+        assert!(
+            sync_latency.is_some(),
+            "eth_sendRawTransactionSync should have latency metrics"
+        );
+        let sync_buckets = sync_latency.unwrap();
+        let total_observations = sync_buckets.last().map(|b| b.cumulative_count).unwrap_or(0);
+        assert_eq!(
+            total_observations, total_txs,
+            "should have one latency observation per tx sent"
+        );
+
+        Ok(())
     }
 
     #[test]

@@ -19,6 +19,7 @@ use contender_cli::{
     Error,
 };
 use contender_core::{db::DbOps, util::TracingOptions};
+use contender_report::command::ReportParams;
 use contender_sqlite::{SqliteDb, DB_VERSION};
 use regex::Regex;
 use std::str::FromStr;
@@ -40,7 +41,7 @@ async fn run() -> Result<(), contender_cli::Error> {
     let db_path = db_file_in(&data_dir);
     init_reports_dir(&data_dir);
 
-    debug!("data directory: {data_dir:?}");
+    info!("data directory: {}", data_dir.display());
     debug!("opening DB at {db_path:?}");
 
     let db = SqliteDb::from_file(&db_path)?;
@@ -125,7 +126,9 @@ async fn run() -> Result<(), contender_cli::Error> {
             campaign_id,
             format,
             skip_tx_traces,
+            time_to_inclusion_bucket,
         } => {
+            let use_json = matches!(format, ReportFormat::Json);
             if let Some(campaign_id) = campaign_id {
                 let resolved_campaign_id = if campaign_id == "__LATEST_CAMPAIGN__" {
                     db.latest_campaign_id().map_err(Error::Db)?.ok_or_else(|| {
@@ -139,26 +142,29 @@ async fn run() -> Result<(), contender_cli::Error> {
                 if preceding_runs > 0 {
                     warn!("--preceding-runs is ignored when --campaign is provided");
                 }
+                let report_params = ReportParams::new()
+                    .with_skip_tx_traces(skip_tx_traces)
+                    .with_time_to_inclusion_bucket(time_to_inclusion_bucket)
+                    .with_use_json(use_json);
                 contender_report::command::report_campaign(
                     &resolved_campaign_id,
                     &db,
                     &data_dir,
-                    skip_tx_traces,
+                    report_params,
                 )
                 .await
                 .map_err(Error::Report)?;
             } else {
                 let use_json = matches!(format, ReportFormat::Json);
-                contender_report::command::report(
-                    last_run_id,
-                    preceding_runs,
-                    &db,
-                    &data_dir,
-                    use_json,
-                    skip_tx_traces,
-                )
-                .await
-                .map_err(Error::Report)?;
+                let mut report_params = ReportParams::new()
+                    .with_preceding_runs(preceding_runs)
+                    .with_skip_tx_traces(skip_tx_traces)
+                    .with_time_to_inclusion_bucket(time_to_inclusion_bucket)
+                    .with_use_json(use_json);
+                if let Some(last_run_id) = last_run_id {
+                    report_params = report_params.with_last_run_id(last_run_id);
+                }
+                contender_report::command::report(&db, &data_dir, report_params).await?;
             }
         }
 
