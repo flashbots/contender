@@ -1066,21 +1066,29 @@ pub async fn spam<D: GenericDb>(
         let mut last_err = None;
         let mut scenario = None;
         for attempt in 1..=max_attempts {
-            match args.init_scenario(db).await {
-                Ok(s) => {
-                    scenario = Some(s);
-                    break;
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    info!("\nCTRL-C received, aborting scenario initialization.");
+                    return Err(CliError::Aborted);
                 }
-                Err(e) => {
-                    if !e.is_recoverable() {
-                        return Err(e);
+                res = args.init_scenario(db) => {
+                    match res {
+                        Ok(s) => {
+                            scenario = Some(s);
+                            break;
+                        }
+                        Err(e) => {
+                            if !e.is_recoverable() {
+                                return Err(e);
+                            }
+                            if attempt < max_attempts {
+                                let backoff = Duration::from_secs(5 * attempt as u64);
+                                warn!("Setup failed (attempt {attempt}/{max_attempts}), retrying in {backoff:?}: {e:?}");
+                                tokio::time::sleep(backoff).await;
+                            }
+                            last_err = Some(e);
+                        }
                     }
-                    if attempt < max_attempts {
-                        let backoff = Duration::from_secs(5 * attempt as u64);
-                        warn!("Setup failed (attempt {attempt}/{max_attempts}), retrying in {backoff:?}: {e:?}");
-                        tokio::time::sleep(backoff).await;
-                    }
-                    last_err = Some(e);
                 }
             }
         }

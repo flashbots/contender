@@ -18,6 +18,9 @@ use tokio::task;
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum CliError {
+    #[error("aborted by user")]
+    Aborted,
+
     #[error("invalid CLI params")]
     CliParamsInvalid(#[from] RuntimeParamErrorKind),
 
