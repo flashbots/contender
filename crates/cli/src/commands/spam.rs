@@ -1066,18 +1066,29 @@ pub async fn spam<D: GenericDb>(
         let mut last_err = None;
         let mut scenario = None;
         for attempt in 1..=max_attempts {
-            match args.init_scenario(db).await {
-                Ok(s) => {
-                    scenario = Some(s);
-                    break;
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    info!("\nCTRL-C received, aborting scenario initialization.");
+                    return Err(CliError::Aborted);
                 }
-                Err(e) => {
-                    if attempt < max_attempts {
-                        let backoff = Duration::from_secs(5 * attempt as u64);
-                        warn!("Setup failed (attempt {attempt}/{max_attempts}), retrying in {backoff:?}: {e:?}");
-                        tokio::time::sleep(backoff).await;
+                res = args.init_scenario(db) => {
+                    match res {
+                        Ok(s) => {
+                            scenario = Some(s);
+                            break;
+                        }
+                        Err(e) => {
+                            if !e.is_recoverable() {
+                                return Err(e);
+                            }
+                            if attempt < max_attempts {
+                                let backoff = Duration::from_secs(5 * attempt as u64);
+                                warn!("Setup failed (attempt {attempt}/{max_attempts}), retrying in {backoff:?}: {e:?}");
+                                tokio::time::sleep(backoff).await;
+                            }
+                            last_err = Some(e);
+                        }
                     }
-                    last_err = Some(e);
                 }
             }
         }
@@ -1100,11 +1111,12 @@ pub async fn spam<D: GenericDb>(
 
 #[cfg(test)]
 mod tests {
-    use crate::commands::common::AuthCliArgs;
     use crate::commands::SetupCommandArgs;
+    use crate::{commands::common::AuthCliArgs, default_scenarios::fill_block::FillBlockArgs};
 
     use super::*;
     use alloy::node_bindings::{Anvil, AnvilInstance, WEI_IN_ETHER};
+    use contender_core::generator::util::parse_value;
     use contender_sqlite::SqliteDb;
     use std::{
         collections::HashMap,
@@ -1320,6 +1332,94 @@ mod tests {
                 "expected balance >= {min_balance}, got {balance}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn spam_terminates_on_unrecoverable_error() -> Result<()> {
+        let anvil = Anvil::new().block_time_f64(0.5).spawn();
+        let rpc_url: Url = anvil.endpoint().parse().unwrap();
+
+        // Initialize tracing for test output
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("contender_core=debug,info")
+            .with_test_writer()
+            .try_init();
+
+        // Set up in-memory DB
+        let db = SqliteDb::new_memory();
+        db.create_tables()?;
+
+        let provider = alloy::providers::ProviderBuilder::new()
+            .network::<alloy::network::AnyNetwork>()
+            .connect_http(rpc_url.clone());
+        let block = provider
+            .get_block_by_number(0.into())
+            .await
+            .unwrap()
+            .unwrap();
+
+        // Use default fill-block scenario
+        let scenario = SpamScenario::Builtin(BuiltinScenario::FillBlock(FillBlockArgs {
+            max_gas_per_block: block.header.gas_limit,
+            num_txs: 10,
+        }));
+
+        // Use small min_balance to trigger "insufficient funds" error
+        let spam_args = SpamCliArgs {
+            spam_args: SendSpamCliArgs {
+                builder_url: None,
+                txs_per_second: Some(10),
+                txs_per_block: None,
+                duration: 2,
+                pending_timeout: 10,
+                run_forever: false,
+            },
+            eth_json_rpc_args: ScenarioSendTxsCliArgs {
+                testfile: None,
+                rpc_args: SendTxsCliArgsInner {
+                    rpc_url: rpc_url.clone(),
+                    seed: None,
+                    private_keys: None,
+                    min_balance: parse_value("0.001 eth").unwrap(),
+                    tx_type: TxTypeCli::Eip1559,
+                    bundle_type: crate::commands::common::BundleTypeCli::L1,
+                    auth_args: AuthCliArgs::default(),
+                    call_forkchoice: false,
+                    env: None,
+                    override_senders: false,
+                    gas_price: None,
+                    accounts_per_agent: None,
+                    scenario_label: None,
+                },
+            },
+            ignore_receipts: false,
+            optimistic_nonces: true,
+            gen_report: false,
+            skip_setup: false,
+            rpc_batch_size: 0,
+            send_raw_tx_sync: false,
+            spam_timeout: Duration::from_secs(5),
+            flashblocks_ws_url: None,
+            report_interval: None,
+        };
+
+        let args = SpamCommandArgs {
+            scenario,
+            spam_args,
+            seed: RandSeed::new(),
+        };
+
+        let res = spam(&db, &args, SpamCampaignContext::default()).await;
+        println!("res: {:?}", res);
+        assert!(res.is_err(), "Expected spam to fail, but it succeeded");
+        assert!(
+            matches!(
+                res.err().unwrap(),
+                CliError::Args(ArgsError::MinBalanceInsufficient { .. })
+            ),
+            "Expected MinBalanceInsufficient error, got something else"
+        );
+        Ok(())
     }
 
     #[allow(non_snake_case)]

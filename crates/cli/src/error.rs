@@ -18,6 +18,9 @@ use tokio::task;
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum CliError {
+    #[error("aborted by user")]
+    Aborted,
+
     #[error("invalid CLI params")]
     CliParamsInvalid(#[from] RuntimeParamErrorKind),
 
@@ -65,4 +68,15 @@ pub enum CliError {
 
     #[error("util error")]
     Util(#[from] UtilError),
+}
+
+impl CliError {
+    /// Returns true if call that caused error can be retried, false otherwise.
+    /// Currently only RPC transport errors are considered recoverable.
+    pub fn is_recoverable(&self) -> bool {
+        matches!(
+            self,
+            CliError::Rpc(e) if matches!(e, RpcError::Transport(_))
+        )
+    }
 }
