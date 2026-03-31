@@ -1072,6 +1072,9 @@ pub async fn spam<D: GenericDb>(
                     break;
                 }
                 Err(e) => {
+                    if !e.is_recoverable() {
+                        return Err(e);
+                    }
                     if attempt < max_attempts {
                         let backoff = Duration::from_secs(5 * attempt as u64);
                         warn!("Setup failed (attempt {attempt}/{max_attempts}), retrying in {backoff:?}: {e:?}");
