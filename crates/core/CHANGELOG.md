@@ -5,11 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1](https://github.com/flashbots/contender/releases/tag/v0.9.1) - 2026-04-01
+
+- added `eth_sendRawTransactionSync` support with per-tx `end_timestamp_ms` tracking ([#459](https://github.com/flashbots/contender/pull/459/changes))
+- sort agent addresses for deterministic tx arrangement ([#491](https://github.com/flashbots/contender/pull/491/changes))
+- harden against transient RPC failures ([#496](https://github.com/flashbots/contender/pull/496/changes))
 
 ## [0.9.0](https://github.com/flashbots/contender/releases/tag/v0.9.0) - 2026-03-17
 
-- added `eth_sendRawTransactionSync` support with per-tx `end_timestamp_ms` tracking ([#459](https://github.com/flashbots/contender/pull/459))
-- remove artificial delay in timed spammer to achieve accurate timing ([#454](https://github.com/flashbots/contender/pull/454))
+- remove artificial delay in timed spammer to achieve accurate timing ([#454](https://github.com/flashbots/contender/pull/454/changes))
 - added `scenario_label` support to apply contract name labels at the DB boundary ([#456](https://github.com/flashbots/contender/pull/456/changes))
 - control `SETUP_CONCURRENCY_LIMIT` with env var ([#461](https://github.com/flashbots/contender/pull/461/changes))
 - extracted `collect_latency_from_registry()` into `buckets` module for reuse across crates ([#468](https://github.com/flashbots/contender/pull/468/changes))

@@ -5,13 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.9.1](https://github.com/flashbots/contender/releases/tag/v0.9.1) - 2026-04-01
 
-- auto-fund spammer accounts periodically when running with `--forever` to prevent ETH depletion; refund interval is derived from `--min-balance`, `get_max_spam_cost()`, and `--tps`/`--tpb`
+- auto-fund spammer accounts periodically when running with `--forever` to prevent ETH depletion; refund interval is derived from `--min-balance`, `get_max_spam_cost()`, and `--tps`/`--tpb` ([#502](https://github.com/flashbots/contender/pull/502/changes))
 - add `--time-to-inclusion-bucket` flag to configure histogram bucket size in reports ([#498](https://github.com/flashbots/contender/pull/498/changes))
 - move default data dir from `~/.contender` to `$XDG_STATE_HOME/contender` (defaults to `~/.local/state/contender`), with automatic migration of existing data ([#460](https://github.com/flashbots/contender/issues/460/changes))
 - organize `--help` output into logical sections for `spam` and `campaign` flags ([#408](https://github.com/flashbots/contender/issues/408))
 - bugfix: only retry recoverable errors in `init_scenario` (within spam), allow CTRL-C to terminate it ([#503](https://github.com/flashbots/contender/pull/503/changes))
+- sort insufficient balances by address for deterministic funding ([#491](https://github.com/flashbots/contender/pull/491/changes))
+- support retries on `init_scenario` failures ([#496](https://github.com/flashbots/contender/pull/496/changes))
+- add live spam progress report logs, enabled with `--report-interval` ([#493](https://github.com/flashbots/contender/pull/493/changes))
 
 ## [0.9.0](https://github.com/flashbots/contender/releases/tag/v0.9.0) - 2026-03-17
 
