@@ -622,6 +622,22 @@ controls.appendChild(makeCabinet('add_session', body => {
       const result = await rpc('add_session', [params]);
       if (result && typeof result.id === 'number') {
         clearLogs(result.id);
+        // Clear all input fields on success
+        nameF.input.value = '';
+        urlF.input.value = '';
+        configTypeF.input.value = configTypeF.input.options[0].value;
+        builtinF.input.value = builtinF.input.options[0].value;
+        tomlF.input.value = '';
+        jsonF.input.value = '';
+        for (const { input } of Object.values(paramInputs)) {
+          if (input.type === 'select-one' || input.type === 'select') {
+            input.selectedIndex = 0;
+          } else {
+            input.value = '';
+          }
+        }
+        renderBuiltinParams();
+        updateVisibility();
       }
       showResult(body, true, result);
       pollSessions();
@@ -719,6 +735,9 @@ controls.appendChild(makeCabinet('spam', body => {
       setTimeout(() => { msg.style.display = 'none'; }, 3000);
       btn.disabled = true;
       btn.title = 'This session is currently spamming.';
+
+      // Clear "name" field on success
+      nameF.input.value = '';
     }
     catch (e) {
       msg.textContent = 'Error: ' + (e && e.message ? e.message : e);
