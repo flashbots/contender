@@ -151,6 +151,11 @@ impl ContenderSessionInfo {
             };
             contender_ctx = contender_ctx.user_signers(signers);
         }
+        if let Some(agent_params) = options.agents {
+            contender_ctx = contender_ctx.agent_spec(agent_params.into());
+        }
+        // let agent_spec = AgentSpec::default()
+        // contender_ctx.agent_spec(spec)
 
         /* TODO: here we need to add the options that the RPC is missing.
         - [x] .auth_provider(a)
@@ -162,7 +167,7 @@ impl ContenderSessionInfo {
         - [x] .tx_type(t)
         - [x] .user_signers(signers)
         ... is ContenderCtxBuilder missing anything that we might need?
-        - [ ] --accounts-per-agent
+        - [x] --accounts-per-agent (implemented here by `agents`)
         - [ ] --forever
         - [ ] --env
         - [ ] --report-interval

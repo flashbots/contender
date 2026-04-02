@@ -12,7 +12,7 @@ use contender_core::{
         providers::{DynProvider, ProviderBuilder},
         rpc::types::engine::JwtSecret,
     },
-    generator::RandSeed,
+    generator::{agent_pools::AgentSpec, RandSeed},
     test_scenario::Url,
     RunOpts,
 };
@@ -25,12 +25,14 @@ use tracing::debug;
 
 /// Data returned from the `status` endpoint, containing general info about the server.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ServerStatus {
     pub num_sessions: usize,
 }
 
 /// RPC parameters for adding a new contender session.
 #[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AddSessionParams {
     pub name: String,
     pub rpc_url: Url,
@@ -114,6 +116,7 @@ impl TestConfigSource {
 
 /// RPC parameters for the `spam` method.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct SpamParams {
     pub session_id: usize,
     /// Number of transactions per period. Defaults to 10.
@@ -173,6 +176,7 @@ impl<'a> serde::Deserialize<'a> for JwtParam {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AuthParams {
     pub jwt_secret: JwtParam,
     pub message_version: EngineMessageVersion,
@@ -208,6 +212,7 @@ impl AuthParams {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BuilderParams {
     pub rpc_url: Url,
     pub bundle_type: BundleTypeCli,
@@ -223,6 +228,31 @@ pub struct SessionOptions {
     pub pending_tx_timeout: Option<Duration>,
     pub tx_type: Option<TxTypeCli>,
     pub private_keys: Option<Vec<B256>>,
+    pub agents: Option<AgentParams>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentParams {
+    pub create_accounts: Option<usize>,
+    pub setup_accounts: Option<usize>,
+    pub spam_accounts: Option<usize>,
+}
+
+impl From<AgentParams> for AgentSpec {
+    fn from(params: AgentParams) -> Self {
+        let mut spec = AgentSpec::default();
+        if let Some(n) = params.create_accounts {
+            spec = spec.create_accounts(n);
+        }
+        if let Some(n) = params.setup_accounts {
+            spec = spec.setup_accounts(n);
+        }
+        if let Some(n) = params.spam_accounts {
+            spec = spec.spam_accounts(n);
+        }
+        spec
+    }
 }
 
 #[cfg(test)]

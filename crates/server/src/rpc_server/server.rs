@@ -22,22 +22,22 @@ pub trait ContenderRpc {
     #[method(name = "status")]
     async fn status(&self) -> jsonrpsee::core::RpcResult<ServerStatus>;
 
-    #[method(name = "add_session")]
+    #[method(name = "addSession")]
     async fn add_session(
         &self,
         name: AddSessionParams,
     ) -> jsonrpsee::core::RpcResult<ContenderSessionInfo>;
 
-    #[method(name = "get_session")]
+    #[method(name = "getSession")]
     async fn get_session(
         &self,
         id: usize,
     ) -> jsonrpsee::core::RpcResult<Option<ContenderSessionInfo>>;
 
-    #[method(name = "get_all_sessions")]
+    #[method(name = "getAllSessions")]
     async fn get_all_sessions(&self) -> jsonrpsee::core::RpcResult<Vec<ContenderSessionInfo>>;
 
-    #[method(name = "remove_session")]
+    #[method(name = "removeSession")]
     async fn remove_session(&self, id: usize) -> jsonrpsee::core::RpcResult<()>;
 
     #[method(name = "spam")]
@@ -48,7 +48,7 @@ pub trait ContenderRpc {
 
     // ================ WS Methods ================
 
-    #[subscription(name = "subscribe_logs" => "session_log", item = String)]
+    #[subscription(name = "subscribeLogs" => "session_log", item = String)]
     async fn subscribe_logs(&self, session_id: usize) -> jsonrpsee::core::SubscriptionResult;
 }
 

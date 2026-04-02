@@ -187,7 +187,7 @@ async function pollSessions() {
   const url = serverUrl();
   if (!isValidUrl(url)) { setServerStatus(false, 'invalid URL'); return; }
   try {
-    const sessions = await rpc('get_all_sessions', []);
+    const sessions = await rpc('getAllSessions', []);
     setServerStatus(true, `sessions: ${sessions.length}`);
     renderSessions(sessions);
   } catch {
@@ -316,7 +316,7 @@ function statusText(status) {
     const p = status.Spamming;
     const type = p.spammer || 'timed';
     const units = type === 'blockwise' ? ['tpb', 'blocks'] : ['tps', 'seconds'];
-    return `Spamming (${p.txs_per_period || 10} ${units[0]} for ${p.duration || 10} ${units[1]})`;
+    return `Spamming (${p.txsPerPeriod || 10} ${units[0]} for ${p.duration || 10} ${units[1]})`;
   }
   if (status.Failed) return `Failed: ${status.Failed}`;
   return JSON.stringify(status);
@@ -347,7 +347,7 @@ function subscribeToSession(sessionId) {
 
   ws.onopen = () => {
     ws.send(JSON.stringify({
-      jsonrpc: '2.0', method: 'subscribe_logs',
+      jsonrpc: '2.0', method: 'subscribeLogs',
       params: [sessionId], id: rpcId++,
     }));
   };
@@ -458,7 +458,7 @@ function renderSessions(sessions) {
             message: 'Are you sure you want to remove this session? All session data (metrics, deployed contract addresses) will be lost.',
             onConfirm: async () => {
               try {
-                await rpc('remove_session', [s.id]);
+                await rpc('removeSession', [s.id]);
                 clearLogs(s.id);
                 pollSessions();
               } catch (err) {
@@ -523,9 +523,9 @@ function renderSessions(sessions) {
 const controls = $('#controls-col');
 
 // ========== add_session ==========
-controls.appendChild(makeCabinet('add_session', body => {
+controls.appendChild(makeCabinet('Add Session', body => {
   const nameF = field('name', 'text', { placeholder: 'my-session' });
-  const urlF = field('rpc_url', 'text', { placeholder: 'http://localhost:8545' });
+  const urlF = field('rpc URL', 'text', { placeholder: 'http://localhost:8545' });
   const configTypeF = field('config type', 'select', {
     options: ['none (default uniV2)', 'builtin', 'toml_base64', 'json']
   });
@@ -593,7 +593,7 @@ controls.appendChild(makeCabinet('add_session', body => {
   const btn = sendBtn('Add Session');
   body.appendChild(btn);
   btn.onclick = async () => {
-    const params = { name: nameF.input.value || 'my-session', rpc_url: urlF.input.value || 'http://localhost:8545' };
+    const params = { name: nameF.input.value || 'my-session', rpcUrl: urlF.input.value || 'http://localhost:8545' };
     const ct = configTypeF.input.value;
     if (ct === 'builtin') {
       const scenario = builtinF.input.value;
@@ -611,15 +611,15 @@ controls.appendChild(makeCabinet('add_session', body => {
           args[name] = raw || null;
         }
       }
-      params.test_config = { Builtin: { [scenario]: args } };
+      params.testConfig = { Builtin: { [scenario]: args } };
     } else if (ct === 'toml_base64') {
-      params.test_config = { TomlBase64: btoa(tomlF.input.value) };
+      params.testConfig = { TomlBase64: btoa(tomlF.input.value) };
     } else if (ct === 'json') {
-      try { params.test_config = { Json: JSON.parse(jsonF.input.value) }; }
+      try { params.testConfig = { Json: JSON.parse(jsonF.input.value) }; }
       catch (e) { showResult(body, false, 'Invalid JSON: ' + e.message); return; }
     }
     try {
-      const result = await rpc('add_session', [params]);
+      const result = await rpc('addSession', [params]);
       if (result && typeof result.id === 'number') {
         clearLogs(result.id);
         // Clear all input fields on success
@@ -647,14 +647,14 @@ controls.appendChild(makeCabinet('add_session', body => {
 }));
 
 // ========== spam ==========
-controls.appendChild(makeCabinet('spam', body => {
+controls.appendChild(makeCabinet('Spam', body => {
   // Session dropdown will be populated dynamically
-  const idF = field('session_id', 'select', { options: [] });
-  const tppF = field('txs_per_period', 'number', { value: '10', min: '1' });
+  const idF = field('session id', 'select', { options: [] });
+  const tppF = field('txs per period', 'number', { value: '10', min: '1' });
   const durF = field('duration (periods)', 'number', { value: '10', min: '1' });
   const spammerF = field('spammer', 'select', { options: ['timed', 'blockwise'] });
   const nameF = field('name (optional)', 'text', { placeholder: 'my-run' });
-  const receiptsF = field('save_receipts', 'select', { options: ['false', 'true'] });
+  const receiptsF = field('save receipts', 'select', { options: ['false', 'true'] });
 
   body.appendChild(idF.container);
   const row = document.createElement('div'); row.className = 'row';
@@ -721,11 +721,11 @@ controls.appendChild(makeCabinet('spam', body => {
   btn.onclick = async () => {
     const sessionId = parseInt(idF.input.value);
     const params = {
-      session_id: sessionId,
-      txs_per_period: parseInt(tppF.input.value),
+      sessionId: sessionId,
+      txsPerPeriod: parseInt(tppF.input.value),
       duration: parseInt(durF.input.value),
       spammer: spammerF.input.value,
-      save_receipts: receiptsF.input.value === 'true',
+      saveReceipts: receiptsF.input.value === 'true',
     };
     if (nameF.input.value) params.name = nameF.input.value;
     try {
