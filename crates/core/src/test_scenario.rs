@@ -175,7 +175,7 @@ where
     pub msg_handles: HashMap<String, Arc<TxActorHandle>>,
     pub tx_type: TxType,
     pub bundle_type: BundleType,
-    pub pending_tx_timeout_secs: u64,
+    pub pending_tx_timeout: Duration,
     pub ctx: ExecutionContext,
     prometheus: PrometheusCollector,
     setcode_signer: PrivateKeySigner,
@@ -202,7 +202,7 @@ pub struct TestScenarioParams {
     pub signers: Vec<PrivateKeySigner>,
     pub agent_spec: AgentSpec,
     pub tx_type: TxType,
-    pub pending_tx_timeout_secs: u64,
+    pub pending_tx_timeout: Duration,
     pub bundle_type: BundleType,
     pub extra_msg_handles: Option<HashMap<String, Arc<TxActorHandle>>>,
     pub sync_nonces_after_batch: bool,
@@ -274,7 +274,7 @@ where
             signers,
             agent_spec,
             tx_type,
-            pending_tx_timeout_secs,
+            pending_tx_timeout,
             bundle_type,
             extra_msg_handles,
             sync_nonces_after_batch,
@@ -389,7 +389,7 @@ where
             msg_handles,
             tx_type,
             bundle_type,
-            pending_tx_timeout_secs,
+            pending_tx_timeout,
             ctx: ExecutionContext {
                 gas_price_adder: 0,
                 block_time_secs,
@@ -522,7 +522,7 @@ where
                 agent_spec: self.agent_spec.clone(),
                 tx_type: self.tx_type,
                 bundle_type: self.bundle_type,
-                pending_tx_timeout_secs: self.pending_tx_timeout_secs,
+                pending_tx_timeout: self.pending_tx_timeout,
                 extra_msg_handles: None,
                 sync_nonces_after_batch: self.should_sync_nonces,
                 rpc_batch_size: self.rpc_batch_size,
@@ -1667,7 +1667,7 @@ where
                 agent_spec: self.agent_spec.clone(),
                 tx_type: self.tx_type,
                 bundle_type: self.bundle_type,
-                pending_tx_timeout_secs: self.pending_tx_timeout_secs,
+                pending_tx_timeout: self.pending_tx_timeout,
                 extra_msg_handles: None,
                 sync_nonces_after_batch: self.should_sync_nonces,
                 rpc_batch_size: self.rpc_batch_size,
@@ -1783,7 +1783,7 @@ where
                             last_cache_len = cache_len;
                             last_progress = Instant::now();
                         }
-                        if last_progress.elapsed().as_secs() > self.pending_tx_timeout_secs {
+                        if last_progress.elapsed() > self.pending_tx_timeout {
                             warn!("timed out waiting for pending transactions");
                             break;
                         }
@@ -2079,6 +2079,7 @@ pub mod tests {
     use contender_bundle_provider::bundle::BundleType;
     use std::collections::HashMap;
     use std::sync::Arc;
+    use std::time::Duration;
     use tokio::sync::OnceCell;
 
     use super::{TestScenarioParams, SETUP_CONCURRENCY_LIMIT};
@@ -2277,7 +2278,7 @@ pub mod tests {
                 agent_spec: AgentSpec::default(),
                 tx_type,
                 bundle_type,
-                pending_tx_timeout_secs: 12,
+                pending_tx_timeout: Duration::from_secs(12),
                 extra_msg_handles: None,
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
@@ -2819,7 +2820,7 @@ pub mod tests {
                 agent_spec,
                 tx_type: alloy::consensus::TxType::Eip1559,
                 bundle_type: BundleType::default(),
-                pending_tx_timeout_secs: 12,
+                pending_tx_timeout: Duration::from_secs(12),
                 extra_msg_handles: None,
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,

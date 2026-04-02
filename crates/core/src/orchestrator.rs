@@ -53,7 +53,7 @@ where
     pub user_signers: Vec<PrivateKeySigner>,
     pub tx_type: TxType,
     pub bundle_type: BundleType,
-    pub pending_tx_timeout_secs: u64,
+    pub pending_tx_timeout: Duration,
     pub extra_msg_handles: Option<HashMap<String, Arc<TxActorHandle>>>,
     pub auth_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
     pub prometheus: PrometheusCollector,
@@ -119,7 +119,7 @@ where
             user_signers: default_signers(),
             tx_type: TxType::Eip1559,
             bundle_type: BundleType::default(),
-            pending_tx_timeout_secs: 12,
+            pending_tx_timeout: Duration::from_secs(12),
             extra_msg_handles: None,
             auth_provider: None,
             prometheus: PrometheusCollector::default(),
@@ -194,7 +194,7 @@ where
             user_signers: default_signers(),
             tx_type: TxType::Eip1559,
             bundle_type: BundleType::default(),
-            pending_tx_timeout_secs: 12,
+            pending_tx_timeout: Duration::from_secs(12),
             extra_msg_handles: None,
             auth_provider: None,
             prometheus: PrometheusCollector::default(),
@@ -214,7 +214,7 @@ where
             signers: self.user_signers.clone(),
             agent_spec: self.agent_spec.clone(),
             tx_type: self.tx_type,
-            pending_tx_timeout_secs: self.pending_tx_timeout_secs,
+            pending_tx_timeout: self.pending_tx_timeout,
             bundle_type: self.bundle_type,
             extra_msg_handles: self.extra_msg_handles.clone(),
             sync_nonces_after_batch: self.sync_nonces_after_batch,
@@ -235,6 +235,10 @@ where
         )
         .await
     }
+
+    pub fn create_contender(self) -> Contender<D, S, P> {
+        Contender::new(self)
+    }
 }
 
 /// Builder with sane defaults; only (config, db, seeder, rpc_url) are required.
@@ -254,7 +258,7 @@ where
     user_signers: Vec<PrivateKeySigner>,
     tx_type: TxType,
     bundle_type: BundleType,
-    pending_tx_timeout_secs: u64,
+    pending_tx_timeout: Duration,
     extra_msg_handles: Option<HashMap<String, Arc<TxActorHandle>>>,
     auth_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
     prometheus: PrometheusCollector,
@@ -291,8 +295,8 @@ where
         self.bundle_type = b;
         self
     }
-    pub fn pending_tx_timeout_secs(mut self, s: u64) -> Self {
-        self.pending_tx_timeout_secs = s;
+    pub fn pending_tx_timeout(mut self, d: Duration) -> Self {
+        self.pending_tx_timeout = d;
         self
     }
     pub fn extra_msg_handles(mut self, m: HashMap<String, Arc<TxActorHandle>>) -> Self {
@@ -335,7 +339,7 @@ where
             user_signers: self.user_signers,
             tx_type: self.tx_type,
             bundle_type: self.bundle_type,
-            pending_tx_timeout_secs: self.pending_tx_timeout_secs,
+            pending_tx_timeout: self.pending_tx_timeout,
             extra_msg_handles: self.extra_msg_handles,
             auth_provider: self.auth_provider,
             prometheus: self.prometheus,
@@ -539,7 +543,7 @@ where
         // add run to DB
         let run_req = opts.create_spam_run_request(
             &scenario.rpc_url,
-            Duration::from_secs(self.ctx.pending_tx_timeout_secs),
+            self.ctx.pending_tx_timeout,
             SP::duration_units(opts.periods),
         );
         let run_id = scenario.db.insert_run(&run_req).map_err(|e| e.into())?;
@@ -547,7 +551,7 @@ where
         // Initialize TxActor contexts so flush_loop can match receipts.
         let current_block = scenario.rpc_client.get_block_number().await?;
         let actor_ctx = crate::spammer::tx_actor::ActorContext::new(current_block, run_id)
-            .with_pending_tx_timeout(Duration::from_secs(self.ctx.pending_tx_timeout_secs));
+            .with_pending_tx_timeout(self.ctx.pending_tx_timeout);
         for handle in scenario.msg_handles.values() {
             handle.init_ctx(actor_ctx.clone()).await?;
         }

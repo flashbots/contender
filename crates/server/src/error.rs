@@ -33,6 +33,9 @@ pub enum ContenderRpcError {
     #[error("Invalid arguments: {0}")]
     InvalidArguments(String),
 
+    #[error("Error from auth provider: {0}")]
+    AuthProviderError(#[from] contender_engine_provider::AuthProviderError),
+
     #[error("Invalid base64: {0}")]
     InvalidBase64(#[from] DecodeError),
 
@@ -99,6 +102,12 @@ impl From<ContenderRpcError> for ErrorObjectOwned {
                 8,
                 format!("Session {} failed with error: {error}", info.id),
                 Option::<String>::None,
+            ),
+
+            ContenderRpcError::AuthProviderError(e) => ErrorObject::owned(
+                10,
+                "Failed to initialize auth provider".to_string(),
+                Some(e.to_string()),
             ),
 
             ContenderRpcError::InvalidArguments(msg) => {

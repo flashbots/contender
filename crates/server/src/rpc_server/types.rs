@@ -1,18 +1,26 @@
 use crate::{error::ContenderRpcError, sessions::NewSessionParams};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use contender_cli::default_scenarios::{BuiltinOptions, BuiltinScenarioCli};
+use contender_cli::{
+    commands::common::{BundleTypeCli, EngineMessageVersion},
+    default_scenarios::{BuiltinOptions, BuiltinScenarioCli},
+    util::provider::AuthClient,
+};
 use contender_core::{
     alloy::{
-        network::AnyNetwork,
+        network::{AnyNetwork, Ethereum},
+        primitives::U256,
         providers::{DynProvider, ProviderBuilder},
+        rpc::types::engine::JwtSecret,
     },
     generator::RandSeed,
     test_scenario::Url,
     RunOpts,
 };
+use contender_engine_provider::{AuthProvider, ControlChain};
 use contender_testfile::TestConfig;
+use op_alloy_network::Optimism;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
+use std::{str::FromStr, time::Duration};
 use tracing::debug;
 
 /// Data returned from the `status` endpoint, containing general info about the server.
@@ -27,6 +35,7 @@ pub struct AddSessionParams {
     pub name: String,
     pub rpc_url: Url,
     pub test_config: Option<TestConfigSource>,
+    pub options: Option<SessionOptions>,
 }
 
 impl AddSessionParams {
@@ -59,6 +68,7 @@ impl AddSessionParams {
             name: self.name.clone(),
             rpc_url: self.rpc_url.clone(),
             test_config,
+            options: self.options.unwrap_or_default(),
         })
     }
 }
@@ -129,7 +139,7 @@ pub enum SpammerType {
 }
 
 impl SpamParams {
-    pub fn to_run_opts(&self) -> RunOpts {
+    pub fn as_run_opts(&self) -> RunOpts {
         let mut opts = RunOpts::new();
         if let Some(n) = self.txs_per_period {
             opts = opts.txs_per_period(n);
@@ -142,6 +152,75 @@ impl SpamParams {
         }
         opts
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct JwtParam {
+    secret: JwtSecret,
+}
+
+impl<'a> serde::Deserialize<'a> for JwtParam {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'a>,
+    {
+        let s = String::deserialize(deserializer)?;
+        debug!("deserialized string for JwtSecret: {s}"); // TODO: delete this line
+        Ok(JwtParam {
+            secret: JwtSecret::from_str(&s).map_err(serde::de::Error::custom)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct AuthParams {
+    pub jwt_secret: JwtParam,
+    pub message_version: EngineMessageVersion,
+    pub rpc_url: Url,
+    pub call_fcu: Option<bool>,
+    pub use_op: Option<bool>,
+}
+
+impl AuthParams {
+    pub async fn new_provider(&self) -> Result<AuthClient, ContenderRpcError> {
+        let provider: Box<dyn ControlChain + Send + Sync + 'static> =
+            if self.use_op.unwrap_or(false) {
+                Box::new(
+                    AuthProvider::<Optimism>::new(
+                        &self.rpc_url,
+                        self.jwt_secret.secret.clone(),
+                        self.message_version.into(),
+                    )
+                    .await?,
+                )
+            } else {
+                Box::new(
+                    AuthProvider::<Ethereum>::new(
+                        &self.rpc_url,
+                        self.jwt_secret.secret,
+                        self.message_version.into(),
+                    )
+                    .await?,
+                )
+            };
+        Ok(AuthClient::new(provider))
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct BuilderParams {
+    pub rpc_url: Url,
+    pub bundle_type: BundleTypeCli,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionOptions {
+    pub auth: Option<AuthParams>,
+    pub builder: Option<BuilderParams>,
+    pub min_balance: Option<U256>,
+    #[serde(rename = "timeoutSecs")]
+    pub pending_tx_timeout: Option<Duration>,
 }
 
 #[cfg(test)]

@@ -23,6 +23,7 @@ contender_core.workspace = true
 contender_testfile.workspace = true
 contender_sqlite.workspace = true
 contender_cli.workspace = true
+contender_engine_provider.workspace = true
 
 async-trait = { workspace = true }
 jsonrpsee = { workspace = true, features = ["server", "macros", "ws-client"] }
@@ -38,6 +39,7 @@ axum = { workspace = true }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors"] }
 tokio-stream.workspace = true
+op-alloy-network.workspace = true
 
 [build-dependencies]
 syn = { version = "2", features = ["full"] }

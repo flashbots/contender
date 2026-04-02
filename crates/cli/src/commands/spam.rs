@@ -635,7 +635,7 @@ impl SpamCommandArgs {
             agent_spec,
             tx_type,
             bundle_type: bundle_type.into(),
-            pending_tx_timeout_secs: pending_timeout * block_time,
+            pending_tx_timeout: Duration::from_secs(pending_timeout * block_time),
             extra_msg_handles: None,
             sync_nonces_after_batch: !self.spam_args.optimistic_nonces,
             rpc_batch_size,

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use contender_core::{generator::RandSeed, test_scenario::Url, Contender};
 use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
@@ -6,8 +8,9 @@ use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
+    error::ContenderRpcError,
     log_layer::SessionLogSinks,
-    rpc_server::{SpamParams, SpammerType},
+    rpc_server::{SessionOptions, SpamParams, SpammerType},
 };
 
 type SessionId = usize;
@@ -26,7 +29,7 @@ impl std::fmt::Display for SessionStatus {
             SessionStatus::Initializing => write!(f, "Initializing"),
             SessionStatus::Ready => write!(f, "Ready"),
             SessionStatus::Spamming(params) => {
-                let res = params.to_run_opts();
+                let run_opts = params.as_run_opts();
                 let spammer_type = params.spammer.clone().unwrap_or_default();
                 let units = match spammer_type {
                     SpammerType::Timed => ("tps", "seconds"),
@@ -35,7 +38,7 @@ impl std::fmt::Display for SessionStatus {
                 write!(
                     f,
                     "Spamming ({} {} for {} {})",
-                    res.txs_per_period, units.0, res.periods, units.1
+                    run_opts.txs_per_period, units.0, run_opts.periods, units.1
                 )
             }
             SessionStatus::Failed(err) => write!(f, "Failed: {err}"),
@@ -60,16 +63,18 @@ pub struct ContenderSession {
     pub spam_cancel: Option<CancellationToken>,
 }
 
+/// Params for creating a new session ([ContenderSession::new]).
 pub struct NewSessionParams {
     pub name: String,
     pub rpc_url: Url,
     pub test_config: TestConfig,
+    pub options: SessionOptions,
 }
 
 impl ContenderSession {
     /// Should only be called by ContenderSessionCache when adding a new session,
     /// since the session ID is determined by the cache
-    fn new(id: SessionId, params: NewSessionParams) -> Self {
+    async fn new(id: SessionId, params: NewSessionParams) -> Result<Self, ContenderRpcError> {
         let info = ContenderSessionInfo {
             id,
             name: params.name,
@@ -77,15 +82,17 @@ impl ContenderSession {
             status: SessionStatus::Initializing,
         };
 
-        let contender = info.create_contender(params.test_config);
+        let contender = info
+            .create_contender(params.test_config, params.options)
+            .await?;
         let (log_channel, _) = broadcast::channel(4096);
-        Self {
+        Ok(Self {
             info,
             contender: Some(contender),
             log_channel,
             cancel: CancellationToken::new(),
             spam_cancel: None,
-        }
+        })
     }
 }
 
@@ -98,18 +105,50 @@ pub struct ContenderSessionInfo {
 }
 
 impl ContenderSessionInfo {
-    pub fn create_contender(
+    pub async fn create_contender(
         &self,
         testconfig: TestConfig,
-    ) -> Contender<SqliteDb, RandSeed, TestConfig> {
+        options: SessionOptions,
+    ) -> Result<Contender<SqliteDb, RandSeed, TestConfig>, ContenderRpcError> {
         // using in-memory SQLite for now; will switch to file-based if we need persistence across server restarts
         let db = contender_sqlite::SqliteDb::new_memory();
         let seeder = contender_core::generator::RandSeed::seed_from_bytes(&self.id.to_be_bytes());
-        let contender_ctx =
-            contender_core::ContenderCtx::builder(testconfig, db, seeder, self.rpc_url.clone())
-                .build();
 
-        Contender::new(contender_ctx)
+        let mut contender_ctx =
+            contender_core::ContenderCtx::builder(testconfig, db, seeder, self.rpc_url.clone());
+
+        if let Some(auth) = options.auth {
+            let auth_provider = auth.new_provider().await?;
+            contender_ctx = contender_ctx.auth_provider(Arc::new(auth_provider));
+        }
+        if let Some(builder) = options.builder {
+            contender_ctx = contender_ctx
+                .builder_rpc_url(builder.rpc_url)
+                .bundle_type(builder.bundle_type.into());
+        }
+        if let Some(min_balance) = options.min_balance {
+            contender_ctx = contender_ctx.funding(min_balance);
+        }
+        if let Some(timeout) = options.pending_tx_timeout {
+            contender_ctx = contender_ctx.pending_tx_timeout(timeout);
+        }
+
+        /* TODO: here we need to add the options that the RPC is missing.
+        - [x] .auth_provider(a)
+        - [x] .builder_rpc_url(url)
+        - [x] .bundle_type(b)
+        - [x] .funding(f)
+        - [x] .pending_tx_timeout_secs(s)
+        - [ ] .prometheus(p) ?
+        - [ ] .scenario_label(label) ?
+        - [ ] .seeder(s) ?
+        - [ ] .tx_type(t)
+        - [ ] .user_signers(signers) ?
+        ... is ContenderCtxBuilder missing anything that we might need?
+            how might `--forever` be implemented here?
+        */
+
+        Ok(contender_ctx.build().create_contender())
     }
 }
 
@@ -153,8 +192,11 @@ impl ContenderSessionCache {
     ///
     /// Returns a mutable reference to the newly added session,
     /// which can be used to call initialize on it before it's returned by the RPC provider.
-    pub fn add_session(&mut self, params: NewSessionParams) -> &mut ContenderSession {
-        let session = ContenderSession::new(self.next_session_id(), params);
+    pub async fn add_session(
+        &mut self,
+        params: NewSessionParams,
+    ) -> Result<&mut ContenderSession, ContenderRpcError> {
+        let session = ContenderSession::new(self.next_session_id(), params).await?;
         let info = session.info.clone();
         let log_channel = session.log_channel.clone();
 
@@ -164,7 +206,7 @@ impl ContenderSessionCache {
         }
 
         self.sessions.push(session);
-        self.sessions.last_mut().expect("just pushed, should exist")
+        Ok(self.sessions.last_mut().expect("just pushed, should exist"))
     }
 
     pub fn get_session(&self, id: SessionId) -> Option<&ContenderSession> {

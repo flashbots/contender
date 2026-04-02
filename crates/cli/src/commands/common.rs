@@ -17,6 +17,7 @@ use contender_engine_provider::reth_node_api::EngineApiMessageVersion;
 use contender_engine_provider::ControlChain;
 use contender_testfile::TestConfig;
 use op_alloy_network::AnyNetwork;
+use serde::Deserialize;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -262,13 +263,26 @@ impl Default for AuthCliArgs {
     }
 }
 
-#[derive(Copy, Debug, Clone, clap::ValueEnum)]
-enum EngineMessageVersion {
+#[derive(Copy, Debug, Clone, clap::ValueEnum, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EngineMessageVersion {
     V1,
     V2,
     V3,
     V4,
     // V5,
+}
+
+impl From<EngineMessageVersion> for EngineApiMessageVersion {
+    fn from(value: EngineMessageVersion) -> Self {
+        match value {
+            EngineMessageVersion::V1 => EngineApiMessageVersion::V1,
+            EngineMessageVersion::V2 => EngineApiMessageVersion::V2,
+            EngineMessageVersion::V3 => EngineApiMessageVersion::V3,
+            EngineMessageVersion::V4 => EngineApiMessageVersion::V4,
+            // EngineMessageVersion::V5 => EngineApiMessageVersion::V5,
+        }
+    }
 }
 
 impl AuthCliArgs {
@@ -286,13 +300,7 @@ impl AuthCliArgs {
                 auth_rpc_url: self.auth_rpc_url.to_owned().expect("auth_rpc_url"),
                 jwt_secret: self.jwt_secret.to_owned().expect("jwt_secret"),
                 use_op: self.use_op,
-                message_version: match self.message_version {
-                    EngineMessageVersion::V1 => EngineApiMessageVersion::V1,
-                    EngineMessageVersion::V2 => EngineApiMessageVersion::V2,
-                    EngineMessageVersion::V3 => EngineApiMessageVersion::V3,
-                    EngineMessageVersion::V4 => EngineApiMessageVersion::V4,
-                    // EngineMessageVersion::V5 => EngineApiMessageVersion::V5,
-                },
+                message_version: self.message_version.into(),
             };
             EngineParams::new(Arc::new(args.new_provider().await?), call_forkchoice)
         } else {
@@ -412,7 +420,8 @@ impl std::fmt::Display for TxTypeCli {
     }
 }
 
-#[derive(Copy, Debug, Clone, clap::ValueEnum)]
+#[derive(Copy, Debug, Clone, clap::ValueEnum, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum BundleTypeCli {
     L1,
     #[clap(name = "no-revert")]
