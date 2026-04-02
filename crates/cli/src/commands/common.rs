@@ -390,7 +390,8 @@ impl SendSpamCliArgs {
     }
 }
 
-#[derive(Copy, Debug, Clone, clap::ValueEnum)]
+#[derive(Copy, Debug, Clone, clap::ValueEnum, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum TxTypeCli {
     /// Legacy transaction (type `0x0`)
     Legacy,

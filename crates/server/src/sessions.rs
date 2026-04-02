@@ -1,17 +1,17 @@
-use std::sync::Arc;
-
-use contender_core::{generator::RandSeed, test_scenario::Url, Contender};
-use contender_sqlite::SqliteDb;
-use contender_testfile::TestConfig;
-use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
-use tokio_util::sync::CancellationToken;
-
 use crate::{
     error::ContenderRpcError,
     log_layer::SessionLogSinks,
     rpc_server::{SessionOptions, SpamParams, SpammerType},
 };
+use contender_core::{
+    alloy::signers::local::PrivateKeySigner, generator::RandSeed, test_scenario::Url, Contender,
+};
+use contender_sqlite::SqliteDb;
+use contender_testfile::TestConfig;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 
 type SessionId = usize;
 
@@ -115,7 +115,8 @@ impl ContenderSessionInfo {
         let seeder = contender_core::generator::RandSeed::seed_from_bytes(&self.id.to_be_bytes());
 
         let mut contender_ctx =
-            contender_core::ContenderCtx::builder(testconfig, db, seeder, self.rpc_url.clone());
+            contender_core::ContenderCtx::builder(testconfig, db, seeder, self.rpc_url.clone())
+                .scenario_label(format!("{}_{}", self.name, self.id));
 
         if let Some(auth) = options.auth {
             let auth_provider = auth.new_provider().await?;
@@ -132,6 +133,24 @@ impl ContenderSessionInfo {
         if let Some(timeout) = options.pending_tx_timeout {
             contender_ctx = contender_ctx.pending_tx_timeout(timeout);
         }
+        if let Some(tx_type) = options.tx_type {
+            contender_ctx = contender_ctx.tx_type(tx_type.into());
+        }
+        if let Some(keys) = options.private_keys {
+            let signers = {
+                let mut signers = vec![];
+                for key in keys {
+                    let signer = PrivateKeySigner::from_bytes(&key).map_err(|e| {
+                        ContenderRpcError::InvalidArguments(format!(
+                            "invalid private key detected: {e}"
+                        ))
+                    })?;
+                    signers.push(signer);
+                }
+                signers
+            };
+            contender_ctx = contender_ctx.user_signers(signers);
+        }
 
         /* TODO: here we need to add the options that the RPC is missing.
         - [x] .auth_provider(a)
@@ -139,13 +158,14 @@ impl ContenderSessionInfo {
         - [x] .bundle_type(b)
         - [x] .funding(f)
         - [x] .pending_tx_timeout_secs(s)
-        - [ ] .prometheus(p) ?
-        - [ ] .scenario_label(label) ?
-        - [ ] .seeder(s) ?
-        - [ ] .tx_type(t)
-        - [ ] .user_signers(signers) ?
+        - [x] .scenario_label(label)
+        - [x] .tx_type(t)
+        - [x] .user_signers(signers)
         ... is ContenderCtxBuilder missing anything that we might need?
-            how might `--forever` be implemented here?
+        - [ ] --accounts-per-agent
+        - [ ] --forever
+        - [ ] --env
+        - [ ] --report-interval
         */
 
         Ok(contender_ctx.build().create_contender())

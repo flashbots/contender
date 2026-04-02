@@ -1,14 +1,14 @@
 use crate::{error::ContenderRpcError, sessions::NewSessionParams};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use contender_cli::{
-    commands::common::{BundleTypeCli, EngineMessageVersion},
+    commands::common::{BundleTypeCli, EngineMessageVersion, TxTypeCli},
     default_scenarios::{BuiltinOptions, BuiltinScenarioCli},
     util::provider::AuthClient,
 };
 use contender_core::{
     alloy::{
         network::{AnyNetwork, Ethereum},
-        primitives::U256,
+        primitives::{B256, U256},
         providers::{DynProvider, ProviderBuilder},
         rpc::types::engine::JwtSecret,
     },
@@ -221,6 +221,8 @@ pub struct SessionOptions {
     pub min_balance: Option<U256>,
     #[serde(rename = "timeoutSecs")]
     pub pending_tx_timeout: Option<Duration>,
+    pub tx_type: Option<TxTypeCli>,
+    pub private_keys: Option<Vec<B256>>,
 }
 
 #[cfg(test)]
