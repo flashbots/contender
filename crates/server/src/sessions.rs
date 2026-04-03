@@ -123,28 +123,28 @@ impl ContenderSessionInfo {
         }
 
         // build contender context
-        let mut contender_ctx =
+        let mut ctx_builder =
             contender_core::ContenderCtx::builder(testconfig, db, seeder, self.rpc_url.clone())
                 .scenario_label(format!("{}_{}", self.name, self.id));
 
         // apply options to contender context
         if let Some(auth) = options.auth {
             let auth_provider = auth.new_provider().await?;
-            contender_ctx = contender_ctx.auth_provider(Arc::new(auth_provider));
+            ctx_builder = ctx_builder.auth_provider(Arc::new(auth_provider));
         }
         if let Some(builder) = options.builder {
-            contender_ctx = contender_ctx
+            ctx_builder = ctx_builder
                 .builder_rpc_url(builder.rpc_url)
                 .bundle_type(builder.bundle_type.into());
         }
         if let Some(min_balance) = options.min_balance {
-            contender_ctx = contender_ctx.funding(min_balance);
+            ctx_builder = ctx_builder.funding(min_balance);
         }
         if let Some(timeout) = options.pending_tx_timeout {
-            contender_ctx = contender_ctx.pending_tx_timeout(timeout);
+            ctx_builder = ctx_builder.pending_tx_timeout(timeout);
         }
         if let Some(tx_type) = options.tx_type {
-            contender_ctx = contender_ctx.tx_type(tx_type.into());
+            ctx_builder = ctx_builder.tx_type(tx_type.into());
         }
         if let Some(keys) = options.private_keys {
             let signers = {
@@ -159,32 +159,14 @@ impl ContenderSessionInfo {
                 }
                 signers
             };
-            contender_ctx = contender_ctx.user_signers(signers);
+            ctx_builder = ctx_builder.user_signers(signers);
         }
         if let Some(agent_params) = options.agents {
-            contender_ctx = contender_ctx.agent_spec(agent_params.into());
+            ctx_builder = ctx_builder.agent_spec(agent_params.into());
         }
 
-        /* TODO: here we need to add the options that the RPC is missing.
-        - [x] .auth_provider(a)
-        - [x] .builder_rpc_url(url)
-        - [x] .bundle_type(b)
-        - [x] .funding(f)
-        - [x] .pending_tx_timeout_secs(s)
-        - [x] .scenario_label(label)
-        - [x] .tx_type(t)
-        - [x] .user_signers(signers)
-        ... is ContenderCtxBuilder missing anything that we might need?
-        - [x] --accounts-per-agent (implemented here by `agents`)
-        - [x] --forever
-        - [x] --env (this modifies the TestConfig, does it need to be passed elsewhere?)
-        - [x] --report-interval
-
-        - [ ] ADD INPUTS TO WEB UI
-        */
-
         // build context and return contender instance
-        Ok(contender_ctx.build().create_contender())
+        Ok(ctx_builder.build().create_contender())
     }
 }
 
