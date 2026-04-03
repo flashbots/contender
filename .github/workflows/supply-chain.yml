@@ -1,0 +1,36 @@
+name: Supply Chain Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  escudo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install escudo
+        run: cargo install escudo --locked
+
+      - name: Cache escudo freshness data
+        uses: actions/cache@v4
+        with:
+          path: /tmp/escudo-cache
+          key: escudo-${{ github.run_id }}
+          restore-keys: escudo-
+
+      - name: Run supply chain audit
+        run: escudo
+        env:
+          ESCUDO_CACHE_DIR: /tmp/escudo-cache
