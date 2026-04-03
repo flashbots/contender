@@ -1,7 +1,9 @@
-use crate::{generator::types::AnyProvider, Result};
+use crate::{db::DbOps, generator::types::AnyProvider, Result};
 use alloy::{consensus::TxType, providers::Provider, signers::local::PrivateKeySigner};
-use std::str::FromStr;
-use tracing::debug;
+use serde::Serialize;
+use std::{str::FromStr, sync::Arc, time::Duration};
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 
 /// Derive the block time from the first two blocks after genesis.
@@ -122,4 +124,111 @@ pub fn init_core_tracing(filter: Option<EnvFilter>, opts: TracingOptions) {
         .with_target(opts.target)
         .with_line_number(opts.line_number)
         .init();
+}
+
+/// Structured JSON report emitted periodically during spam runs.
+#[derive(Debug, Clone, Serialize)]
+pub struct SpamProgressReport {
+    pub elapsed_s: u64,
+    pub txs_sent: u64,
+    pub txs_confirmed: u64,
+    pub txs_failed: u64,
+    pub current_tps: f64,
+}
+
+/// Prints incremental progress report for a spam run. Returns None if call to db's `get_run_txs` fails.
+pub fn print_progress_report<D: DbOps + Send + Sync + 'static>(
+    db: &D,
+    run_id: u64,
+    start: std::time::Instant,
+    planned_tx_count: Option<u64>,
+) -> Option<()> {
+    let elapsed = start.elapsed();
+    let elapsed_s = elapsed.as_secs();
+
+    let Ok((txs_confirmed, txs_failed)) = db.get_run_txs(run_id).map(|txs| {
+        let confirmed = txs
+            .iter()
+            .filter(|tx| tx.block_number.is_some() && tx.error.is_none())
+            .count() as u64;
+        let failed = txs.iter().filter(|tx| tx.error.is_some()).count() as u64;
+        (confirmed, failed)
+    }) else {
+        return None;
+    };
+
+    // txs_sent is the planned count capped by elapsed time,
+    // or confirmed + failed if we have more data than planned
+    let txs_sent = (txs_confirmed + txs_failed).max(planned_tx_count.unwrap_or(0).min(
+        // rough estimate based on elapsed time
+        txs_confirmed + txs_failed,
+    ));
+
+    let current_tps = if elapsed_s > 0 {
+        txs_confirmed as f64 / elapsed_s as f64
+    } else {
+        0.0
+    };
+
+    let report = SpamProgressReport {
+        elapsed_s,
+        txs_sent,
+        txs_confirmed,
+        txs_failed,
+        current_tps: (current_tps * 10.0).round() / 10.0,
+    };
+
+    // tracing span annotates the log for easy identification later
+    let span = tracing::info_span!("spam_progress", run_id = run_id);
+    if let Ok(json) = serde_json::to_string(&report) {
+        let _enter = span.enter();
+        info!("{json}");
+    }
+
+    Some(())
+}
+
+/// Spawns a background task that periodically queries the DB and prints
+/// a structured JSON progress report to stdout.
+/// Returns a cancellation token that should be cancelled when spam is done.
+pub fn spawn_spam_report_task<D: DbOps + Clone + Send + Sync + 'static>(
+    db: &D,
+    run_id: u64,
+    interval_secs: u64,
+    planned_tx_count: u64,
+) -> CancellationToken {
+    let cancel = CancellationToken::new();
+    let cancel_clone = cancel.clone();
+    let db = Arc::new(db.clone());
+
+    // Capture the current session ID (if set) so the spawned task inherits it.
+    // This allows the server's SessionLogRouter layer to route these logs
+    // to the correct per-session broadcast channel.
+    let session_id = crate::CURRENT_SESSION_ID.try_with(|id| *id).ok();
+
+    let future = async move {
+        let start = std::time::Instant::now();
+        let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+        // Skip the first immediate tick
+        interval.tick().await;
+
+        loop {
+            tokio::select! {
+                _ = cancel_clone.cancelled() => break,
+                _ = interval.tick() => {
+                    if print_progress_report(db.as_ref(), run_id, start, Some(planned_tx_count)).is_none() {
+                        continue;
+                    }
+                }
+            }
+        }
+    };
+
+    if let Some(id) = session_id {
+        tokio::task::spawn(crate::CURRENT_SESSION_ID.scope(id, future));
+    } else {
+        tokio::task::spawn(future);
+    }
+
+    cancel
 }

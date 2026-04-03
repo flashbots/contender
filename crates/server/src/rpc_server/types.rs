@@ -131,6 +131,8 @@ pub struct SpamParams {
     pub save_receipts: Option<bool>,
     /// When true, the spammer restarts automatically after each run until stopped.
     pub run_forever: Option<bool>,
+    /// When passed, the server will log a summary of the current spam run every `reportIntervalSecs` seconds. Note that this may have a performance impact if set to a very low value.
+    pub report_interval_secs: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq, Eq)]
@@ -154,6 +156,9 @@ impl SpamParams {
         }
         if let Some(name) = &self.name {
             opts = opts.name(name);
+        }
+        if let Some(report_interval) = self.report_interval_secs {
+            opts = opts.report_interval_secs(report_interval);
         }
         opts
     }

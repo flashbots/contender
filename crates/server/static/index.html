@@ -656,6 +656,7 @@ controls.appendChild(makeCabinet('Spam', body => {
   const nameF = field('name (optional)', 'text', { placeholder: 'my-run' });
   const receiptsF = field('save receipts', 'select', { options: ['false', 'true'] });
   const runForeverF = field('run forever', 'select', { options: ['false', 'true'] });
+  const reportIntervalF = field('report interval (seconds; disabled if 0)', 'number', { value: '0', min: '0'})
 
   body.appendChild(idF.container);
   const row = document.createElement('div'); row.className = 'row';
@@ -665,7 +666,10 @@ controls.appendChild(makeCabinet('Spam', body => {
   body.appendChild(spammerF.container);
   body.appendChild(nameF.container);
   body.appendChild(receiptsF.container);
-  body.appendChild(runForeverF.container);
+  const row2 = document.createElement('div'); row2.className = 'row';
+  row2.appendChild(runForeverF.container);
+  row2.appendChild(reportIntervalF.container);
+  body.appendChild(row2);
 
   // Message element for feedback
   const msg = document.createElement('div');
@@ -729,6 +733,7 @@ controls.appendChild(makeCabinet('Spam', body => {
       spammer: spammerF.input.value,
       saveReceipts: receiptsF.input.value === 'true',
       runForever: runForeverF.input.value === 'true',
+      reportIntervalSecs: reportIntervalF.input.value > 0 ? parseInt(reportIntervalF.input.value) : null,
     };
     if (nameF.input.value) params.name = nameF.input.value;
     try {

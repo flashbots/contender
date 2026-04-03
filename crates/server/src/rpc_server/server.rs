@@ -238,6 +238,7 @@ impl ContenderRpcServer for ContenderServer {
                     macro_rules! run_spam {
                         ($callback:expr) => {{
                             let callback = Arc::new($callback);
+
                             loop {
                                 let res = match spammer_type {
                                     SpammerType::Timed => {

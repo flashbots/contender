@@ -176,9 +176,9 @@ impl ContenderSessionInfo {
         - [x] .user_signers(signers)
         ... is ContenderCtxBuilder missing anything that we might need?
         - [x] --accounts-per-agent (implemented here by `agents`)
-        - [ ] --forever
+        - [x] --forever
         - [x] --env (this modifies the TestConfig, does it need to be passed elsewhere?)
-        - [ ] --report-interval
+        - [x] --report-interval
 
         - [ ] ADD INPUTS TO WEB UI
         */

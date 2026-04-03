@@ -14,7 +14,7 @@ use crate::{
     },
     spammer::{tx_actor::TxActorHandle, OnBatchSent, OnTxSent, Spammer},
     test_scenario::{PrometheusCollector, TestScenario, TestScenarioParams},
-    util::default_signers,
+    util::{default_signers, spawn_spam_report_task},
     Result,
 };
 use alloy::{
@@ -134,7 +134,7 @@ where
 
 impl<D, S, P> ContenderCtx<D, S, P>
 where
-    D: DbOps + Send + Sync + 'static,
+    D: DbOps + Clone + Send + Sync + 'static,
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
@@ -358,6 +358,7 @@ pub struct RunOpts {
     pub txs_per_period: u64,
     pub periods: u64,
     pub name: String,
+    pub report_interval_secs: Option<u64>,
 }
 
 impl Default for RunOpts {
@@ -366,6 +367,7 @@ impl Default for RunOpts {
             txs_per_period: 10,
             periods: 1,
             name: "Unknown".to_owned(),
+            report_interval_secs: None,
         }
     }
 }
@@ -384,6 +386,10 @@ impl RunOpts {
     }
     pub fn name(mut self, name: impl AsRef<str>) -> Self {
         self.name = name.as_ref().to_owned();
+        self
+    }
+    pub fn report_interval_secs(mut self, secs: u64) -> Self {
+        self.report_interval_secs = Some(secs);
         self
     }
 
@@ -414,7 +420,7 @@ impl RunOpts {
 /// Orchestrator that plugs a built scenario into any `Spammer`.
 pub struct Contender<D, S, P>
 where
-    D: DbOps + Send + Sync + 'static,
+    D: DbOps + Clone + Send + Sync + 'static,
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
@@ -424,7 +430,7 @@ where
 
 impl<D, S, P> Contender<D, S, P>
 where
-    D: DbOps + Send + Sync + 'static,
+    D: DbOps + Clone + Send + Sync + 'static,
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
@@ -556,6 +562,13 @@ where
             handle.init_ctx(actor_ctx.clone()).await?;
         }
 
+        let reporting_handle = if let Some(report_interval) = opts.report_interval_secs {
+            self.spawn_spam_report_task(run_id, report_interval, opts.txs_per_period * opts.periods)
+        } else {
+            // create a dummy cancellation token that won't be triggered, since the report task won't be running
+            CancellationToken::new()
+        };
+
         // send spam; if an external cancel token was provided, select on it
         // so we can abort mid-run (the cursor.next() inside spam_rpc won't
         // check cancellation on its own).
@@ -589,6 +602,9 @@ where
         // once all receipts are processed (or after the stale block timeout).
         scenario.ctx.cancel_token.cancel();
 
+        // also cancel the report task if it's running
+        reporting_handle.cancel();
+
         // Wait for all flush loops to finish collecting receipts.
         for handle in scenario.msg_handles.values() {
             handle.await_flush().await;
@@ -608,6 +624,20 @@ where
             alloy::providers::ProviderBuilder::new()
                 .network::<AnyNetwork>()
                 .connect_http(self.ctx.rpc_url.clone()),
+        )
+    }
+
+    fn spawn_spam_report_task(
+        &self,
+        run_id: u64,
+        interval_secs: u64,
+        planned_tx_count: u64,
+    ) -> CancellationToken {
+        spawn_spam_report_task(
+            self.ctx.db.as_ref(),
+            run_id,
+            interval_secs,
+            planned_tx_count,
         )
     }
 }
