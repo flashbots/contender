@@ -1,6 +1,8 @@
 use contender_core::generator::RandSeed;
 use contender_core::spammer::{BlockwiseSpammer, LogCallback, NilCallback, TimedSpammer};
+use futures::FutureExt;
 use jsonrpsee::{proc_macros::rpc, PendingSubscriptionSink, SubscriptionMessage};
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -226,79 +228,100 @@ impl ContenderRpcServer for ContenderServer {
 
         let sessions = Arc::clone(&self.sessions);
         let span = tracing::info_span!("session_spam", id = session_id);
+        let sessions_panic = Arc::clone(&self.sessions);
         tokio::spawn(
             contender_core::CURRENT_SESSION_ID.scope(
                 session_id,
                 async move {
-                    let mut contender = contender;
-                    let opts = params.as_run_opts();
-                    let spammer_type = params.spammer.unwrap_or_default();
-                    let run_forever = params.run_forever.unwrap_or(false);
+                    let inner = AssertUnwindSafe(async {
+                        let mut contender = contender;
+                        let opts = params.as_run_opts();
+                        let spammer_type = params.spammer.unwrap_or_default();
+                        let run_forever = params.run_forever.unwrap_or(false);
 
-                    macro_rules! run_spam {
-                        ($callback:expr) => {{
-                            let callback = Arc::new($callback);
+                        macro_rules! run_spam {
+                            ($callback:expr) => {{
+                                let callback = Arc::new($callback);
 
-                            loop {
-                                let res = match spammer_type {
-                                    SpammerType::Timed => {
-                                        let spammer = TimedSpammer::new(Duration::from_secs(1));
-                                        contender
-                                            .spam(
-                                                spammer,
-                                                Arc::clone(&callback),
-                                                opts.clone(),
-                                                Some(spam_cancel.clone()),
-                                            )
-                                            .await
+                                loop {
+                                    let res = match spammer_type {
+                                        SpammerType::Timed => {
+                                            let spammer = TimedSpammer::new(Duration::from_secs(1));
+                                            contender
+                                                .spam(
+                                                    spammer,
+                                                    Arc::clone(&callback),
+                                                    opts.clone(),
+                                                    Some(spam_cancel.clone()),
+                                                )
+                                                .await
+                                        }
+                                        SpammerType::Blockwise => {
+                                            let spammer = BlockwiseSpammer::new();
+                                            contender
+                                                .spam(
+                                                    spammer,
+                                                    Arc::clone(&callback),
+                                                    opts.clone(),
+                                                    Some(spam_cancel.clone()),
+                                                )
+                                                .await
+                                        }
+                                    };
+                                    if !run_forever || res.is_err() || spam_cancel.is_cancelled() {
+                                        break res;
                                     }
-                                    SpammerType::Blockwise => {
-                                        let spammer = BlockwiseSpammer::new();
-                                        contender
-                                            .spam(
-                                                spammer,
-                                                Arc::clone(&callback),
-                                                opts.clone(),
-                                                Some(spam_cancel.clone()),
-                                            )
-                                            .await
-                                    }
-                                };
-                                if !run_forever || res.is_err() || spam_cancel.is_cancelled() {
-                                    break res;
+                                    info!("run_forever: restarting spam for session {session_id}");
                                 }
-                                info!("run_forever: restarting spam for session {session_id}");
-                            }
-                        }};
-                    }
-
-                    let result = if save_receipts {
-                        let provider = contender.provider();
-                        run_spam!(LogCallback::new(Arc::new(provider)))
-                    } else {
-                        run_spam!(NilCallback)
-                    };
-
-                    // Put contender back and log outcome.
-                    let mut lock = sessions.write().await;
-                    lock.put_contender(session_id, contender);
-                    if let Some(session) = lock.get_session_mut(session_id) {
-                        session.spam_cancel = None;
-                    }
-                    match result {
-                        Ok(()) => {
-                            if let Some(session) = lock.get_session_mut(session_id) {
-                                session.info.status = SessionStatus::Ready;
-                            }
-                            info!("Session {} spam completed successfully", session_id);
+                            }};
                         }
-                        Err(e) => {
-                            if let Some(session) = lock.get_session_mut(session_id) {
-                                session.info.status =
-                                    SessionStatus::Failed(format!("spam failed: {e}"));
-                            }
-                            tracing::error!("Session {} spam failed: {}", session_id, e);
+
+                        let result = if save_receipts {
+                            let provider = contender.provider();
+                            run_spam!(LogCallback::new(Arc::new(provider)))
+                        } else {
+                            run_spam!(NilCallback)
+                        };
+
+                        // Put contender back and log outcome.
+                        let mut lock = sessions.write().await;
+                        lock.put_contender(session_id, contender);
+                        if let Some(session) = lock.get_session_mut(session_id) {
+                            session.spam_cancel = None;
                         }
+                        match result {
+                            Ok(()) => {
+                                if let Some(session) = lock.get_session_mut(session_id) {
+                                    session.info.status = SessionStatus::Ready;
+                                }
+                                info!("Session {} spam completed successfully", session_id);
+                            }
+                            Err(e) => {
+                                if let Some(session) = lock.get_session_mut(session_id) {
+                                    session.info.status =
+                                        SessionStatus::Failed(format!("spam failed: {e}"));
+                                }
+                                tracing::error!("Session {} spam failed: {}", session_id, e);
+                            }
+                        }
+                    });
+
+                    // Catch panics so the session always transitions out of Spamming.
+                    if let Err(panic_info) = inner.catch_unwind().await {
+                        let msg = match panic_info.downcast_ref::<&str>() {
+                            Some(s) => s.to_string(),
+                            None => match panic_info.downcast_ref::<String>() {
+                                Some(s) => s.clone(),
+                                None => "unknown panic".to_string(),
+                            },
+                        };
+                        let mut lock = sessions_panic.write().await;
+                        if let Some(session) = lock.get_session_mut(session_id) {
+                            session.spam_cancel = None;
+                            session.info.status =
+                                SessionStatus::Failed(format!("spam panicked: {msg}"));
+                        }
+                        tracing::error!("Session {} spam panicked: {}", session_id, msg);
                     }
                 }
                 .instrument(span),

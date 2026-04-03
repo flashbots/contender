@@ -26,7 +26,7 @@ pub enum Error {
     #[error("database error")]
     Db(#[from] DbError),
 
-    #[error("generator error")]
+    #[error("generator error: {0}")]
     Generator(#[from] GeneratorError),
 
     #[error("rpc error")]

@@ -2309,6 +2309,7 @@ dependencies = [
  "contender_engine_provider",
  "contender_sqlite",
  "contender_testfile",
+ "futures",
  "jsonrpsee 0.24.10",
  "op-alloy-network",
  "quote",
