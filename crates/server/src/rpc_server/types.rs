@@ -129,6 +129,8 @@ pub struct SpamParams {
     pub name: Option<String>,
     /// Whether to look for receipts while spamming; enables onchain metrics collection.
     pub save_receipts: Option<bool>,
+    /// When true, the spammer restarts automatically after each run until stopped.
+    pub run_forever: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq, Eq)]

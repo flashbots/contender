@@ -233,24 +233,42 @@ impl ContenderRpcServer for ContenderServer {
                     let mut contender = contender;
                     let opts = params.as_run_opts();
                     let spammer_type = params.spammer.unwrap_or_default();
+                    let run_forever = params.run_forever.unwrap_or(false);
 
                     macro_rules! run_spam {
-                        ($callback:expr) => {
-                            match spammer_type {
-                                SpammerType::Timed => {
-                                    let spammer = TimedSpammer::new(Duration::from_secs(1));
-                                    contender
-                                        .spam(spammer, Arc::new($callback), opts, Some(spam_cancel))
-                                        .await
+                        ($callback:expr) => {{
+                            let callback = Arc::new($callback);
+                            loop {
+                                let res = match spammer_type {
+                                    SpammerType::Timed => {
+                                        let spammer = TimedSpammer::new(Duration::from_secs(1));
+                                        contender
+                                            .spam(
+                                                spammer,
+                                                Arc::clone(&callback),
+                                                opts.clone(),
+                                                Some(spam_cancel.clone()),
+                                            )
+                                            .await
+                                    }
+                                    SpammerType::Blockwise => {
+                                        let spammer = BlockwiseSpammer::new();
+                                        contender
+                                            .spam(
+                                                spammer,
+                                                Arc::clone(&callback),
+                                                opts.clone(),
+                                                Some(spam_cancel.clone()),
+                                            )
+                                            .await
+                                    }
+                                };
+                                if !run_forever || res.is_err() || spam_cancel.is_cancelled() {
+                                    break res;
                                 }
-                                SpammerType::Blockwise => {
-                                    let spammer = BlockwiseSpammer::new();
-                                    contender
-                                        .spam(spammer, Arc::new($callback), opts, Some(spam_cancel))
-                                        .await
-                                }
+                                info!("run_forever: restarting spam for session {session_id}");
                             }
-                        };
+                        }};
                     }
 
                     let result = if save_receipts {

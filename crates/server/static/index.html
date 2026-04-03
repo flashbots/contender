@@ -655,6 +655,7 @@ controls.appendChild(makeCabinet('Spam', body => {
   const spammerF = field('spammer', 'select', { options: ['timed', 'blockwise'] });
   const nameF = field('name (optional)', 'text', { placeholder: 'my-run' });
   const receiptsF = field('save receipts', 'select', { options: ['false', 'true'] });
+  const runForeverF = field('run forever', 'select', { options: ['false', 'true'] });
 
   body.appendChild(idF.container);
   const row = document.createElement('div'); row.className = 'row';
@@ -664,6 +665,7 @@ controls.appendChild(makeCabinet('Spam', body => {
   body.appendChild(spammerF.container);
   body.appendChild(nameF.container);
   body.appendChild(receiptsF.container);
+  body.appendChild(runForeverF.container);
 
   // Message element for feedback
   const msg = document.createElement('div');
@@ -726,6 +728,7 @@ controls.appendChild(makeCabinet('Spam', body => {
       duration: parseInt(durF.input.value),
       spammer: spammerF.input.value,
       saveReceipts: receiptsF.input.value === 'true',
+      runForever: runForeverF.input.value === 'true',
     };
     if (nameF.input.value) params.name = nameF.input.value;
     try {
