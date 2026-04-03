@@ -711,8 +711,9 @@ controls.appendChild(makeCabinet('Add Session', body => {
   const btn = sendBtn('Add Session');
   body.appendChild(btn);
   btn.onclick = async () => {
-    const params = { name: nameF.input.value || 'my-session', rpcUrl: urlF.input.value || 'http://localhost:8545' };
     const ct = configTypeF.input.value;
+    const defaultName = ct === 'builtin' ? builtinF.input.value : 'my-session';
+    const params = { name: nameF.input.value || defaultName, rpcUrl: urlF.input.value || 'http://localhost:8545' };
     if (ct === 'builtin') {
       const scenario = builtinF.input.value;
       const args = {};
