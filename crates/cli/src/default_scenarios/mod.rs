@@ -12,4 +12,4 @@ pub mod stress;
 pub mod transfers;
 pub mod uni_v2;
 
-pub use builtin::{BuiltinScenario, BuiltinScenarioCli};
+pub use builtin::{BuiltinOptions, BuiltinScenario, BuiltinScenarioCli, ToTestConfig};

@@ -33,7 +33,7 @@ pub mod tests {
         },
         test_scenario::{TestScenario, TestScenarioParams},
     };
-    use std::{collections::HashMap, fs, str::FromStr};
+    use std::{collections::HashMap, fs, str::FromStr, time::Duration};
     use tokio::sync::OnceCell;
 
     // prometheus
@@ -308,7 +308,7 @@ pub mod tests {
                 agent_spec: Default::default(),
                 tx_type,
                 bundle_type: Default::default(),
-                pending_tx_timeout_secs: 12,
+                pending_tx_timeout: Duration::from_secs(12),
                 extra_msg_handles: None,
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
@@ -363,7 +363,7 @@ pub mod tests {
                 agent_spec: Default::default(),
                 tx_type,
                 bundle_type: Default::default(),
-                pending_tx_timeout_secs: 12,
+                pending_tx_timeout: Duration::from_secs(12),
                 extra_msg_handles: None,
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
@@ -388,7 +388,7 @@ pub mod tests {
                 agent_spec: Default::default(),
                 tx_type,
                 bundle_type: Default::default(),
-                pending_tx_timeout_secs: 12,
+                pending_tx_timeout: Duration::from_secs(12),
                 extra_msg_handles: None,
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
@@ -489,7 +489,7 @@ value = \"1eth\"
             agent_spec: Default::default(),
             tx_type: Default::default(),
             bundle_type: Default::default(),
-            pending_tx_timeout_secs: 12,
+            pending_tx_timeout: Duration::from_secs(12),
             extra_msg_handles: None,
             sync_nonces_after_batch: true,
             rpc_batch_size: 0,
@@ -611,7 +611,7 @@ mod more_tests {
         let spammer = TimedSpammer::new(Duration::from_secs(1));
         let callback = NilCallback;
         let opts = RunOpts::new().txs_per_period(100).periods(3);
-        contender.spam(spammer, callback.into(), opts).await?;
+        contender.spam(spammer, callback.into(), opts, None).await?;
 
         Ok(())
     }

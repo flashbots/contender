@@ -7,7 +7,7 @@ use crate::generator::{templater::TemplaterError, util::UtilError};
 
 #[derive(Debug, Error)]
 pub enum GeneratorError {
-    #[error("abi parser error")]
+    #[error("abi parser error: {0}")]
     AbiParserFailed(#[from] json_abi::parser::Error),
 
     #[error("could not find address '{0}' in placeholder map")]
@@ -54,6 +54,12 @@ pub enum GeneratorError {
 
     #[error("templater error")]
     Templater(#[from] TemplaterError),
+
+    #[error("signature has {sig_inputs} inputs but {args_len} args were provided")]
+    SignatureArgsMismatch { sig_inputs: usize, args_len: usize },
+
+    #[error("value fuzzer was not initialized")]
+    ValueFuzzerNotInitialized,
 
     #[error("generator util error")]
     Util(#[from] UtilError),

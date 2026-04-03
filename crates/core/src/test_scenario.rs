@@ -175,7 +175,7 @@ where
     pub msg_handles: HashMap<String, Arc<TxActorHandle>>,
     pub tx_type: TxType,
     pub bundle_type: BundleType,
-    pub pending_tx_timeout_secs: u64,
+    pub pending_tx_timeout: Duration,
     pub ctx: ExecutionContext,
     prometheus: PrometheusCollector,
     setcode_signer: PrivateKeySigner,
@@ -202,7 +202,7 @@ pub struct TestScenarioParams {
     pub signers: Vec<PrivateKeySigner>,
     pub agent_spec: AgentSpec,
     pub tx_type: TxType,
-    pub pending_tx_timeout_secs: u64,
+    pub pending_tx_timeout: Duration,
     pub bundle_type: BundleType,
     pub extra_msg_handles: Option<HashMap<String, Arc<TxActorHandle>>>,
     pub sync_nonces_after_batch: bool,
@@ -274,7 +274,7 @@ where
             signers,
             agent_spec,
             tx_type,
-            pending_tx_timeout_secs,
+            pending_tx_timeout,
             bundle_type,
             extra_msg_handles,
             sync_nonces_after_batch,
@@ -389,7 +389,7 @@ where
             msg_handles,
             tx_type,
             bundle_type,
-            pending_tx_timeout_secs,
+            pending_tx_timeout,
             ctx: ExecutionContext {
                 gas_price_adder: 0,
                 block_time_secs,
@@ -522,7 +522,7 @@ where
                 agent_spec: self.agent_spec.clone(),
                 tx_type: self.tx_type,
                 bundle_type: self.bundle_type,
-                pending_tx_timeout_secs: self.pending_tx_timeout_secs,
+                pending_tx_timeout: self.pending_tx_timeout,
                 extra_msg_handles: None,
                 sync_nonces_after_batch: self.should_sync_nonces,
                 rpc_batch_size: self.rpc_batch_size,
@@ -613,7 +613,7 @@ where
                 let http_client = self.http_client.clone();
 
                 let scenario_label = self.scenario_label.clone();
-                let handle = tokio::task::spawn(async move {
+                let handle = crate::spawn_with_session(async move {
                     Self::deploy_contract(DeployContractParams {
                         db: &db,
                         tx_req: &tx_req,
@@ -772,7 +772,7 @@ where
                 let http_client = self.http_client.clone();
                 let sem = semaphore.clone();
 
-                let handle = tokio::task::spawn(async move {
+                let handle = crate::spawn_with_session(async move {
                     let _permit = sem.acquire().await.expect("semaphore closed");
                     let transport = Http::with_client(http_client, rpc_url.to_owned());
                     let rpc_client = ClientBuilder::default().transport(transport, false);
@@ -1113,7 +1113,7 @@ where
                 let rpc_url = self.rpc_url.clone();
                 let hist = self.prometheus.hist.get().cloned();
 
-                tasks.push(tokio::task::spawn(async move {
+                tasks.push(crate::spawn_with_session(async move {
                 let extra = RuntimeTxInfo::now();
                 let handles = match payload {
                     ExecutionPayload::SignedTx(signed_tx, req) if send_raw_tx_sync => {
@@ -1355,7 +1355,7 @@ where
                 .collect();
 
             let hist = self.prometheus.hist.get();
-            tasks.push(tokio::task::spawn(async move {
+            tasks.push(crate::spawn_with_session(async move {
                 // Build json-rpc batch payload with multiple eth_sendRawTransaction requests
                 let mut requests = Vec::with_capacity(signed_chunk.len());
                 for (i, (signed_tx, _)) in signed_chunk.iter().enumerate() {
@@ -1667,7 +1667,7 @@ where
                 agent_spec: self.agent_spec.clone(),
                 tx_type: self.tx_type,
                 bundle_type: self.bundle_type,
-                pending_tx_timeout_secs: self.pending_tx_timeout_secs,
+                pending_tx_timeout: self.pending_tx_timeout,
                 extra_msg_handles: None,
                 sync_nonces_after_batch: self.should_sync_nonces,
                 rpc_batch_size: self.rpc_batch_size,
@@ -1783,7 +1783,7 @@ where
                             last_cache_len = cache_len;
                             last_progress = Instant::now();
                         }
-                        if last_progress.elapsed().as_secs() > self.pending_tx_timeout_secs {
+                        if last_progress.elapsed() > self.pending_tx_timeout {
                             warn!("timed out waiting for pending transactions");
                             break;
                         }
@@ -1942,7 +1942,7 @@ async fn sync_nonces(
     for addr in all_addrs {
         let send = sender.clone();
         let rpc_client = Arc::new(rpc_client.clone());
-        tasks.push(tokio::task::spawn(async move {
+        tasks.push(crate::spawn_with_session(async move {
             let nonce = rpc_client.get_transaction_count(addr).await?;
             send.send((addr, nonce))
                 .await
@@ -2079,6 +2079,7 @@ pub mod tests {
     use contender_bundle_provider::bundle::BundleType;
     use std::collections::HashMap;
     use std::sync::Arc;
+    use std::time::Duration;
     use tokio::sync::OnceCell;
 
     use super::{TestScenarioParams, SETUP_CONCURRENCY_LIMIT};
@@ -2277,7 +2278,7 @@ pub mod tests {
                 agent_spec: AgentSpec::default(),
                 tx_type,
                 bundle_type,
-                pending_tx_timeout_secs: 12,
+                pending_tx_timeout: Duration::from_secs(12),
                 extra_msg_handles: None,
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,
@@ -2819,7 +2820,7 @@ pub mod tests {
                 agent_spec,
                 tx_type: alloy::consensus::TxType::Eip1559,
                 bundle_type: BundleType::default(),
-                pending_tx_timeout_secs: 12,
+                pending_tx_timeout: Duration::from_secs(12),
                 extra_msg_handles: None,
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,

@@ -9,13 +9,15 @@ use crate::commands::{
     },
     SpamCliArgs,
 };
+use crate::default_scenarios::fill_block::SpamRate;
+use crate::default_scenarios::{BuiltinOptions, BuiltinScenarioCli};
 use crate::error::CliError;
 use crate::util::load_testconfig;
 use crate::util::{load_seedfile, parse_duration};
-use crate::BuiltinScenarioCli;
 use alloy::primitives::{keccak256, U256};
 use clap::Args;
 use contender_core::error::RuntimeParamErrorKind;
+use contender_core::generator::RandSeed;
 use contender_report::command::ReportParams;
 use contender_testfile::{CampaignConfig, CampaignMode, ResolvedMixEntry, ResolvedStage};
 use std::path::Path;
@@ -478,10 +480,21 @@ async fn prepare_scenario(
         skip_setup,
     );
 
+    let rand_seed = RandSeed::seed_from_str(&scenario_seed);
     let spam_scenario = if let Some(builtin_cli) = parse_builtin_reference(&mix.scenario) {
         let provider = args.eth_json_rpc_args.new_rpc_provider()?;
         let builtin = builtin_cli
-            .to_builtin_scenario(&provider, &spam_cli_args, ctx.data_dir)
+            .to_builtin_scenario(
+                &provider,
+                BuiltinOptions {
+                    accounts_per_agent: ctx.args.eth_json_rpc_args.accounts_per_agent,
+                    seed: rand_seed,
+                    spam_rate: Some(match ctx.campaign.spam.mode {
+                        CampaignMode::Tps => SpamRate::TxsPerSecond(mix.rate),
+                        CampaignMode::Tpb => SpamRate::TxsPerBlock(mix.rate),
+                    }),
+                },
+            )
             .await?;
         SpamScenario::Builtin(builtin)
     } else {

@@ -83,7 +83,7 @@ mod tests {
         spammer::util::test::{get_test_signers, MockCallback},
         test_scenario::{tests::MockConfig, TestScenarioParams},
     };
-    use std::sync::Arc;
+    use std::{sync::Arc, time::Duration};
 
     use super::*;
 
@@ -126,7 +126,7 @@ mod tests {
                 agent_spec: AgentSpec::default(),
                 tx_type,
                 bundle_type: BundleType::default(),
-                pending_tx_timeout_secs: 12,
+                pending_tx_timeout: Duration::from_secs(12),
                 extra_msg_handles: None,
                 sync_nonces_after_batch: true,
                 rpc_batch_size: 0,

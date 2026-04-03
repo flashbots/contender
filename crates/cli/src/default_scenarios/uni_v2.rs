@@ -3,14 +3,15 @@ use std::str::FromStr;
 use crate::default_scenarios::{builtin::ToTestConfig, contracts::test_token};
 use alloy::primitives::U256;
 use clap::Parser;
-use contender_core::generator::util::parse_value;
+use contender_core::generator::util::{deserialize_value, deserialize_value_opt, parse_value};
 use contender_core::generator::{
     types::SpamRequest, CompiledContract, CreateDefinition, FunctionCallDefinition,
 };
 use contender_testfile::TestConfig;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[derive(Debug, Clone, Parser)]
+#[derive(Debug, Clone, Parser, Deserialize, Serialize)]
 pub struct UniV2CliArgs {
     #[arg(
         short,
@@ -31,6 +32,7 @@ pub struct UniV2CliArgs {
         value_parser = parse_value,
         visible_aliases = ["weth"]
     )]
+    #[serde(deserialize_with = "deserialize_value")]
     pub weth_per_token: U256,
 
     #[arg(
@@ -42,6 +44,7 @@ pub struct UniV2CliArgs {
         visible_aliases = ["mint"],
         value_name = "TOKEN_AMOUNT"
     )]
+    #[serde(deserialize_with = "deserialize_value")]
     pub initial_token_supply: U256,
 
     #[arg(
@@ -51,6 +54,7 @@ pub struct UniV2CliArgs {
         value_name = "WETH_AMOUNT",
         visible_aliases = ["trade-weth"]
     )]
+    #[serde(deserialize_with = "deserialize_value_opt")]
     pub weth_trade_amount: Option<U256>,
 
     #[arg(
@@ -60,6 +64,7 @@ pub struct UniV2CliArgs {
         value_name = "TOKEN_AMOUNT",
         visible_aliases = ["trade-token"]
     )]
+    #[serde(deserialize_with = "deserialize_value_opt")]
     pub token_trade_amount: Option<U256>,
 }
 
