@@ -20,7 +20,7 @@ use contender_engine_provider::{AuthProvider, ControlChain};
 use contender_testfile::TestConfig;
 use op_alloy_network::Optimism;
 use serde::{Deserialize, Serialize};
-use std::{str::FromStr, time::Duration};
+use std::{collections::HashMap, str::FromStr, time::Duration};
 use tracing::debug;
 
 /// Data returned from the `status` endpoint, containing general info about the server.
@@ -229,6 +229,7 @@ pub struct SessionOptions {
     pub tx_type: Option<TxTypeCli>,
     pub private_keys: Option<Vec<B256>>,
     pub agents: Option<AgentParams>,
+    pub env: Option<HashMap<String, String>>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

@@ -9,7 +9,7 @@ use contender_core::{
 use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
@@ -114,10 +114,20 @@ impl ContenderSessionInfo {
         let db = contender_sqlite::SqliteDb::new_memory();
         let seeder = contender_core::generator::RandSeed::seed_from_bytes(&self.id.to_be_bytes());
 
+        // add env to TestConfig before building ContenderCtx
+        let mut testconfig = testconfig;
+        if let Some(env) = options.env {
+            let og_env = testconfig.env.clone().unwrap_or_default();
+            let full_env: HashMap<_, _> = og_env.into_iter().chain(env.into_iter()).collect();
+            testconfig = testconfig.with_env(full_env);
+        }
+
+        // build contender context
         let mut contender_ctx =
             contender_core::ContenderCtx::builder(testconfig, db, seeder, self.rpc_url.clone())
                 .scenario_label(format!("{}_{}", self.name, self.id));
 
+        // apply options to contender context
         if let Some(auth) = options.auth {
             let auth_provider = auth.new_provider().await?;
             contender_ctx = contender_ctx.auth_provider(Arc::new(auth_provider));
@@ -154,8 +164,6 @@ impl ContenderSessionInfo {
         if let Some(agent_params) = options.agents {
             contender_ctx = contender_ctx.agent_spec(agent_params.into());
         }
-        // let agent_spec = AgentSpec::default()
-        // contender_ctx.agent_spec(spec)
 
         /* TODO: here we need to add the options that the RPC is missing.
         - [x] .auth_provider(a)
@@ -169,10 +177,13 @@ impl ContenderSessionInfo {
         ... is ContenderCtxBuilder missing anything that we might need?
         - [x] --accounts-per-agent (implemented here by `agents`)
         - [ ] --forever
-        - [ ] --env
+        - [x] --env (this modifies the TestConfig, does it need to be passed elsewhere?)
         - [ ] --report-interval
+
+        - [ ] ADD INPUTS TO WEB UI
         */
 
+        // build context and return contender instance
         Ok(contender_ctx.build().create_contender())
     }
 }
