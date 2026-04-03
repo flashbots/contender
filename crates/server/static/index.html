@@ -349,10 +349,19 @@ function statusText(status) {
   return JSON.stringify(status);
 }
 
+function trimLogLine(text) {
+  // Extract timestamp and strip metadata prefix
+  const m = text.match(/^(\S+Z)\s+\w+\s+\S+:\s*(?:\S+:\s*)?(.*)/s);
+  if (!m) return text;
+  const d = new Date(m[1]);
+  const ts = isNaN(d) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  return (ts ? `[${ts}] ` : '') + m[2];
+}
+
 function addLogLine(logBox, text) {
   const line = document.createElement('div');
   line.className = 'line';
-  line.textContent = text;
+  line.textContent = trimLogLine(text);
   logBox.appendChild(line);
   logBox.scrollTop = logBox.scrollHeight;
 }
