@@ -5,13 +5,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Note: this file did not exist until after `v0.5.6`.
 
-## Unreleased
+## [0.9.1](https://github.com/flashbots/contender/releases/tag/v0.9.1) - 2026-04-01
 
-- auto-fund spammer accounts periodically when running with `--forever` to prevent ETH depletion
+- support spamming with `eth_sendRawTransactionSync` with new flag `--send-raw-tx-sync` ([#459](https://github.com/flashbots/contender/pull/459))
+- auto-fund spammer accounts periodically when running with `--forever` to prevent ETH depletion ([#502](https://github.com/flashbots/contender/pull/502))
 - add `--time-to-inclusion-bucket` flag to configure histogram bucket size in reports ([#498](https://github.com/flashbots/contender/pull/498))
 - move default data dir to `$XDG_STATE_HOME/contender` (`~/.local/state/contender`), with automatic migration from legacy `~/.contender` ([#460](https://github.com/flashbots/contender/issues/460))
 - organize `--help` output into logical sections for `spam` and `campaign` flags ([#408](https://github.com/flashbots/contender/issues/408))
 - bugfix: only retry recoverable errors in `init_scenario` (within spam), allow CTRL-C to terminate it ([#503](https://github.com/flashbots/contender/pull/503))
+- harden against RPC failures ([#496](https://github.com/flashbots/contender/pull/496/changes))
+- add live spam progress report logs, enabled with `--report-interval` ([#493](https://github.com/flashbots/contender/pull/493/changes))
 
 ## [0.9.0](https://github.com/flashbots/contender/releases/tag/v0.9.0) - 2026-03-17
 
