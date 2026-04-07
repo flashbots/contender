@@ -511,6 +511,90 @@ function renderSessions(sessions) {
         controls.appendChild(stopButton);
         controls.appendChild(removeBtn);
 
+        // ── Fund controls (drawer) ──
+        let fundDrawerOpen = false;
+
+        const fundBtn = sendBtn('Fund Accounts');
+        fundBtn.style.background = 'var(--success)';
+        fundBtn.style.color = '#000';
+        controls.appendChild(fundBtn);
+
+        const fundDrawer = document.createElement('div');
+        fundDrawer.style.cssText = 'display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .25s ease,opacity .2s ease;';
+        const fundDrawerInner = document.createElement('div');
+        fundDrawerInner.style.cssText = 'overflow:hidden;padding:0 1px;';
+        const fundDrawerContent = document.createElement('div');
+        fundDrawerContent.style.cssText = 'display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding-top:8px;';
+
+        const fundInput = document.createElement('input');
+        fundInput.type = 'text';
+        fundInput.placeholder = '1 eth';
+        fundInput.style.cssText = 'width:120px;padding:6px 10px;border-radius:4px;border:1px solid var(--border);background:var(--input-bg);color:var(--text);font-family:inherit;font-size:.85rem;';
+        fundInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); fundBtn.click(); } });
+
+        const fundAgentSelect = document.createElement('select');
+        fundAgentSelect.style.cssText = 'padding:6px 10px;border-radius:4px;border:1px solid var(--border);background:var(--input-bg);color:var(--text);font-family:inherit;font-size:.85rem;';
+        for (const opt of ['Spammer', 'Deployer', 'SetupSender']) {
+          const o = document.createElement('option');
+          o.value = opt; o.textContent = opt;
+          fundAgentSelect.appendChild(o);
+        }
+
+        const fundCloseBtn = document.createElement('button');
+        fundCloseBtn.textContent = '\u2715';
+        fundCloseBtn.style.cssText = 'background:none;border:1px solid var(--border);color:var(--muted);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:.85rem;font-family:inherit;';
+        fundCloseBtn.title = 'Cancel';
+
+        const fundMsg = document.createElement('div');
+        fundMsg.style.cssText = 'font-size:.78rem;color:var(--muted);width:100%;word-break:break-word;white-space:normal;';
+
+        fundDrawerContent.appendChild(fundInput);
+        fundDrawerContent.appendChild(fundAgentSelect);
+        fundDrawerContent.appendChild(fundCloseBtn);
+        fundDrawerContent.appendChild(fundMsg);
+        fundDrawerInner.appendChild(fundDrawerContent);
+        fundDrawer.appendChild(fundDrawerInner);
+
+        function openFundDrawer() {
+          fundDrawerOpen = true;
+          fundDrawer.style.gridTemplateRows = '1fr';
+          fundDrawer.style.opacity = '1';
+          fundMsg.textContent = '';
+          setTimeout(() => fundInput.focus(), 50);
+        }
+
+        function closeFundDrawer() {
+          fundDrawerOpen = false;
+          fundDrawer.style.gridTemplateRows = '0fr';
+          fundDrawer.style.opacity = '0';
+          fundMsg.textContent = '';
+          fundInput.value = '';
+        }
+
+        fundCloseBtn.onclick = (e) => { e.stopPropagation(); closeFundDrawer(); };
+
+        fundBtn.onclick = async (e) => {
+          e.stopPropagation();
+          if (!fundDrawerOpen) { openFundDrawer(); return; }
+          const amount = fundInput.value.trim();
+          if (!amount) { fundMsg.textContent = 'Enter an amount'; fundMsg.style.color = 'var(--warning)'; return; }
+          fundBtn.disabled = true;
+          fundMsg.textContent = 'Funding...';
+          fundMsg.style.color = 'var(--muted)';
+          try {
+            await rpc('fundAccounts', [{ sessionId: s.id, amount, agentClass: fundAgentSelect.value }]);
+            closeFundDrawer();
+          } catch (err) {
+            fundMsg.textContent = err && err.message ? err.message : JSON.stringify(err);
+            fundMsg.style.color = 'var(--error)';
+          } finally {
+            fundBtn.disabled = false;
+          }
+        };
+
+        body.appendChild(controls);
+        body.appendChild(fundDrawer);
+
         // ── Modal logic ──
         function showModal({ message, onConfirm }) {
             const overlay = document.getElementById('modal-overlay');
@@ -538,7 +622,6 @@ function renderSessions(sessions) {
             overlay.focus();
         }
 
-        body.appendChild(controls);
         body.appendChild(logBox);
 
         // Store stopButton reference for live updates
