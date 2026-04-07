@@ -9,7 +9,7 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, Instrument};
 
-use crate::rpc_server::ServerStatus;
+use crate::rpc_server::{FundAccountsParams, ServerStatus};
 use crate::sessions::ContenderSession;
 use crate::{
     error::ContenderRpcError,
@@ -47,6 +47,10 @@ pub trait ContenderRpc {
 
     #[method(name = "stop")]
     async fn stop(&self, session_id: usize) -> jsonrpsee::core::RpcResult<String>;
+
+    #[method(name = "fundAccounts")]
+    async fn fund_accounts(&self, params: FundAccountsParams)
+        -> jsonrpsee::core::RpcResult<String>;
 
     // ================ WS Methods ================
 
@@ -229,6 +233,8 @@ impl ContenderRpcServer for ContenderServer {
         let sessions = Arc::clone(&self.sessions);
         let span = tracing::info_span!("session_spam", id = session_id);
         let sessions_panic = Arc::clone(&self.sessions);
+
+        // spam in background so we can update session status and log results without blocking the RPC response
         tokio::spawn(
             contender_core::CURRENT_SESSION_ID.scope(
                 session_id,
@@ -347,6 +353,69 @@ impl ContenderRpcServer for ContenderServer {
             info!("Sent stop signal to session {session_id}");
         }
         Ok(format!("Stopping session {session_id}"))
+    }
+
+    async fn fund_accounts(
+        &self,
+        params: FundAccountsParams,
+    ) -> jsonrpsee::core::RpcResult<String> {
+        let session_id = params.session_id;
+        let sessions = self.sessions.read().await;
+        let Some(session) = sessions.get_session(session_id) else {
+            return Err(ContenderRpcError::SessionNotFound(session_id).into());
+        };
+        let info = session.info.clone();
+        error_if_session_not_ready(&session)?;
+        drop(sessions);
+
+        // Take contender instance so we can fund accounts without holding the `sessions` lock.
+        let contender = {
+            let mut lock = self.sessions.write().await;
+            lock.take_contender(session_id)
+        };
+
+        let Some(contender) = contender else {
+            return Err(ContenderRpcError::SessionBusy(info).into());
+        };
+
+        let sessions = Arc::clone(&self.sessions);
+        let span = tracing::info_span!("session_fund_accounts", id = session_id);
+        tokio::spawn(
+            contender_core::CURRENT_SESSION_ID.scope(
+                session_id,
+                async move {
+                    let result = contender
+                        .fund_accounts(params.agent_class.unwrap_or_default(), params.amount)
+                        .await;
+
+                    // Put contender back and log outcome.
+                    let mut lock = sessions.write().await;
+                    lock.put_contender(session_id, contender);
+                    match result {
+                        Ok(()) => {
+                            if let Some(session) = lock.get_session_mut(session_id) {
+                                session.info.status = SessionStatus::Ready;
+                            }
+                            info!("Session {} accounts funded successfully", session_id);
+                        }
+                        Err(e) => {
+                            if let Some(session) = lock.get_session_mut(session_id) {
+                                session.info.status =
+                                    SessionStatus::Failed(format!("funding accounts failed: {e}"));
+                            }
+                            tracing::error!(
+                                "Session {} funding accounts failed: {}",
+                                session_id,
+                                e
+                            );
+                        }
+                    }
+                }
+                .instrument(span),
+            ),
+        );
+
+        Ok(format!("Funding accounts for session {session_id}"))
     }
 }
 

@@ -19,7 +19,7 @@ use crate::{
 use alloy::primitives::U256;
 use clap::Subcommand;
 use contender_core::{
-    agent_controller::AgentStore,
+    agent_controller::{AgentClass, AgentStore},
     error::RuntimeParamErrorKind,
     generator::{constants::setcode_placeholder, types::AnyProvider, RandSeed},
 };
@@ -102,6 +102,7 @@ impl BuiltinScenarioCli {
                     &["spammers"],
                     options.accounts_per_agent.unwrap_or(10) as usize,
                     &options.seed,
+                    AgentClass::Spammer,
                 );
                 let spammers = agents
                     .get_agent("spammers")

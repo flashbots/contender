@@ -41,6 +41,9 @@ pub enum ContenderRpcError {
 
     #[error("Invalid UTF-8 in decoded config: {0}")]
     InvalidUtf8(std::string::FromUtf8Error),
+
+    #[error("Funding accounts failed: {0}")]
+    FundingFailed(contender_core::Error),
 }
 
 impl From<ContenderRpcError> for ErrorObjectOwned {
@@ -80,7 +83,7 @@ impl From<ContenderRpcError> for ErrorObjectOwned {
             ContenderRpcError::SessionNotInitialized(info) => ErrorObject::owned(
                 6,
                 format!(
-                    "Session {} not ready (status: {}); must be initialized before spamming",
+                    "Session {} not ready (status: {}); must finish initializing before performing this action",
                     info.id, info.status
                 ),
                 Option::<String>::None,
@@ -107,6 +110,12 @@ impl From<ContenderRpcError> for ErrorObjectOwned {
             ContenderRpcError::AuthProviderError(e) => ErrorObject::owned(
                 10,
                 "Failed to initialize auth provider".to_string(),
+                Some(e.to_string()),
+            ),
+
+            ContenderRpcError::FundingFailed(e) => ErrorObject::owned(
+                11,
+                "Failed to fund accounts".to_string(),
                 Some(e.to_string()),
             ),
 

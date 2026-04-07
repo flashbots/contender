@@ -4,7 +4,9 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use crate::{
+    agent_controller::AgentClass,
     db::{DbOps, MockDb, SpamDuration, SpamRunRequest},
+    error::RuntimeErrorKind,
     generator::{
         agent_pools::AgentSpec,
         seeder::{rand_seed::SeedGenerator, Seeder},
@@ -358,7 +360,10 @@ pub struct RunOpts {
     pub txs_per_period: u64,
     pub periods: u64,
     pub name: String,
+    /// If set, contender will log spam run results every `report_interval_secs` seconds.
     pub report_interval_secs: Option<u64>,
+    /// If set, contender will fund agent accounts with the specified frequency (in seconds) during the spam run.
+    pub fund_interval_secs: Option<u64>,
 }
 
 impl Default for RunOpts {
@@ -368,6 +373,7 @@ impl Default for RunOpts {
             periods: 1,
             name: "Unknown".to_owned(),
             report_interval_secs: None,
+            fund_interval_secs: None,
         }
     }
 }
@@ -390,6 +396,10 @@ impl RunOpts {
     }
     pub fn report_interval_secs(mut self, secs: u64) -> Self {
         self.report_interval_secs = Some(secs);
+        self
+    }
+    pub fn fund_interval_secs(mut self, secs: u64) -> Self {
+        self.fund_interval_secs = Some(secs);
         self
     }
 
@@ -425,7 +435,35 @@ where
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
     ctx: ContenderCtx<D, S, P>,
-    initialized: bool,
+    pub state: ContenderState<D, S, P>,
+}
+
+pub enum ContenderState<D, S, P>
+where
+    D: DbOps + Clone + Send + Sync + 'static,
+    S: SeedGenerator + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+{
+    Uninitialized,
+    Initialized(TestScenario<D, S, P>),
+}
+
+impl<D, S, P> ContenderState<D, S, P>
+where
+    D: DbOps + Clone + Send + Sync + 'static,
+    S: SeedGenerator + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+{
+    pub fn scenario(&self) -> Option<&TestScenario<D, S, P>> {
+        match self {
+            ContenderState::Uninitialized => None,
+            ContenderState::Initialized(scenario) => Some(scenario),
+        }
+    }
+
+    pub fn is_initialized(&self) -> bool {
+        matches!(self, ContenderState::Initialized(_))
+    }
 }
 
 impl<D, S, P> Contender<D, S, P>
@@ -458,7 +496,7 @@ where
     pub fn new(ctx: ContenderCtx<D, S, P>) -> Self {
         Self {
             ctx,
-            initialized: false,
+            state: ContenderState::Uninitialized,
         }
     }
 
@@ -479,7 +517,7 @@ where
         }
         scenario.deploy_contracts().await?;
         scenario.run_setup().await?;
-        self.initialized = true;
+        self.state = ContenderState::Initialized(scenario);
         Ok(())
     }
 
@@ -539,12 +577,12 @@ where
         SP: Spammer<F, D, S, P>,
     {
         // call self.initialize if it hasn't yet been called manually
-        if !self.initialized {
+        if !self.state.is_initialized() {
             self.initialize().await?;
         }
 
         // build scenario so we can use its DB
-        let mut scenario = self.ctx.build_scenario().await?;
+        let mut scenario = self.state.scenario().expect("if initialize() fails, it will throw an error before this point, so scenario should always be available here").to_owned();
 
         // add run to DB
         let run_req = opts.create_spam_run_request(
@@ -639,5 +677,26 @@ where
             interval_secs,
             planned_tx_count,
         )
+    }
+
+    pub async fn fund_accounts(&self, agent_class: AgentClass, amount: U256) -> Result<()> {
+        let scenario = self
+            .state
+            .scenario()
+            .ok_or_else(|| RuntimeErrorKind::ScenarioNotFound)?;
+
+        let funder = &self.ctx.user_signers[0];
+        let agent = scenario.agent_store.get_class(&agent_class);
+        if let Some(agent) = agent {
+            agent
+                .fund_signers(funder, amount, scenario.rpc_client.to_owned())
+                .await?;
+        } else {
+            tracing::warn!(
+                "No agents found for class {:?}, skipping funding",
+                agent_class
+            );
+        }
+        Ok(())
     }
 }

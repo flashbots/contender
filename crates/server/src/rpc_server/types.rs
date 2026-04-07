@@ -6,6 +6,7 @@ use contender_cli::{
     util::provider::AuthClient,
 };
 use contender_core::{
+    agent_controller::AgentClass,
     alloy::{
         network::{AnyNetwork, Ethereum},
         primitives::{B256, U256},
@@ -19,7 +20,7 @@ use contender_core::{
 use contender_engine_provider::{AuthProvider, ControlChain};
 use contender_testfile::TestConfig;
 use op_alloy_network::Optimism;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::{collections::HashMap, str::FromStr, time::Duration};
 use tracing::debug;
 
@@ -261,6 +262,21 @@ impl From<AgentParams> for AgentSpec {
         }
         spec
     }
+}
+
+fn parse_value<'de, D: Deserializer<'de>>(deserializer: D) -> Result<U256, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    contender_core::generator::util::parse_value(&value)
+        .map_err(|e| serde::de::Error::custom(format!("failed to parse value '{value}': {e}")))
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FundAccountsParams {
+    pub session_id: usize,
+    pub agent_class: Option<AgentClass>,
+    #[serde(deserialize_with = "parse_value")]
+    pub amount: U256,
 }
 
 #[cfg(test)]

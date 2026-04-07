@@ -412,15 +412,20 @@ where
         })
     }
 
-    /// Fetch nonces for each account in `signer_map` from the RPC provider, assign the values to TestScenario's internal nonce map.
+    /// If self.should_sync_nonces is `true`,
+    /// fetch nonces for each account in `signer_map` from the RPC provider, assign the values to TestScenario's internal nonce map.
+    /// Otherwise do nothing.
     pub async fn sync_nonces(&mut self) -> Result<()> {
-        sync_nonces(
-            &self.signer_map,
-            &mut self.nonces,
-            &self.rpc_client,
-            self.setcode_signer.address(),
-        )
-        .await
+        if self.should_sync_nonces {
+            return sync_nonces(
+                &self.signer_map,
+                &mut self.nonces,
+                &self.rpc_client,
+                self.setcode_signer.address(),
+            )
+            .await;
+        }
+        Ok(())
     }
 
     pub fn tx_actor(&self) -> &TxActorHandle {

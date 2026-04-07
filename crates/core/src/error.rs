@@ -97,6 +97,9 @@ pub enum RuntimeErrorKind {
 
     #[error("invalid runtime params")]
     InvalidParams(#[from] RuntimeParamErrorKind),
+
+    #[error("scenario not found")]
+    ScenarioNotFound,
 }
 
 impl From<FlashblocksError> for Error {

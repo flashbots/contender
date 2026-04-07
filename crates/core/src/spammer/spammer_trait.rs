@@ -122,9 +122,7 @@ where
                 .insert_latency_metrics(run_id, &latency_metrics)
                 .map_err(|e| e.into())?;
 
-            if scenario.should_sync_nonces {
-                scenario.sync_nonces().await?;
-            }
+            scenario.sync_nonces().await?;
 
             info!("done. run_id: {run_id}");
             Ok(())
