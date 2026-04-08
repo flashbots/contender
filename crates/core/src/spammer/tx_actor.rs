@@ -26,7 +26,6 @@ use crate::{
 const MAX_PENDING_FLASHBLOCK_MARKS: usize = 1024;
 
 /// External messages from API callers
-#[derive(Debug)]
 pub enum TxActorMessage {
     InitCtx(ActorContext),
     GetCacheLen(oneshot::Sender<usize>),
@@ -49,10 +48,34 @@ pub enum TxActorMessage {
     Stop {
         on_stop: oneshot::Sender<()>,
     },
+    /// Replace the flush receiver with a new one (used when restarting the flush loop).
+    ReplaceFlushReceiver(mpsc::Receiver<FlushRequest>),
+}
+
+impl std::fmt::Debug for TxActorMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InitCtx(ctx) => f.debug_tuple("InitCtx").field(ctx).finish(),
+            Self::GetCacheLen(_) => f.write_str("GetCacheLen"),
+            Self::SentRunTx { tx_hash, .. } => f
+                .debug_struct("SentRunTx")
+                .field("tx_hash", tx_hash)
+                .finish(),
+            Self::RemovedRunTx { tx_hash, .. } => f
+                .debug_struct("RemovedRunTx")
+                .field("tx_hash", tx_hash)
+                .finish(),
+            Self::DumpCache { run_id, .. } => {
+                f.debug_struct("DumpCache").field("run_id", run_id).finish()
+            }
+            Self::Stop { .. } => f.write_str("Stop"),
+            Self::ReplaceFlushReceiver(_) => f.write_str("ReplaceFlushReceiver"),
+        }
+    }
 }
 
 /// Internal messages from flush task to message handler
-enum FlushRequest {
+pub enum FlushRequest {
     /// Request a snapshot of the current cache
     GetSnapshot {
         reply: oneshot::Sender<(Vec<PendingRunTx>, Option<ActorContext>)>,
@@ -267,6 +290,9 @@ where
             } => {
                 let res = self.dump_cache(run_id)?;
                 on_dump_cache.send(res).map_err(CallbackError::DumpCache)?;
+            }
+            TxActorMessage::ReplaceFlushReceiver(new_receiver) => {
+                self.flush_receiver = new_receiver;
             }
         }
         Ok(())
@@ -608,7 +634,7 @@ fn get_tx_error(
 #[derive(Debug)]
 pub struct TxActorHandle {
     sender: mpsc::Sender<TxActorMessage>,
-    flush_complete: CancellationToken,
+    flush_complete: std::sync::Mutex<CancellationToken>,
 }
 
 #[derive(Debug)]
@@ -668,13 +694,47 @@ impl TxActorHandle {
 
         Ok(Self {
             sender,
-            flush_complete,
+            flush_complete: std::sync::Mutex::new(flush_complete),
         })
     }
 
     /// Waits until the flush loop has finished processing all receipts.
     pub async fn await_flush(&self) {
-        self.flush_complete.cancelled().await;
+        let token = self.flush_complete.lock().unwrap().clone();
+        token.cancelled().await;
+    }
+
+    /// Restart the flush loop for a new spam run.
+    ///
+    /// Creates a new flush channel pair, sends the new receiver to the actor,
+    /// and spawns a fresh flush loop with the given cancel token.
+    pub async fn restart_flush<D: DbOps + Send + Sync + 'static>(
+        &self,
+        db: Arc<D>,
+        rpc: Arc<AnyProvider>,
+        cancel_token: CancellationToken,
+    ) -> Result<()> {
+        let (flush_sender, flush_receiver) = mpsc::channel(64);
+
+        // Send new flush_receiver to actor
+        self.sender
+            .send(TxActorMessage::ReplaceFlushReceiver(flush_receiver))
+            .await
+            .map_err(Box::new)
+            .map_err(CallbackError::from)?;
+
+        // Replace flush_complete token
+        let flush_complete = CancellationToken::new();
+        let flush_done = flush_complete.clone();
+        *self.flush_complete.lock().unwrap() = flush_complete;
+
+        // Spawn new flush loop
+        crate::spawn_with_session(async move {
+            flush_loop(flush_sender, db, rpc, cancel_token).await;
+            flush_done.cancel();
+        });
+
+        Ok(())
     }
 
     /// Adds a new tx to the cache.

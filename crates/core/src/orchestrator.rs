@@ -596,6 +596,9 @@ where
         let scenario = self.state.scenario_mut()
             .expect("if initialize() fails, it will throw an error before this point, so scenario should always be available here");
 
+        // reset cancel token & restart flush loops if this isn't the first run
+        scenario.prepare_for_run().await?;
+
         // add run to DB
         let run_req = opts.create_spam_run_request(
             &scenario.rpc_url,

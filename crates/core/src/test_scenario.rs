@@ -429,6 +429,27 @@ where
         Ok(())
     }
 
+    /// Prepares the scenario for a new spam run by resetting the cancel token
+    /// and restarting the flush loops in all message handles.
+    ///
+    /// This is a no-op on the first run (cancel token is fresh).
+    pub async fn prepare_for_run(&mut self) -> Result<()> {
+        if !self.ctx.cancel_token.is_cancelled() {
+            return Ok(());
+        }
+        self.ctx.cancel_token = CancellationToken::new();
+        for handle in self.msg_handles.values() {
+            handle
+                .restart_flush(
+                    self.db.clone(),
+                    self.rpc_client.clone(),
+                    self.ctx.cancel_token.clone(),
+                )
+                .await?;
+        }
+        Ok(())
+    }
+
     pub fn tx_actor(&self) -> &TxActorHandle {
         self.msg_handles
             .get("default")
