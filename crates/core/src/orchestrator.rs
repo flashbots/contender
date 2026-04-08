@@ -640,7 +640,6 @@ where
                     callback,
                 ) => res,
                 _ = external.cancelled() => {
-                    scenario.shutdown().await;
                     Ok(())
                 }
             }
