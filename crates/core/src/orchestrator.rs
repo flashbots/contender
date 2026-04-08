@@ -126,7 +126,7 @@ where
             auth_provider: None,
             prometheus: PrometheusCollector::default(),
             funding: *SMOL_AMOUNT,
-            sync_nonces_after_batch: true,
+            sync_nonces_after_batch: false,
             rpc_batch_size: 0,
             scenario_label: None,
             send_raw_tx_sync: false,
@@ -201,7 +201,7 @@ where
             auth_provider: None,
             prometheus: PrometheusCollector::default(),
             funding: *SMOL_AMOUNT,
-            sync_nonces_after_batch: true,
+            sync_nonces_after_batch: false,
             rpc_batch_size: 0,
             scenario_label: None,
             send_raw_tx_sync: false,
@@ -323,6 +323,10 @@ where
     }
     pub fn scenario_label(mut self, label: String) -> Self {
         self.scenario_label = Some(label);
+        self
+    }
+    pub fn sync_nonces_after_batch(mut self, sync: bool) -> Self {
+        self.sync_nonces_after_batch = sync;
         self
     }
 
@@ -461,6 +465,13 @@ where
         }
     }
 
+    pub fn scenario_mut(&mut self) -> Option<&mut TestScenario<D, S, P>> {
+        match self {
+            ContenderState::Uninitialized => None,
+            ContenderState::Initialized(scenario) => Some(scenario),
+        }
+    }
+
     pub fn is_initialized(&self) -> bool {
         matches!(self, ContenderState::Initialized(_))
     }
@@ -581,8 +592,9 @@ where
             self.initialize().await?;
         }
 
-        // build scenario so we can use its DB
-        let mut scenario = self.state.scenario().expect("if initialize() fails, it will throw an error before this point, so scenario should always be available here").to_owned();
+        // get mutable ref to scenario so nonce state persists across calls
+        let scenario = self.state.scenario_mut()
+            .expect("if initialize() fails, it will throw an error before this point, so scenario should always be available here");
 
         // add run to DB
         let run_req = opts.create_spam_run_request(
@@ -601,7 +613,12 @@ where
         }
 
         let reporting_handle = if let Some(report_interval) = opts.report_interval_secs {
-            self.spawn_spam_report_task(run_id, report_interval, opts.txs_per_period * opts.periods)
+            spawn_spam_report_task(
+                self.ctx.db.as_ref(),
+                run_id,
+                report_interval,
+                opts.txs_per_period * opts.periods,
+            )
         } else {
             // create a dummy cancellation token that won't be triggered, since the report task won't be running
             CancellationToken::new()
@@ -613,7 +630,7 @@ where
         let result = if let Some(external) = cancel_token {
             tokio::select! {
                 res = spammer.spam_rpc(
-                    &mut scenario,
+                    scenario,
                     opts.txs_per_period,
                     opts.periods,
                     Some(run_id),
@@ -627,7 +644,7 @@ where
         } else {
             spammer
                 .spam_rpc(
-                    &mut scenario,
+                    scenario,
                     opts.txs_per_period,
                     opts.periods,
                     Some(run_id),
@@ -662,20 +679,6 @@ where
             alloy::providers::ProviderBuilder::new()
                 .network::<AnyNetwork>()
                 .connect_http(self.ctx.rpc_url.clone()),
-        )
-    }
-
-    fn spawn_spam_report_task(
-        &self,
-        run_id: u64,
-        interval_secs: u64,
-        planned_tx_count: u64,
-    ) -> CancellationToken {
-        spawn_spam_report_task(
-            self.ctx.db.as_ref(),
-            run_id,
-            interval_secs,
-            planned_tx_count,
         )
     }
 

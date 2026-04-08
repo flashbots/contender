@@ -417,6 +417,7 @@ where
     /// Otherwise do nothing.
     pub async fn sync_nonces(&mut self) -> Result<()> {
         if self.should_sync_nonces {
+            println!("syncing nonces...");
             return sync_nonces(
                 &self.signer_map,
                 &mut self.nonces,
@@ -1934,6 +1935,7 @@ async fn handle_tx_outcome<'a, F: SpamCallback + 'static>(
     );
 }
 
+/// Synchronizes the nonce map with the chain for all wallet addresses and the setcode signer.
 async fn sync_nonces(
     wallet_map: &HashMap<Address, PrivateKeySigner>,
     nonces: &mut HashMap<Address, u64>,
