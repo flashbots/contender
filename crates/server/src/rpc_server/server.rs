@@ -363,45 +363,43 @@ impl ContenderRpcServer for ContenderServer {
 
         // Grab cached funding data under a brief read lock — available even
         // while the contender is taken out for spamming.
-        let (funder, agent, rpc_client) = {
-            let sessions = self.sessions.read().await;
-            let Some(session) = sessions.get_session(session_id) else {
-                return Err(ContenderRpcError::SessionNotFound(session_id).into());
-            };
-            // Allow funding in any initialized state (Ready or Spamming).
-            match &session.info.status {
-                SessionStatus::Failed(msg) => {
-                    return Err(ContenderRpcError::SessionFailed {
-                        info: session.info.clone(),
-                        error: msg.to_owned(),
+        let (funder, agent, rpc_client) =
+            {
+                let sessions = self.sessions.read().await;
+                let Some(session) = sessions.get_session(session_id) else {
+                    return Err(ContenderRpcError::SessionNotFound(session_id).into());
+                };
+                // Allow funding in any initialized state (Ready or Spamming).
+                match &session.info.status {
+                    SessionStatus::Failed(msg) => {
+                        return Err(ContenderRpcError::SessionFailed {
+                            info: session.info.clone(),
+                            error: msg.to_owned(),
+                        }
+                        .into());
                     }
-                    .into());
+                    SessionStatus::Ready | SessionStatus::Spamming(_) => {}
+                    _ => {
+                        return Err(
+                            ContenderRpcError::SessionNotInitialized(session.info.clone()).into(),
+                        );
+                    }
                 }
-                SessionStatus::Ready | SessionStatus::Spamming(_) => {}
-                _ => {
-                    return Err(
-                        ContenderRpcError::SessionNotInitialized(session.info.clone()).into(),
-                    );
-                }
-            }
 
-            let funder = session
-                .funder
-                .clone()
-                .ok_or_else(|| ContenderRpcError::SessionNotInitialized(session.info.clone()))?;
-            let rpc_client = session
-                .rpc_client
-                .clone()
-                .ok_or_else(|| ContenderRpcError::SessionNotInitialized(session.info.clone()))?;
-            let agent_store = session
-                .agent_store
-                .as_ref()
-                .ok_or_else(|| ContenderRpcError::SessionNotInitialized(session.info.clone()))?;
+                let funder = session.funder.clone().ok_or_else(|| {
+                    ContenderRpcError::SessionNotInitialized(session.info.clone())
+                })?;
+                let rpc_client = session.rpc_client.clone().ok_or_else(|| {
+                    ContenderRpcError::SessionNotInitialized(session.info.clone())
+                })?;
+                let agent_store = session.agent_store.as_ref().ok_or_else(|| {
+                    ContenderRpcError::SessionNotInitialized(session.info.clone())
+                })?;
 
-            let agent_class = params.agent_class.unwrap_or_default();
-            let agent = agent_store.get_class(&agent_class).cloned();
-            (funder, agent, rpc_client)
-        };
+                let agent_class = params.agent_class.unwrap_or_default();
+                let agent = agent_store.get_class(&agent_class).cloned();
+                (funder, agent, rpc_client)
+            };
 
         let span = tracing::info_span!("session_fund_accounts", id = session_id);
         let sessions = Arc::clone(&self.sessions);
@@ -414,9 +412,7 @@ impl ContenderRpcServer for ContenderServer {
                             .fund_signers(&funder, params.amount, rpc_client.as_ref().clone())
                             .await
                     } else {
-                        tracing::warn!(
-                            "No agents found for requested class, skipping funding"
-                        );
+                        tracing::warn!("No agents found for requested class, skipping funding");
                         Ok(())
                     };
 
