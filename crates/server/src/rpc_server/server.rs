@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, Instrument};
+use tracing::{debug, info, warn, Instrument};
 
 use crate::rpc_server::{FundAccountsParams, ServerStatus};
 use crate::sessions::ContenderSession;
@@ -231,8 +231,57 @@ impl ContenderRpcServer for ContenderServer {
         };
 
         let sessions = Arc::clone(&self.sessions);
-        let span = tracing::info_span!("session_spam", id = session_id);
         let sessions_panic = Arc::clone(&self.sessions);
+
+        let opts = params.as_run_opts();
+        let spammer_type = params.spammer.unwrap_or_default();
+        let run_forever = params.run_forever.unwrap_or(false);
+
+        // Set up background funding for run_forever mode.
+        // The spam loop sends () on `fund_tx` after each batch; the funding
+        // task receives it and tops up any spammer account whose balance has
+        // dropped to within 10% of `min_balance`.
+        let fund_tx = if run_forever {
+            let (fund_tx, fund_rx) = tokio::sync::mpsc::channel::<()>(1);
+
+            // Grab cached funding data under a brief read lock.
+            let funding_data = {
+                let sessions = self.sessions.read().await;
+                sessions.get_session(session_id).and_then(|s| {
+                    Some((
+                        s.funder.clone()?,
+                        s.agent_store.clone()?,
+                        s.rpc_client.clone()?,
+                        s.min_balance?,
+                    ))
+                })
+            };
+
+            if let Some((funder, agent_store, rpc_client, min_balance)) = funding_data {
+                let cancel = spam_cancel.clone();
+                tokio::spawn(
+                    contender_core::CURRENT_SESSION_ID.scope(
+                        session_id,
+                        async move {
+                            run_funding_loop(
+                                fund_rx,
+                                cancel,
+                                funder,
+                                agent_store,
+                                rpc_client,
+                                min_balance,
+                            )
+                            .await;
+                        }
+                        .instrument(tracing::info_span!("session_funding", id = session_id)),
+                    ),
+                );
+            }
+
+            Some(fund_tx)
+        } else {
+            None
+        };
 
         // spam in background so we can update session status and log results without blocking the RPC response
         tokio::spawn(
@@ -241,9 +290,7 @@ impl ContenderRpcServer for ContenderServer {
                 async move {
                     let inner = AssertUnwindSafe(async {
                         let mut contender = contender;
-                        let opts = params.as_run_opts();
-                        let spammer_type = params.spammer.unwrap_or_default();
-                        let run_forever = params.run_forever.unwrap_or(false);
+                        let fund_tx = fund_tx;
 
                         macro_rules! run_spam {
                             ($callback:expr) => {{
@@ -278,6 +325,10 @@ impl ContenderRpcServer for ContenderServer {
                                         break res;
                                     }
                                     info!("run_forever: restarting spam for session {session_id}");
+                                    // Signal the funding task to check balances.
+                                    if let Some(ref tx) = fund_tx {
+                                        let _ = tx.try_send(());
+                                    }
                                 }
                             }};
                         }
@@ -330,7 +381,7 @@ impl ContenderRpcServer for ContenderServer {
                         tracing::error!("Session {} spam panicked: {}", session_id, msg);
                     }
                 }
-                .instrument(span),
+                .instrument(tracing::info_span!("session_spam", id = session_id)),
             ),
         );
 
@@ -459,4 +510,71 @@ fn error_if_session_not_ready(session: &ContenderSession) -> jsonrpsee::core::Rp
         SessionStatus::Ready => (),
         _ => return Err(ContenderRpcError::SessionNotInitialized(session.info.clone()).into()),
     })
+}
+
+/// Background task that listens for "batch done" signals and funds spammer
+/// accounts whose balance has dropped to within 10% of `min_balance`.
+async fn run_funding_loop(
+    mut fund_rx: tokio::sync::mpsc::Receiver<()>,
+    cancel: CancellationToken,
+    funder: contender_core::alloy::signers::local::PrivateKeySigner,
+    agent_store: contender_core::agent_controller::AgentStore,
+    rpc_client: Arc<contender_core::generator::types::AnyProvider>,
+    min_balance: contender_core::alloy::primitives::U256,
+) {
+    use contender_core::agent_controller::AgentClass;
+    use contender_core::alloy::providers::Provider;
+
+    // Threshold: fund when balance < (min_balance + 25%)
+    let threshold = min_balance + (min_balance / contender_core::alloy::primitives::U256::from(4));
+
+    loop {
+        tokio::select! {
+            msg = fund_rx.recv() => {
+                if msg.is_none() {
+                    // Channel closed — spam loop exited.
+                    break;
+                }
+            }
+            _ = cancel.cancelled() => break,
+        }
+
+        let Some(spammers) = agent_store.get_class(&AgentClass::Spammer) else {
+            debug!("no spammer agents found, skipping balance check");
+            continue;
+        };
+
+        let addresses = spammers.all_addresses();
+        let mut needs_funding = false;
+
+        for addr in &addresses {
+            match rpc_client.get_balance(*addr).await {
+                Ok(balance) if balance < threshold => {
+                    info!(
+                        "spammer {} balance ({}) below threshold ({}), will fund",
+                        addr, balance, threshold
+                    );
+                    needs_funding = true;
+                    break;
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    warn!("failed to check balance for {}: {}", addr, e);
+                }
+            }
+        }
+
+        if needs_funding {
+            info!("funding spammer accounts (min_balance={})", min_balance);
+            if let Err(e) = spammers
+                .fund_signers(&funder, min_balance, rpc_client.as_ref().clone())
+                .await
+            {
+                warn!("background funding failed: {}", e);
+            } else {
+                info!("background funding completed successfully");
+            }
+        }
+    }
+    debug!("funding loop exited");
 }

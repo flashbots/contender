@@ -689,6 +689,11 @@ where
         self.ctx.user_signers.first()
     }
 
+    /// Returns the configured minimum balance (funding amount) for agent accounts.
+    pub fn min_balance(&self) -> U256 {
+        self.ctx.funding
+    }
+
     pub async fn fund_accounts(&self, agent_class: AgentClass, amount: U256) -> Result<()> {
         let scenario = self
             .state

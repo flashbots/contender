@@ -5,7 +5,7 @@ use crate::{
 };
 use contender_core::{
     agent_controller::AgentStore,
-    alloy::signers::local::PrivateKeySigner,
+    alloy::{primitives::U256, signers::local::PrivateKeySigner},
     generator::{types::AnyProvider, RandSeed},
     test_scenario::Url,
     Contender,
@@ -73,6 +73,8 @@ pub struct ContenderSession {
     pub agent_store: Option<AgentStore>,
     /// The RPC client, populated after initialization.
     pub rpc_client: Option<Arc<AnyProvider>>,
+    /// The configured minimum balance for agent accounts.
+    pub min_balance: Option<U256>,
 }
 
 /// Params for creating a new session ([ContenderSession::new]).
@@ -107,6 +109,7 @@ impl ContenderSession {
             funder: None,
             agent_store: None,
             rpc_client: None,
+            min_balance: None,
         })
     }
 }
@@ -272,6 +275,7 @@ impl ContenderSessionCache {
                 session.funder = contender.funder().cloned();
                 session.agent_store = Some(scenario.agent_store.clone());
                 session.rpc_client = Some(scenario.rpc_client.clone());
+                session.min_balance = Some(contender.min_balance());
             }
             session.contender = Some(contender);
         }
