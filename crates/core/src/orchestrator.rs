@@ -684,6 +684,11 @@ where
         )
     }
 
+    /// Returns a reference to the first user signer (the funder account).
+    pub fn funder(&self) -> Option<&PrivateKeySigner> {
+        self.ctx.user_signers.first()
+    }
+
     pub async fn fund_accounts(&self, agent_class: AgentClass, amount: U256) -> Result<()> {
         let scenario = self
             .state

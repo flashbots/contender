@@ -360,45 +360,72 @@ impl ContenderRpcServer for ContenderServer {
         params: FundAccountsParams,
     ) -> jsonrpsee::core::RpcResult<String> {
         let session_id = params.session_id;
-        let sessions = self.sessions.read().await;
-        let Some(session) = sessions.get_session(session_id) else {
-            return Err(ContenderRpcError::SessionNotFound(session_id).into());
-        };
-        let info = session.info.clone();
-        error_if_session_not_ready(&session)?;
-        drop(sessions);
 
-        // Take contender instance so we can fund accounts without holding the `sessions` lock.
-        let contender = {
-            let mut lock = self.sessions.write().await;
-            lock.take_contender(session_id)
+        // Grab cached funding data under a brief read lock — available even
+        // while the contender is taken out for spamming.
+        let (funder, agent, rpc_client) = {
+            let sessions = self.sessions.read().await;
+            let Some(session) = sessions.get_session(session_id) else {
+                return Err(ContenderRpcError::SessionNotFound(session_id).into());
+            };
+            // Allow funding in any initialized state (Ready or Spamming).
+            match &session.info.status {
+                SessionStatus::Failed(msg) => {
+                    return Err(ContenderRpcError::SessionFailed {
+                        info: session.info.clone(),
+                        error: msg.to_owned(),
+                    }
+                    .into());
+                }
+                SessionStatus::Ready | SessionStatus::Spamming(_) => {}
+                _ => {
+                    return Err(
+                        ContenderRpcError::SessionNotInitialized(session.info.clone()).into(),
+                    );
+                }
+            }
+
+            let funder = session
+                .funder
+                .clone()
+                .ok_or_else(|| ContenderRpcError::SessionNotInitialized(session.info.clone()))?;
+            let rpc_client = session
+                .rpc_client
+                .clone()
+                .ok_or_else(|| ContenderRpcError::SessionNotInitialized(session.info.clone()))?;
+            let agent_store = session
+                .agent_store
+                .as_ref()
+                .ok_or_else(|| ContenderRpcError::SessionNotInitialized(session.info.clone()))?;
+
+            let agent_class = params.agent_class.unwrap_or_default();
+            let agent = agent_store.get_class(&agent_class).cloned();
+            (funder, agent, rpc_client)
         };
 
-        let Some(contender) = contender else {
-            return Err(ContenderRpcError::SessionBusy(info).into());
-        };
-
-        let sessions = Arc::clone(&self.sessions);
         let span = tracing::info_span!("session_fund_accounts", id = session_id);
+        let sessions = Arc::clone(&self.sessions);
         tokio::spawn(
             contender_core::CURRENT_SESSION_ID.scope(
                 session_id,
                 async move {
-                    let result = contender
-                        .fund_accounts(params.agent_class.unwrap_or_default(), params.amount)
-                        .await;
+                    let result = if let Some(agent) = agent {
+                        agent
+                            .fund_signers(&funder, params.amount, rpc_client.as_ref().clone())
+                            .await
+                    } else {
+                        tracing::warn!(
+                            "No agents found for requested class, skipping funding"
+                        );
+                        Ok(())
+                    };
 
-                    // Put contender back and log outcome.
-                    let mut lock = sessions.write().await;
-                    lock.put_contender(session_id, contender);
                     match result {
                         Ok(()) => {
-                            if let Some(session) = lock.get_session_mut(session_id) {
-                                session.info.status = SessionStatus::Ready;
-                            }
                             info!("Session {} accounts funded successfully", session_id);
                         }
                         Err(e) => {
+                            let mut lock = sessions.write().await;
                             if let Some(session) = lock.get_session_mut(session_id) {
                                 session.info.status =
                                     SessionStatus::Failed(format!("funding accounts failed: {e}"));

@@ -4,7 +4,11 @@ use crate::{
     rpc_server::{SessionOptions, SpamParams, SpammerType},
 };
 use contender_core::{
-    alloy::signers::local::PrivateKeySigner, generator::RandSeed, test_scenario::Url, Contender,
+    agent_controller::AgentStore,
+    alloy::signers::local::PrivateKeySigner,
+    generator::{types::AnyProvider, RandSeed},
+    test_scenario::Url,
+    Contender,
 };
 use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
@@ -61,6 +65,14 @@ pub struct ContenderSession {
     /// Per-spam-run token. Created fresh each time `spam` is called, cancelled by `stop`
     /// (or `remove`). After cancellation the session returns to `Ready` and can spam again.
     pub spam_cancel: Option<CancellationToken>,
+
+    // --- Cached funding data (available even while contender is taken) ---
+    /// The funder signer, populated after initialization.
+    pub funder: Option<PrivateKeySigner>,
+    /// The agent store, populated after initialization.
+    pub agent_store: Option<AgentStore>,
+    /// The RPC client, populated after initialization.
+    pub rpc_client: Option<Arc<AnyProvider>>,
 }
 
 /// Params for creating a new session ([ContenderSession::new]).
@@ -92,6 +104,9 @@ impl ContenderSession {
             log_channel,
             cancel: CancellationToken::new(),
             spam_cancel: None,
+            funder: None,
+            agent_store: None,
+            rpc_client: None,
         })
     }
 }
@@ -243,13 +258,21 @@ impl ContenderSessionCache {
         self.get_session_mut(id).and_then(|s| s.contender.take())
     }
 
-    /// Put the Contender back into a session after initialization.
+    /// Put the Contender back into a session after initialization or spamming.
+    /// Also caches funding-related data so `fund_accounts` can work while the
+    /// contender is taken for spamming.
     pub fn put_contender(
         &mut self,
         id: SessionId,
         contender: Contender<SqliteDb, RandSeed, TestConfig>,
     ) {
         if let Some(session) = self.get_session_mut(id) {
+            // Cache funding data from the initialized scenario.
+            if let Some(scenario) = contender.state.scenario() {
+                session.funder = contender.funder().cloned();
+                session.agent_store = Some(scenario.agent_store.clone());
+                session.rpc_client = Some(scenario.rpc_client.clone());
+            }
             session.contender = Some(contender);
         }
     }
