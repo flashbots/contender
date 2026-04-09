@@ -50,6 +50,10 @@ pub enum TxActorMessage {
     },
     /// Replace the flush receiver with a new one (used when restarting the flush loop).
     ReplaceFlushReceiver(mpsc::Receiver<FlushRequest>),
+    /// Clear the pending tx cache without writing to the DB.
+    ClearCache {
+        on_clear: oneshot::Sender<()>,
+    },
 }
 
 impl std::fmt::Debug for TxActorMessage {
@@ -70,6 +74,7 @@ impl std::fmt::Debug for TxActorMessage {
             }
             Self::Stop { .. } => f.write_str("Stop"),
             Self::ReplaceFlushReceiver(_) => f.write_str("ReplaceFlushReceiver"),
+            Self::ClearCache { .. } => f.write_str("ClearCache"),
         }
     }
 }
@@ -293,6 +298,12 @@ where
             }
             TxActorMessage::ReplaceFlushReceiver(new_receiver) => {
                 self.flush_receiver = new_receiver;
+            }
+            TxActorMessage::ClearCache { on_clear } => {
+                self.cache.clear();
+                on_clear
+                    .send(())
+                    .map_err(|e| CallbackError::OneshotSend(format!("ClearCache: {:?}", e)))?;
             }
         }
         Ok(())
@@ -799,6 +810,17 @@ impl TxActorHandle {
             .map_err(Box::new)
             .map_err(CallbackError::from)?;
 
+        Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
+    }
+
+    /// Clears the pending tx cache without writing to the DB.
+    pub async fn clear_cache(&self) -> Result<()> {
+        let (sender, receiver) = oneshot::channel();
+        self.sender
+            .send(TxActorMessage::ClearCache { on_clear: sender })
+            .await
+            .map_err(Box::new)
+            .map_err(CallbackError::from)?;
         Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
     }
 

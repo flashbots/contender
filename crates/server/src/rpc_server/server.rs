@@ -340,6 +340,18 @@ impl ContenderRpcServer for ContenderServer {
                             run_spam!(NilCallback)
                         };
 
+                        // Clear pending tx cache and sync nonces before returning the contender.
+                        if let Some(scenario) = contender.state.scenario_mut() {
+                            for handle in scenario.msg_handles.values() {
+                                if let Err(e) = handle.clear_cache().await {
+                                    warn!("Failed to clear pending tx cache: {e}");
+                                }
+                            }
+                            if let Err(e) = scenario.sync_nonces().await {
+                                warn!("Failed to sync nonces after stop: {e}");
+                            }
+                        }
+
                         // Put contender back and log outcome.
                         let mut lock = sessions.write().await;
                         lock.put_contender(session_id, contender);
