@@ -44,6 +44,12 @@ pub enum ContenderSubcommand {
     },
 
     #[command(
+        name = "server",
+        long_about = "Run the Contender server, which manages contender sessions and serves logs"
+    )]
+    Server,
+
+    #[command(
         name = "replay",
         long_about = "Replay a range of blocks with the engine_ API."
     )]

@@ -5,7 +5,6 @@ members = [
     "crates/core/",
     "crates/engine_provider",
     "crates/report",
-    "crates/server",
     "crates/sqlite_db/",
     "crates/testfile/",
 ]
@@ -29,7 +28,6 @@ contender_testfile = { path = "crates/testfile/" }
 contender_bundle_provider = { path = "crates/bundle_provider/" }
 contender_engine_provider = { path = "crates/engine_provider/" }
 contender_report = { path = "crates/report/" }
-contender_server = { path = "crates/server/" }
 
 tokio = { version = "1.40.0" }
 tokio-tungstenite = { version = "0.26", features = ["native-tls"] }

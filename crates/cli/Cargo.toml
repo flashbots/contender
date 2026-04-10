@@ -48,6 +48,12 @@ thiserror = { workspace = true }
 miette = { workspace = true, features = ["fancy"] }
 url = { workspace = true }
 uuid = { workspace = true }
+base64.workspace = true
+jsonrpsee = { workspace = true, features = ["server", "macros", "ws-client"] }
+axum = { workspace = true }
+tokio-stream.workspace = true
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors"] }
 
 [dev-dependencies]
 tempfile = "3.15.0"
@@ -55,3 +61,7 @@ tempfile = "3.15.0"
 [features]
 default = []
 async-tracing = ["dep:console-subscriber"]
+
+[build-dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"

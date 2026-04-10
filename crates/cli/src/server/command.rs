@@ -1,17 +1,18 @@
 use std::sync::Arc;
 
-use contender_server::config::{init_tracing, load_server_config};
-use contender_server::rpc_server::{ContenderRpcServer as _, ContenderServer};
-use contender_server::sessions::ContenderSessionCache;
-use contender_server::sse::sse_router;
+use crate::server::{
+    config::{init_tracing, load_server_config},
+    rpc_server::{ContenderRpcServer as _, ContenderServer},
+    sessions::ContenderSessionCache,
+    sse::sse_router,
+};
 use jsonrpsee::server::{Server, ServerHandle};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // initialize logging w/ a custom layer that pipes logs to session-specific broadcast channels
     let log_sinks = init_tracing();
 

@@ -1,17 +1,15 @@
-use std::sync::Arc;
-
+use crate::server::sessions::ContenderSessionCache;
 use axum::{
     extract::{Path, State},
     response::sse::{Event, Sse},
     routing::get,
     Router,
 };
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
-
-use crate::sessions::ContenderSessionCache;
 
 pub type SharedSessions = Arc<RwLock<ContenderSessionCache>>;
 

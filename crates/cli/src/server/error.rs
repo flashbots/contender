@@ -2,7 +2,7 @@ use base64::DecodeError;
 use jsonrpsee::types::{ErrorObject, ErrorObjectOwned};
 use thiserror::Error;
 
-use crate::sessions::ContenderSessionInfo;
+use crate::server::sessions::ContenderSessionInfo;
 
 #[derive(Debug, Error)]
 pub enum ContenderRpcError {

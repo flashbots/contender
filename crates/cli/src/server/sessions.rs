@@ -1,4 +1,4 @@
-use crate::{
+use crate::server::{
     error::ContenderRpcError,
     log_layer::SessionLogSinks,
     rpc_server::{SessionOptions, SpamParams, SpammerType},

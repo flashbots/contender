@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod default_scenarios;
 pub mod error;
+pub mod server;
 pub mod util;
 
 pub use error::CliError as Error;

@@ -1,4 +1,4 @@
-use crate::log_layer::{new_log_sinks, SessionLogRouter, SessionLogSinks};
+use crate::server::log_layer::{new_log_sinks, SessionLogRouter, SessionLogSinks};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 pub struct ServerConfig {

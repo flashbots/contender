@@ -32,9 +32,13 @@ async fn main() -> miette::Result<()> {
 }
 
 async fn run() -> Result<(), contender_cli::Error> {
-    init_tracing();
-
     let args = ContenderCli::parse_args();
+
+    // The server subcommand initializes its own tracing subscriber with a
+    // custom SessionLogRouter layer, so skip the default CLI tracing setup.
+    if !matches!(args.command, ContenderSubcommand::Server) {
+        init_tracing();
+    }
 
     // Resolve data directory from CLI arg, env var, or default
     let data_dir = resolve_data_dir(args.data_dir.clone())?;
@@ -113,6 +117,12 @@ async fn run() -> Result<(), contender_cli::Error> {
 
             let spam_args = SpamCommandArgs::new(scenario, *args, &data_dir)?;
             commands::spam(&db, &spam_args, SpamCampaignContext::default()).await?;
+        }
+
+        ContenderSubcommand::Server => {
+            contender_cli::server::run()
+                .await
+                .map_err(|e| contender_cli::Error::ServerStartup(e.to_string()))?;
         }
 
         ContenderSubcommand::Replay { args } => {

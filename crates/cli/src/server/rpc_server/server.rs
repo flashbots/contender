@@ -9,12 +9,10 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn, Instrument};
 
-use crate::rpc_server::{FundAccountsParams, ServerStatus};
-use crate::sessions::ContenderSession;
-use crate::{
+use crate::server::{
     error::ContenderRpcError,
-    rpc_server::types::{AddSessionParams, SpamParams, SpammerType},
-    sessions::{ContenderSessionCache, ContenderSessionInfo, SessionStatus},
+    rpc_server::{AddSessionParams, FundAccountsParams, ServerStatus, SpamParams, SpammerType},
+    sessions::{ContenderSession, ContenderSessionCache, ContenderSessionInfo, SessionStatus},
 };
 
 #[rpc(server)]

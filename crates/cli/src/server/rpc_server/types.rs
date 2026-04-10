@@ -1,10 +1,10 @@
-use crate::{error::ContenderRpcError, sessions::NewSessionParams};
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use contender_cli::{
+use crate::server::{error::ContenderRpcError, sessions::NewSessionParams};
+use crate::{
     commands::common::{BundleTypeCli, EngineMessageVersion, TxTypeCli},
     default_scenarios::{BuiltinOptions, BuiltinScenarioCli},
     util::provider::AuthClient,
 };
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use contender_core::{
     agent_controller::AgentClass,
     alloy::{
@@ -63,7 +63,7 @@ impl AddSessionParams {
                 )
                 .await?
         } else {
-            TestConfig::from_str(include_str!("../../../../scenarios/uniV2.toml"))
+            TestConfig::from_str(include_str!("../../../../../scenarios/uniV2.toml"))
                 .expect("default config should be valid")
         };
 
@@ -282,8 +282,8 @@ pub struct FundAccountsParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::default_scenarios::transfers::TransferStressCliArgs;
     use base64::engine::general_purpose::STANDARD as BASE64;
-    use contender_cli::default_scenarios::transfers::TransferStressCliArgs;
     use contender_core::alloy::{
         consensus::constants::ETH_TO_WEI,
         primitives::{Address, U256},
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn test_toml_base64_variant() {
-        let toml_content = include_str!("../../../../scenarios/uniV2.toml");
+        let toml_content = include_str!("../../../../../scenarios/uniV2.toml");
         let b64 = BASE64.encode(toml_content);
         let json = serde_json::json!({ "TomlBase64": b64 });
         // println!(
@@ -306,7 +306,7 @@ mod tests {
     #[test]
     fn test_json_variant() {
         let config =
-            TestConfig::from_str(include_str!("../../../../scenarios/uniV2.toml")).unwrap();
+            TestConfig::from_str(include_str!("../../../../../scenarios/uniV2.toml")).unwrap();
         let json = serde_json::json!({ "Json": config });
         // println!("Json:\n{}\n", serde_json::to_string_pretty(&json).unwrap());
 
