@@ -329,6 +329,14 @@ function clearLogs(sessionId) {
 // Track per-session state: { ws, logBox, cab }
 const sessionState = {};
 
+function isRunForever(status) {
+  return status && typeof status === 'object' && status.Spamming && status.Spamming.runForever;
+}
+
+function sessionTitle(s) {
+  return `#${s.id} ${s.name} (${s.rpc_url})`;
+}
+
 function statusBadgeClass(status) {
   if (typeof status === 'string') return status.toLowerCase();
   if (status.Spamming) return 'spamming';
@@ -342,7 +350,8 @@ function statusText(status) {
     const p = status.Spamming;
     const type = p.spammer || 'timed';
     const units = type === 'blockwise' ? ['tpb', 'blocks'] : ['tps', 'seconds'];
-    return `Spamming (${p.txsPerPeriod || 10} ${units[0]} for ${p.duration || 10} ${units[1]})`;
+    const forever = p.runForever ? ' (forever)' : '';
+    return `Spamming (${p.txsPerPeriod || 10} ${units[0]} for ${p.duration || 10} ${units[1]})${forever}`;
   }
   if (status.Failed) return `Failed: ${status.Failed}`;
   return JSON.stringify(status);
@@ -448,7 +457,7 @@ function renderSessions(sessions) {
     if (sessionState[s.id]) {
       // Update existing cabinet header
       const state = sessionState[s.id];
-      state.cab._nameSpan.textContent = `#${s.id} ${s.name} (${s.rpc_url})`;
+      state.cab._nameSpan.textContent = sessionTitle(s);
       // Update badge (preserve arrow)
       const arrow = state.cab._metaRight.querySelector('.arrow');
       state.cab._metaRight.innerHTML = badgeHtml + ' ';
@@ -469,7 +478,7 @@ function renderSessions(sessions) {
       // Restore any logs saved from a previous page load
       restoreLogs(s.id, logBox);
 
-      const cab = makeCabinet(`#${s.id} ${s.name} (${s.rpc_url})`, body => {
+      const cab = makeCabinet(sessionTitle(s), body => {
         const controls = document.createElement('div');
         controls.className = 'log-controls';
 
