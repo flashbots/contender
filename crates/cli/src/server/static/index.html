@@ -358,11 +358,12 @@ function trimLogLine(text) {
 }
 
 function addLogLine(logBox, text) {
+  const atBottom = logBox.scrollHeight - logBox.scrollTop - logBox.clientHeight < 30;
   const line = document.createElement('div');
   line.className = 'line';
   line.textContent = trimLogLine(text);
   logBox.appendChild(line);
-  logBox.scrollTop = logBox.scrollHeight;
+  if (atBottom) logBox.scrollTop = logBox.scrollHeight;
 }
 
 function restoreLogs(sessionId, logBox) {
