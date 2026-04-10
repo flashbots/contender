@@ -4,6 +4,12 @@ use std::{
 };
 
 fn main() {
+    generate_scenario_tests();
+}
+
+/// generates cargo tests for all scenario files in the "scenarios" directory,
+/// also tells Cargo to rerun this build script if any of those files change (including new/deleted files)
+fn generate_scenario_tests() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
 
     // Same as your collect_scenario_files: go up twice to project root,
