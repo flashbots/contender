@@ -447,7 +447,7 @@ function renderSessions(sessions) {
     if (sessionState[s.id]) {
       // Update existing cabinet header
       const state = sessionState[s.id];
-      state.cab._nameSpan.textContent = `#${s.id} ${s.name}`;
+      state.cab._nameSpan.textContent = `#${s.id} ${s.name} (${s.rpc_url})`;
       // Update badge (preserve arrow)
       const arrow = state.cab._metaRight.querySelector('.arrow');
       state.cab._metaRight.innerHTML = badgeHtml + ' ';
@@ -468,7 +468,7 @@ function renderSessions(sessions) {
       // Restore any logs saved from a previous page load
       restoreLogs(s.id, logBox);
 
-      const cab = makeCabinet(`#${s.id} ${s.name}`, body => {
+      const cab = makeCabinet(`#${s.id} ${s.name} (${s.rpc_url})`, body => {
         const controls = document.createElement('div');
         controls.className = 'log-controls';
 
