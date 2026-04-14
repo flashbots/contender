@@ -84,3 +84,10 @@ It supports both **per-second** (TPS) and **per-block** (TPB) timing, seeded fuz
 
 ### 5. Internals
 - [Architecture](docs/architecture.md)
+
+### 6. Contender Server
+
+Contender can host a server to run multiple instances of contender on a remote machine.
+User-friendly JSON-RPC API to manage contender sessions, with a web UI and interactive docs available.
+
+- [Server Docs](docs/server.md)
