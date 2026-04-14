@@ -28,6 +28,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // SSE endpoint for log streaming
     let sse_handle = start_sse_server(sessions, &config.sse_addr).await?;
 
+    info!(
+        "API docs available at http://{}/openrpc.json",
+        config.rpc_addr
+    );
+
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
             info!("Received Ctrl+C, shutting down...");
@@ -67,7 +72,9 @@ async fn start_rpc_server(
     Ok(handle)
 }
 
-/// Starts a simple SSE server that serves session logs at `/logs/:session_id`.
+/// Starts the SSE + static file server.
+///
+/// Serves the web UI at `/`, static assets, and SSE log streams at `/logs/:session_id`.
 ///
 /// Returns a handle to the server task; awaiting this handle will wait until the server shuts down.
 async fn start_sse_server(
@@ -76,7 +83,8 @@ async fn start_sse_server(
 ) -> std::io::Result<JoinHandle<std::io::Result<()>>> {
     let sse_app = sse_router(sessions);
     let sse_listener = tokio::net::TcpListener::bind(addr).await?;
-    info!("SSE server listening on {addr}");
+    info!("SSE session logs available at http://{addr}/logs/{{session_id}}");
+    info!("Web UI available at http://{addr}/");
     let sse_handle = tokio::spawn(async move { axum::serve(sse_listener, sse_app).await });
     Ok(sse_handle)
 }

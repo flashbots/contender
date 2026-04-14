@@ -1,7 +1,10 @@
 use crate::server::sessions::ContenderSessionCache;
 use axum::{
     extract::{Path, State},
-    response::sse::{Event, Sse},
+    response::{
+        sse::{Event, Sse},
+        Html, IntoResponse,
+    },
     routing::get,
     Router,
 };
@@ -13,13 +16,38 @@ use tracing::warn;
 
 pub type SharedSessions = Arc<RwLock<ContenderSessionCache>>;
 
-/// Build an axum router that serves SSE log streams.
-///
-/// `GET /logs/:session_id` — returns an SSE stream of log lines for the given session.
+/// Build an axum router that serves SSE log streams and static files.
 pub fn sse_router(sessions: SharedSessions) -> Router {
     Router::new()
+        .route("/", get(index_handler))
+        .route("/index.html", get(index_handler))
+        .route("/docs", get(docs_handler))
+        .route("/builtin_scenarios.js", get(builtin_scenarios_handler))
+        .route("/openrpc.json", get(openrpc_handler))
         .route("/logs/{session_id}", get(logs_handler))
         .with_state(sessions)
+}
+
+async fn index_handler() -> Html<&'static str> {
+    Html(include_str!("static/index.html"))
+}
+
+async fn docs_handler() -> Html<&'static str> {
+    Html(include_str!("static/docs.html"))
+}
+
+async fn builtin_scenarios_handler() -> impl IntoResponse {
+    (
+        [("content-type", "application/javascript")],
+        include_str!("static/builtin_scenarios.js"),
+    )
+}
+
+async fn openrpc_handler() -> impl IntoResponse {
+    (
+        [("content-type", "application/json")],
+        include_str!("static/openrpc.json"),
+    )
 }
 
 async fn logs_handler(

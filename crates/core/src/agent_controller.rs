@@ -8,7 +8,7 @@ use alloy::{
     rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, info};
 
@@ -38,7 +38,7 @@ impl Default for AgentStore {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum AgentClass {
     Deployer,
     SetupSender,

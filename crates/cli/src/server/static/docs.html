@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contender RPC — API Docs</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --border: #0f3460;
+    --accent: #e94560;
+    --text: #eee;
+    --muted: #888;
+    --input-bg: #0f3460;
+    --success: #4ecca3;
+    --error: #e94560;
+    --type-str: #98c379;
+    --type-num: #d19a66;
+    --type-bool: #56b6c2;
+    --type-ref: #c678dd;
+    --type-null: #636d83;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Menlo', 'Consolas', monospace;
+    background: var(--bg); color: var(--text);
+    padding: 24px; max-width: 960px; margin: 0 auto;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .subtitle { color: var(--muted); font-size: .8rem; margin-bottom: 20px; }
+  .back-link { font-size: .8rem; margin-bottom: 16px; display: inline-block; }
+
+  /* ── server bar ── */
+  .server-bar {
+    display: flex; gap: 8px; align-items: center; margin-bottom: 20px;
+    padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  }
+  .server-bar label { font-size: .8rem; color: var(--muted); white-space: nowrap; }
+  .server-bar input {
+    flex: 1; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--input-bg); color: var(--text); font-family: inherit; font-size: .85rem;
+  }
+
+  /* ── nav ── */
+  .method-nav { margin-bottom: 24px; }
+  .method-nav a {
+    display: inline-block; margin: 2px 4px; padding: 4px 10px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
+    font-size: .8rem; color: var(--text);
+  }
+  .method-nav a:hover { background: var(--border); text-decoration: none; }
+  .method-nav a.sub { border-color: var(--accent); }
+
+  /* ── method card ── */
+  .method-card {
+    border: 1px solid var(--border); border-radius: 6px; margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .method-header {
+    padding: 12px 16px; background: var(--surface); cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center;
+    user-select: none;
+  }
+  .method-header:hover { background: var(--border); }
+  .method-name { font-weight: bold; font-size: .95rem; }
+  .method-name .tag {
+    font-size: .65rem; padding: 2px 6px; border-radius: 3px;
+    margin-left: 8px; vertical-align: middle; font-weight: normal;
+  }
+  .tag-method { background: var(--success); color: #000; }
+  .tag-sub { background: var(--accent); color: #fff; }
+  .method-summary { font-size: .78rem; color: var(--muted); margin-top: 2px; }
+  .method-arrow { transition: transform .2s; font-size: .8rem; color: var(--muted); }
+  .method-card.open .method-arrow { transform: rotate(90deg); }
+  .method-body { display: none; padding: 16px; border-top: 1px solid var(--border); }
+  .method-card.open .method-body { display: block; }
+
+  /* ── schema display ── */
+  .section-title { font-size: .8rem; color: var(--muted); margin: 12px 0 6px; text-transform: uppercase; letter-spacing: .5px; }
+  .section-title:first-child { margin-top: 0; }
+  .schema-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+  .schema-table th {
+    text-align: left; padding: 6px 10px; background: var(--surface);
+    border-bottom: 1px solid var(--border); color: var(--muted); font-weight: normal; font-size: .72rem; text-transform: uppercase;
+  }
+  .schema-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .schema-table tr:last-child td { border-bottom: none; }
+  .field-name { font-weight: bold; }
+  .field-required { color: var(--accent); font-size: .7rem; margin-left: 4px; }
+  .field-optional { color: var(--muted); font-size: .7rem; margin-left: 4px; }
+  .type-tag { font-size: .78rem; padding: 1px 6px; border-radius: 3px; }
+  .type-string { color: var(--type-str); }
+  .type-integer, .type-number { color: var(--type-num); }
+  .type-boolean { color: var(--type-bool); }
+  .type-object, .type-array { color: var(--type-ref); }
+  .type-null { color: var(--type-null); }
+  .type-ref { color: var(--type-ref); cursor: pointer; text-decoration: underline; }
+  .type-enum { color: var(--type-str); font-size: .75rem; }
+  .type-oneof { color: var(--type-ref); font-size: .75rem; }
+  .nested-schema { margin: 4px 0 0 12px; border-left: 2px solid var(--border); padding-left: 10px; }
+  .field-desc { font-size: .75rem; color: var(--muted); margin-top: 2px; }
+
+  /* ── try-it panel ── */
+  .try-it { margin-top: 16px; }
+  .try-it textarea {
+    width: 100%; min-height: 80px; padding: 8px 10px; border-radius: 4px;
+    border: 1px solid var(--border); background: var(--input-bg); color: var(--text);
+    font-family: inherit; font-size: .82rem; resize: vertical;
+  }
+  .try-it button {
+    margin-top: 6px; padding: 6px 18px; border: none; border-radius: 4px;
+    background: var(--accent); color: #fff; font-family: inherit; font-weight: bold;
+    font-size: .85rem; cursor: pointer;
+  }
+  .try-it button:hover { opacity: .85; }
+  .try-it-result {
+    margin-top: 8px; padding: 8px 10px; border-radius: 4px; font-size: .78rem;
+    white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto;
+  }
+  .try-it-result.ok { background: rgba(78,204,163,.12); border: 1px solid var(--success); }
+  .try-it-result.err { background: rgba(233,69,96,.12); border: 1px solid var(--error); }
+
+  /* ── schemas section ── */
+  .schemas-section { margin-top: 32px; }
+  .schema-card {
+    border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px; overflow: hidden;
+  }
+  .schema-header {
+    padding: 10px 14px; background: var(--surface); cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center; user-select: none;
+  }
+  .schema-header:hover { background: var(--border); }
+  .schema-card.open .schema-body { display: block; }
+  .schema-body { display: none; padding: 14px; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<a href="/" class="back-link">&larr; Back to dashboard</a>
+<h1 id="doc-title">Contender RPC — API Docs</h1>
+<p class="subtitle" id="doc-subtitle"></p>
+
+<div class="server-bar">
+  <label>RPC endpoint:</label>
+  <input id="rpc-url" value="http://localhost:3000" />
+</div>
+
+<div id="method-nav" class="method-nav"></div>
+<div id="methods"></div>
+<div id="schemas-section" class="schemas-section"></div>
+
+<script>
+const $ = (s, p) => (p || document).querySelector(s);
+
+let SPEC = null;
+let rpcId = 1;
+
+async function loadSpec() {
+  const res = await fetch('./openrpc.json');
+  SPEC = await res.json();
+  document.getElementById('doc-title').textContent = SPEC.info.title || 'API Docs';
+  document.getElementById('doc-subtitle').textContent =
+    (SPEC.info.description || '') + (SPEC.info.version ? '  v' + SPEC.info.version : '');
+  renderNav();
+  renderMethods();
+  renderSchemas();
+}
+
+function resolve(schema) {
+  if (!schema) return schema;
+  if (schema.$ref) {
+    const path = schema.$ref.replace('#/components/schemas/', '');
+    const resolved = SPEC.components && SPEC.components.schemas && SPEC.components.schemas[path];
+    return resolved ? { ...resolved, _refName: path } : { type: 'unknown', _refName: path, _external: true };
+  }
+  return schema;
+}
+
+function resolveDeep(schema, depth) {
+  if (!schema || depth > 6) return schema;
+  schema = resolve(schema);
+  if (schema.properties) {
+    const props = {};
+    for (const [k, v] of Object.entries(schema.properties)) {
+      props[k] = resolveDeep(v, depth + 1);
+    }
+    return { ...schema, properties: props };
+  }
+  if (schema.items) {
+    return { ...schema, items: resolveDeep(schema.items, depth + 1) };
+  }
+  if (schema.oneOf) {
+    return { ...schema, oneOf: schema.oneOf.map(s => resolveDeep(s, depth + 1)) };
+  }
+  if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
+    return { ...schema, additionalProperties: resolveDeep(schema.additionalProperties, depth + 1) };
+  }
+  return schema;
+}
+
+// ── nav ──
+
+function renderNav() {
+  const nav = document.getElementById('method-nav');
+  for (const m of SPEC.methods) {
+    const a = document.createElement('a');
+    a.href = '#method-' + m.name;
+    a.textContent = m.name;
+    if (m.name.startsWith('subscribe')) a.className = 'sub';
+    nav.appendChild(a);
+  }
+}
+
+// ── methods ──
+
+function renderMethods() {
+  const container = document.getElementById('methods');
+  for (const m of SPEC.methods) {
+    const card = document.createElement('div');
+    card.className = 'method-card';
+    card.id = 'method-' + m.name;
+
+    const isSub = m.name.startsWith('subscribe');
+    const tagClass = isSub ? 'tag-sub' : 'tag-method';
+    const tagText = isSub ? 'subscription' : 'method';
+
+    const header = document.createElement('div');
+    header.className = 'method-header';
+    header.innerHTML = `
+      <div>
+        <div class="method-name">${esc(m.name)}<span class="tag ${tagClass}">${tagText}</span></div>
+        ${m.summary ? `<div class="method-summary">${esc(m.summary)}</div>` : ''}
+      </div>
+      <span class="method-arrow">&#9654;</span>
+    `;
+    header.onclick = () => card.classList.toggle('open');
+
+    const body = document.createElement('div');
+    body.className = 'method-body';
+
+    // Params
+    if (m.params && m.params.length > 0) {
+      body.innerHTML += '<div class="section-title">Parameters</div>';
+      for (const p of m.params) {
+        const resolved = resolveDeep(p.schema, 0);
+        body.appendChild(renderSchemaBlock(p.name, resolved, p.required));
+      }
+    } else {
+      body.innerHTML += '<div class="section-title">Parameters</div><div style="color:var(--muted);font-size:.8rem;margin-bottom:8px;">None</div>';
+    }
+
+    // Result
+    if (m.result) {
+      body.innerHTML += '<div class="section-title">Result</div>';
+      const resolved = resolveDeep(m.result.schema, 0);
+      body.appendChild(renderSchemaBlock(null, resolved, false));
+    }
+
+    // Try it
+    body.appendChild(buildTryIt(m));
+
+    card.appendChild(header);
+    card.appendChild(body);
+    container.appendChild(card);
+  }
+}
+
+function renderSchemaBlock(name, schema, required) {
+  const div = document.createElement('div');
+  if (!schema) { div.textContent = 'unknown'; return div; }
+
+  if (schema.type === 'object' && schema.properties) {
+    if (name) {
+      const label = document.createElement('div');
+      label.innerHTML = `<span class="field-name">${esc(name)}</span> ${required ? '<span class="field-required">required</span>' : '<span class="field-optional">optional</span>'}`;
+      if (schema._refName) label.innerHTML += ` <span class="type-ref" onclick="scrollToSchema('${schema._refName}')">${esc(schema._refName)}</span>`;
+      if (schema.description) label.innerHTML += `<div class="field-desc">${esc(schema.description)}</div>`;
+      div.appendChild(label);
+    }
+    div.appendChild(renderObjectTable(schema));
+    return div;
+  }
+
+  if (schema.oneOf) {
+    if (name) {
+      const label = document.createElement('div');
+      label.innerHTML = `<span class="field-name">${esc(name)}</span> ${required ? '<span class="field-required">required</span>' : '<span class="field-optional">optional</span>'} <span class="type-oneof">oneOf</span>`;
+      if (schema._refName) label.innerHTML += ` <span class="type-ref" onclick="scrollToSchema('${schema._refName}')">${esc(schema._refName)}</span>`;
+      div.appendChild(label);
+    }
+    const nested = document.createElement('div');
+    nested.className = 'nested-schema';
+    for (const variant of schema.oneOf) {
+      const vDiv = document.createElement('div');
+      vDiv.style.marginBottom = '6px';
+      if (variant.const) {
+        vDiv.innerHTML = `<span class="type-string">"${esc(variant.const)}"</span>`;
+      } else if (variant.type === 'object' && variant.properties) {
+        const keys = Object.keys(variant.properties);
+        if (keys.length === 1) {
+          const k = keys[0];
+          vDiv.innerHTML = `<span class="field-name">${esc(k)}</span>`;
+          const inner = resolveDeep(variant.properties[k], 0);
+          if (inner.type === 'object' && inner.properties) {
+            vDiv.appendChild(renderObjectTable(inner));
+          } else {
+            vDiv.innerHTML += ` ${typeLabel(inner)}`;
+          }
+        } else {
+          vDiv.appendChild(renderObjectTable(variant));
+        }
+      } else {
+        vDiv.innerHTML = typeLabel(variant);
+      }
+      nested.appendChild(vDiv);
+    }
+    div.appendChild(nested);
+    return div;
+  }
+
+  // Simple type
+  const label = document.createElement('div');
+  const nameHtml = name ? `<span class="field-name">${esc(name)}</span> ` : '';
+  const reqHtml = name ? (required ? '<span class="field-required">required</span> ' : '<span class="field-optional">optional</span> ') : '';
+  label.innerHTML = nameHtml + reqHtml + typeLabel(schema);
+  if (schema.description) label.innerHTML += `<div class="field-desc">${esc(schema.description)}</div>`;
+  div.appendChild(label);
+  return div;
+}
+
+function renderObjectTable(schema) {
+  const table = document.createElement('table');
+  table.className = 'schema-table';
+  table.innerHTML = '<tr><th>Field</th><th>Type</th><th>Description</th></tr>';
+  const req = new Set(schema.required || []);
+  for (const [key, val] of Object.entries(schema.properties || {})) {
+    const resolved = resolveDeep(val, 0);
+    const tr = document.createElement('tr');
+    const isRequired = req.has(key);
+    tr.innerHTML = `
+      <td><span class="field-name">${esc(key)}</span>${isRequired ? '<span class="field-required">*</span>' : ''}</td>
+      <td>${typeLabel(resolved)}</td>
+      <td style="font-size:.75rem;color:var(--muted)">${esc(resolved.description || '')}</td>
+    `;
+    table.appendChild(tr);
+  }
+  if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
+    const resolved = resolveDeep(schema.additionalProperties, 0);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="field-name" style="color:var(--muted)">[key]</span></td>
+      <td>${typeLabel(resolved)}</td>
+      <td style="font-size:.75rem;color:var(--muted)">Additional properties</td>
+    `;
+    table.appendChild(tr);
+  }
+  return table;
+}
+
+function sourceUrl(typeName) {
+  if (!SPEC['x-source']) return null;
+  const src = SPEC['x-source'];
+  const entry = src.types && src.types[typeName];
+  if (!entry) return null;
+  const commit = src.commit || 'main';
+  const repo = src.repository || 'https://github.com/flashbots/contender';
+  return `${repo}/blob/${commit}/${entry.file}#L${entry.line}`;
+}
+
+function typeLabel(schema) {
+  if (!schema) return '<span class="type-null">unknown</span>';
+  if (schema._refName && !(schema.type === 'object' && schema.properties)) {
+    if (schema._external) {
+      const url = sourceUrl(schema._refName);
+      if (url) return `<a href="${url}" target="_blank" class="type-ref" title="View source on GitHub">${esc(schema._refName)}</a>`;
+      return `<span class="type-ref" style="cursor:default;text-decoration:none;opacity:.6">${esc(schema._refName)}</span>`;
+    }
+    return `<span class="type-ref" onclick="scrollToSchema('${schema._refName}')">${esc(schema._refName)}</span>`;
+  }
+  if (schema.enum) {
+    return `<span class="type-enum">${schema.enum.map(v => '"' + esc(v) + '"').join(' | ')}</span>`;
+  }
+  if (schema.const) {
+    return `<span class="type-string">"${esc(schema.const)}"</span>`;
+  }
+  if (schema.oneOf) {
+    if (schema._refName) return `<span class="type-ref" onclick="scrollToSchema('${schema._refName}')">${esc(schema._refName)}</span>`;
+    return '<span class="type-oneof">oneOf[...]</span>';
+  }
+  if (schema.type === 'array') {
+    const items = schema.items ? typeLabel(resolveDeep(schema.items, 0)) : 'any';
+    return `<span class="type-array">${items}[]</span>`;
+  }
+  if (schema.type === 'object' && schema.properties) {
+    if (schema._refName) return `<span class="type-ref" onclick="scrollToSchema('${schema._refName}')">${esc(schema._refName)}</span>`;
+    return '<span class="type-object">object</span>';
+  }
+  if (schema.type === 'object' && schema.additionalProperties) {
+    const valType = typeLabel(resolveDeep(schema.additionalProperties, 0));
+    return `<span class="type-object">Map&lt;string, ${valType}&gt;</span>`;
+  }
+  const cls = 'type-' + (schema.type || 'null');
+  return `<span class="${cls}">${esc(schema.type || 'null')}</span>`;
+}
+
+// ── try it ──
+
+function buildTryIt(method) {
+  const div = document.createElement('div');
+  div.className = 'try-it';
+  div.innerHTML = '<div class="section-title">Try it</div>';
+
+  const params = (method.params || []).map(p => {
+    const schema = resolveDeep(p.schema, 0);
+    return buildDefaultValue(schema);
+  });
+
+  const payload = {
+    jsonrpc: '2.0',
+    method: method.name,
+    params: params,
+    id: 1
+  };
+
+  const textarea = document.createElement('textarea');
+  textarea.value = JSON.stringify(payload, null, 2);
+  div.appendChild(textarea);
+
+  const btn = document.createElement('button');
+  btn.textContent = 'Send Request';
+  btn.onclick = async () => {
+    const resultDiv = div.querySelector('.try-it-result') || document.createElement('div');
+    resultDiv.className = 'try-it-result';
+    if (!resultDiv.parentNode) div.appendChild(resultDiv);
+    try {
+      const body = textarea.value;
+      const res = await fetch($('#rpc-url').value, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body
+      });
+      const json = await res.json();
+      resultDiv.className = 'try-it-result ' + (json.error ? 'err' : 'ok');
+      resultDiv.textContent = JSON.stringify(json, null, 2);
+    } catch (e) {
+      resultDiv.className = 'try-it-result err';
+      resultDiv.textContent = e.message;
+    }
+  };
+  div.appendChild(btn);
+  return div;
+}
+
+function buildDefaultValue(schema) {
+  if (!schema) return null;
+  if (schema.type === 'string') return '';
+  if (schema.type === 'integer' || schema.type === 'number') return 0;
+  if (schema.type === 'boolean') return false;
+  if (schema.type === 'null') return null;
+  if (schema.type === 'array') return [];
+  if (schema.enum) return schema.enum[0];
+  if (schema.const) return schema.const;
+  if (schema.type === 'object' && schema.properties) {
+    const obj = {};
+    const req = new Set(schema.required || []);
+    for (const [key, val] of Object.entries(schema.properties)) {
+      if (req.has(key)) {
+        obj[key] = buildDefaultValue(resolveDeep(val, 0));
+      }
+    }
+    return obj;
+  }
+  if (schema.oneOf && schema.oneOf.length > 0) {
+    return buildDefaultValue(schema.oneOf[0]);
+  }
+  return null;
+}
+
+// ── schemas section ──
+
+function renderSchemas() {
+  const section = document.getElementById('schemas-section');
+  if (!SPEC.components || !SPEC.components.schemas) return;
+  section.innerHTML = '<h2 style="font-size:1.1rem;margin-bottom:12px;">Schemas</h2>';
+
+  const entries = Object.entries(SPEC.components.schemas).sort((a, b) => a[0].localeCompare(b[0]));
+  for (const [name, schema] of entries) {
+    const card = document.createElement('div');
+    card.className = 'schema-card';
+    card.id = 'schema-' + name;
+
+    const header = document.createElement('div');
+    header.className = 'schema-header';
+    const url = sourceUrl(name);
+    const srcLink = url ? ` <a href="${url}" target="_blank" style="font-size:.7rem;color:var(--muted);margin-left:6px;" title="View source on GitHub">src</a>` : '';
+    const scenarioLink = name === 'BuiltinScenarioCli' ? ' <a href="./builtin_scenarios.js" target="_blank" style="font-size:.7rem;color:var(--muted);margin-left:6px;" title="View available scenarios">scenarios</a>' : '';
+    header.innerHTML = `<span class="field-name">${esc(name)}${srcLink}${scenarioLink}</span><span class="method-arrow">&#9654;</span>`;
+    header.onclick = (e) => { if (e.target.tagName !== 'A') card.classList.toggle('open'); };
+
+    const body = document.createElement('div');
+    body.className = 'schema-body';
+    if (schema.description) {
+      body.innerHTML = `<div style="color:var(--muted);font-size:.8rem;margin-bottom:8px;">${esc(schema.description)}</div>`;
+    }
+    const resolved = resolveDeep(schema, 0);
+    body.appendChild(renderSchemaBlock(null, resolved, false));
+
+    card.appendChild(header);
+    card.appendChild(body);
+    section.appendChild(card);
+  }
+}
+
+function scrollToSchema(name) {
+  const el = document.getElementById('schema-' + name);
+  if (el) {
+    el.classList.add('open');
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+// ── util ──
+
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+loadSpec();
+</script>
+</body>
+</html>

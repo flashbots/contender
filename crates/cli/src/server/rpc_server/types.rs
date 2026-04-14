@@ -219,7 +219,7 @@ impl AuthParams {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuilderParams {
     pub rpc_url: Url,
@@ -240,7 +240,7 @@ pub struct SessionOptions {
     pub env: Option<HashMap<String, String>>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentParams {
     pub create_accounts: Option<usize>,
@@ -270,7 +270,7 @@ fn parse_value<'de, D: Deserializer<'de>>(deserializer: D) -> Result<U256, D::Er
         .map_err(|e| serde::de::Error::custom(format!("failed to parse value '{value}': {e}")))
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FundAccountsParams {
     pub session_id: usize,

@@ -17,7 +17,7 @@ use contender_engine_provider::reth_node_api::EngineApiMessageVersion;
 use contender_engine_provider::ControlChain;
 use contender_testfile::TestConfig;
 use op_alloy_network::AnyNetwork;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -263,7 +263,7 @@ impl Default for AuthCliArgs {
     }
 }
 
-#[derive(Copy, Debug, Clone, clap::ValueEnum, Deserialize)]
+#[derive(Copy, Debug, Clone, clap::ValueEnum, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum EngineMessageVersion {
     V1,
@@ -390,7 +390,7 @@ impl SendSpamCliArgs {
     }
 }
 
-#[derive(Copy, Debug, Clone, clap::ValueEnum, Deserialize)]
+#[derive(Copy, Debug, Clone, clap::ValueEnum, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TxTypeCli {
     /// Legacy transaction (type `0x0`)
@@ -421,7 +421,7 @@ impl std::fmt::Display for TxTypeCli {
     }
 }
 
-#[derive(Copy, Debug, Clone, clap::ValueEnum, Deserialize)]
+#[derive(Copy, Debug, Clone, clap::ValueEnum, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BundleTypeCli {
     L1,

@@ -11,6 +11,7 @@ fn main() {
 
     generate_scenario_tests(&manifest_dir);
     generate_builtin_scenario_json_interface(&manifest_dir);
+    generate_openrpc_spec(&manifest_dir);
 }
 
 /// generates cargo tests for all scenario files in the "scenarios" directory,
@@ -403,5 +404,825 @@ fn rust_type_to_js(raw: &str, enum_variants: &HashMap<String, Vec<String>>) -> S
         "bool" => "bool".into(),
         "u32" | "u64" | "i64" | "usize" => "number".into(),
         _ => "text".into(),
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// OpenRPC spec generator
+// ══════════════════════════════════════════════════════════════════════
+
+/// Parsed RPC method from the `#[rpc(server)]` trait.
+#[derive(Debug)]
+struct RpcMethod {
+    /// JSON-RPC method name (from `#[method(name = "...")]`).
+    rpc_name: String,
+    /// Doc comment on the trait method.
+    description: Option<String>,
+    /// Parameter names and their Rust type strings.
+    params: Vec<(String, String)>,
+    /// Rust return type string (the `T` in `RpcResult<T>`).
+    result_type: String,
+    /// Whether this is a subscription (`#[subscription]`) rather than a regular method.
+    is_subscription: bool,
+    /// For subscriptions: the notification name (e.g. "session_log").
+    subscription_item: Option<String>,
+}
+
+/// Schema definition extracted from a struct or enum.
+#[derive(Debug)]
+struct SchemaDef {
+    description: Option<String>,
+    body: String, // JSON fragment for the schema
+}
+
+fn generate_openrpc_spec(manifest_dir: &Path) {
+    let server_dir = manifest_dir.join("src/server");
+    let rpc_dir = server_dir.join("rpc_server");
+    let project_root = manifest_dir.parent().unwrap().parent().unwrap();
+
+    let server_rs = rpc_dir.join("server.rs");
+
+    // All files that contain types referenced (directly or transitively) by the RPC trait.
+    let type_files: Vec<PathBuf> = vec![
+        // RPC param/response types
+        rpc_dir.join("types.rs"),
+        server_dir.join("sessions.rs"),
+        // CLI-local enums used inside param structs
+        manifest_dir.join("src/commands/common.rs"),
+        // Builtin scenarios
+        manifest_dir.join("src/default_scenarios/builtin.rs"),
+        manifest_dir.join("src/default_scenarios/blobs.rs"),
+        manifest_dir.join("src/default_scenarios/erc20.rs"),
+        manifest_dir.join("src/default_scenarios/stress.rs"),
+        manifest_dir.join("src/default_scenarios/fill_block.rs"),
+        manifest_dir.join("src/default_scenarios/revert.rs"),
+        manifest_dir.join("src/default_scenarios/storage.rs"),
+        manifest_dir.join("src/default_scenarios/transfers.rs"),
+        manifest_dir.join("src/default_scenarios/custom_contract.rs"),
+        manifest_dir.join("src/default_scenarios/eth_functions/command.rs"),
+        manifest_dir.join("src/default_scenarios/eth_functions/opcodes.rs"),
+        manifest_dir.join("src/default_scenarios/eth_functions/precompiles.rs"),
+        manifest_dir.join("src/default_scenarios/setcode/base.rs"),
+        manifest_dir.join("src/default_scenarios/setcode/execute.rs"),
+        manifest_dir.join("src/default_scenarios/uni_v2.rs"),
+        // Core crate types
+        project_root.join("crates/core/src/agent_controller.rs"),
+        project_root.join("crates/core/src/generator/types.rs"),
+        project_root.join("crates/core/src/generator/function_def.rs"),
+        project_root.join("crates/core/src/generator/create_def.rs"),
+        // Testfile crate
+        project_root.join("crates/testfile/src/test_config.rs"),
+    ];
+
+    println!("cargo:rerun-if-changed={}", server_rs.display());
+    for p in &type_files {
+        println!("cargo:rerun-if-changed={}", p.display());
+    }
+
+    // 1. Parse the RPC trait to extract methods.
+    let methods = parse_rpc_trait(&server_rs);
+
+    // 2. Parse type files to build a schema map of all referenced types.
+    let mut schemas: HashMap<String, SchemaDef> = HashMap::new();
+    for path in &type_files {
+        let source = fs::read_to_string(path).unwrap();
+        let ast = syn::parse_file(&source).unwrap();
+        extract_schemas(&ast, &mut schemas);
+    }
+
+    // 3. Determine which schemas are actually referenced (transitively).
+    let referenced = collect_referenced_schemas(&methods, &schemas);
+
+    // 4. Resolve the git commit for source links.
+    let git_commit = resolve_git_commit(manifest_dir);
+
+    // 5. Build the source map for all referenced types.
+    let source_map = build_source_map(manifest_dir, &referenced, &schemas);
+
+    // 6. Build the OpenRPC JSON document.
+    let spec = build_openrpc_json(&methods, &schemas, &referenced, &git_commit, &source_map);
+
+    let static_dir = server_dir.join("static");
+    fs::create_dir_all(&static_dir).unwrap();
+    fs::write(static_dir.join("openrpc.json"), spec).unwrap();
+}
+
+// ── trait parsing ────────────────────────────────────────────────────
+
+fn parse_rpc_trait(path: &Path) -> Vec<RpcMethod> {
+    let source = fs::read_to_string(path).unwrap();
+    let ast = syn::parse_file(&source).unwrap();
+
+    let mut methods = Vec::new();
+
+    for item in &ast.items {
+        let Item::Trait(t) = item else { continue };
+        // Look for the trait annotated with #[rpc(server)]
+        let is_rpc_trait = t.attrs.iter().any(|a| {
+            a.path().is_ident("rpc") && a.meta.to_token_stream().to_string().contains("server")
+        });
+        if !is_rpc_trait {
+            continue;
+        }
+
+        for item in &t.items {
+            let syn::TraitItem::Fn(f) = item else {
+                continue;
+            };
+            let description = doc_comment(&f.attrs);
+
+            // Check for #[method(name = "...")] or #[subscription(name = "..." => "...", item = ...)]
+            let (rpc_name, is_subscription, subscription_item) =
+                parse_method_or_subscription_attr(&f.attrs);
+
+            let Some(rpc_name) = rpc_name else { continue };
+
+            // Extract parameters (skip &self)
+            let params = extract_fn_params(&f.sig);
+
+            // Extract return type
+            let result_type = extract_result_type(&f.sig);
+
+            methods.push(RpcMethod {
+                rpc_name,
+                description,
+                params,
+                result_type,
+                is_subscription,
+                subscription_item,
+            });
+        }
+    }
+    methods
+}
+
+fn parse_method_or_subscription_attr(
+    attrs: &[Attribute],
+) -> (Option<String>, bool, Option<String>) {
+    for attr in attrs {
+        if attr.path().is_ident("method") {
+            let tokens = attr.meta.to_token_stream().to_string();
+            if let Some(name) = extract_attr_value(&tokens, "name") {
+                return (Some(name), false, None);
+            }
+        }
+        if attr.path().is_ident("subscription") {
+            let tokens = attr.meta.to_token_stream().to_string();
+            let name = extract_attr_value(&tokens, "name");
+            let item = extract_attr_value(&tokens, "item");
+            return (name, true, item);
+        }
+    }
+    (None, false, None)
+}
+
+fn extract_attr_value(tokens: &str, key: &str) -> Option<String> {
+    // Match patterns like: name = "value" or name = "value" => "other"
+    // We want the first quoted string after `key =`
+    let search = format!("{key} =");
+    let idx = tokens.find(&search)?;
+    let after = &tokens[idx + search.len()..];
+    let start = after.find('"')? + 1;
+    let end = start + after[start..].find('"')?;
+    Some(after[start..end].to_string())
+}
+
+fn extract_fn_params(sig: &syn::Signature) -> Vec<(String, String)> {
+    let mut params = Vec::new();
+    for arg in &sig.inputs {
+        let syn::FnArg::Typed(pat) = arg else {
+            continue;
+        };
+        let name = pat.pat.to_token_stream().to_string().replace(' ', "");
+        let ty = type_to_string(&pat.ty);
+        params.push((name, ty));
+    }
+    params
+}
+
+fn extract_result_type(sig: &syn::Signature) -> String {
+    let syn::ReturnType::Type(_, ref ty) = sig.output else {
+        return "()".into();
+    };
+    let full = type_to_string(ty);
+    // Strip RpcResult<...> or SubscriptionResult wrapper
+    unwrap_generic(&full, "RpcResult")
+        .or_else(|| unwrap_generic(&full, "Result"))
+        .unwrap_or(full)
+}
+
+fn unwrap_generic(s: &str, wrapper: &str) -> Option<String> {
+    let s = s.replace(' ', "");
+    let prefix = format!("{wrapper}<");
+    if !s.contains(&prefix) {
+        return None;
+    }
+    let start = s.find(&prefix)? + prefix.len();
+    // Find the matching closing >
+    let mut depth = 1u32;
+    let bytes = s.as_bytes();
+    let mut end = start;
+    while end < bytes.len() && depth > 0 {
+        match bytes[end] {
+            b'<' => depth += 1,
+            b'>' => depth -= 1,
+            _ => {}
+        }
+        if depth > 0 {
+            end += 1;
+        }
+    }
+    Some(s[start..end].to_string())
+}
+
+// ── schema extraction ────────────────────────────────────────────────
+
+fn extract_schemas(ast: &syn::File, schemas: &mut HashMap<String, SchemaDef>) {
+    for item in &ast.items {
+        match item {
+            Item::Struct(s) => {
+                let name = s.ident.to_string();
+                let desc = doc_comment(&s.attrs);
+                let rename_all = serde_rename_all(&s.attrs);
+                let body = struct_to_schema(s, &rename_all);
+                schemas.insert(
+                    name,
+                    SchemaDef {
+                        description: desc,
+                        body,
+                    },
+                );
+            }
+            Item::Enum(e) => {
+                let name = e.ident.to_string();
+                let desc = doc_comment(&e.attrs);
+                let body = enum_to_schema(e);
+                schemas.insert(
+                    name,
+                    SchemaDef {
+                        description: desc,
+                        body,
+                    },
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+fn serde_rename_all(attrs: &[Attribute]) -> Option<String> {
+    for attr in attrs {
+        if !attr.path().is_ident("serde") {
+            continue;
+        }
+        let tokens = attr.meta.to_token_stream().to_string();
+        if let Some(val) = extract_attr_value(&tokens, "rename_all") {
+            return Some(val);
+        }
+    }
+    None
+}
+
+fn serde_rename(attrs: &[Attribute]) -> Option<String> {
+    for attr in attrs {
+        if !attr.path().is_ident("serde") {
+            continue;
+        }
+        let tokens = attr.meta.to_token_stream().to_string();
+        if let Some(val) = extract_attr_value(&tokens, "rename") {
+            return Some(val);
+        }
+    }
+    None
+}
+
+fn has_serde_attr(attrs: &[Attribute], keyword: &str) -> bool {
+    attrs.iter().any(|attr| {
+        if !attr.path().is_ident("serde") {
+            return false;
+        }
+        attr.meta.to_token_stream().to_string().contains(keyword)
+    })
+}
+
+fn apply_rename_all(name: &str, convention: &Option<String>) -> String {
+    match convention.as_deref() {
+        Some("camelCase") => to_camel_case(name),
+        Some("lowercase") => name.to_lowercase(),
+        Some("snake_case") => name.to_string(),
+        Some("kebab-case") => to_kebab_case(name),
+        _ => name.to_string(),
+    }
+}
+
+fn to_camel_case(s: &str) -> String {
+    let mut result = String::new();
+    let mut capitalize_next = false;
+    for (i, ch) in s.chars().enumerate() {
+        if ch == '_' {
+            capitalize_next = true;
+        } else if capitalize_next {
+            result.push(ch.to_ascii_uppercase());
+            capitalize_next = false;
+        } else if i == 0 {
+            result.push(ch.to_ascii_lowercase());
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
+fn struct_to_schema(s: &syn::ItemStruct, rename_all: &Option<String>) -> String {
+    let Fields::Named(ref named) = s.fields else {
+        return r#"{"type":"object"}"#.into();
+    };
+
+    let mut props = Vec::new();
+    let mut required = Vec::new();
+    let mut flatten_refs = Vec::new();
+
+    for field in &named.named {
+        // Handle #[serde(flatten)] — merge the inner type's properties via allOf.
+        if has_serde_attr(&field.attrs, "flatten") {
+            let raw_ty = type_to_string(&field.ty);
+            let (schema, _) = rust_type_to_json_schema(&raw_ty);
+            flatten_refs.push(schema);
+            continue;
+        }
+
+        let rust_name = field
+            .ident
+            .as_ref()
+            .map(|i| i.to_string())
+            .unwrap_or_default();
+        let json_name =
+            serde_rename(&field.attrs).unwrap_or_else(|| apply_rename_all(&rust_name, rename_all));
+        let desc = doc_comment(&field.attrs);
+        let raw_ty = type_to_string(&field.ty);
+        let (schema, optional) = rust_type_to_json_schema(&raw_ty);
+
+        let mut prop = format!("\"{}\":{}", json_escape(&json_name), schema);
+        if let Some(d) = desc {
+            // Inject description into the schema object
+            prop = inject_description(&prop, &d);
+        }
+        props.push(prop);
+
+        if !optional {
+            required.push(format!("\"{}\"", json_escape(&json_name)));
+        }
+    }
+
+    let props_str = props.join(",");
+    let obj = if required.is_empty() {
+        format!("{{\"type\":\"object\",\"properties\":{{{props_str}}}}}")
+    } else {
+        let req_str = required.join(",");
+        format!("{{\"type\":\"object\",\"properties\":{{{props_str}}},\"required\":[{req_str}]}}")
+    };
+
+    if flatten_refs.is_empty() {
+        obj
+    } else {
+        flatten_refs.push(obj);
+        format!("{{\"allOf\":[{}]}}", flatten_refs.join(","))
+    }
+}
+
+fn enum_to_schema(e: &syn::ItemEnum) -> String {
+    let rename_all = serde_rename_all(&e.attrs);
+
+    // Check if this is a simple string enum (no data variants)
+    let all_unit = e.variants.iter().all(|v| matches!(v.fields, Fields::Unit));
+
+    if all_unit {
+        let vals: Vec<String> = e
+            .variants
+            .iter()
+            .map(|v| {
+                let name = v.ident.to_string();
+                let json_name =
+                    serde_rename(&v.attrs).unwrap_or_else(|| apply_rename_all(&name, &rename_all));
+                format!("\"{}\"", json_escape(&json_name))
+            })
+            .collect();
+        return format!("{{\"type\":\"string\",\"enum\":[{}]}}", vals.join(","));
+    }
+
+    // Tagged enum with data — model as oneOf
+    let mut variants = Vec::new();
+    for v in &e.variants {
+        let variant_name = v.ident.to_string();
+        let desc = doc_comment(&v.attrs);
+        let json_name =
+            serde_rename(&v.attrs).unwrap_or_else(|| apply_rename_all(&variant_name, &rename_all));
+
+        match &v.fields {
+            Fields::Unit => {
+                let mut schema = format!(
+                    "{{\"type\":\"string\",\"const\":\"{}\"}}",
+                    json_escape(&json_name)
+                );
+                if let Some(d) = desc {
+                    schema = inject_description(&schema, &d);
+                }
+                variants.push(schema);
+            }
+            Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+                let inner_ty = type_to_string(&fields.unnamed[0].ty);
+                let (inner_schema, _) = rust_type_to_json_schema(&inner_ty);
+                let mut schema = format!(
+                    "{{\"type\":\"object\",\"properties\":{{\"{}\": {}}},\"required\":[\"{}\"]}}",
+                    json_escape(&json_name),
+                    inner_schema,
+                    json_escape(&json_name)
+                );
+                if let Some(d) = desc {
+                    schema = inject_description(&schema, &d);
+                }
+                variants.push(schema);
+            }
+            _ => {
+                variants.push(format!(
+                    "{{\"type\":\"object\",\"description\":\"variant {}\"}}",
+                    json_escape(&variant_name)
+                ));
+            }
+        }
+    }
+    format!("{{\"oneOf\":[{}]}}", variants.join(","))
+}
+
+// ── JSON Schema type mapping ─────────────────────────────────────────
+
+fn rust_type_to_json_schema(raw: &str) -> (String, bool) {
+    let cleaned = raw.replace(' ', "");
+
+    // Option<T> → (schema_of_T, optional=true)
+    if let Some(inner) = unwrap_generic(&cleaned, "Option") {
+        let (schema, _) = rust_type_to_json_schema(&inner);
+        return (schema, true);
+    }
+
+    // Box<T> → transparent wrapper, same schema as T
+    if let Some(inner) = unwrap_generic(&cleaned, "Box") {
+        return rust_type_to_json_schema(&inner);
+    }
+
+    // Vec<T> → array of T
+    if let Some(inner) = unwrap_generic(&cleaned, "Vec") {
+        let (item_schema, _) = rust_type_to_json_schema(&inner);
+        return (
+            format!("{{\"type\":\"array\",\"items\":{item_schema}}}"),
+            false,
+        );
+    }
+
+    // HashMap<K, V> → object with additionalProperties
+    if let Some(inner) = unwrap_generic(&cleaned, "HashMap") {
+        // inner is "K,V" — take the value type after the comma
+        if let Some(comma) = inner.find(',') {
+            let v = &inner[comma + 1..];
+            let (val_schema, _) = rust_type_to_json_schema(v);
+            return (
+                format!("{{\"type\":\"object\",\"additionalProperties\":{val_schema}}}"),
+                false,
+            );
+        }
+        return (r#"{"type":"object"}"#.into(), false);
+    }
+
+    // Primitive types
+    let base = cleaned.rsplit("::").next().unwrap_or(&cleaned);
+
+    let schema = match base {
+        "String" | "str" | "Url" | "B256" | "U256" | "JwtParam" | "PathBuf" | "Address" => {
+            r#"{"type":"string"}"#.to_string()
+        }
+        "bool" => r#"{"type":"boolean"}"#.to_string(),
+        "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "isize" | "SessionId" | "i8"
+        | "i16" | "i32" | "i64" | "i128" => r#"{"type":"integer"}"#.to_string(),
+        "f32" | "f64" => r#"{"type":"number"}"#.to_string(),
+        "Duration" => r#"{"type":"object","properties":{"secs":{"type":"integer"},"nanos":{"type":"integer"}}}"#.to_string(),
+        "()" => r#"{"type":"null"}"#.to_string(),
+        _ => {
+            // Single-letter uppercase type params (generics like S, T) → string
+            if base.len() == 1 && base.chars().next().unwrap().is_ascii_uppercase() {
+                r#"{"type":"string"}"#.to_string()
+            } else {
+                // Reference to a named type
+                format!("{{\"$ref\":\"#/components/schemas/{base}\"}}")
+            }
+        }
+    };
+    (schema, false)
+}
+
+// ── reference collection ─────────────────────────────────────────────
+
+fn collect_referenced_schemas(
+    methods: &[RpcMethod],
+    schemas: &HashMap<String, SchemaDef>,
+) -> Vec<String> {
+    let mut visited = Vec::new();
+    let mut queue: Vec<String> = Vec::new();
+
+    // Seed with types directly referenced by method params/returns
+    for m in methods {
+        for (_, ty) in &m.params {
+            collect_type_refs(ty, &mut queue);
+        }
+        collect_type_refs(&m.result_type, &mut queue);
+    }
+
+    while let Some(name) = queue.pop() {
+        if visited.contains(&name) {
+            continue;
+        }
+        visited.push(name.clone());
+
+        // Scan the schema body for further $ref references
+        if let Some(def) = schemas.get(&name) {
+            let mut idx = 0;
+            let needle = "#/components/schemas/";
+            while let Some(pos) = def.body[idx..].find(needle) {
+                let start = idx + pos + needle.len();
+                let end = start
+                    + def.body[start..]
+                        .find(|c: char| c == '"' || c == '}')
+                        .unwrap_or(def.body.len() - start);
+                let ref_name = def.body[start..end].to_string();
+                if !visited.contains(&ref_name) {
+                    queue.push(ref_name);
+                }
+                idx = end;
+            }
+        }
+    }
+
+    visited.sort();
+    visited
+}
+
+fn collect_type_refs(ty: &str, refs: &mut Vec<String>) {
+    let cleaned = ty.replace(' ', "");
+    if let Some(inner) = unwrap_generic(&cleaned, "Option") {
+        collect_type_refs(&inner, refs);
+        return;
+    }
+    if let Some(inner) = unwrap_generic(&cleaned, "Box") {
+        collect_type_refs(&inner, refs);
+        return;
+    }
+    if let Some(inner) = unwrap_generic(&cleaned, "Vec") {
+        collect_type_refs(&inner, refs);
+        return;
+    }
+    if let Some(inner) = unwrap_generic(&cleaned, "HashMap") {
+        if let Some(comma) = inner.find(',') {
+            collect_type_refs(&inner[..comma], refs);
+            collect_type_refs(&inner[comma + 1..], refs);
+        }
+        return;
+    }
+    let base = cleaned.rsplit("::").next().unwrap_or(&cleaned);
+    match base {
+        "String" | "str" | "Url" | "B256" | "U256" | "JwtParam" | "PathBuf" | "Address"
+        | "bool" | "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "i8" | "i16" | "i32"
+        | "i64" | "i128" | "isize" | "f32" | "f64" | "Duration" | "SessionId" | "()" => {}
+        _ => refs.push(base.to_string()),
+    }
+}
+
+// ── source metadata ──────────────────────────────────────────────────
+
+fn resolve_git_commit(manifest_dir: &Path) -> String {
+    let project_root = manifest_dir.parent().unwrap().parent().unwrap();
+    std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(project_root)
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "main".to_string())
+}
+
+/// Find source locations for referenced types.
+fn build_source_map(
+    manifest_dir: &Path,
+    referenced: &[String],
+    _schemas: &HashMap<String, SchemaDef>,
+) -> HashMap<String, (String, usize)> {
+    let project_root = manifest_dir.parent().unwrap().parent().unwrap();
+
+    // (type_name_prefix, file_relative_to_project_root)
+    // We search each file for any referenced type's struct/enum declaration.
+    let search_files: &[&str] = &[
+        "crates/cli/src/server/rpc_server/types.rs",
+        "crates/cli/src/server/sessions.rs",
+        "crates/cli/src/commands/common.rs",
+        "crates/core/src/agent_controller.rs",
+        "crates/testfile/src/test_config.rs",
+        "crates/core/src/generator/types.rs",
+        "crates/core/src/generator/function_def.rs",
+        "crates/core/src/generator/create_def.rs",
+        "crates/cli/src/default_scenarios/builtin.rs",
+        "crates/cli/src/default_scenarios/blobs.rs",
+        "crates/cli/src/default_scenarios/erc20.rs",
+        "crates/cli/src/default_scenarios/stress.rs",
+        "crates/cli/src/default_scenarios/fill_block.rs",
+        "crates/cli/src/default_scenarios/revert.rs",
+        "crates/cli/src/default_scenarios/storage.rs",
+        "crates/cli/src/default_scenarios/transfers.rs",
+        "crates/cli/src/default_scenarios/custom_contract.rs",
+        "crates/cli/src/default_scenarios/eth_functions/command.rs",
+        "crates/cli/src/default_scenarios/eth_functions/opcodes.rs",
+        "crates/cli/src/default_scenarios/eth_functions/precompiles.rs",
+        "crates/cli/src/default_scenarios/setcode/base.rs",
+        "crates/cli/src/default_scenarios/setcode/execute.rs",
+        "crates/cli/src/default_scenarios/uni_v2.rs",
+    ];
+
+    let mut map = HashMap::new();
+
+    for rel_path in search_files {
+        let full_path = project_root.join(rel_path);
+        let Ok(source) = fs::read_to_string(&full_path) else {
+            continue;
+        };
+        for type_name in referenced {
+            if map.contains_key(type_name) {
+                continue;
+            }
+            let patterns = [
+                format!("pub struct {type_name}"),
+                format!("pub enum {type_name}"),
+                format!("struct {type_name}"),
+                format!("enum {type_name}"),
+            ];
+            for (line_num, line) in source.lines().enumerate() {
+                if patterns.iter().any(|p| line.contains(p.as_str())) {
+                    map.insert(type_name.clone(), (rel_path.to_string(), line_num + 1));
+                    break;
+                }
+            }
+        }
+    }
+
+    map
+}
+
+// ── JSON document builder ────────────────────────────────────────────
+
+fn build_openrpc_json(
+    methods: &[RpcMethod],
+    schemas: &HashMap<String, SchemaDef>,
+    referenced: &[String],
+    git_commit: &str,
+    source_map: &HashMap<String, (String, usize)>,
+) -> String {
+    let crate_version = env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into());
+
+    let mut out = String::new();
+    out.push_str("{\n");
+    out.push_str("  \"openrpc\": \"1.3.2\",\n");
+    out.push_str("  \"info\": {\n");
+    out.push_str("    \"title\": \"Contender RPC Server\",\n");
+    out.push_str("    \"description\": \"JSON-RPC API for a Contender load-testing server.\",\n");
+    out.push_str(&format!("    \"version\": \"{crate_version}\"\n"));
+    out.push_str("  },\n");
+
+    // x-source metadata for GitHub linking
+    out.push_str("  \"x-source\": {\n");
+    out.push_str("    \"repository\": \"https://github.com/flashbots/contender\",\n");
+    out.push_str(&format!("    \"commit\": \"{git_commit}\",\n"));
+    out.push_str("    \"types\": {\n");
+    let source_entries: Vec<_> = source_map.iter().collect();
+    for (i, (name, (file, line))) in source_entries.iter().enumerate() {
+        let comma = if i + 1 < source_entries.len() {
+            ","
+        } else {
+            ""
+        };
+        out.push_str(&format!(
+            "      \"{}\": {{\"file\":\"{}\",\"line\":{}}}{comma}\n",
+            json_escape(name),
+            json_escape(file),
+            line
+        ));
+    }
+    out.push_str("    }\n");
+    out.push_str("  },\n");
+
+    // Methods
+    out.push_str("  \"methods\": [\n");
+    for (i, m) in methods.iter().enumerate() {
+        out.push_str("    {\n");
+        out.push_str(&format!(
+            "      \"name\": \"{}\",\n",
+            json_escape(&m.rpc_name)
+        ));
+        if let Some(ref desc) = m.description {
+            out.push_str(&format!("      \"summary\": \"{}\",\n", json_escape(desc)));
+        }
+
+        // Params
+        out.push_str("      \"params\": [\n");
+        for (j, (name, ty)) in m.params.iter().enumerate() {
+            let (schema, optional) = rust_type_to_json_schema(ty);
+            out.push_str("        {\n");
+            out.push_str(&format!("          \"name\": \"{}\",\n", json_escape(name)));
+            if !optional {
+                out.push_str("          \"required\": true,\n");
+            }
+            out.push_str(&format!("          \"schema\": {schema}\n"));
+            let comma = if j + 1 < m.params.len() { "," } else { "" };
+            out.push_str(&format!("        }}{comma}\n"));
+        }
+        out.push_str("      ],\n");
+
+        // Result
+        if m.is_subscription {
+            if let Some(ref item) = m.subscription_item {
+                let (item_schema, _) = rust_type_to_json_schema(item);
+                out.push_str("      \"result\": {\n");
+                out.push_str(&format!(
+                    "        \"name\": \"{}\",\n",
+                    json_escape(&m.rpc_name)
+                ));
+                out.push_str(&format!("        \"schema\": {item_schema}\n"));
+                out.push_str("      }\n");
+            } else {
+                out.push_str("      \"result\": {\n");
+                out.push_str(&format!(
+                    "        \"name\": \"{}\",\n",
+                    json_escape(&m.rpc_name)
+                ));
+                out.push_str("        \"schema\": {\"type\":\"string\"}\n");
+                out.push_str("      }\n");
+            }
+        } else {
+            let (result_schema, _) = rust_type_to_json_schema(&m.result_type);
+            out.push_str("      \"result\": {\n");
+            out.push_str(&format!(
+                "        \"name\": \"{}\",\n",
+                json_escape(&m.rpc_name)
+            ));
+            out.push_str(&format!("        \"schema\": {result_schema}\n"));
+            out.push_str("      }\n");
+        }
+
+        let comma = if i + 1 < methods.len() { "," } else { "" };
+        out.push_str(&format!("    }}{comma}\n"));
+    }
+    out.push_str("  ],\n");
+
+    // Component schemas
+    out.push_str("  \"components\": {\n");
+    out.push_str("    \"schemas\": {\n");
+    let referenced_list: Vec<_> = referenced
+        .iter()
+        .filter_map(|name| schemas.get(name).map(|def| (name, def)))
+        .collect();
+    for (i, (name, def)) in referenced_list.iter().enumerate() {
+        let mut schema = def.body.clone();
+        if let Some(ref desc) = def.description {
+            schema = inject_description(&schema, desc);
+        }
+        out.push_str(&format!("      \"{}\": {schema}", json_escape(name)));
+        if i + 1 < referenced_list.len() {
+            out.push(',');
+        }
+        out.push('\n');
+    }
+    out.push_str("    }\n");
+    out.push_str("  }\n");
+
+    out.push_str("}\n");
+    out
+}
+
+// ── small helpers ────────────────────────────────────────────────────
+
+fn json_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
+}
+
+/// Inject a "description" key into a JSON schema object string.
+fn inject_description(schema: &str, desc: &str) -> String {
+    // Insert after the first '{' character, preserving any prefix (e.g. "key":)
+    if let Some(pos) = schema.find('{') {
+        let before = &schema[..pos];
+        let after = &schema[pos + 1..];
+        let desc_kv = format!("\"description\":\"{}\",", json_escape(desc));
+        format!("{before}{{{desc_kv}{after}")
+    } else {
+        schema.to_string()
     }
 }
