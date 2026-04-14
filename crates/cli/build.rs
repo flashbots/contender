@@ -6,6 +6,15 @@ use std::{
 };
 use syn::{Attribute, Expr, Fields, Item, Lit, Meta, Type};
 
+/// Write `content` to `path` only if the file doesn't already contain the same bytes.
+/// This avoids bumping the mtime and triggering unnecessary rebuilds.
+fn write_if_changed(path: &Path, content: &str) {
+    if fs::read_to_string(path).ok().as_deref() == Some(content) {
+        return;
+    }
+    fs::write(path, content).unwrap();
+}
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
 
@@ -138,7 +147,7 @@ fn generate_builtin_scenario_json_interface(manifest_dir: &Path) {
 
     let static_dir = manifest_dir.join("src/server/static");
     fs::create_dir_all(&static_dir).unwrap();
-    fs::write(static_dir.join("builtin_scenarios.js"), &js).unwrap();
+    write_if_changed(&static_dir.join("builtin_scenarios.js"), &js);
 
     println!("cargo:rerun-if-changed=build.rs");
 }
@@ -501,7 +510,7 @@ fn generate_openrpc_spec(manifest_dir: &Path) {
 
     let static_dir = server_dir.join("static");
     fs::create_dir_all(&static_dir).unwrap();
-    fs::write(static_dir.join("openrpc.json"), spec).unwrap();
+    write_if_changed(&static_dir.join("openrpc.json"), &spec);
 }
 
 // ── trait parsing ────────────────────────────────────────────────────
@@ -1082,7 +1091,8 @@ fn build_openrpc_json(
     out.push_str("  \"x-source\": {\n");
     out.push_str("    \"repository\": \"https://github.com/flashbots/contender\",\n");
     out.push_str("    \"types\": {\n");
-    let source_entries: Vec<_> = source_map.iter().collect();
+    let mut source_entries: Vec<_> = source_map.iter().collect();
+    source_entries.sort_by_key(|(name, _)| *name);
     for (i, (name, (file, line))) in source_entries.iter().enumerate() {
         let comma = if i + 1 < source_entries.len() {
             ","
