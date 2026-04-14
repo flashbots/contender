@@ -162,8 +162,9 @@ async function loadSpec() {
   const res = await fetch('./openrpc.json');
   SPEC = await res.json();
   document.getElementById('doc-title').textContent = SPEC.info.title || 'API Docs';
-  document.getElementById('doc-subtitle').textContent =
-    (SPEC.info.description || '') + (SPEC.info.version ? '  v' + SPEC.info.version : '');
+  document.getElementById('doc-subtitle').innerHTML =
+    (SPEC.info.description || '') + (SPEC.info.version ? '  v' + SPEC.info.version : '') +
+    ' &mdash; <a href="./openrpc.json" target="_blank">OpenRPC spec</a>';
   renderNav();
   renderMethods();
   renderSchemas();

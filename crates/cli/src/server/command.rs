@@ -28,10 +28,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // SSE endpoint for log streaming
     let sse_handle = start_sse_server(sessions, &config.sse_addr).await?;
 
-    info!(
-        "API docs available at http://{}/openrpc.json",
-        config.rpc_addr
-    );
+    info!("API docs available at http://{}/docs", config.sse_addr);
 
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
