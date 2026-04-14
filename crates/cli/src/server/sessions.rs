@@ -136,7 +136,7 @@ impl ContenderSessionInfo {
         let mut testconfig = testconfig;
         if let Some(env) = options.env {
             let og_env = testconfig.env.clone().unwrap_or_default();
-            let full_env: HashMap<_, _> = og_env.into_iter().chain(env.into_iter()).collect();
+            let full_env: HashMap<_, _> = og_env.into_iter().chain(env).collect();
             testconfig = testconfig.with_env(full_env);
         }
 
