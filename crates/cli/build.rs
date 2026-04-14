@@ -493,14 +493,11 @@ fn generate_openrpc_spec(manifest_dir: &Path) {
     // 3. Determine which schemas are actually referenced (transitively).
     let referenced = collect_referenced_schemas(&methods, &schemas);
 
-    // 4. Resolve the git commit for source links.
-    let git_commit = resolve_git_commit(manifest_dir);
-
-    // 5. Build the source map for all referenced types.
+    // 4. Build the source map for all referenced types.
     let source_map = build_source_map(manifest_dir, &referenced, &schemas);
 
-    // 6. Build the OpenRPC JSON document.
-    let spec = build_openrpc_json(&methods, &schemas, &referenced, &git_commit, &source_map);
+    // 5. Build the OpenRPC JSON document.
+    let spec = build_openrpc_json(&methods, &schemas, &referenced, &source_map);
 
     let static_dir = server_dir.join("static");
     fs::create_dir_all(&static_dir).unwrap();
@@ -997,18 +994,6 @@ fn collect_type_refs(ty: &str, refs: &mut Vec<String>) {
 
 // ── source metadata ──────────────────────────────────────────────────
 
-fn resolve_git_commit(manifest_dir: &Path) -> String {
-    let project_root = manifest_dir.parent().unwrap().parent().unwrap();
-    std::process::Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(project_root)
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| "main".to_string())
-}
-
 /// Find source locations for referenced types.
 fn build_source_map(
     manifest_dir: &Path,
@@ -1080,7 +1065,6 @@ fn build_openrpc_json(
     methods: &[RpcMethod],
     schemas: &HashMap<String, SchemaDef>,
     referenced: &[String],
-    git_commit: &str,
     source_map: &HashMap<String, (String, usize)>,
 ) -> String {
     let crate_version = env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into());
@@ -1090,14 +1074,13 @@ fn build_openrpc_json(
     out.push_str("  \"openrpc\": \"1.3.2\",\n");
     out.push_str("  \"info\": {\n");
     out.push_str("    \"title\": \"Contender RPC Server\",\n");
-    out.push_str("    \"description\": \"JSON-RPC API for a Contender load-testing server.\",\n");
+    out.push_str("    \"description\": \"JSON-RPC API to remotely run contender sessions.\",\n");
     out.push_str(&format!("    \"version\": \"{crate_version}\"\n"));
     out.push_str("  },\n");
 
     // x-source metadata for GitHub linking
     out.push_str("  \"x-source\": {\n");
     out.push_str("    \"repository\": \"https://github.com/flashbots/contender\",\n");
-    out.push_str(&format!("    \"commit\": \"{git_commit}\",\n"));
     out.push_str("    \"types\": {\n");
     let source_entries: Vec<_> = source_map.iter().collect();
     for (i, (name, (file, line))) in source_entries.iter().enumerate() {
