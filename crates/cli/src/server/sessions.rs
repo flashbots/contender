@@ -201,25 +201,14 @@ impl ContenderSessionCache {
         }
     }
 
-    /// Generate a new session ID. This is currently just a random usize, but could be changed to something else (e.g. UUID) if we want to support more sessions or have better guarantees against collisions.
-    pub fn next_session_id(&self) -> SessionId {
-        self.gen_id(
-            self.sessions
-                .iter()
-                .map(|s| s.info.id)
-                .collect::<Vec<_>>()
-                .as_slice(),
-        )
-    }
-
     /// Generate a random session ID that is not currently in use. This is simpler than tracking used IDs and reusing them, and the ID space is large enough that collisions should be extremely rare.
     /// In case of collision, we simply try again with a new random ID by recursing.
-    fn gen_id(&self, session_ids: &[SessionId]) -> SessionId {
+    fn gen_id(&self) -> SessionId {
         let id = rand::random::<u32>() as SessionId;
         if self.sessions.iter().all(|s| s.info.id != id) {
             id
         } else {
-            self.gen_id(session_ids)
+            self.gen_id()
         }
     }
 
@@ -232,7 +221,7 @@ impl ContenderSessionCache {
         &mut self,
         params: NewSessionParams,
     ) -> Result<&mut ContenderSession, ContenderRpcError> {
-        let session = ContenderSession::new(self.next_session_id(), params).await?;
+        let session = ContenderSession::new(self.gen_id(), params).await?;
         let info = session.info.clone();
         let log_channel = session.log_channel.clone();
 

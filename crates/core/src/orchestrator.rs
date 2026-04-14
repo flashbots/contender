@@ -449,7 +449,7 @@ where
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
     Uninitialized,
-    Initialized(TestScenario<D, S, P>),
+    Initialized(Box<TestScenario<D, S, P>>),
 }
 
 impl<D, S, P> ContenderState<D, S, P>
@@ -528,7 +528,7 @@ where
         }
         scenario.deploy_contracts().await?;
         scenario.run_setup().await?;
-        self.state = ContenderState::Initialized(scenario);
+        self.state = ContenderState::Initialized(scenario.into());
         Ok(())
     }
 

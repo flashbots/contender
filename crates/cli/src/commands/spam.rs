@@ -253,7 +253,7 @@ pub struct SpamCliArgs {
 }
 
 impl SpamCliArgs {
-    pub fn builtin_options(&self, data_dir: &PathBuf) -> Result<BuiltinOptions> {
+    pub fn builtin_options(&self, data_dir: &Path) -> Result<BuiltinOptions> {
         let seed = self
             .eth_json_rpc_args
             .rpc_args

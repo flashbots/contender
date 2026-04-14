@@ -200,7 +200,7 @@ impl AuthParams {
                 Box::new(
                     AuthProvider::<Optimism>::new(
                         &self.rpc_url,
-                        self.jwt_secret.secret.clone(),
+                        self.jwt_secret.secret,
                         self.message_version.into(),
                     )
                     .await?,

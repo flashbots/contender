@@ -163,9 +163,10 @@ fn to_kebab_case(s: &str) -> String {
     for (i, &c) in chars.iter().enumerate() {
         if c.is_uppercase() && i > 0 {
             let prev = chars[i - 1];
-            if prev.is_lowercase() || prev.is_ascii_digit() {
-                result.push('-');
-            } else if i + 1 < chars.len() && chars[i + 1].is_lowercase() {
+            if prev.is_lowercase()
+                || prev.is_ascii_digit()
+                || (i + 1 < chars.len() && chars[i + 1].is_lowercase())
+            {
                 result.push('-');
             }
         }
@@ -387,8 +388,7 @@ fn rust_type_to_js(raw: &str, enum_variants: &HashMap<String, Vec<String>>) -> S
         .replace("Vec <", "Vec<")
         .replace("Option<", "")
         .replace("Vec<", "")
-        .replace('>', "")
-        .replace(' ', "");
+        .replace(['>', ' '], "");
 
     for (enum_name, variants) in enum_variants {
         if inner.contains(enum_name.as_str()) {
@@ -950,7 +950,7 @@ fn collect_referenced_schemas(
                 let start = idx + pos + needle.len();
                 let end = start
                     + def.body[start..]
-                        .find(|c: char| c == '"' || c == '}')
+                        .find(['"', '}'])
                         .unwrap_or(def.body.len() - start);
                 let ref_name = def.body[start..end].to_string();
                 if !visited.contains(&ref_name) {

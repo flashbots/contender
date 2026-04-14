@@ -209,7 +209,7 @@ impl ContenderRpcServer for ContenderServer {
         let Some(session) = sessions.get_session(session_id) else {
             return Err(ContenderRpcError::SessionNotFound(session_id).into());
         };
-        error_if_session_not_ready(&session)?;
+        error_if_session_not_ready(session)?;
         let save_receipts = params.save_receipts.unwrap_or(false);
         drop(sessions);
 
@@ -506,7 +506,7 @@ impl ContenderRpcServer for ContenderServer {
 /// Helper function to check if a session is ready to spam,
 /// returning an appropriate RPC error if not.
 fn error_if_session_not_ready(session: &ContenderSession) -> jsonrpsee::core::RpcResult<()> {
-    Ok(match &session.info.status {
+    let _: () = match &session.info.status {
         SessionStatus::Failed(msg) => {
             return Err(ContenderRpcError::SessionFailed {
                 info: session.info.clone(),
@@ -519,7 +519,8 @@ fn error_if_session_not_ready(session: &ContenderSession) -> jsonrpsee::core::Rp
         }
         SessionStatus::Ready => (),
         _ => return Err(ContenderRpcError::SessionNotInitialized(session.info.clone()).into()),
-    })
+    };
+    Ok(())
 }
 
 /// Background task that listens for "batch done" signals and funds spammer
