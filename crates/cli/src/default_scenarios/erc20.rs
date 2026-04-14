@@ -1,6 +1,6 @@
 use alloy::primitives::{Address, U256};
 use contender_core::generator::{
-    types::SpamRequest, util::parse_value, util::deserialize_value, CreateDefinition,
+    types::SpamRequest, util::deserialize_value, util::parse_value, CreateDefinition,
     FunctionCallDefinition, FuzzParam,
 };
 use contender_testfile::TestConfig;
