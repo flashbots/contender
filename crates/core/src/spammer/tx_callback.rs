@@ -273,6 +273,21 @@ impl OnBatchSent for NilCallback {
     }
 }
 
+pub trait IntoCombinedCallback<B> {
+    fn with_callback(self, custom: B) -> CombinedCallback<Self, B>
+    where
+        Self: Sized;
+}
+
+impl<T, B> IntoCombinedCallback<B> for T
+where
+    T: SpamCallback,
+{
+    fn with_callback(self, custom: B) -> CombinedCallback<Self, B> {
+        CombinedCallback::new(self, custom)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,5 +336,37 @@ mod tests {
 
         assert_eq!(base_count.load(Ordering::SeqCst), 2);
         assert_eq!(custom_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn callbacks_can_stack() {
+        let counter1 = Counter::default();
+        let counter2 = Counter::default();
+        let counter3 = Counter::default();
+
+        let combined = counter1
+            .clone()
+            .with_callback(counter2.clone())
+            .with_callback(counter3.clone());
+        /* NOTE:
+            Clones are only necessary for this test.
+            Real impls would likely not need to keep ownership of the callbacks after
+            combining them, so they could be moved instead of cloned.
+            Either way, ownership and cloning semantics are up to the caller
+            since `CombinedCallback` is just a thin wrapper with no special handling.
+        */
+
+        let req = NamedTxRequest::new(Default::default(), None, None);
+        combined.on_tx_sent(
+            PendingTransactionConfig::new(TxHash::ZERO),
+            &req,
+            RuntimeTxInfo::default(),
+            None,
+        );
+        combined.on_batch_sent();
+
+        assert_eq!(counter1.0.load(Ordering::SeqCst), 2);
+        assert_eq!(counter2.0.load(Ordering::SeqCst), 2);
+        assert_eq!(counter3.0.load(Ordering::SeqCst), 2);
     }
 }
