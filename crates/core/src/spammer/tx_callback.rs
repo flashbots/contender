@@ -127,6 +127,80 @@ impl LogCallback {
         self.cancel_token = token;
         self
     }
+
+    /// Wrap this `LogCallback` with a user-provided callback. The returned
+    /// [`CombinedCallback`] runs the `LogCallback`'s tx-caching and FCU logic
+    /// alongside `custom`, so custom callbacks automatically keep the DB in
+    /// sync with `contender report` without having to duplicate
+    /// `LogCallback`'s internals.
+    pub fn with_callback<C>(self, custom: C) -> CombinedCallback<LogCallback, C> {
+        CombinedCallback::new(self, custom)
+    }
+}
+
+/// Runs two callbacks in tandem on every `on_tx_sent` / `on_batch_sent`, joining
+/// any spawned tasks into a single handle so the spam loop still sees one unit
+/// of work. The typical pairing is a [`LogCallback`] as `base` plus a
+/// user-provided callback as `custom`, which lets custom callbacks inherit the
+/// DB-persistence and FCU behavior that `contender report` depends on.
+#[derive(Clone)]
+pub struct CombinedCallback<A, B> {
+    pub base: A,
+    pub custom: B,
+}
+
+impl<A, B> CombinedCallback<A, B> {
+    pub fn new(base: A, custom: B) -> Self {
+        Self { base, custom }
+    }
+}
+
+impl<A, B> OnTxSent for CombinedCallback<A, B>
+where
+    A: OnTxSent + Send + Sync + 'static,
+    B: OnTxSent + Send + Sync + 'static,
+{
+    fn on_tx_sent(
+        &self,
+        tx_response: PendingTransactionConfig,
+        req: &NamedTxRequest,
+        extra: RuntimeTxInfo,
+        tx_handlers: Option<HashMap<String, Arc<TxActorHandle>>>,
+    ) -> Option<JoinHandle<CallbackResult<()>>> {
+        let base_handle =
+            self.base
+                .on_tx_sent(tx_response.clone(), req, extra.clone(), tx_handlers.clone());
+        let custom_handle = self.custom.on_tx_sent(tx_response, req, extra, tx_handlers);
+        join_callback_handles(base_handle, custom_handle)
+    }
+}
+
+impl<A, B> OnBatchSent for CombinedCallback<A, B>
+where
+    A: OnBatchSent + Send + Sync + 'static,
+    B: OnBatchSent + Send + Sync + 'static,
+{
+    fn on_batch_sent(&self) -> Option<JoinHandle<CallbackResult<()>>> {
+        let base_handle = self.base.on_batch_sent();
+        let custom_handle = self.custom.on_batch_sent();
+        join_callback_handles(base_handle, custom_handle)
+    }
+}
+
+fn join_callback_handles(
+    a: Option<JoinHandle<CallbackResult<()>>>,
+    b: Option<JoinHandle<CallbackResult<()>>>,
+) -> Option<JoinHandle<CallbackResult<()>>> {
+    match (a, b) {
+        (None, None) => None,
+        (Some(h), None) | (None, Some(h)) => Some(h),
+        (Some(a), Some(b)) => Some(tokio::task::spawn(async move {
+            let (ra, rb) = tokio::join!(a, b);
+            ra.map_err(CallbackError::Join)??;
+            rb.map_err(CallbackError::Join)??;
+            Ok(())
+        })),
+    }
 }
 
 impl OnTxSent for NilCallback {
@@ -196,5 +270,56 @@ impl OnBatchSent for NilCallback {
     fn on_batch_sent(&self) -> Option<JoinHandle<CallbackResult<()>>> {
         // do nothing
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::TxHash;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Clone, Default)]
+    struct Counter(Arc<AtomicUsize>);
+
+    impl OnTxSent for Counter {
+        fn on_tx_sent(
+            &self,
+            _: PendingTransactionConfig,
+            _: &NamedTxRequest,
+            _: RuntimeTxInfo,
+            _: Option<HashMap<String, Arc<TxActorHandle>>>,
+        ) -> Option<JoinHandle<CallbackResult<()>>> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            None
+        }
+    }
+
+    impl OnBatchSent for Counter {
+        fn on_batch_sent(&self) -> Option<JoinHandle<CallbackResult<()>>> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            None
+        }
+    }
+
+    #[tokio::test]
+    async fn combined_callback_runs_both_sides() {
+        let base = Counter::default();
+        let custom = Counter::default();
+        let base_count = base.0.clone();
+        let custom_count = custom.0.clone();
+
+        let combined = CombinedCallback::new(base, custom);
+        let req = NamedTxRequest::new(Default::default(), None, None);
+        combined.on_tx_sent(
+            PendingTransactionConfig::new(TxHash::ZERO),
+            &req,
+            RuntimeTxInfo::default(),
+            None,
+        );
+        combined.on_batch_sent();
+
+        assert_eq!(base_count.load(Ordering::SeqCst), 2);
+        assert_eq!(custom_count.load(Ordering::SeqCst), 2);
     }
 }
