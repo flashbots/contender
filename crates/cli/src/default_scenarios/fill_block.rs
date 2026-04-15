@@ -1,5 +1,4 @@
 use crate::{
-    commands::common::SendSpamCliArgs,
     default_scenarios::{builtin::ToTestConfig, contracts, BuiltinScenario},
     error::CliError,
 };
@@ -10,9 +9,10 @@ use contender_core::generator::{
     CreateDefinition, FunctionCallDefinition,
 };
 use contender_testfile::TestConfig;
+use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-#[derive(Parser, Clone, Debug)]
+#[derive(Parser, Clone, Debug, Deserialize, Serialize)]
 /// Taken from the CLI, this is used to fill a block with transactions.
 pub struct FillBlockCliArgs {
     #[arg(short = 'g', long, long_help = "Override gas used per block. By default, the block limit is used.", visible_aliases = ["gas"])]
@@ -26,18 +26,32 @@ pub struct FillBlockArgs {
     pub num_txs: u64,
 }
 
+pub enum SpamRate {
+    TxsPerBlock(u64),
+    TxsPerSecond(u64),
+}
+
+impl Default for SpamRate {
+    fn default() -> Self {
+        SpamRate::TxsPerSecond(10)
+    }
+}
+
+impl SpamRate {
+    /// Get the number of transactions to send based on the spam rate.
+    pub fn num_txs(&self) -> u64 {
+        match self {
+            SpamRate::TxsPerBlock(n) | SpamRate::TxsPerSecond(n) => *n,
+        }
+    }
+}
+
 pub async fn fill_block(
     provider: &AnyProvider,
-    spam_args: &SendSpamCliArgs,
+    spam_rate: SpamRate,
     args: &FillBlockCliArgs,
 ) -> Result<BuiltinScenario, CliError> {
-    let SendSpamCliArgs {
-        txs_per_block,
-        txs_per_second,
-        ..
-    } = spam_args.to_owned();
-
-    // determine gas limit
+    // determine gas limit per block, then divide by the number of transactions to get gas limit per transaction
     let gas_limit = if let Some(max_gas) = args.max_gas_per_block {
         max_gas
     } else {
@@ -50,21 +64,7 @@ pub async fn fill_block(
         }
         block_gas_limit.unwrap_or(30_000_000)
     };
-
-    let num_txs = match (txs_per_block, txs_per_second) {
-        (Some(0), _) | (_, Some(0)) => {
-            return Err(CliError::Args(
-                crate::commands::error::ArgsError::SpamRateNotFound,
-            ));
-        }
-        (Some(n), _) => n,
-        (_, Some(n)) => n,
-        (None, None) => {
-            return Err(CliError::Args(
-                crate::commands::error::ArgsError::SpamRateNotFound,
-            ));
-        }
-    };
+    let num_txs = spam_rate.num_txs();
     let gas_per_tx = gas_limit / num_txs;
 
     info!("Attempting to fill blocks with {gas_limit} gas; sending {num_txs} txs, each with gas limit {gas_per_tx}.");

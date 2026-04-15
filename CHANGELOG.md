@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 - custom spam callbacks can now wrap a `LogCallback` via `LogCallback::with_callback` to inherit the tx-caching and FCU behavior that `contender report` depends on, removing the boilerplate that previously caused custom callbacks to silently break reporting ([#326](https://github.com/flashbots/contender/issues/326))
+- added contender server + some supporting (and internally-breaking) changes ([#494](https://github.com/flashbots/contender/pull/494/))
 
 ## [0.9.1](https://github.com/flashbots/contender/releases/tag/v0.9.1) - 2026-04-01
 

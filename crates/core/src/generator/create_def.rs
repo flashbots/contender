@@ -66,12 +66,16 @@ pub struct CreateDefinition {
     #[serde(flatten)]
     pub contract: CompiledContract,
     /// Constructor signature. Formats supported: "constructor(type1,type2,...)" or "(type1,type2,...)".
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
     /// Constructor arguments. May include placeholders.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<Vec<String>>,
     /// Address of the tx sender.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub from: Option<String>,
     /// Get a `from` address from the pool of signers specified here.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub from_pool: Option<String>,
 }
 

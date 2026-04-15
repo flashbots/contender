@@ -3,6 +3,7 @@ use crate::{buckets::Bucket, db::DbError};
 use alloy::primitives::{Address, FixedBytes, TxHash};
 use std::collections::BTreeMap;
 
+#[derive(Clone)]
 pub struct MockDb;
 
 #[derive(Debug)]

@@ -12,9 +12,10 @@ use crate::{
 use clap::Parser;
 use contender_core::generator::{types::SpamRequest, CreateDefinition, FunctionCallDefinition};
 use contender_testfile::TestConfig;
+use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-#[derive(Clone, Debug, Parser)]
+#[derive(Clone, Debug, Parser, Deserialize, Serialize)]
 pub struct SetCodeCliArgs {
     #[command(subcommand)]
     pub command: Option<SetCodeSubCommand>,
