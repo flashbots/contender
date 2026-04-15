@@ -4,25 +4,34 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use crate::{
+    agent_controller::AgentClass,
     db::{DbOps, MockDb, SpamDuration, SpamRunRequest},
+    error::RuntimeErrorKind,
     generator::{
         agent_pools::AgentSpec,
         seeder::{rand_seed::SeedGenerator, Seeder},
         templater::Templater,
+        types::AnyProvider,
         PlanConfig, RandSeed,
     },
     spammer::{tx_actor::TxActorHandle, OnBatchSent, OnTxSent, Spammer},
     test_scenario::{PrometheusCollector, TestScenario, TestScenarioParams},
-    util::default_signers,
+    util::{default_signers, spawn_spam_report_task},
     Result,
 };
 use alloy::{
-    consensus::TxType, node_bindings::WEI_IN_ETHER, primitives::U256,
-    signers::local::PrivateKeySigner, transports::http::reqwest::Url,
+    consensus::TxType,
+    network::AnyNetwork,
+    node_bindings::WEI_IN_ETHER,
+    primitives::U256,
+    providers::{DynProvider, Provider},
+    signers::local::PrivateKeySigner,
+    transports::http::reqwest::Url,
 };
 use contender_bundle_provider::bundle::BundleType;
 use contender_engine_provider::ControlChain;
 use std::sync::LazyLock;
+use tokio_util::sync::CancellationToken;
 
 static SMOL_AMOUNT: LazyLock<U256> = LazyLock::new(|| WEI_IN_ETHER / U256::from(100));
 
@@ -46,7 +55,7 @@ where
     pub user_signers: Vec<PrivateKeySigner>,
     pub tx_type: TxType,
     pub bundle_type: BundleType,
-    pub pending_tx_timeout_secs: u64,
+    pub pending_tx_timeout: Duration,
     pub extra_msg_handles: Option<HashMap<String, Arc<TxActorHandle>>>,
     pub auth_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
     pub prometheus: PrometheusCollector,
@@ -112,12 +121,12 @@ where
             user_signers: default_signers(),
             tx_type: TxType::Eip1559,
             bundle_type: BundleType::default(),
-            pending_tx_timeout_secs: 12,
+            pending_tx_timeout: Duration::from_secs(12),
             extra_msg_handles: None,
             auth_provider: None,
             prometheus: PrometheusCollector::default(),
             funding: *SMOL_AMOUNT,
-            sync_nonces_after_batch: true,
+            sync_nonces_after_batch: false,
             rpc_batch_size: 0,
             scenario_label: None,
             send_raw_tx_sync: false,
@@ -127,7 +136,7 @@ where
 
 impl<D, S, P> ContenderCtx<D, S, P>
 where
-    D: DbOps + Send + Sync + 'static,
+    D: DbOps + Clone + Send + Sync + 'static,
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
@@ -187,12 +196,12 @@ where
             user_signers: default_signers(),
             tx_type: TxType::Eip1559,
             bundle_type: BundleType::default(),
-            pending_tx_timeout_secs: 12,
+            pending_tx_timeout: Duration::from_secs(12),
             extra_msg_handles: None,
             auth_provider: None,
             prometheus: PrometheusCollector::default(),
             funding: *SMOL_AMOUNT,
-            sync_nonces_after_batch: true,
+            sync_nonces_after_batch: false,
             rpc_batch_size: 0,
             scenario_label: None,
             send_raw_tx_sync: false,
@@ -207,7 +216,7 @@ where
             signers: self.user_signers.clone(),
             agent_spec: self.agent_spec.clone(),
             tx_type: self.tx_type,
-            pending_tx_timeout_secs: self.pending_tx_timeout_secs,
+            pending_tx_timeout: self.pending_tx_timeout,
             bundle_type: self.bundle_type,
             extra_msg_handles: self.extra_msg_handles.clone(),
             sync_nonces_after_batch: self.sync_nonces_after_batch,
@@ -228,6 +237,10 @@ where
         )
         .await
     }
+
+    pub fn create_contender(self) -> Contender<D, S, P> {
+        Contender::new(self)
+    }
 }
 
 /// Builder with sane defaults; only (config, db, seeder, rpc_url) are required.
@@ -247,7 +260,7 @@ where
     user_signers: Vec<PrivateKeySigner>,
     tx_type: TxType,
     bundle_type: BundleType,
-    pending_tx_timeout_secs: u64,
+    pending_tx_timeout: Duration,
     extra_msg_handles: Option<HashMap<String, Arc<TxActorHandle>>>,
     auth_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
     prometheus: PrometheusCollector,
@@ -284,8 +297,8 @@ where
         self.bundle_type = b;
         self
     }
-    pub fn pending_tx_timeout_secs(mut self, s: u64) -> Self {
-        self.pending_tx_timeout_secs = s;
+    pub fn pending_tx_timeout(mut self, d: Duration) -> Self {
+        self.pending_tx_timeout = d;
         self
     }
     pub fn extra_msg_handles(mut self, m: HashMap<String, Arc<TxActorHandle>>) -> Self {
@@ -312,6 +325,10 @@ where
         self.scenario_label = Some(label);
         self
     }
+    pub fn sync_nonces_after_batch(mut self, sync: bool) -> Self {
+        self.sync_nonces_after_batch = sync;
+        self
+    }
 
     pub fn build(self) -> ContenderCtx<D, S, P> {
         // always try to create tables before building, so user doesn't have to think about it later.
@@ -328,7 +345,7 @@ where
             user_signers: self.user_signers,
             tx_type: self.tx_type,
             bundle_type: self.bundle_type,
-            pending_tx_timeout_secs: self.pending_tx_timeout_secs,
+            pending_tx_timeout: self.pending_tx_timeout,
             extra_msg_handles: self.extra_msg_handles,
             auth_provider: self.auth_provider,
             prometheus: self.prometheus,
@@ -347,6 +364,10 @@ pub struct RunOpts {
     pub txs_per_period: u64,
     pub periods: u64,
     pub name: String,
+    /// If set, contender will log spam run results every `report_interval_secs` seconds.
+    pub report_interval_secs: Option<u64>,
+    /// If set, contender will fund agent accounts with the specified frequency (in seconds) during the spam run.
+    pub fund_interval_secs: Option<u64>,
 }
 
 impl Default for RunOpts {
@@ -355,6 +376,8 @@ impl Default for RunOpts {
             txs_per_period: 10,
             periods: 1,
             name: "Unknown".to_owned(),
+            report_interval_secs: None,
+            fund_interval_secs: None,
         }
     }
 }
@@ -373,6 +396,14 @@ impl RunOpts {
     }
     pub fn name(mut self, name: impl AsRef<str>) -> Self {
         self.name = name.as_ref().to_owned();
+        self
+    }
+    pub fn report_interval_secs(mut self, secs: u64) -> Self {
+        self.report_interval_secs = Some(secs);
+        self
+    }
+    pub fn fund_interval_secs(mut self, secs: u64) -> Self {
+        self.fund_interval_secs = Some(secs);
         self
     }
 
@@ -403,17 +434,52 @@ impl RunOpts {
 /// Orchestrator that plugs a built scenario into any `Spammer`.
 pub struct Contender<D, S, P>
 where
-    D: DbOps + Send + Sync + 'static,
+    D: DbOps + Clone + Send + Sync + 'static,
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
     ctx: ContenderCtx<D, S, P>,
-    initialized: bool,
+    pub state: ContenderState<D, S, P>,
+}
+
+pub enum ContenderState<D, S, P>
+where
+    D: DbOps + Clone + Send + Sync + 'static,
+    S: SeedGenerator + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+{
+    Uninitialized,
+    Initialized(Box<TestScenario<D, S, P>>),
+}
+
+impl<D, S, P> ContenderState<D, S, P>
+where
+    D: DbOps + Clone + Send + Sync + 'static,
+    S: SeedGenerator + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+{
+    pub fn scenario(&self) -> Option<&TestScenario<D, S, P>> {
+        match self {
+            ContenderState::Uninitialized => None,
+            ContenderState::Initialized(scenario) => Some(scenario),
+        }
+    }
+
+    pub fn scenario_mut(&mut self) -> Option<&mut TestScenario<D, S, P>> {
+        match self {
+            ContenderState::Uninitialized => None,
+            ContenderState::Initialized(scenario) => Some(scenario),
+        }
+    }
+
+    pub fn is_initialized(&self) -> bool {
+        matches!(self, ContenderState::Initialized(_))
+    }
 }
 
 impl<D, S, P> Contender<D, S, P>
 where
-    D: DbOps + Send + Sync + 'static,
+    D: DbOps + Clone + Send + Sync + 'static,
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
@@ -441,7 +507,7 @@ where
     pub fn new(ctx: ContenderCtx<D, S, P>) -> Self {
         Self {
             ctx,
-            initialized: false,
+            state: ContenderState::Uninitialized,
         }
     }
 
@@ -462,7 +528,7 @@ where
         }
         scenario.deploy_contracts().await?;
         scenario.run_setup().await?;
-        self.initialized = true;
+        self.state = ContenderState::Initialized(scenario.into());
         Ok(())
     }
 
@@ -504,40 +570,148 @@ where
     /// let callback = NilCallback;
     /// // initialize opts; slightly tweaking the defaults
     /// let opts = RunOpts::new().txs_per_period(50).periods(10);
+    /// // create a cancellation token that can be used to stop the spam run from outside the `Contender` (optional)
+    /// let cancel_token = tokio_util::sync::CancellationToken::new();
     ///
     /// // run spammer
-    /// contender.spam(spammer, callback.into(), opts).await.unwrap();
+    /// contender.spam(spammer, callback.into(), opts, Some(cancel_token.clone())).await.unwrap();
     /// ```
-    pub async fn spam<F, SP>(&mut self, spammer: SP, callback: Arc<F>, opts: RunOpts) -> Result<()>
+    pub async fn spam<F, SP>(
+        &mut self,
+        spammer: SP,
+        callback: Arc<F>,
+        opts: RunOpts,
+        cancel_token: Option<CancellationToken>,
+    ) -> Result<()>
     where
         F: OnTxSent + OnBatchSent + Send + Sync + 'static,
         SP: Spammer<F, D, S, P>,
     {
         // call self.initialize if it hasn't yet been called manually
-        if !self.initialized {
+        if !self.state.is_initialized() {
             self.initialize().await?;
         }
 
-        // build scenario so we can use its DB
-        let mut scenario = self.ctx.build_scenario().await?;
+        // get mutable ref to scenario so nonce state persists across calls
+        let scenario = self.state.scenario_mut()
+            .expect("if initialize() fails, it will throw an error before this point, so scenario should always be available here");
+
+        // reset cancel token & restart flush loops if this isn't the first run
+        scenario.prepare_for_run().await?;
 
         // add run to DB
         let run_req = opts.create_spam_run_request(
             &scenario.rpc_url,
-            Duration::from_secs(self.ctx.pending_tx_timeout_secs),
+            self.ctx.pending_tx_timeout,
             SP::duration_units(opts.periods),
         );
         let run_id = scenario.db.insert_run(&run_req).map_err(|e| e.into())?;
 
-        // send spam
-        spammer
-            .spam_rpc(
-                &mut scenario,
-                opts.txs_per_period,
-                opts.periods,
-                Some(run_id),
-                callback,
+        // Initialize TxActor contexts so flush_loop can match receipts.
+        let current_block = scenario.rpc_client.get_block_number().await?;
+        let actor_ctx = crate::spammer::tx_actor::ActorContext::new(current_block, run_id)
+            .with_pending_tx_timeout(self.ctx.pending_tx_timeout);
+        for handle in scenario.msg_handles.values() {
+            handle.init_ctx(actor_ctx.clone()).await?;
+        }
+
+        let reporting_handle = if let Some(report_interval) = opts.report_interval_secs {
+            spawn_spam_report_task(
+                self.ctx.db.as_ref(),
+                run_id,
+                report_interval,
+                opts.txs_per_period * opts.periods,
             )
-            .await
+        } else {
+            // create a dummy cancellation token that won't be triggered, since the report task won't be running
+            CancellationToken::new()
+        };
+
+        // send spam; if an external cancel token was provided, select on it
+        // so we can abort mid-run (the cursor.next() inside spam_rpc won't
+        // check cancellation on its own).
+        let result = if let Some(external) = cancel_token {
+            tokio::select! {
+                res = spammer.spam_rpc(
+                    scenario,
+                    opts.txs_per_period,
+                    opts.periods,
+                    Some(run_id),
+                    callback,
+                ) => res,
+                _ = external.cancelled() => {
+                    Ok(())
+                }
+            }
+        } else {
+            spammer
+                .spam_rpc(
+                    scenario,
+                    opts.txs_per_period,
+                    opts.periods,
+                    Some(run_id),
+                    callback,
+                )
+                .await
+        };
+
+        // Signal the flush loop that sending is done so it can shut down
+        // once all receipts are processed (or after the stale block timeout).
+        scenario.ctx.cancel_token.cancel();
+
+        // also cancel the report task if it's running
+        reporting_handle.cancel();
+
+        // Wait for all flush loops to finish collecting receipts.
+        for handle in scenario.msg_handles.values() {
+            handle.await_flush().await;
+        }
+
+        result
+    }
+
+    /// Materialize a fresh `TestScenario` using the context which was used to create this `Contender` instance.
+    pub async fn build_scenario(&self) -> Result<TestScenario<D, S, P>> {
+        self.ctx.build_scenario().await
+    }
+
+    /// Produce a web3 provider connected to the current instance's RPC URL.
+    pub fn provider(&self) -> AnyProvider {
+        DynProvider::new(
+            alloy::providers::ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .connect_http(self.ctx.rpc_url.clone()),
+        )
+    }
+
+    /// Returns a reference to the first user signer (the funder account).
+    pub fn funder(&self) -> Option<&PrivateKeySigner> {
+        self.ctx.user_signers.first()
+    }
+
+    /// Returns the configured minimum balance (funding amount) for agent accounts.
+    pub fn min_balance(&self) -> U256 {
+        self.ctx.funding
+    }
+
+    pub async fn fund_accounts(&self, agent_class: AgentClass, amount: U256) -> Result<()> {
+        let scenario = self
+            .state
+            .scenario()
+            .ok_or_else(|| RuntimeErrorKind::ScenarioNotFound)?;
+
+        let funder = &self.ctx.user_signers[0];
+        let agent = scenario.agent_store.get_class(&agent_class);
+        if let Some(agent) = agent {
+            agent
+                .fund_signers(funder, amount, scenario.rpc_client.to_owned())
+                .await?;
+        } else {
+            tracing::warn!(
+                "No agents found for class {:?}, skipping funding",
+                agent_class
+            );
+        }
+        Ok(())
     }
 }

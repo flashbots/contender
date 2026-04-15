@@ -1,0 +1,213 @@
+{
+  "openrpc": "1.3.2",
+  "info": {
+    "title": "Contender RPC Server",
+    "description": "JSON-RPC API to remotely run contender sessions.",
+    "version": "0.9.1"
+  },
+  "x-source": {
+    "repository": "https://github.com/flashbots/contender",
+    "types": {
+      "AddSessionParams": {"file":"crates/cli/src/server/rpc_server/types.rs","line":37},
+      "AgentClass": {"file":"crates/core/src/agent_controller.rs","line":42},
+      "AgentParams": {"file":"crates/cli/src/server/rpc_server/types.rs","line":245},
+      "AuthParams": {"file":"crates/cli/src/server/rpc_server/types.rs","line":188},
+      "BlobsCliArgs": {"file":"crates/cli/src/default_scenarios/blobs.rs","line":10},
+      "BuilderParams": {"file":"crates/cli/src/server/rpc_server/types.rs","line":224},
+      "BuiltinScenarioCli": {"file":"crates/cli/src/default_scenarios/builtin.rs","line":33},
+      "BundleCallDefinition": {"file":"crates/core/src/generator/function_def.rs","line":53},
+      "BundleTypeCli": {"file":"crates/cli/src/commands/common.rs","line":426},
+      "CompiledContract": {"file":"crates/core/src/generator/create_def.rs","line":8},
+      "ContenderSessionInfo": {"file":"crates/cli/src/server/sessions.rs","line":118},
+      "CreateDefinition": {"file":"crates/core/src/generator/create_def.rs","line":65},
+      "CustomContractCliArgs": {"file":"crates/cli/src/default_scenarios/custom_contract.rs","line":17},
+      "EngineMessageVersion": {"file":"crates/cli/src/commands/common.rs","line":268},
+      "Erc20CliArgs": {"file":"crates/cli/src/default_scenarios/erc20.rs","line":16},
+      "EthFunctionsCliArgs": {"file":"crates/cli/src/default_scenarios/eth_functions/command.rs","line":15},
+      "EthereumOpcode": {"file":"crates/cli/src/default_scenarios/eth_functions/opcodes.rs","line":10},
+      "EthereumPrecompile": {"file":"crates/cli/src/default_scenarios/eth_functions/precompiles.rs","line":11},
+      "FillBlockCliArgs": {"file":"crates/cli/src/default_scenarios/fill_block.rs","line":17},
+      "FunctionCallDefinition": {"file":"crates/core/src/generator/function_def.rs","line":12},
+      "FundAccountsParams": {"file":"crates/cli/src/server/rpc_server/types.rs","line":275},
+      "FuzzParam": {"file":"crates/core/src/generator/function_def.rs","line":162},
+      "RevertCliArgs": {"file":"crates/cli/src/default_scenarios/revert.rs","line":8},
+      "ServerStatus": {"file":"crates/cli/src/server/rpc_server/types.rs","line":30},
+      "SessionOptions": {"file":"crates/cli/src/server/rpc_server/types.rs","line":231},
+      "SessionStatus": {"file":"crates/cli/src/server/sessions.rs","line":23},
+      "SetCodeCliArgs": {"file":"crates/cli/src/default_scenarios/setcode/base.rs","line":19},
+      "SetCodeExecuteCliArgs": {"file":"crates/cli/src/default_scenarios/setcode/execute.rs","line":14},
+      "SetCodeSubCommand": {"file":"crates/cli/src/default_scenarios/setcode/execute.rs","line":59},
+      "SpamParams": {"file":"crates/cli/src/server/rpc_server/types.rs","line":121},
+      "SpamRequest": {"file":"crates/core/src/generator/types.rs","line":19},
+      "SpammerType": {"file":"crates/cli/src/server/rpc_server/types.rs","line":141},
+      "StorageStressCliArgs": {"file":"crates/cli/src/default_scenarios/storage.rs","line":7},
+      "StressCliArgs": {"file":"crates/cli/src/default_scenarios/stress.rs","line":19},
+      "TestConfig": {"file":"crates/cli/src/server/rpc_server/types.rs","line":80},
+      "TestConfigSource": {"file":"crates/cli/src/server/rpc_server/types.rs","line":80},
+      "TransferStressCliArgs": {"file":"crates/cli/src/default_scenarios/transfers.rs","line":12},
+      "TxTypeCli": {"file":"crates/cli/src/commands/common.rs","line":395},
+      "UniV2CliArgs": {"file":"crates/cli/src/default_scenarios/uni_v2.rs","line":15}
+    }
+  },
+  "methods": [
+    {
+      "name": "status",
+      "params": [
+      ],
+      "result": {
+        "name": "status",
+        "schema": {"$ref":"#/components/schemas/ServerStatus"}
+      }
+    },
+    {
+      "name": "addSession",
+      "params": [
+        {
+          "name": "name",
+          "required": true,
+          "schema": {"$ref":"#/components/schemas/AddSessionParams"}
+        }
+      ],
+      "result": {
+        "name": "addSession",
+        "schema": {"$ref":"#/components/schemas/ContenderSessionInfo"}
+      }
+    },
+    {
+      "name": "getSession",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {"type":"integer"}
+        }
+      ],
+      "result": {
+        "name": "getSession",
+        "schema": {"$ref":"#/components/schemas/ContenderSessionInfo"}
+      }
+    },
+    {
+      "name": "getAllSessions",
+      "params": [
+      ],
+      "result": {
+        "name": "getAllSessions",
+        "schema": {"type":"array","items":{"$ref":"#/components/schemas/ContenderSessionInfo"}}
+      }
+    },
+    {
+      "name": "removeSession",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {"type":"integer"}
+        }
+      ],
+      "result": {
+        "name": "removeSession",
+        "schema": {"type":"null"}
+      }
+    },
+    {
+      "name": "spam",
+      "params": [
+        {
+          "name": "params",
+          "required": true,
+          "schema": {"$ref":"#/components/schemas/SpamParams"}
+        }
+      ],
+      "result": {
+        "name": "spam",
+        "schema": {"type":"string"}
+      }
+    },
+    {
+      "name": "stop",
+      "params": [
+        {
+          "name": "session_id",
+          "required": true,
+          "schema": {"type":"integer"}
+        }
+      ],
+      "result": {
+        "name": "stop",
+        "schema": {"type":"string"}
+      }
+    },
+    {
+      "name": "fundAccounts",
+      "params": [
+        {
+          "name": "params",
+          "required": true,
+          "schema": {"$ref":"#/components/schemas/FundAccountsParams"}
+        }
+      ],
+      "result": {
+        "name": "fundAccounts",
+        "schema": {"type":"string"}
+      }
+    },
+    {
+      "name": "subscribeLogs",
+      "params": [
+        {
+          "name": "session_id",
+          "required": true,
+          "schema": {"type":"integer"}
+        }
+      ],
+      "result": {
+        "name": "subscribeLogs",
+        "schema": {"type":"string"}
+      }
+    }
+  ],
+  "components": {
+    "schemas": {
+      "AddSessionParams": {"description":"RPC parameters for adding a new contender session.","type":"object","properties":{"name":{"type":"string"},"rpcUrl":{"type":"string"},"testConfig":{"$ref":"#/components/schemas/TestConfigSource"},"options":{"$ref":"#/components/schemas/SessionOptions"}},"required":["name","rpcUrl"]},
+      "AgentClass": {"type":"string","enum":["Deployer","SetupSender","Spammer"]},
+      "AgentParams": {"type":"object","properties":{"createAccounts":{"type":"integer"},"setupAccounts":{"type":"integer"},"spamAccounts":{"type":"integer"}}},
+      "AuthParams": {"type":"object","properties":{"jwtSecret":{"type":"string"},"messageVersion":{"$ref":"#/components/schemas/EngineMessageVersion"},"rpcUrl":{"type":"string"},"callFcu":{"type":"boolean"},"useOp":{"type":"boolean"}},"required":["jwtSecret","messageVersion","rpcUrl"]},
+      "BlobsCliArgs": {"description":"Send blob transactions. Note: the tx type will always be overridden to eip4844.","type":"object","properties":{"blob_data":{"type":"string"},"recipient":{"type":"string"}},"required":["blob_data"]},
+      "BuilderParams": {"type":"object","properties":{"rpcUrl":{"type":"string"},"bundleType":{"$ref":"#/components/schemas/BundleTypeCli"}},"required":["rpcUrl","bundleType"]},
+      "BuiltinScenarioCli": {"oneOf":[{"description":"Send EIP-4844 blob transactions.","type":"object","properties":{"blobs": {"$ref":"#/components/schemas/BlobsCliArgs"}},"required":["blobs"]},{"description":"Deploy and spam a custom contract.","type":"object","properties":{"contract": {"$ref":"#/components/schemas/CustomContractCliArgs"}},"required":["contract"]},{"description":"Spam specific opcodes & precompiles.","type":"object","properties":{"eth-functions": {"$ref":"#/components/schemas/EthFunctionsCliArgs"}},"required":["eth-functions"]},{"description":"Transfer ERC20 tokens.","type":"object","properties":{"erc20": {"$ref":"#/components/schemas/Erc20CliArgs"}},"required":["erc20"]},{"description":"Fill blocks with simple gas-consuming transactions.","type":"object","properties":{"fill-block": {"$ref":"#/components/schemas/FillBlockCliArgs"}},"required":["fill-block"]},{"description":"Send reverting transactions.","type":"object","properties":{"revert": {"$ref":"#/components/schemas/RevertCliArgs"}},"required":["revert"]},{"description":"Send EIP-7702 setCode transactions, call functions on new EOA code.","type":"object","properties":{"set-code": {"$ref":"#/components/schemas/SetCodeCliArgs"}},"required":["set-code"]},{"description":"Fill storage slots with random data.","type":"object","properties":{"storage": {"$ref":"#/components/schemas/StorageStressCliArgs"}},"required":["storage"]},{"description":"Run a comprehensive stress test with various parameters.","type":"object","properties":{"stress": {"$ref":"#/components/schemas/StressCliArgs"}},"required":["stress"]},{"description":"Simple ETH transfers. ETH is transferred to the sender if --recipient is not set.","type":"object","properties":{"transfers": {"$ref":"#/components/schemas/TransferStressCliArgs"}},"required":["transfers"]},{"description":"Send swaps on UniV2 with custom tokens.","type":"object","properties":{"uni-v2": {"$ref":"#/components/schemas/UniV2CliArgs"}},"required":["uni-v2"]}]},
+      "BundleCallDefinition": {"description":"User-facing definition of a function call to be executed.","type":"object","properties":{"tx":{"type":"array","items":{"$ref":"#/components/schemas/FunctionCallDefinition"}}},"required":["tx"]},
+      "BundleTypeCli": {"type":"string","enum":["l1","revertprotected"]},
+      "CompiledContract": {"type":"object","properties":{"bytecode":{"type":"string"},"name":{"type":"string"}},"required":["bytecode","name"]},
+      "ContenderSessionInfo": {"type":"object","properties":{"id":{"type":"integer"},"name":{"type":"string"},"rpc_url":{"type":"string"},"status":{"$ref":"#/components/schemas/SessionStatus"}},"required":["id","name","rpc_url","status"]},
+      "CreateDefinition": {"allOf":[{"$ref":"#/components/schemas/CompiledContract"},{"type":"object","properties":{"signature":{"description":"Constructor signature. Formats supported: \"constructor(type1,type2,...)\" or \"(type1,type2,...)\".","type":"string"},"args":{"description":"Constructor arguments. May include placeholders.","type":"array","items":{"type":"string"}},"from":{"description":"Address of the tx sender.","type":"string"},"from_pool":{"description":"Get a `from` address from the pool of signers specified here.","type":"string"}}}]},
+      "CustomContractCliArgs": {"type":"object","properties":{"contract_path":{"description":"Path to smart contract source. Format: <path/to/contract.sol>:<ContractName>","type":"string"},"constructor_args":{"type":"string"},"setup_calls":{"type":"array","items":{"type":"string"}},"spam_calls":{"type":"array","items":{"type":"string"}}},"required":["contract_path","setup_calls","spam_calls"]},
+      "EngineMessageVersion": {"type":"string","enum":["v1","v2","v3","v4"]},
+      "Erc20CliArgs": {"type":"object","properties":{"send_amount":{"type":"string"},"fund_amount":{"type":"string"},"token_recipient":{"type":"string"}},"required":["send_amount","fund_amount"]},
+      "EthFunctionsCliArgs": {"type":"object","properties":{"opcodes":{"type":"array","items":{"$ref":"#/components/schemas/EthereumOpcode"}},"precompiles":{"type":"array","items":{"$ref":"#/components/schemas/EthereumPrecompile"}},"num_iterations":{"type":"integer"}},"required":["opcodes","precompiles","num_iterations"]},
+      "EthereumOpcode": {"type":"string","enum":["Stop","Add","Mul","Sub","Div","Sdiv","Mod","Smod","Addmod","Mulmod","Exp","Signextend","Lt","Gt","Slt","Sgt","Eq","Iszero","And","Or","Xor","Not","Byte","Shl","Shr","Sar","Sha3","Keccak256","Address","Balance","Origin","Caller","Callvalue","Calldataload","Calldatasize","Calldatacopy","Codesize","Codecopy","Gasprice","Extcodesize","Extcodecopy","Returndatasize","Returndatacopy","Extcodehash","Blockhash","Coinbase","Timestamp","Number","Prevrandao","Gaslimit","Chainid","Selfbalance","Basefee","Pop","Mload","Mstore","Mstore8","Sload","Sstore","Msize","Gas","Log0","Log1","Log2","Log3","Log4","Create","Call","Callcode","Return","Delegatecall","Create2","Staticcall","Revert","Invalid","Selfdestruct"]},
+      "EthereumPrecompile": {"type":"string","enum":["HashSha256","HashRipemd160","Identity","ModExp","EcAdd","EcMul","EcPairing","Blake2f"]},
+      "FillBlockCliArgs": {"description":"Taken from the CLI, this is used to fill a block with transactions.","type":"object","properties":{"max_gas_per_block":{"type":"integer"}}},
+      "FunctionCallDefinition": {"description":"User-facing definition of a function call to be executed.","type":"object","properties":{"to":{"description":"Address of the contract to call.","type":"string"},"from":{"description":"Address of the tx sender.","type":"string"},"from_pool":{"description":"Get a `from` address from the pool of signers specified here.","type":"string"},"signature":{"description":"Name of the function to call.","type":"string"},"args":{"description":"Parameters to pass to the function.","type":"array","items":{"type":"string"}},"value":{"description":"Value in wei to send with the tx.","type":"string"},"fuzz":{"description":"Parameters to fuzz during the test.","type":"array","items":{"$ref":"#/components/schemas/FuzzParam"}},"kind":{"description":"Optional type of the spam transaction for categorization.","type":"string"},"gas_limit":{"description":"Optional gas limit, which will skip gas estimation. This allows reverting txs to be sent.","type":"integer"},"blob_data":{"description":"Optional blob data; tx type must be set to EIP4844 by spammer","type":"string"},"authorization_address":{"description":"Optional setCode data; tx type must be set to EIP7702 by spammer","type":"string"},"for_all_accounts":{"description":"If true and `from_pool` is set, run this setup transaction for all accounts in the pool. Defaults to false (only runs for the first account).","type":"boolean"}},"required":["to","for_all_accounts"]},
+      "FundAccountsParams": {"type":"object","properties":{"sessionId":{"type":"integer"},"agentClass":{"$ref":"#/components/schemas/AgentClass"},"amount":{"type":"string"}},"required":["sessionId","amount"]},
+      "FuzzParam": {"type":"object","properties":{"param":{"description":"Name of the parameter to fuzz.","type":"string"},"value":{"description":"Fuzz the `value` field of the tx (ETH sent with the tx).","type":"boolean"},"min":{"description":"Minimum value fuzzer will use.","type":"string"},"max":{"description":"Maximum value fuzzer will use.","type":"string"}}},
+      "RevertCliArgs": {"type":"object","properties":{"gas_use":{"description":"Amount of gas to use before reverting.","type":"integer"}},"required":["gas_use"]},
+      "ServerStatus": {"description":"Data returned from the `status` endpoint, containing general info about the server.","type":"object","properties":{"numSessions":{"type":"integer"}},"required":["numSessions"]},
+      "SessionOptions": {"type":"object","properties":{"auth":{"$ref":"#/components/schemas/AuthParams"},"builder":{"$ref":"#/components/schemas/BuilderParams"},"minBalance":{"type":"string"},"timeoutSecs":{"type":"object","properties":{"secs":{"type":"integer"},"nanos":{"type":"integer"}}},"txType":{"$ref":"#/components/schemas/TxTypeCli"},"privateKeys":{"type":"array","items":{"type":"string"}},"agents":{"$ref":"#/components/schemas/AgentParams"},"env":{"type":"object","additionalProperties":{"type":"string"}}}},
+      "SessionStatus": {"oneOf":[{"type":"string","const":"Initializing"},{"type":"string","const":"Ready"},{"type":"object","properties":{"Spamming": {"$ref":"#/components/schemas/SpamParams"}},"required":["Spamming"]},{"type":"object","properties":{"Failed": {"type":"string"}},"required":["Failed"]}]},
+      "SetCodeCliArgs": {"type":"object","properties":{"command":{"$ref":"#/components/schemas/SetCodeSubCommand"},"contract_address":{"description":"The contract address containing the bytecode to copy into the sender's EOA. May be a placeholder. If not set, a test contract will be deployed.","type":"string"},"signature":{"description":"The solidity signature of the function to call on the EOA after the setCode transaction executes.","type":"string"},"args":{"description":"Comma-separated args to the function called on the EOA's new code.","type":"array","items":{"type":"string"}}}},
+      "SetCodeExecuteCliArgs": {"type":"object","properties":{"to":{"description":"The address to call via the smart-wallet's execute function.","type":"string"},"sig":{"description":"The solidity signature of the function to call via the smart-wallet's execute function.","type":"string"},"args":{"description":"Comma-separated arguments to the function being called via the smart-wallet's execute function.","type":"array","items":{"type":"string"}},"value":{"description":"Ether to send with the delegated call. Note: you must manually fund your setCode signer's account to use this feature.","type":"string"}},"required":["to","sig","args"]},
+      "SetCodeSubCommand": {"oneOf":[{"description":"Helper function to delegate function calls via `execute(Call[])` on a smart-wallet contract.","type":"object","properties":{"Execute": {"$ref":"#/components/schemas/SetCodeExecuteCliArgs"}},"required":["Execute"]}]},
+      "SpamParams": {"description":"RPC parameters for the `spam` method.","type":"object","properties":{"sessionId":{"type":"integer"},"txsPerPeriod":{"description":"Number of transactions per period. Defaults to 10.","type":"integer"},"duration":{"description":"Number of periods (seconds or blocks). Defaults to 10.","type":"integer"},"spammer":{"description":"Which spammer to use. Defaults to `Timed`.","$ref":"#/components/schemas/SpammerType"},"name":{"description":"Human-readable name for this spam run.","type":"string"},"saveReceipts":{"description":"Whether to look for receipts while spamming; enables onchain metrics collection.","type":"boolean"},"runForever":{"description":"When true, the spammer restarts automatically after each run until stopped.","type":"boolean"},"reportIntervalSecs":{"description":"When passed, the server will log a summary of the current spam run every `reportIntervalSecs` seconds. Note that this may have a performance impact if set to a very low value.","type":"integer"}},"required":["sessionId"]},
+      "SpamRequest": {"description":"Definition of a spam request template. TestConfig uses this for TOML parsing.","oneOf":[{"type":"object","properties":{"tx": {"$ref":"#/components/schemas/FunctionCallDefinition"}},"required":["tx"]},{"type":"object","properties":{"bundle": {"$ref":"#/components/schemas/BundleCallDefinition"}},"required":["bundle"]}]},
+      "SpammerType": {"type":"string","enum":["timed","blockwise"]},
+      "StorageStressCliArgs": {"type":"object","properties":{"num_slots":{"type":"integer"},"num_iterations":{"type":"integer"}},"required":["num_slots","num_iterations"]},
+      "StressCliArgs": {"type":"object","properties":{"disable_storage":{"type":"boolean"},"disable_transfers":{"type":"boolean"},"disable_opcodes":{"type":"array","items":{"$ref":"#/components/schemas/EthereumOpcode"}},"disable_precompiles":{"type":"array","items":{"$ref":"#/components/schemas/EthereumPrecompile"}},"disable_all_precompiles":{"type":"boolean"},"disable_all_opcodes":{"type":"boolean"},"storage":{"$ref":"#/components/schemas/StorageStressCliArgs"},"transfers":{"$ref":"#/components/schemas/TransferStressCliArgs"},"opcode_iterations":{"type":"integer"},"with_fails":{"type":"boolean"}},"required":["disable_storage","disable_transfers","disable_all_precompiles","disable_all_opcodes","storage","transfers","opcode_iterations","with_fails"]},
+      "TestConfig": {"description":"Configuration to run a test scenario; used to generate PlanConfigs. Defines TOML schema for scenario files.","type":"object","properties":{"env":{"description":"Template variables","type":"object","additionalProperties":{"type":"string"}},"create":{"description":"Contract deployments; array of hex-encoded bytecode strings.","type":"array","items":{"$ref":"#/components/schemas/CreateDefinition"}},"setup":{"description":"Setup steps to run before spamming.","type":"array","items":{"$ref":"#/components/schemas/FunctionCallDefinition"}},"spam":{"description":"Function to call in spam txs.","type":"array","items":{"$ref":"#/components/schemas/SpamRequest"}}}},
+      "TestConfigSource": {"oneOf":[{"type":"object","properties":{"TomlBase64": {"type":"string"}},"required":["TomlBase64"]},{"type":"object","properties":{"Json": {"$ref":"#/components/schemas/TestConfig"}},"required":["Json"]},{"type":"object","properties":{"Builtin": {"$ref":"#/components/schemas/BuiltinScenarioCli"}},"required":["Builtin"]}]},
+      "TransferStressCliArgs": {"type":"object","properties":{"amount":{"type":"string"},"recipient":{"type":"string"}},"required":["amount"]},
+      "TxTypeCli": {"type":"string","enum":["legacy","eip1559","eip4844","eip7702"]},
+      "UniV2CliArgs": {"type":"object","properties":{"num_tokens":{"type":"integer"},"weth_per_token":{"type":"string"},"initial_token_supply":{"type":"string"},"weth_trade_amount":{"type":"string"},"token_trade_amount":{"type":"string"}},"required":["num_tokens","weth_per_token","initial_token_supply"]}
+    }
+  }
+}

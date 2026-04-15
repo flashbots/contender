@@ -26,7 +26,6 @@ use crate::{
 const MAX_PENDING_FLASHBLOCK_MARKS: usize = 1024;
 
 /// External messages from API callers
-#[derive(Debug)]
 pub enum TxActorMessage {
     InitCtx(ActorContext),
     GetCacheLen(oneshot::Sender<usize>),
@@ -49,10 +48,39 @@ pub enum TxActorMessage {
     Stop {
         on_stop: oneshot::Sender<()>,
     },
+    /// Replace the flush receiver with a new one (used when restarting the flush loop).
+    ReplaceFlushReceiver(mpsc::Receiver<FlushRequest>),
+    /// Clear the pending tx cache without writing to the DB.
+    ClearCache {
+        on_clear: oneshot::Sender<()>,
+    },
+}
+
+impl std::fmt::Debug for TxActorMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InitCtx(ctx) => f.debug_tuple("InitCtx").field(ctx).finish(),
+            Self::GetCacheLen(_) => f.write_str("GetCacheLen"),
+            Self::SentRunTx { tx_hash, .. } => f
+                .debug_struct("SentRunTx")
+                .field("tx_hash", tx_hash)
+                .finish(),
+            Self::RemovedRunTx { tx_hash, .. } => f
+                .debug_struct("RemovedRunTx")
+                .field("tx_hash", tx_hash)
+                .finish(),
+            Self::DumpCache { run_id, .. } => {
+                f.debug_struct("DumpCache").field("run_id", run_id).finish()
+            }
+            Self::Stop { .. } => f.write_str("Stop"),
+            Self::ReplaceFlushReceiver(_) => f.write_str("ReplaceFlushReceiver"),
+            Self::ClearCache { .. } => f.write_str("ClearCache"),
+        }
+    }
 }
 
 /// Internal messages from flush task to message handler
-enum FlushRequest {
+pub enum FlushRequest {
     /// Request a snapshot of the current cache
     GetSnapshot {
         reply: oneshot::Sender<(Vec<PendingRunTx>, Option<ActorContext>)>,
@@ -268,6 +296,15 @@ where
                 let res = self.dump_cache(run_id)?;
                 on_dump_cache.send(res).map_err(CallbackError::DumpCache)?;
             }
+            TxActorMessage::ReplaceFlushReceiver(new_receiver) => {
+                self.flush_receiver = new_receiver;
+            }
+            TxActorMessage::ClearCache { on_clear } => {
+                self.cache.clear();
+                on_clear
+                    .send(())
+                    .map_err(|e| CallbackError::OneshotSend(format!("ClearCache: {:?}", e)))?;
+            }
         }
         Ok(())
     }
@@ -373,8 +410,13 @@ async fn flush_loop<D: DbOps + Send + Sync + 'static>(
     flush_sender: mpsc::Sender<FlushRequest>,
     db: Arc<D>,
     rpc: Arc<AnyProvider>,
+    cancel_token: CancellationToken,
 ) {
     let mut interval = tokio::time::interval(Duration::from_secs(1));
+    /// Number of consecutive blocks with no change in pending count before giving up.
+    const STALE_BLOCK_LIMIT: u64 = 6;
+    let mut stale_blocks: u64 = 0;
+    let mut last_pending_count: usize = usize::MAX;
 
     loop {
         interval.tick().await;
@@ -399,6 +441,12 @@ async fn flush_loop<D: DbOps + Send + Sync + 'static>(
             debug!("TxActor context not initialized.");
             continue;
         };
+
+        // If cancel_token is set (sending is done) and cache is empty, we're done.
+        if cancel_token.is_cancelled() && cache_snapshot.is_empty() {
+            info!("all receipts processed, shutting down receipt collection.");
+            break;
+        }
 
         // Get current block number
         let new_block = match rpc.get_block_number().await {
@@ -445,10 +493,32 @@ async fn flush_loop<D: DbOps + Send + Sync + 'static>(
                     }
 
                     if cache_snapshot.is_empty() {
+                        if cancel_token.is_cancelled() {
+                            info!("pending tx cache is empty, shutting down receipt collection.");
+                            return;
+                        }
                         break;
                     }
                 }
                 Err(e) => warn!("flush_cache error for block {}: {:?}", bn, e),
+            }
+        }
+
+        // Track stale blocks: if sending is done and pending count hasn't changed, increment.
+        if cancel_token.is_cancelled() && !cache_snapshot.is_empty() {
+            let current_count = cache_snapshot.len();
+            if current_count == last_pending_count {
+                stale_blocks += new_block.saturating_sub(ctx.target_block).max(1);
+            } else {
+                stale_blocks = 0;
+                last_pending_count = current_count;
+            }
+            if stale_blocks >= STALE_BLOCK_LIMIT {
+                warn!(
+                    "pending receipt count unchanged ({}) for {} blocks, shutting down receipt collection.",
+                    current_count, stale_blocks
+                );
+                break;
             }
         }
     }
@@ -575,6 +645,7 @@ fn get_tx_error(
 #[derive(Debug)]
 pub struct TxActorHandle {
     sender: mpsc::Sender<TxActorMessage>,
+    flush_complete: std::sync::Mutex<CancellationToken>,
 }
 
 #[derive(Debug)]
@@ -608,27 +679,73 @@ impl TxActorHandle {
         let mut actor = TxActor::new(receiver, flush_receiver, fb_receiver, db.clone());
 
         // Spawn the message handler task (owns the cache)
-        tokio::task::spawn(async move {
+        crate::spawn_with_session(async move {
             if let Err(e) = actor.run().await {
                 error!("TxActor message handler terminated with error: {:?}", e);
             }
         });
 
         // Spawn the independent flush task (communicates via channels)
-        tokio::task::spawn(async move {
-            flush_loop(flush_sender, db, rpc).await;
+        let flush_cancel = cancel_token.clone();
+        let flush_complete = CancellationToken::new();
+        let flush_done = flush_complete.clone();
+        crate::spawn_with_session(async move {
+            flush_loop(flush_sender, db, rpc, flush_cancel).await;
+            flush_done.cancel();
         });
 
         // Spawn the flashblocks listener task if URL is provided
         if let Some(ws_url) = flashblocks_ws_url {
-            tokio::task::spawn(async move {
+            crate::spawn_with_session(async move {
                 if let Err(e) = FlashblocksClient::listen(&ws_url, fb_sender, cancel_token).await {
                     error!("{}", e);
                 }
             });
         }
 
-        Ok(Self { sender })
+        Ok(Self {
+            sender,
+            flush_complete: std::sync::Mutex::new(flush_complete),
+        })
+    }
+
+    /// Waits until the flush loop has finished processing all receipts.
+    pub async fn await_flush(&self) {
+        let token = self.flush_complete.lock().unwrap().clone();
+        token.cancelled().await;
+    }
+
+    /// Restart the flush loop for a new spam run.
+    ///
+    /// Creates a new flush channel pair, sends the new receiver to the actor,
+    /// and spawns a fresh flush loop with the given cancel token.
+    pub async fn restart_flush<D: DbOps + Send + Sync + 'static>(
+        &self,
+        db: Arc<D>,
+        rpc: Arc<AnyProvider>,
+        cancel_token: CancellationToken,
+    ) -> Result<()> {
+        let (flush_sender, flush_receiver) = mpsc::channel(64);
+
+        // Send new flush_receiver to actor
+        self.sender
+            .send(TxActorMessage::ReplaceFlushReceiver(flush_receiver))
+            .await
+            .map_err(Box::new)
+            .map_err(CallbackError::from)?;
+
+        // Replace flush_complete token
+        let flush_complete = CancellationToken::new();
+        let flush_done = flush_complete.clone();
+        *self.flush_complete.lock().unwrap() = flush_complete;
+
+        // Spawn new flush loop
+        crate::spawn_with_session(async move {
+            flush_loop(flush_sender, db, rpc, cancel_token).await;
+            flush_done.cancel();
+        });
+
+        Ok(())
     }
 
     /// Adds a new tx to the cache.
@@ -693,6 +810,17 @@ impl TxActorHandle {
             .map_err(Box::new)
             .map_err(CallbackError::from)?;
 
+        Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
+    }
+
+    /// Clears the pending tx cache without writing to the DB.
+    pub async fn clear_cache(&self) -> Result<()> {
+        let (sender, receiver) = oneshot::channel();
+        self.sender
+            .send(TxActorMessage::ClearCache { on_clear: sender })
+            .await
+            .map_err(Box::new)
+            .map_err(CallbackError::from)?;
         Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
     }
 

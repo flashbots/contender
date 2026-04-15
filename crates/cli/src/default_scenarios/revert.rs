@@ -1,9 +1,10 @@
 use contender_core::generator::{types::SpamRequest, CreateDefinition, FunctionCallDefinition};
 use contender_testfile::TestConfig;
+use serde::{Deserialize, Serialize};
 
 use crate::default_scenarios::{builtin::ToTestConfig, contracts::SPAM_ME_6};
 
-#[derive(Clone, Debug, clap::Parser)]
+#[derive(Clone, Debug, clap::Parser, Deserialize, Serialize)]
 pub struct RevertCliArgs {
     /// Amount of gas to use before reverting.
     #[arg(

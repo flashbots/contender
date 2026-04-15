@@ -26,7 +26,7 @@ pub enum Error {
     #[error("database error")]
     Db(#[from] DbError),
 
-    #[error("generator error")]
+    #[error("generator error: {0}")]
     Generator(#[from] GeneratorError),
 
     #[error("rpc error")]
@@ -97,6 +97,9 @@ pub enum RuntimeErrorKind {
 
     #[error("invalid runtime params")]
     InvalidParams(#[from] RuntimeParamErrorKind),
+
+    #[error("scenario not found")]
+    ScenarioNotFound,
 }
 
 impl From<FlashblocksError> for Error {

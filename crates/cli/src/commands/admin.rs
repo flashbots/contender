@@ -7,6 +7,7 @@ use alloy::primitives::{Address, U256};
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::rpc::types::BlockId;
 use clap::Subcommand;
+use contender_core::agent_controller::AgentClass;
 use contender_core::{
     agent_controller::SignerStore,
     db::DbOps,
@@ -155,7 +156,7 @@ fn handle_accounts(from_pool: String, num_signers: usize, data_dir: &Path) -> Re
 /// Prints accounts for a specific pool
 fn print_accounts_for_pool(pool: &str, num_signers: usize, seed: &RandSeed) -> Result<()> {
     info!("Generating addresses for pool: {}", pool);
-    let agent = SignerStore::new(num_signers, seed, pool);
+    let agent = SignerStore::new(num_signers, seed, pool, AgentClass::default()); // AgentClass is irrelevant here since we're only interested in the generated accounts, not their roles
     let mut private_keys = vec![];
     for (i, address) in agent.all_addresses().iter().enumerate() {
         private_keys.push(format!(
@@ -304,7 +305,7 @@ async fn handle_reclaim_eth(
         info!("Processing pool: {}", pool_name);
 
         // Generate signers for this pool
-        let signer_store = SignerStore::new(num_accounts, &seed, &pool_name);
+        let signer_store = SignerStore::new(num_accounts, &seed, &pool_name, AgentClass::default()); // AgentClass is irrelevant here since we're only interested in the generated accounts, not their roles
 
         for (i, signer) in signer_store.signers.iter().enumerate() {
             let address = signer.address();

@@ -8,6 +8,7 @@ use alloy::{
     rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
 };
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, info};
 
@@ -23,6 +24,7 @@ pub trait AgentRegistry<Index: Ord> {
 #[derive(Clone, Debug, Default)]
 pub struct SignerStore {
     pub signers: Vec<PrivateKeySigner>,
+    pub agent_class: AgentClass,
 }
 
 #[derive(Clone, Debug)]
@@ -34,6 +36,14 @@ impl Default for AgentStore {
     fn default() -> Self {
         Self::new()
     }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub enum AgentClass {
+    Deployer,
+    SetupSender,
+    #[default]
+    Spammer,
 }
 
 impl AgentStore {
@@ -48,12 +58,13 @@ impl AgentStore {
         agent_names: &[impl AsRef<str>],
         signers_per_agent: usize,
         seed: &impl SeedGenerator,
+        agent_class: AgentClass,
     ) {
         for agent in agent_names {
             if self.has_agent(agent) {
                 continue;
             }
-            self.add_new_agent(agent, signers_per_agent, seed);
+            self.add_new_agent(agent, signers_per_agent, seed, agent_class.clone());
         }
     }
 
@@ -66,8 +77,9 @@ impl AgentStore {
         name: impl AsRef<str>,
         num_signers: usize,
         rand_seeder: &impl SeedGenerator,
+        agent_class: AgentClass,
     ) {
-        let signers = SignerStore::new(num_signers, rand_seeder, name.as_ref());
+        let signers = SignerStore::new(num_signers, rand_seeder, name.as_ref(), agent_class);
         self.add_agent(name, signers);
     }
 
@@ -103,6 +115,29 @@ impl AgentStore {
         addresses.sort();
         addresses
     }
+
+    pub fn spammers(&self) -> Option<&SignerStore> {
+        self.agents
+            .values()
+            .find(|s| s.agent_class == AgentClass::Spammer)
+    }
+
+    pub fn deployers(&self) -> Option<&SignerStore> {
+        self.agents
+            .values()
+            .find(|s| s.agent_class == AgentClass::Deployer)
+    }
+
+    pub fn setup_senders(&self) -> Option<&SignerStore> {
+        self.agents
+            .values()
+            .find(|s| s.agent_class == AgentClass::SetupSender)
+    }
+
+    /// Get SignerStore for a given AgentClass. Returns the first match found, or None if no agents of that class exist.
+    pub fn get_class(&self, class: &AgentClass) -> Option<&SignerStore> {
+        self.agents.values().find(|s| s.agent_class == *class)
+    }
 }
 
 impl<Idx> SignerRegistry<Idx> for SignerStore
@@ -119,7 +154,12 @@ where
 }
 
 impl SignerStore {
-    pub fn new<S: SeedGenerator>(num_signers: usize, rand_seeder: &S, acct_seed: &str) -> Self {
+    pub fn new<S: SeedGenerator>(
+        num_signers: usize,
+        rand_seeder: &S,
+        acct_seed: &str,
+        agent_class: AgentClass,
+    ) -> Self {
         // add numerical value of acct_seed to given seed
         let new_seed = rand_seeder.as_u256() + U256::from_be_slice(acct_seed.as_bytes());
         let rand_seeder = S::seed_from_u256(new_seed);
@@ -134,7 +174,10 @@ impl SignerStore {
             .map(|s| FixedBytes::from_slice(&s))
             .map(|b| PrivateKeySigner::from_bytes(&b).expect("Failed to create random seed signer"))
             .collect();
-        SignerStore { signers }
+        SignerStore {
+            signers,
+            agent_class,
+        }
     }
 
     pub fn add_signer(&mut self, signer: PrivateKeySigner) {

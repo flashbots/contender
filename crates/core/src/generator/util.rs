@@ -173,6 +173,28 @@ pub fn generate_setcode_signer(seed: &impl Seeder) -> (PrivateKeySigner, [u8; 32
     )
 }
 
+/// Serde deserializer that parses a `U256` using [`parse_value`],
+/// supporting both raw numbers and human-readable strings like `"0.00001 ether"`.
+pub fn deserialize_value<'de, D>(deserializer: D) -> Result<U256, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: String = serde::Deserialize::deserialize(deserializer)?;
+    parse_value(&s).map_err(serde::de::Error::custom)
+}
+
+/// Like [`deserialize_value`] but for `Option<U256>`. Returns `None` if the field is absent or null.
+pub fn deserialize_value_opt<'de, D>(deserializer: D) -> Result<Option<U256>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: Option<String> = serde::Deserialize::deserialize(deserializer)?;
+    match s {
+        Some(s) => parse_value(&s).map(Some).map_err(serde::de::Error::custom),
+        None => Ok(None),
+    }
+}
+
 /// Parses a string like "1eth" or "0.1 eth" or "20 gwei" into a U256.
 /// All standard eth units are supported (wei, gwei, eth, etc).
 /// If the string is a plain number without units, it is parsed as wei.

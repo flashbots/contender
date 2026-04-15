@@ -106,7 +106,7 @@ pub async fn setup(
         agent_spec,
         tx_type: tx_type.into(),
         bundle_type: bundle_type.into(),
-        pending_tx_timeout_secs: 12,
+        pending_tx_timeout: Duration::from_secs(12),
         extra_msg_handles: None,
         sync_nonces_after_batch: true,
         rpc_batch_size: 0,
