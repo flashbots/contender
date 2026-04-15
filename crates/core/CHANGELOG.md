@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- added `CombinedCallback<A, B>` and `LogCallback::with_callback` builder so custom spam callbacks can inherit `LogCallback`'s tx-caching (and optional FCU) behavior without duplicating its internals ([#326](https://github.com/flashbots/contender/issues/326))
+
 ## [0.9.1](https://github.com/flashbots/contender/releases/tag/v0.9.1) - 2026-04-01
 
 - added `eth_sendRawTransactionSync` support with per-tx `end_timestamp_ms` tracking ([#459](https://github.com/flashbots/contender/pull/459/changes))
