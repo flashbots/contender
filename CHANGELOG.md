@@ -5,6 +5,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Note: this file did not exist until after `v0.5.6`.
 
+## Unreleased
+
+- added contender server + some supporting (and internally-breaking) changes ([#494](https://github.com/flashbots/contender/pull/494/))
+
 ## [0.9.1](https://github.com/flashbots/contender/releases/tag/v0.9.1) - 2026-04-01
 
 - support spamming with `eth_sendRawTransactionSync` with new flag `--send-raw-tx-sync` ([#459](https://github.com/flashbots/contender/pull/459))

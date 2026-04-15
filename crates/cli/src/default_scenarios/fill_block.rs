@@ -51,7 +51,7 @@ pub async fn fill_block(
     spam_rate: SpamRate,
     args: &FillBlockCliArgs,
 ) -> Result<BuiltinScenario, CliError> {
-    // determine gas limit
+    // determine gas limit per block, then divide by the number of transactions to get gas limit per transaction
     let gas_limit = if let Some(max_gas) = args.max_gas_per_block {
         max_gas
     } else {
@@ -64,21 +64,6 @@ pub async fn fill_block(
         }
         block_gas_limit.unwrap_or(30_000_000)
     };
-
-    // let num_txs = match (txs_per_block, txs_per_second) {
-    //     (Some(0), _) | (_, Some(0)) => {
-    //         return Err(CliError::Args(
-    //             crate::commands::error::ArgsError::SpamRateNotFound,
-    //         ));
-    //     }
-    //     (Some(n), _) => n,
-    //     (_, Some(n)) => n,
-    //     (None, None) => {
-    //         return Err(CliError::Args(
-    //             crate::commands::error::ArgsError::SpamRateNotFound,
-    //         ));
-    //     }
-    // };
     let num_txs = spam_rate.num_txs();
     let gas_per_tx = gas_limit / num_txs;
 
