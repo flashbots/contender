@@ -417,7 +417,7 @@ where
     /// Otherwise do nothing.
     pub async fn sync_nonces(&mut self) -> Result<()> {
         if self.should_sync_nonces {
-            println!("syncing nonces...");
+            info!("syncing nonces from RPC...");
             return sync_nonces(
                 &self.signer_map,
                 &mut self.nonces,
