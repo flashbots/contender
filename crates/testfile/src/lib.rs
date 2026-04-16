@@ -606,11 +606,12 @@ mod more_tests {
         let db = MockDb;
         let seeder = RandSeed::new();
         let ctx = ContenderCtx::builder(config, db, seeder, anvil.endpoint_url()).build();
-        let mut contender = Contender::new(ctx);
+        let contender = Contender::new(ctx);
 
         let spammer = TimedSpammer::new(Duration::from_secs(1));
         let callback = NilCallback;
         let opts = RunOpts::new().txs_per_period(100).periods(3);
+        let mut contender = contender.initialize().await?;
         contender.spam(spammer, callback.into(), opts, None).await?;
 
         Ok(())

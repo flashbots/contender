@@ -8,7 +8,7 @@ use contender_core::{
     alloy::{primitives::U256, signers::local::PrivateKeySigner},
     generator::{types::AnyProvider, RandSeed},
     test_scenario::Url,
-    Contender,
+    Contender, Initialized, Uninitialized,
 };
 use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
@@ -50,12 +50,21 @@ impl std::fmt::Display for SessionStatus {
     }
 }
 
+type InitContender =
+    Contender<SqliteDb, RandSeed, TestConfig, Initialized<SqliteDb, RandSeed, TestConfig>>;
+
+/// Wraps the two possible lifecycle states of a session's `Contender`.
+pub enum SessionContender {
+    Uninit(Contender<SqliteDb, RandSeed, TestConfig, Uninitialized>),
+    Init(InitContender),
+}
+
 pub struct ContenderSession {
     /// Metadata about this session (id, name, rpc_url, status).
     pub info: ContenderSessionInfo,
     /// The contender instance for this session. `None` while it is taken out for
     /// initialization or spamming (to avoid holding the lock during long operations).
-    pub contender: Option<Contender<SqliteDb, RandSeed, TestConfig>>,
+    pub contender: Option<SessionContender>,
     /// Broadcast channel for per-session log lines. The tracing layer sends formatted
     /// events here; WS and SSE subscribers receive from it.
     pub log_channel: broadcast::Sender<String>,
@@ -102,7 +111,7 @@ impl ContenderSession {
         let (log_channel, _) = broadcast::channel(4096);
         Ok(Self {
             info,
-            contender: Some(contender),
+            contender: Some(SessionContender::Uninit(contender)),
             log_channel,
             cancel: CancellationToken::new(),
             spam_cancel: None,
@@ -127,7 +136,7 @@ impl ContenderSessionInfo {
         &self,
         testconfig: TestConfig,
         options: SessionOptions,
-    ) -> Result<Contender<SqliteDb, RandSeed, TestConfig>, ContenderRpcError> {
+    ) -> Result<Contender<SqliteDb, RandSeed, TestConfig, Uninitialized>, ContenderRpcError> {
         // using in-memory SQLite for now; will switch to file-based if we need persistence across server restarts
         let db = contender_sqlite::SqliteDb::new_memory();
         let seeder = contender_core::generator::RandSeed::seed_from_bytes(&self.id.to_be_bytes());
@@ -242,31 +251,46 @@ impl ContenderSessionCache {
         self.sessions.iter_mut().find(|s| s.info.id == id)
     }
 
-    /// Take the Contender out of a session so it can be used outside the lock.
-    pub fn take_contender(
+    /// Take an uninitialized Contender out of a session so it can be initialized outside the lock.
+    pub fn take_uninitialized(
         &mut self,
         id: SessionId,
-    ) -> Option<Contender<SqliteDb, RandSeed, TestConfig>> {
-        self.get_session_mut(id).and_then(|s| s.contender.take())
+    ) -> Option<Contender<SqliteDb, RandSeed, TestConfig, Uninitialized>> {
+        let session = self.get_session_mut(id)?;
+        match session.contender.take() {
+            Some(SessionContender::Uninit(c)) => Some(c),
+            other => {
+                // put it back if it was the wrong variant
+                session.contender = other;
+                None
+            }
+        }
     }
 
-    /// Put the Contender back into a session after initialization or spamming.
+    /// Take an initialized Contender out of a session so it can be used outside the lock.
+    pub fn take_initialized(&mut self, id: SessionId) -> Option<InitContender> {
+        let session = self.get_session_mut(id)?;
+        match session.contender.take() {
+            Some(SessionContender::Init(c)) => Some(c),
+            other => {
+                // put it back if it was the wrong variant
+                session.contender = other;
+                None
+            }
+        }
+    }
+
+    /// Put an initialized Contender back into a session.
     /// Also caches funding-related data so `fund_accounts` can work while the
     /// contender is taken for spamming.
-    pub fn put_contender(
-        &mut self,
-        id: SessionId,
-        contender: Contender<SqliteDb, RandSeed, TestConfig>,
-    ) {
+    pub fn put_initialized(&mut self, id: SessionId, contender: InitContender) {
         if let Some(session) = self.get_session_mut(id) {
-            // Cache funding data from the initialized scenario.
-            if let Some(scenario) = contender.state.scenario() {
-                session.funder = contender.funder().cloned();
-                session.agent_store = Some(scenario.agent_store.clone());
-                session.rpc_client = Some(scenario.rpc_client.clone());
-                session.min_balance = Some(contender.min_balance());
-            }
-            session.contender = Some(contender);
+            let scenario = contender.scenario();
+            session.funder = contender.funder().cloned();
+            session.agent_store = Some(scenario.agent_store.clone());
+            session.rpc_client = Some(scenario.rpc_client.clone());
+            session.min_balance = Some(contender.min_balance());
+            session.contender = Some(SessionContender::Init(contender));
         }
     }
 

@@ -18,7 +18,7 @@
       "BundleCallDefinition": {"file":"crates/core/src/generator/function_def.rs","line":53},
       "BundleTypeCli": {"file":"crates/cli/src/commands/common.rs","line":426},
       "CompiledContract": {"file":"crates/core/src/generator/create_def.rs","line":8},
-      "ContenderSessionInfo": {"file":"crates/cli/src/server/sessions.rs","line":118},
+      "ContenderSessionInfo": {"file":"crates/cli/src/server/sessions.rs","line":127},
       "CreateDefinition": {"file":"crates/core/src/generator/create_def.rs","line":65},
       "CustomContractCliArgs": {"file":"crates/cli/src/default_scenarios/custom_contract.rs","line":17},
       "EngineMessageVersion": {"file":"crates/cli/src/commands/common.rs","line":268},
