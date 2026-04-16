@@ -273,6 +273,8 @@ pub async fn report(
             .map(|w| w[1] - w[0])
             .collect::<Vec<_>>(),
     );
+    let start_block = blocks.first().map(|b| b.header.number).unwrap_or(0);
+    let end_block = blocks.last().map(|b| b.header.number).unwrap_or(0);
 
     // cache data to file
     let cache_data = CacheFile::new(trace_data, blocks, data_dir);
@@ -385,14 +387,18 @@ pub async fn report(
         .collect();
 
     // compile report
+    info!(
+        "Generating report (run_ids: {start_run_id}-{end_run_id}) (blocks {} to {})",
+        start_block, end_block
+    );
     let mut blocks = cache_data.blocks;
     blocks.sort_by_key(|a| a.header.number);
     let report_metadata = ReportMetadata {
         scenario_name: scenario_title,
         start_run_id,
         end_run_id,
-        start_block: blocks.first().unwrap().header.number,
-        end_block: blocks.last().unwrap().header.number,
+        start_block,
+        end_block,
         rpc_url: rpc_url.to_string(),
         metrics,
         chart_data: ChartData {

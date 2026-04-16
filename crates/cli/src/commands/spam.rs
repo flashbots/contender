@@ -958,9 +958,11 @@ where
 
         _ = tokio::signal::ctrl_c() => {
             info!("CTRL-C received, stopping result collection.");
-            test_scenario.shutdown().await;
         }
     }
+
+    // Shut down the TxActor so its flush loop stops logging
+    test_scenario.shutdown().await;
 
     // Stop background tasks and print final summary
     if let Some(cancel) = funding_cancel {
