@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-- updated session management to support typestate-based `Contender` lifecycle ([#507](https://github.com/flashbots/contender/pull/507))
+- improve campaign/spam logs (particularly when `--report` is passed) ([#508](https://github.com/flashbots/contender/pull/508/changes))
+- updated session management to support typestate-based `Contender` lifecycle ([#507](https://github.com/flashbots/contender/pull/507/changes))
   - `ContenderSession.contender` now wraps a `SessionContender` enum (`Uninit` / `Init`)
   - `take_contender` / `put_contender` replaced by typed `take_uninitialized` / `take_initialized` / `put_initialized`
 - contender API ([#494](https://github.com/flashbots/contender/pull/494/changes))
