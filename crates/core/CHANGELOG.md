@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- added `CombinedCallback<A, B>` and `LogCallback::with_callback` builder so custom spam callbacks can inherit `LogCallback`'s tx-caching (and optional FCU) behavior without duplicating its internals ([#326](https://github.com/flashbots/contender/issues/326))
+
 *from [#494](https://github.com/flashbots/contender/pull/494/changes)*:
 
 - Integrated receipt flushing lifecycle

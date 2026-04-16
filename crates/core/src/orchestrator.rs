@@ -544,7 +544,14 @@ where
     ///
     /// Defines custom behavior to be executed after transactions are sent.
     /// `contender_core` includes `NilCallback` and `LogCallback`.
-    /// `NilCallback` does nothing, while `LogCallback` saves tx results to the DB.
+    /// `NilCallback` does nothing, while `LogCallback` saves tx results to the DB
+    /// (which is what `contender report` reads from).
+    ///
+    /// To add custom behavior without losing the DB-persistence that
+    /// `contender report` depends on, wrap a `LogCallback` around your custom
+    /// callback using `LogCallback::with_callback` (or `CombinedCallback::new`
+    /// directly). Both callbacks are then invoked on every `on_tx_sent` /
+    /// `on_batch_sent`, so you only have to write the extra behavior.
     ///
     /// ### `opts`
     ///
