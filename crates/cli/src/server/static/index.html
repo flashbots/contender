@@ -361,8 +361,10 @@ function statusText(status) {
 }
 
 function trimLogLine(text) {
-  // Extract timestamp and strip metadata prefix
-  const m = text.match(/^(\S+Z)\s+\w+\s+\S+:\s*(?:\S+:\s*)?(.*)/s);
+  // Extract timestamp and strip metadata prefix.
+  // The optional group strips a secondary prefix (e.g. line number "185: ").
+  // It requires whitespace after the colon so it won't eat into JSON values.
+  const m = text.match(/^(\S+Z)\s+\w+\s+\S+:\s*(?:\S+:\s+)?(.*)/s);
   if (!m) return text;
   const d = new Date(m[1]);
   const ts = isNaN(d) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
@@ -938,11 +940,20 @@ controls.appendChild(makeCabinet('Spam', body => {
   body.appendChild(row);
   body.appendChild(spammerF.container);
   body.appendChild(nameF.container);
-  body.appendChild(receiptsF.container);
   const row2 = document.createElement('div'); row2.className = 'row';
-  row2.appendChild(runForeverF.container);
+  row2.appendChild(receiptsF.container);
   row2.appendChild(reportIntervalF.container);
   body.appendChild(row2);
+  body.appendChild(runForeverF.container);
+
+  // Hide report interval when receipts are off (progress data depends on receipts)
+  function syncReportInterval() {
+    const enabled = receiptsF.input.value === 'true';
+    reportIntervalF.container.style.display = enabled ? '' : 'none';
+    if (!enabled) reportIntervalF.input.value = '0';
+  }
+  receiptsF.input.addEventListener('change', syncReportInterval);
+  syncReportInterval();
 
   // Message element for feedback
   const msg = document.createElement('div');
