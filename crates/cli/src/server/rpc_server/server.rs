@@ -103,29 +103,29 @@ impl ContenderRpcServer for ContenderServer {
             contender_core::CURRENT_SESSION_ID.scope(
                 session_id,
                 async move {
-                    // Take contender instance so we can initialize without holding the lock.
+                    // Take uninitialized contender so we can initialize without holding the lock.
                     let contender = {
                         let mut lock = sessions.write().await;
-                        lock.take_contender(session_id)
+                        lock.take_uninitialized(session_id)
                     };
 
-                    let Some(mut contender) = contender else {
+                    let Some(contender) = contender else {
                         return;
                     };
 
-                    let result = contender.initialize().await;
-
-                    // Put contender back and update status.
-                    let mut lock = sessions.write().await;
-                    lock.put_contender(session_id, contender);
-                    if let Some(session) = lock.get_session_mut(session_id) {
-                        match result {
-                            Ok(()) => {
+                    match contender.initialize().await {
+                        Ok(initialized) => {
+                            let mut lock = sessions.write().await;
+                            lock.put_initialized(session_id, initialized);
+                            if let Some(session) = lock.get_session_mut(session_id) {
                                 session.info.status = SessionStatus::Ready;
                                 info!("Session {} initialized successfully", session_id);
                             }
-                            Err(e) => {
-                                let msg = e.to_string();
+                        }
+                        Err(e) => {
+                            let msg = e.to_string();
+                            let mut lock = sessions.write().await;
+                            if let Some(session) = lock.get_session_mut(session_id) {
                                 session.info.status = SessionStatus::Failed(msg.clone());
                                 tracing::error!(
                                     "Session {} initialization failed: {}",
@@ -213,7 +213,7 @@ impl ContenderRpcServer for ContenderServer {
         let save_receipts = params.save_receipts.unwrap_or(false);
         drop(sessions);
 
-        // Take contender instance so we can spam without holding the `sessions` lock.
+        // Take initialized contender instance so we can spam without holding the `sessions` lock.
         let spam_cancel = CancellationToken::new();
         let contender = {
             let mut lock = self.sessions.write().await;
@@ -221,7 +221,7 @@ impl ContenderRpcServer for ContenderServer {
                 session.info.status = SessionStatus::Spamming(params.clone());
                 session.spam_cancel = Some(spam_cancel.clone());
             }
-            lock.take_contender(session_id)
+            lock.take_initialized(session_id)
         };
 
         let Some(contender) = contender else {
@@ -339,7 +339,8 @@ impl ContenderRpcServer for ContenderServer {
                         };
 
                         // Clear pending tx cache and sync nonces before returning the contender.
-                        if let Some(scenario) = contender.state.scenario_mut() {
+                        {
+                            let scenario = contender.scenario_mut();
                             for handle in scenario.msg_handles.values() {
                                 if let Err(e) = handle.clear_cache().await {
                                     warn!("Failed to clear pending tx cache: {e}");
@@ -352,7 +353,7 @@ impl ContenderRpcServer for ContenderServer {
 
                         // Put contender back and log outcome.
                         let mut lock = sessions.write().await;
-                        lock.put_contender(session_id, contender);
+                        lock.put_initialized(session_id, contender);
                         if let Some(session) = lock.get_session_mut(session_id) {
                             session.spam_cancel = None;
                         }

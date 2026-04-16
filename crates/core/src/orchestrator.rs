@@ -6,7 +6,6 @@ use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 use crate::{
     agent_controller::AgentClass,
     db::{DbOps, MockDb, SpamDuration, SpamRunRequest},
-    error::RuntimeErrorKind,
     generator::{
         agent_pools::AgentSpec,
         seeder::{rand_seed::SeedGenerator, Seeder},
@@ -238,7 +237,7 @@ where
         .await
     }
 
-    pub fn create_contender(self) -> Contender<D, S, P> {
+    pub fn create_contender(self) -> Contender<D, S, P, Uninitialized> {
         Contender::new(self)
     }
 }
@@ -431,53 +430,108 @@ impl RunOpts {
     }
 }
 
+// ── Typestate markers ──────────────────────────────────────────────────
+
+/// Lifecycle phase indicator (read-only introspection).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LifecyclePhase {
+    Uninitialized,
+    Initialized,
+}
+
+/// Trait implemented by state-marker types for compile-time phase introspection.
+pub trait PhaseMarker {
+    const PHASE: LifecyclePhase;
+}
+
+/// Marker: the `Contender` has not yet been initialized.
+pub struct Uninitialized;
+
+impl PhaseMarker for Uninitialized {
+    const PHASE: LifecyclePhase = LifecyclePhase::Uninitialized;
+}
+
+/// Marker: the `Contender` has been initialized and holds a valid scenario.
+pub struct Initialized<D, S, P>
+where
+    D: DbOps + Clone + Send + Sync + 'static,
+    S: SeedGenerator + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+{
+    scenario: Box<TestScenario<D, S, P>>,
+}
+
+impl<D, S, P> PhaseMarker for Initialized<D, S, P>
+where
+    D: DbOps + Clone + Send + Sync + 'static,
+    S: SeedGenerator + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+{
+    const PHASE: LifecyclePhase = LifecyclePhase::Initialized;
+}
+
+// ── Contender struct ──────────────────────────────────────────────────
+
 /// Orchestrator that plugs a built scenario into any `Spammer`.
-pub struct Contender<D, S, P>
+///
+/// Generic over a `State` type parameter that determines which methods are
+/// available.  `Contender<D, S, P, Uninitialized>` can only be initialized,
+/// while `Contender<D, S, P, Initialized<D, S, P>>` provides `spam`,
+/// `fund_accounts`, and direct scenario access.
+pub struct Contender<D, S, P, State = Uninitialized>
 where
     D: DbOps + Clone + Send + Sync + 'static,
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
     ctx: ContenderCtx<D, S, P>,
-    pub state: ContenderState<D, S, P>,
+    state: State,
 }
 
-pub enum ContenderState<D, S, P>
+// ── Methods available on ANY Contender, regardless of state ───────────
+
+impl<D, S, P, State> Contender<D, S, P, State>
 where
     D: DbOps + Clone + Send + Sync + 'static,
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
-    Uninitialized,
-    Initialized(Box<TestScenario<D, S, P>>),
+    /// Returns the current lifecycle phase (read-only introspection).
+    pub fn phase(&self) -> LifecyclePhase
+    where
+        State: PhaseMarker,
+    {
+        State::PHASE
+    }
+
+    /// Materialize a fresh `TestScenario` using the context which was used to create this `Contender` instance.
+    pub async fn build_scenario(&self) -> Result<TestScenario<D, S, P>> {
+        self.ctx.build_scenario().await
+    }
+
+    /// Produce a web3 provider connected to the current instance's RPC URL.
+    pub fn provider(&self) -> AnyProvider {
+        DynProvider::new(
+            alloy::providers::ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .connect_http(self.ctx.rpc_url.clone()),
+        )
+    }
+
+    /// Returns a reference to the first user signer (the funder account).
+    pub fn funder(&self) -> Option<&PrivateKeySigner> {
+        self.ctx.user_signers.first()
+    }
+
+    /// Returns the configured minimum balance (funding amount) for agent accounts.
+    pub fn min_balance(&self) -> U256 {
+        self.ctx.funding
+    }
 }
 
-impl<D, S, P> ContenderState<D, S, P>
-where
-    D: DbOps + Clone + Send + Sync + 'static,
-    S: SeedGenerator + Send + Sync + Clone,
-    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
-{
-    pub fn scenario(&self) -> Option<&TestScenario<D, S, P>> {
-        match self {
-            ContenderState::Uninitialized => None,
-            ContenderState::Initialized(scenario) => Some(scenario),
-        }
-    }
+// ── Uninitialized-only methods ────────────────────────────────────────
 
-    pub fn scenario_mut(&mut self) -> Option<&mut TestScenario<D, S, P>> {
-        match self {
-            ContenderState::Uninitialized => None,
-            ContenderState::Initialized(scenario) => Some(scenario),
-        }
-    }
-
-    pub fn is_initialized(&self) -> bool {
-        matches!(self, ContenderState::Initialized(_))
-    }
-}
-
-impl<D, S, P> Contender<D, S, P>
+impl<D, S, P> Contender<D, S, P, Uninitialized>
 where
     D: DbOps + Clone + Send + Sync + 'static,
     S: SeedGenerator + Send + Sync + Clone,
@@ -502,19 +556,20 @@ where
     /// let spammer = TimedSpammer::new(std::time::Duration::from_secs(1));
     ///
     /// // Run the spammer (async context required)
-    /// // contender.spam(spammer, NilCallback.into(), RunOpts::default()).await.unwrap();
+    /// // let contender = contender.initialize().await.unwrap();
+    /// // contender.spam(spammer, NilCallback.into(), RunOpts::default(), None).await.unwrap();
     /// ```
     pub fn new(ctx: ContenderCtx<D, S, P>) -> Self {
         Self {
             ctx,
-            state: ContenderState::Uninitialized,
+            state: Uninitialized,
         }
     }
 
     /// Funds agent accounts, then runs contract deployments and setup transactions.
     ///
-    /// Run this before calling `spam`.
-    pub async fn initialize(&mut self) -> Result<()> {
+    /// Consumes the uninitialized `Contender` and returns an initialized one.
+    pub async fn initialize(self) -> Result<Contender<D, S, P, Initialized<D, S, P>>> {
         let mut scenario = self.ctx.build_scenario().await?;
         for agent in scenario.agent_store.all_agents() {
             agent
@@ -528,8 +583,52 @@ where
         }
         scenario.deploy_contracts().await?;
         scenario.run_setup().await?;
-        self.state = ContenderState::Initialized(scenario.into());
-        Ok(())
+        Ok(Contender {
+            ctx: self.ctx,
+            state: Initialized {
+                scenario: scenario.into(),
+            },
+        })
+    }
+
+    /// Convenience helper: initializes and then runs spam in one call.
+    ///
+    /// Returns the initialized `Contender` so it can be reused.
+    pub async fn initialize_and_spam<F, SP>(
+        self,
+        spammer: SP,
+        callback: Arc<F>,
+        opts: RunOpts,
+        cancel_token: Option<CancellationToken>,
+    ) -> Result<Contender<D, S, P, Initialized<D, S, P>>>
+    where
+        F: OnTxSent + OnBatchSent + Send + Sync + 'static,
+        SP: Spammer<F, D, S, P>,
+    {
+        let mut contender = self.initialize().await?;
+        contender
+            .spam(spammer, callback, opts, cancel_token)
+            .await?;
+        Ok(contender)
+    }
+}
+
+// ── Initialized-only methods ──────────────────────────────────────────
+
+impl<D, S, P> Contender<D, S, P, Initialized<D, S, P>>
+where
+    D: DbOps + Clone + Send + Sync + 'static,
+    S: SeedGenerator + Send + Sync + Clone,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+{
+    /// Returns a reference to the test scenario.
+    pub fn scenario(&self) -> &TestScenario<D, S, P> {
+        &self.state.scenario
+    }
+
+    /// Returns a mutable reference to the test scenario.
+    pub fn scenario_mut(&mut self) -> &mut TestScenario<D, S, P> {
+        &mut self.state.scenario
     }
 
     /// Run the spammer.
@@ -580,8 +679,9 @@ where
     /// // create a cancellation token that can be used to stop the spam run from outside the `Contender` (optional)
     /// let cancel_token = tokio_util::sync::CancellationToken::new();
     ///
-    /// // run spammer
-    /// contender.spam(spammer, callback.into(), opts, Some(cancel_token.clone())).await.unwrap();
+    /// // initialize, then run spammer
+    /// // let contender = contender.initialize().await.unwrap();
+    /// // contender.spam(spammer, callback.into(), opts, Some(cancel_token.clone())).await.unwrap();
     /// ```
     pub async fn spam<F, SP>(
         &mut self,
@@ -594,14 +694,7 @@ where
         F: OnTxSent + OnBatchSent + Send + Sync + 'static,
         SP: Spammer<F, D, S, P>,
     {
-        // call self.initialize if it hasn't yet been called manually
-        if !self.state.is_initialized() {
-            self.initialize().await?;
-        }
-
-        // get mutable ref to scenario so nonce state persists across calls
-        let scenario = self.state.scenario_mut()
-            .expect("if initialize() fails, it will throw an error before this point, so scenario should always be available here");
+        let scenario = &mut *self.state.scenario;
 
         // reset cancel token & restart flush loops if this isn't the first run
         scenario.prepare_for_run().await?;
@@ -677,35 +770,8 @@ where
         result
     }
 
-    /// Materialize a fresh `TestScenario` using the context which was used to create this `Contender` instance.
-    pub async fn build_scenario(&self) -> Result<TestScenario<D, S, P>> {
-        self.ctx.build_scenario().await
-    }
-
-    /// Produce a web3 provider connected to the current instance's RPC URL.
-    pub fn provider(&self) -> AnyProvider {
-        DynProvider::new(
-            alloy::providers::ProviderBuilder::new()
-                .network::<AnyNetwork>()
-                .connect_http(self.ctx.rpc_url.clone()),
-        )
-    }
-
-    /// Returns a reference to the first user signer (the funder account).
-    pub fn funder(&self) -> Option<&PrivateKeySigner> {
-        self.ctx.user_signers.first()
-    }
-
-    /// Returns the configured minimum balance (funding amount) for agent accounts.
-    pub fn min_balance(&self) -> U256 {
-        self.ctx.funding
-    }
-
     pub async fn fund_accounts(&self, agent_class: AgentClass, amount: U256) -> Result<()> {
-        let scenario = self
-            .state
-            .scenario()
-            .ok_or_else(|| RuntimeErrorKind::ScenarioNotFound)?;
+        let scenario = &*self.state.scenario;
 
         let funder = &self.ctx.user_signers[0];
         let agent = scenario.agent_store.get_class(&agent_class);
