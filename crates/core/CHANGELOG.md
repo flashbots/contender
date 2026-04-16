@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- refactored `Contender` to use a typestate-based lifecycle instead of the runtime `ContenderState` enum ([#507](https://github.com/flashbots/contender/pull/507))
+  - `Contender<D, S, P, State>` is now generic over a `State` parameter (defaults to `Uninitialized`)
+  - `initialize(self)` consumes the uninitialized contender and returns `Contender<..., Initialized<...>>`
+  - `spam`, `fund_accounts`, `scenario`, and `scenario_mut` are only callable on `Contender<..., Initialized<...>>`
+  - added `initialize_and_spam` convenience helper on `Contender<..., Uninitialized>`
+  - added `LifecyclePhase` enum and `PhaseMarker` trait for read-only phase introspection
+  - new re-exports: `Initialized`, `Uninitialized`, `LifecyclePhase`, `PhaseMarker`
 - added `CombinedCallback<A, B>` and `LogCallback::with_callback` builder so custom spam callbacks can inherit `LogCallback`'s tx-caching (and optional FCU) behavior without duplicating its internals ([#326](https://github.com/flashbots/contender/issues/326))
 
 *from [#494](https://github.com/flashbots/contender/pull/494/changes)*:
@@ -27,6 +34,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `TestScenario::sync_nonces` now checks for `self.should_sync_nonces` so it may be blindly called
 
 ### Breaking changes
+
+*from [#507](https://github.com/flashbots/contender/pull/507)*:
+
+- `contender_core::orchestrator::ContenderState` has been removed.
+  - Replace `contender.state.scenario()` with `contender.scenario()` (infallible on `Initialized`).
+  - Replace `contender.state.scenario_mut()` with `contender.scenario_mut()`.
+  - Replace `contender.state.is_initialized()` checks with compile-time enforcement.
+- `Contender::new` now returns `Contender<D, S, P, Uninitialized>`.
+- `Contender::initialize` now consumes `self` and returns `Result<Contender<D, S, P, Initialized<D, S, P>>>`.
+  - Callers must bind the returned value: `let contender = contender.initialize().await?;`
+- `Contender::spam` is no longer available on `Contender<..., Uninitialized>` — call `initialize` first.
+  - The implicit auto-initialization inside `spam` has been removed.
 
 *from [#494](https://github.com/flashbots/contender/pull/494/changes)*:
 
