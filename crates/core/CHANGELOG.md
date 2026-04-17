@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-- refactored `Contender` to use a typestate-based lifecycle instead of the runtime `ContenderState` enum ([#507](https://github.com/flashbots/contender/pull/507))
+- save errors to db in NilCallback ([#511](https://github.com/flashbots/contender/pull/511/changes))
+- refactored `Contender` to use a typestate-based lifecycle instead of the runtime `ContenderState` enum ([#507](https://github.com/flashbots/contender/pull/507/changes))
   - `Contender<D, S, P, State>` is now generic over a `State` parameter (defaults to `Uninitialized`)
   - `initialize(self)` consumes the uninitialized contender and returns `Contender<..., Initialized<...>>`
   - `spam`, `fund_accounts`, `scenario`, and `scenario_mut` are only callable on `Contender<..., Initialized<...>>`
