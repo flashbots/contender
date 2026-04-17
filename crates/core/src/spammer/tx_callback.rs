@@ -206,12 +206,30 @@ fn join_callback_handles(
 impl OnTxSent for NilCallback {
     fn on_tx_sent(
         &self,
-        _tx_res: PendingTransactionConfig,
+        tx_res: PendingTransactionConfig,
         _req: &NamedTxRequest,
-        _extra: RuntimeTxInfo,
-        _tx_handlers: Option<HashMap<String, Arc<TxActorHandle>>>,
+        extra: RuntimeTxInfo,
+        tx_handlers: Option<HashMap<String, Arc<TxActorHandle>>>,
     ) -> Option<JoinHandle<CallbackResult<()>>> {
-        // do nothing
+        // Even when receipts are disabled, record txs that failed to send
+        // so "insufficient funds" and similar errors appear in the DB.
+        if extra.error.is_some() {
+            if let Some(tx_actors) = tx_handlers {
+                let handle = crate::spawn_with_session(async move {
+                    let tx_actor = tx_actors["default"].clone();
+                    let tx = CacheTx {
+                        tx_hash: *tx_res.tx_hash(),
+                        start_timestamp_ms: extra.start_timestamp_ms,
+                        end_timestamp_ms: extra.end_timestamp_ms,
+                        kind: extra.kind,
+                        error: extra.error,
+                    };
+                    let _ = tx_actor.cache_run_tx(tx).await;
+                    Ok(())
+                });
+                return Some(handle);
+            }
+        }
         None
     }
 }
