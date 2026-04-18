@@ -1,7 +1,6 @@
 use crate::{
     agent_controller::AgentStore,
     buckets::Bucket,
-    constants::{SETUP_SIM_END, SETUP_SIM_START},
     db::{DbOps, NamedTx},
     error::{Error, RuntimeErrorKind, RuntimeParamErrorKind},
     generator::{
@@ -487,8 +486,9 @@ where
         }
     }
 
+    #[tracing::instrument(name = "simulate_setup_cost", skip_all)]
     pub async fn estimate_setup_cost(&self) -> Result<U256> {
-        println!("{}", SETUP_SIM_START);
+        info!("beginning setup simulation");
 
         // use user-provided gas price or get gas price from chain to approximate gas cost
         let gas_price = match self.gas_price {
@@ -603,7 +603,7 @@ where
             total_cost += cost;
         }
 
-        println!("{}", SETUP_SIM_END);
+        info!("setup simulation complete");
         debug!("estimated setup cost: {}", format_ether(total_cost));
 
         // Shutdown the temporary simulation scenario to stop its actors

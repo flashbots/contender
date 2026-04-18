@@ -571,6 +571,21 @@ where
     /// Consumes the uninitialized `Contender` and returns an initialized one.
     pub async fn initialize(self) -> Result<Contender<D, S, P, Initialized<D, S, P>>> {
         let mut scenario = self.ctx.build_scenario().await?;
+
+        // Estimate setup cost via Anvil simulation and error if funding is insufficient
+        let setup_cost = scenario.estimate_setup_cost().await?;
+        if self.ctx.funding < setup_cost {
+            return Err(crate::error::RuntimeErrorKind::InvalidParams(
+                crate::error::RuntimeParamErrorKind::InvalidArgs(format!(
+                    "configured funding ({}) is insufficient for estimated setup cost ({}). \
+                     Increase --min-balance or funding amount.",
+                    alloy::primitives::utils::format_ether(self.ctx.funding),
+                    alloy::primitives::utils::format_ether(setup_cost),
+                )),
+            )
+            .into());
+        }
+
         for agent in scenario.agent_store.all_agents() {
             agent
                 .1
