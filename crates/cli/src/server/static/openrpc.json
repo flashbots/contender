@@ -10,7 +10,7 @@
     "types": {
       "AddSessionParams": {"file":"crates/cli/src/server/rpc_server/types.rs","line":37},
       "AgentClass": {"file":"crates/core/src/agent_controller.rs","line":42},
-      "AgentParams": {"file":"crates/cli/src/server/rpc_server/types.rs","line":245},
+      "AgentParams": {"file":"crates/cli/src/server/rpc_server/types.rs","line":246},
       "AuthParams": {"file":"crates/cli/src/server/rpc_server/types.rs","line":188},
       "BlobsCliArgs": {"file":"crates/cli/src/default_scenarios/blobs.rs","line":10},
       "BuilderParams": {"file":"crates/cli/src/server/rpc_server/types.rs","line":224},
@@ -28,7 +28,7 @@
       "EthereumPrecompile": {"file":"crates/cli/src/default_scenarios/eth_functions/precompiles.rs","line":11},
       "FillBlockCliArgs": {"file":"crates/cli/src/default_scenarios/fill_block.rs","line":17},
       "FunctionCallDefinition": {"file":"crates/core/src/generator/function_def.rs","line":12},
-      "FundAccountsParams": {"file":"crates/cli/src/server/rpc_server/types.rs","line":275},
+      "FundAccountsParams": {"file":"crates/cli/src/server/rpc_server/types.rs","line":298},
       "FuzzParam": {"file":"crates/core/src/generator/function_def.rs","line":162},
       "RevertCliArgs": {"file":"crates/cli/src/default_scenarios/revert.rs","line":8},
       "ServerStatus": {"file":"crates/cli/src/server/rpc_server/types.rs","line":30},
