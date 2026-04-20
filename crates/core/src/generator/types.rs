@@ -55,8 +55,10 @@ pub enum PlanType<F: Fn(NamedTxRequest) -> AsyncCallbackResult> {
 }
 
 /// Deserialization inferface for fields that can be represented as either:
+///
 /// - a raw number (wei), or
 /// - a human-readable string with units (e.g. "1.5 ether")
+///
 /// See [`util::deserialize_value`](crate::generator::util::deserialize_value) for an implementation example.
 #[derive(Deserialize)]
 #[serde(untagged)]
