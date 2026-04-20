@@ -213,6 +213,28 @@
   </section>
 
   <section>
+    <h2>Transactions</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Total</th>
+          <th>Successful</th>
+          <th>Failed</th>
+          <th>Failure Rate</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>{{data.metrics.total_txs.value}}</td>
+          <td>{{data.metrics.successful_txs.value}}</td>
+          <td>{{data.metrics.failed_txs.value}}</td>
+          <td>{{#if data.metrics.failed_txs.description}}{{data.metrics.failed_txs.description}}{{else}}-{{/if}}</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
     <h2>RPC Response Latency</h2>
     <table>
       <thead>
