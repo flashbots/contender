@@ -3,6 +3,7 @@
 use super::EngineArgs;
 use crate::commands::error::ArgsError;
 use crate::commands::SpamScenario;
+use crate::default_scenarios::fill_block::SpamRate;
 use crate::error::CliError;
 use crate::util::get_signers_with_defaults;
 use alloy::consensus::TxType;
@@ -16,6 +17,7 @@ use contender_engine_provider::reth_node_api::EngineApiMessageVersion;
 use contender_engine_provider::ControlChain;
 use contender_testfile::TestConfig;
 use op_alloy_network::AnyNetwork;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -261,13 +263,26 @@ impl Default for AuthCliArgs {
     }
 }
 
-#[derive(Copy, Debug, Clone, clap::ValueEnum)]
-enum EngineMessageVersion {
+#[derive(Copy, Debug, Clone, clap::ValueEnum, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EngineMessageVersion {
     V1,
     V2,
     V3,
     V4,
     // V5,
+}
+
+impl From<EngineMessageVersion> for EngineApiMessageVersion {
+    fn from(value: EngineMessageVersion) -> Self {
+        match value {
+            EngineMessageVersion::V1 => EngineApiMessageVersion::V1,
+            EngineMessageVersion::V2 => EngineApiMessageVersion::V2,
+            EngineMessageVersion::V3 => EngineApiMessageVersion::V3,
+            EngineMessageVersion::V4 => EngineApiMessageVersion::V4,
+            // EngineMessageVersion::V5 => EngineApiMessageVersion::V5,
+        }
+    }
 }
 
 impl AuthCliArgs {
@@ -285,13 +300,7 @@ impl AuthCliArgs {
                 auth_rpc_url: self.auth_rpc_url.to_owned().expect("auth_rpc_url"),
                 jwt_secret: self.jwt_secret.to_owned().expect("jwt_secret"),
                 use_op: self.use_op,
-                message_version: match self.message_version {
-                    EngineMessageVersion::V1 => EngineApiMessageVersion::V1,
-                    EngineMessageVersion::V2 => EngineApiMessageVersion::V2,
-                    EngineMessageVersion::V3 => EngineApiMessageVersion::V3,
-                    EngineMessageVersion::V4 => EngineApiMessageVersion::V4,
-                    // EngineMessageVersion::V5 => EngineApiMessageVersion::V5,
-                },
+                message_version: self.message_version.into(),
             };
             EngineParams::new(Arc::new(args.new_provider().await?), call_forkchoice)
         } else {
@@ -370,7 +379,19 @@ Requires --priv-key to be set for each 'from' address in the given testfile.",
     pub run_forever: bool,
 }
 
-#[derive(Copy, Debug, Clone, clap::ValueEnum)]
+impl SendSpamCliArgs {
+    pub fn spam_rate(&self) -> Result<SpamRate, ArgsError> {
+        match (self.txs_per_second, self.txs_per_block) {
+            (Some(_), Some(_)) => Err(ArgsError::SpamRateNotFound),
+            (None, None) => Err(ArgsError::SpamRateNotFound),
+            (Some(tps), None) => Ok(SpamRate::TxsPerSecond(tps)),
+            (None, Some(tpb)) => Ok(SpamRate::TxsPerBlock(tpb)),
+        }
+    }
+}
+
+#[derive(Copy, Debug, Clone, clap::ValueEnum, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum TxTypeCli {
     /// Legacy transaction (type `0x0`)
     Legacy,
@@ -400,7 +421,8 @@ impl std::fmt::Display for TxTypeCli {
     }
 }
 
-#[derive(Copy, Debug, Clone, clap::ValueEnum)]
+#[derive(Copy, Debug, Clone, clap::ValueEnum, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum BundleTypeCli {
     L1,
     #[clap(name = "no-revert")]

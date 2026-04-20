@@ -1,5 +1,5 @@
 use crate::{
-    agent_controller::AgentStore,
+    agent_controller::{AgentClass, AgentStore},
     generator::{seeder::rand_seed::SeedGenerator, PlanConfig},
 };
 
@@ -57,28 +57,40 @@ where
 
         // Collect pools with their required signer counts
         let pools_with_counts = [
-            (self.get_create_pools(), agent_spec.create_accounts),
-            (self.get_setup_pools(), agent_spec.setup_accounts),
-            (self.get_spam_pools(), agent_spec.spam_accounts),
+            (
+                self.get_create_pools(),
+                agent_spec.create_accounts,
+                AgentClass::Deployer,
+            ),
+            (
+                self.get_setup_pools(),
+                agent_spec.setup_accounts,
+                AgentClass::SetupSender,
+            ),
+            (
+                self.get_spam_pools(),
+                agent_spec.spam_accounts,
+                AgentClass::Spammer,
+            ),
         ];
 
         // Build a map of pool_name -> max signers needed across all categories.
         // This ensures pools used in multiple categories (e.g., "admin" in both create and spam)
         // get the maximum number of signers needed.
-        let mut pool_max_signers: HashMap<String, usize> = HashMap::new();
-        for (pools, count) in pools_with_counts {
+        let mut pool_max_signers: HashMap<String, (usize, AgentClass)> = HashMap::new();
+        for (pools, count, agent_class) in pools_with_counts {
             for pool in pools {
                 pool_max_signers
                     .entry(pool)
-                    .and_modify(|c| *c = (*c).max(count))
-                    .or_insert(count);
+                    .and_modify(|(c, _)| *c = (*c).max(count))
+                    .or_insert((count, agent_class.clone()));
             }
         }
 
         let mut agents = AgentStore::new();
-        for (pool_name, max_signers) in pool_max_signers {
+        for (pool_name, (max_signers, agent_class)) in pool_max_signers {
             if max_signers > 0 {
-                agents.add_new_agent(&pool_name, max_signers, seed);
+                agents.add_new_agent(&pool_name, max_signers, seed, agent_class);
             }
         }
 

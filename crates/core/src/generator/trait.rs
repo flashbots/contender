@@ -478,7 +478,7 @@ where
                         if let Some(handle) = handle {
                             // Wait for sender's previous task, then run this one
                             let prev_handle = pending_per_sender.remove(&from);
-                            let chained = tokio::task::spawn(async move {
+                            let chained = crate::spawn_with_session(async move {
                                 if let Some(prev) = prev_handle {
                                     // Ignore errors from previous task - they'll be reported separately
                                     let _ = prev.await;
@@ -561,8 +561,8 @@ where
                         // converts a FunctionCallDefinition to a NamedTxRequest (filling in fuzzable args),
                         // returns a callback handle and the processed tx request
                         let prepare_tx = |req| {
-                            let mut args = get_fuzzed_args(req, &canonical_fuzz_map, i);
-                            let fuzz_tx_value = get_fuzzed_tx_value(req, &canonical_fuzz_map, i);
+                            let mut args = get_fuzzed_args(req, &canonical_fuzz_map, i)?;
+                            let fuzz_tx_value = get_fuzzed_tx_value(req, &canonical_fuzz_map, i)?;
                             // Special handling for WorldID proof generation
                             if req
                                 .kind
@@ -640,11 +640,16 @@ fn get_fuzzed_args(
     tx: &FunctionCallDefinition,
     fuzz_map: &HashMap<String, Vec<U256>>,
     fuzz_idx: usize,
-) -> Vec<String> {
+) -> Result<Vec<String>> {
     if let Some(tx_signature) = &tx.signature {
-        let func = alloy::json_abi::Function::parse(tx_signature)
-            .expect("[get_fuzzed_args] failed to parse function signature");
+        let func = alloy::json_abi::Function::parse(tx_signature)?;
         let tx_args = tx.args.as_deref().unwrap_or_default();
+        if !tx_args.is_empty() && func.inputs.len() < tx_args.len() {
+            return Err(GeneratorError::SignatureArgsMismatch {
+                sig_inputs: func.inputs.len(),
+                args_len: tx_args.len(),
+            });
+        }
         tx_args
             .iter()
             .enumerate()
@@ -678,11 +683,11 @@ fn get_fuzzed_args(
                 };
 
                 // !!! args with template values will be overwritten by the fuzzer if it's enabled for this arg
-                maybe_fuzz().unwrap_or(arg.to_owned())
+                Ok(maybe_fuzz().unwrap_or(arg.to_owned()))
             })
             .collect()
     } else {
-        vec![]
+        Ok(vec![])
     }
 }
 
@@ -690,22 +695,20 @@ fn get_fuzzed_tx_value(
     tx: &FunctionCallDefinition,
     fuzz_map: &HashMap<String, Vec<U256>>,
     fuzz_idx: usize,
-) -> Option<String> {
+) -> Result<Option<String>> {
     if let Some(fuzz) = &tx.fuzz {
         for fuzz_param in fuzz {
             if let Some(value) = fuzz_param.value {
                 if value {
-                    return Some(
-                        fuzz_map
-                            .get(VALUE_KEY)
-                            .expect("value fuzzer was not initialized")[fuzz_idx]
-                            .to_string(),
-                    );
+                    let values = fuzz_map
+                        .get(VALUE_KEY)
+                        .ok_or(GeneratorError::ValueFuzzerNotInitialized)?;
+                    return Ok(Some(values[fuzz_idx].to_string()));
                 }
             }
         }
     }
-    None
+    Ok(None)
 }
 
 fn parse_map_key(fuzz: FuzzParam) -> Result<String> {

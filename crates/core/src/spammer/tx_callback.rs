@@ -127,17 +127,109 @@ impl LogCallback {
         self.cancel_token = token;
         self
     }
+
+    /// Wrap this `LogCallback` with a user-provided callback. The returned
+    /// [`CombinedCallback`] runs the `LogCallback`'s tx-caching and FCU logic
+    /// alongside `custom`, so custom callbacks automatically keep the DB in
+    /// sync with `contender report` without having to duplicate
+    /// `LogCallback`'s internals.
+    pub fn with_callback<C>(self, custom: C) -> CombinedCallback<LogCallback, C> {
+        CombinedCallback::new(self, custom)
+    }
+}
+
+/// Runs two callbacks in tandem on every `on_tx_sent` / `on_batch_sent`, joining
+/// any spawned tasks into a single handle so the spam loop still sees one unit
+/// of work. The typical pairing is a [`LogCallback`] as `base` plus a
+/// user-provided callback as `custom`, which lets custom callbacks inherit the
+/// DB-persistence and FCU behavior that `contender report` depends on.
+#[derive(Clone)]
+pub struct CombinedCallback<A, B> {
+    pub base: A,
+    pub custom: B,
+}
+
+impl<A, B> CombinedCallback<A, B> {
+    pub fn new(base: A, custom: B) -> Self {
+        Self { base, custom }
+    }
+}
+
+impl<A, B> OnTxSent for CombinedCallback<A, B>
+where
+    A: OnTxSent + Send + Sync + 'static,
+    B: OnTxSent + Send + Sync + 'static,
+{
+    fn on_tx_sent(
+        &self,
+        tx_response: PendingTransactionConfig,
+        req: &NamedTxRequest,
+        extra: RuntimeTxInfo,
+        tx_handlers: Option<HashMap<String, Arc<TxActorHandle>>>,
+    ) -> Option<JoinHandle<CallbackResult<()>>> {
+        let base_handle =
+            self.base
+                .on_tx_sent(tx_response.clone(), req, extra.clone(), tx_handlers.clone());
+        let custom_handle = self.custom.on_tx_sent(tx_response, req, extra, tx_handlers);
+        join_callback_handles(base_handle, custom_handle)
+    }
+}
+
+impl<A, B> OnBatchSent for CombinedCallback<A, B>
+where
+    A: OnBatchSent + Send + Sync + 'static,
+    B: OnBatchSent + Send + Sync + 'static,
+{
+    fn on_batch_sent(&self) -> Option<JoinHandle<CallbackResult<()>>> {
+        let base_handle = self.base.on_batch_sent();
+        let custom_handle = self.custom.on_batch_sent();
+        join_callback_handles(base_handle, custom_handle)
+    }
+}
+
+fn join_callback_handles(
+    a: Option<JoinHandle<CallbackResult<()>>>,
+    b: Option<JoinHandle<CallbackResult<()>>>,
+) -> Option<JoinHandle<CallbackResult<()>>> {
+    match (a, b) {
+        (None, None) => None,
+        (Some(h), None) | (None, Some(h)) => Some(h),
+        (Some(a), Some(b)) => Some(tokio::task::spawn(async move {
+            let (ra, rb) = tokio::join!(a, b);
+            ra.map_err(CallbackError::Join)??;
+            rb.map_err(CallbackError::Join)??;
+            Ok(())
+        })),
+    }
 }
 
 impl OnTxSent for NilCallback {
     fn on_tx_sent(
         &self,
-        _tx_res: PendingTransactionConfig,
+        tx_res: PendingTransactionConfig,
         _req: &NamedTxRequest,
-        _extra: RuntimeTxInfo,
-        _tx_handlers: Option<HashMap<String, Arc<TxActorHandle>>>,
+        extra: RuntimeTxInfo,
+        tx_handlers: Option<HashMap<String, Arc<TxActorHandle>>>,
     ) -> Option<JoinHandle<CallbackResult<()>>> {
-        // do nothing
+        // Even when receipts are disabled, record txs that failed to send
+        // so "insufficient funds" and similar errors appear in the DB.
+        if extra.error.is_some() {
+            if let Some(tx_actors) = tx_handlers {
+                let handle = crate::spawn_with_session(async move {
+                    let tx_actor = tx_actors["default"].clone();
+                    let tx = CacheTx {
+                        tx_hash: *tx_res.tx_hash(),
+                        start_timestamp_ms: extra.start_timestamp_ms,
+                        end_timestamp_ms: extra.end_timestamp_ms,
+                        kind: extra.kind,
+                        error: extra.error,
+                    };
+                    let _ = tx_actor.cache_run_tx(tx).await;
+                    Ok(())
+                });
+                return Some(handle);
+            }
+        }
         None
     }
 }
@@ -151,7 +243,7 @@ impl OnTxSent for LogCallback {
         tx_actors: Option<HashMap<String, Arc<TxActorHandle>>>,
     ) -> Option<JoinHandle<CallbackResult<()>>> {
         let cancel_token = self.cancel_token.clone();
-        let handle = tokio::task::spawn(async move {
+        let handle = crate::spawn_with_session(async move {
             if let Some(tx_actors) = tx_actors {
                 let tx_actor = tx_actors["default"].clone();
                 let tx = CacheTx {
@@ -181,7 +273,7 @@ impl OnBatchSent for LogCallback {
         }
         if let Some(provider) = &self.auth_provider {
             let provider = provider.clone();
-            return Some(tokio::task::spawn(async move {
+            return Some(crate::spawn_with_session(async move {
                 provider
                     .advance_chain(DEFAULT_BLOCK_TIME)
                     .await
@@ -196,5 +288,103 @@ impl OnBatchSent for NilCallback {
     fn on_batch_sent(&self) -> Option<JoinHandle<CallbackResult<()>>> {
         // do nothing
         None
+    }
+}
+
+pub trait IntoCombinedCallback<B> {
+    fn with_callback(self, custom: B) -> CombinedCallback<Self, B>
+    where
+        Self: Sized;
+}
+
+impl<T, B> IntoCombinedCallback<B> for T
+where
+    T: SpamCallback,
+{
+    fn with_callback(self, custom: B) -> CombinedCallback<Self, B> {
+        CombinedCallback::new(self, custom)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::TxHash;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Clone, Default)]
+    struct Counter(Arc<AtomicUsize>);
+
+    impl OnTxSent for Counter {
+        fn on_tx_sent(
+            &self,
+            _: PendingTransactionConfig,
+            _: &NamedTxRequest,
+            _: RuntimeTxInfo,
+            _: Option<HashMap<String, Arc<TxActorHandle>>>,
+        ) -> Option<JoinHandle<CallbackResult<()>>> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            None
+        }
+    }
+
+    impl OnBatchSent for Counter {
+        fn on_batch_sent(&self) -> Option<JoinHandle<CallbackResult<()>>> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            None
+        }
+    }
+
+    #[tokio::test]
+    async fn combined_callback_runs_both_sides() {
+        let base = Counter::default();
+        let custom = Counter::default();
+        let base_count = base.0.clone();
+        let custom_count = custom.0.clone();
+
+        let combined = CombinedCallback::new(base, custom);
+        let req = NamedTxRequest::new(Default::default(), None, None);
+        combined.on_tx_sent(
+            PendingTransactionConfig::new(TxHash::ZERO),
+            &req,
+            RuntimeTxInfo::default(),
+            None,
+        );
+        combined.on_batch_sent();
+
+        assert_eq!(base_count.load(Ordering::SeqCst), 2);
+        assert_eq!(custom_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn callbacks_can_stack() {
+        let counter1 = Counter::default();
+        let counter2 = Counter::default();
+        let counter3 = Counter::default();
+
+        let combined = counter1
+            .clone()
+            .with_callback(counter2.clone())
+            .with_callback(counter3.clone());
+        /* NOTE:
+            Clones are only necessary for this test.
+            Real impls would likely not need to keep ownership of the callbacks after
+            combining them, so they could be moved instead of cloned.
+            Either way, ownership and cloning semantics are up to the caller
+            since `CombinedCallback` is just a thin wrapper with no special handling.
+        */
+
+        let req = NamedTxRequest::new(Default::default(), None, None);
+        combined.on_tx_sent(
+            PendingTransactionConfig::new(TxHash::ZERO),
+            &req,
+            RuntimeTxInfo::default(),
+            None,
+        );
+        combined.on_batch_sent();
+
+        assert_eq!(counter1.0.load(Ordering::SeqCst), 2);
+        assert_eq!(counter2.0.load(Ordering::SeqCst), 2);
+        assert_eq!(counter3.0.load(Ordering::SeqCst), 2);
     }
 }

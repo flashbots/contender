@@ -50,7 +50,7 @@ const DEFAULT_SCENARIOS_URL: &str =
 /// If the testfile starts with `scenario:`, it is treated as a builtin scenario.
 /// Otherwise, it is treated as a file path.
 /// Built-in scenarios are fetched relative to the default URL: [`DEFAULT_SCENARIOS_URL`](crate::util::DEFAULT_SCENARIOS_URL).
-pub async fn load_testconfig(testfile: &str) -> Result<TestConfig, crate::CliError> {
+pub async fn load_testconfig(testfile: &str) -> Result<TestConfig, crate::Error> {
     Ok(if testfile.starts_with("scenario:") {
         let remote_url = format!(
             "{DEFAULT_SCENARIOS_URL}/{}",

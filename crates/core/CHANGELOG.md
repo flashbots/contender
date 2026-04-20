@@ -5,6 +5,75 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- save errors to db in NilCallback ([#511](https://github.com/flashbots/contender/pull/511/changes))
+- refactored `Contender` to use a typestate-based lifecycle instead of the runtime `ContenderState` enum ([#507](https://github.com/flashbots/contender/pull/507/changes))
+  - `Contender<D, S, P, State>` is now generic over a `State` parameter (defaults to `Uninitialized`)
+  - `initialize(self)` consumes the uninitialized contender and returns `Contender<..., Initialized<...>>`
+  - `spam`, `fund_accounts`, `scenario`, and `scenario_mut` are only callable on `Contender<..., Initialized<...>>`
+  - added `initialize_and_spam` convenience helper on `Contender<..., Uninitialized>`
+  - added `LifecyclePhase` enum and `PhaseMarker` trait for read-only phase introspection
+  - new re-exports: `Initialized`, `Uninitialized`, `LifecyclePhase`, `PhaseMarker`
+- added `CombinedCallback<A, B>` and `LogCallback::with_callback` builder so custom spam callbacks can inherit `LogCallback`'s tx-caching (and optional FCU) behavior without duplicating its internals ([#326](https://github.com/flashbots/contender/issues/326))
+
+*from [#494](https://github.com/flashbots/contender/pull/494/changes)*:
+
+- Integrated receipt flushing lifecycle
+  - Receipt collection and DB persistence are now fully integrated into the orchestrator run loop:
+    - `contender_core::spammer::tx_actor::TxActorHandle` now exposes:
+      - `await_flush()` to explicitly wait for the spammer's txs to land
+      - `restart_flush()` to restart the flush process, which allows the caller to run another spam run independent of the flush state
+      - `clear_cache()` to forcefully empty the cache
+    - flushing is automatically awaited at the end of spam (timeout still applies)
+- Improved `TxActor` lifecycle management
+  - `TxActorHandle` now tracks flush completion and exposes control hooks, enabling:
+    - deterministic shutdown
+    - tighter coordination between send and receipt phases
+- Session-aware task execution utilities
+  - Added utilities such as `spawn_with_session` and `CURRENT_SESSION_ID` for propagating session context across async tasks.
+- `TestScenario::sync_nonces` now checks for `self.should_sync_nonces` so it may be blindly called
+
+### Breaking changes
+
+*from [#507](https://github.com/flashbots/contender/pull/507)*:
+
+- `contender_core::orchestrator::ContenderState` has been removed.
+  - Replace `contender.state.scenario()` with `contender.scenario()` (infallible on `Initialized`).
+  - Replace `contender.state.scenario_mut()` with `contender.scenario_mut()`.
+  - Replace `contender.state.is_initialized()` checks with compile-time enforcement.
+- `Contender::new` now returns `Contender<D, S, P, Uninitialized>`.
+- `Contender::initialize` now consumes `self` and returns `Result<Contender<D, S, P, Initialized<D, S, P>>>`.
+  - Callers must bind the returned value: `let contender = contender.initialize().await?;`
+- `Contender::spam` is no longer available on `Contender<..., Uninitialized>` — call `initialize` first.
+  - The implicit auto-initialization inside `spam` has been removed.
+
+*from [#494](https://github.com/flashbots/contender/pull/494/changes)*:
+
+- `contender_core::orchestrator::Contender::spam` signature changed.
+  - spam now requires an additional parameter: `cancel_token: Option<CancellationToken>`
+  - All existing call sites must be updated.
+- `contender_core::orchestrator::Contender::spam` completion semantics changed
+  - spam now blocks until receipt flushing is complete (via TxActor), rather than returning immediately after transaction submission.
+  - This affects any caller relying on:
+    - early return semantics
+    - custom receipt collection or post-processing immediately after spam()
+- `contender_core::test_scenario::TestScenarioParams` change
+  - `pending_tx_timeout_secs: u64` has been changed to `pending_tx_timeout: std::time::Duration`
+  - Direct struct construction must be updated accordingly.
+- Agent stores are now class-aware
+  - `AgentStore` and `SignerStore` now preserve role information for generated agents, enabling downstream logic to distinguish deployers, setup senders, and spammers.
+  - `SignerStore::new` added an additional `agent_class: AgentClass` parameter
+  - `contender_core::agent_controller::AgentStore` added convenience accessors:
+    - `spammers()`
+    - `deployers()`
+    - `setup_senders()`
+    - `get_class(&AgentClass)`
+  - `crates/core/src/generator/agent_pools.rs` now assigns explicit agent classes when building stores
+    - create pools → `AgentClass::Deployer`
+    - setup pools → `AgentClass::SetupSender`
+    - spam pools → `AgentClass::Spammer`
+
 ## [0.9.1](https://github.com/flashbots/contender/releases/tag/v0.9.1) - 2026-04-01
 
 - added `eth_sendRawTransactionSync` support with per-tx `end_timestamp_ms` tracking ([#459](https://github.com/flashbots/contender/pull/459/changes))

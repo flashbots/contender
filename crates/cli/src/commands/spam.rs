@@ -7,7 +7,7 @@ use crate::{
         error::ArgsError,
         GenericDb, Result,
     },
-    default_scenarios::BuiltinScenario,
+    default_scenarios::{BuiltinOptions, BuiltinScenario},
     error::CliError,
     util::{
         bold, check_private_keys, fund_accounts, load_seedfile, load_testconfig, parse_duration,
@@ -36,7 +36,7 @@ use contender_core::{
         tx_actor::ActorContext, BlockwiseSpammer, LogCallback, NilCallback, Spammer, TimedSpammer,
     },
     test_scenario::{TestScenario, TestScenarioParams},
-    util::get_block_time,
+    util::{get_block_time, print_progress_report, spawn_spam_report_task},
 };
 use contender_engine_provider::{
     reth_node_api::EngineApiMessageVersion, AuthProvider, ControlChain,
@@ -44,7 +44,6 @@ use contender_engine_provider::{
 use contender_report::command::ReportParams;
 use contender_testfile::TestConfig;
 use op_alloy_network::{Ethereum, Optimism};
-use serde::Serialize;
 use std::{
     path::{Path, PathBuf},
     sync::atomic::AtomicBool,
@@ -52,68 +51,6 @@ use std::{
 use std::{sync::Arc, time::Duration};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
-
-/// Structured JSON report emitted periodically during spam runs.
-#[derive(Debug, Clone, Serialize)]
-pub struct SpamProgressReport {
-    pub elapsed_s: u64,
-    pub txs_sent: u64,
-    pub txs_confirmed: u64,
-    pub txs_failed: u64,
-    pub current_tps: f64,
-}
-
-/// Prints incremental progress report for a spam run. Returns None if call to db's `get_run_txs` fails.
-fn print_progress_report<D: GenericDb>(
-    db: &D,
-    run_id: u64,
-    start: std::time::Instant,
-    planned_tx_count: Option<u64>,
-) -> Option<()> {
-    let elapsed = start.elapsed();
-    let elapsed_s = elapsed.as_secs();
-
-    let Ok((txs_confirmed, txs_failed)) = db.get_run_txs(run_id).map(|txs| {
-        let confirmed = txs
-            .iter()
-            .filter(|tx| tx.block_number.is_some() && tx.error.is_none())
-            .count() as u64;
-        let failed = txs.iter().filter(|tx| tx.error.is_some()).count() as u64;
-        (confirmed, failed)
-    }) else {
-        return None;
-    };
-
-    // txs_sent is the planned count capped by elapsed time,
-    // or confirmed + failed if we have more data than planned
-    let txs_sent = (txs_confirmed + txs_failed).max(planned_tx_count.unwrap_or(0).min(
-        // rough estimate based on elapsed time
-        txs_confirmed + txs_failed,
-    ));
-
-    let current_tps = if elapsed_s > 0 {
-        txs_confirmed as f64 / elapsed_s as f64
-    } else {
-        0.0
-    };
-
-    let report = SpamProgressReport {
-        elapsed_s,
-        txs_sent,
-        txs_confirmed,
-        txs_failed,
-        current_tps: (current_tps * 10.0).round() / 10.0,
-    };
-
-    // tracing span annotates the log for easy identification later
-    let span = tracing::info_span!("spam_progress", run_id = run_id);
-    if let Ok(json) = serde_json::to_string(&report) {
-        let _enter = span.enter();
-        info!("{json}");
-    }
-
-    Some(())
-}
 
 /// Computes how often (in seconds) to re-fund spammer accounts.
 ///
@@ -174,40 +111,6 @@ fn spawn_funding_task(
                         &engine_params,
                     ).await {
                         warn!("Auto-funding failed: {e}");
-                    }
-                }
-            }
-        }
-    });
-
-    cancel
-}
-
-/// Spawns a background task that periodically queries the DB and prints
-/// a structured JSON progress report to stdout.
-/// Returns a cancellation token that should be cancelled when spam is done.
-fn spawn_spam_report_task<D: GenericDb>(
-    db: &D,
-    run_id: u64,
-    interval_secs: u64,
-    planned_tx_count: u64,
-) -> CancellationToken {
-    let cancel = CancellationToken::new();
-    let cancel_clone = cancel.clone();
-    let db = Arc::new(db.to_owned());
-
-    tokio::task::spawn(async move {
-        let start = std::time::Instant::now();
-        let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
-        // Skip the first immediate tick
-        interval.tick().await;
-
-        loop {
-            tokio::select! {
-                _ = cancel_clone.cancelled() => break,
-                _ = interval.tick() => {
-                    if print_progress_report(db.clone().as_ref(), run_id, start, Some(planned_tx_count)).is_none() {
-                        continue;
                     }
                 }
             }
@@ -348,6 +251,24 @@ pub struct SpamCliArgs {
     )]
     pub report_interval: Option<u64>,
 }
+
+impl SpamCliArgs {
+    pub fn builtin_options(&self, data_dir: &Path) -> Result<BuiltinOptions> {
+        let seed = self
+            .eth_json_rpc_args
+            .rpc_args
+            .seed
+            .clone()
+            .unwrap_or(load_seedfile(data_dir)?);
+        let seed = RandSeed::seed_from_str(&seed);
+        Ok(BuiltinOptions {
+            accounts_per_agent: self.eth_json_rpc_args.rpc_args.accounts_per_agent,
+            seed,
+            spam_rate: Some(self.spam_args.spam_rate()?),
+        })
+    }
+}
+
 #[derive(Clone)]
 pub enum SpamScenario {
     Testfile(String),
@@ -617,7 +538,7 @@ impl SpamCommandArgs {
             agent_spec,
             tx_type,
             bundle_type: bundle_type.into(),
-            pending_tx_timeout_secs: pending_timeout * block_time,
+            pending_tx_timeout: Duration::from_secs(pending_timeout * block_time),
             extra_msg_handles: None,
             sync_nonces_after_batch: !self.spam_args.optimistic_nonces,
             rpc_batch_size,
@@ -1037,9 +958,11 @@ where
 
         _ = tokio::signal::ctrl_c() => {
             info!("CTRL-C received, stopping result collection.");
-            test_scenario.shutdown().await;
         }
     }
+
+    // Shut down the TxActor so its flush loop stops logging
+    test_scenario.shutdown().await;
 
     // Stop background tasks and print final summary
     if let Some(cancel) = funding_cancel {

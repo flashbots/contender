@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 - report now includes total/successful/failed transaction counts with failure rate ([#516](https://github.com/flashbots/contender/issues/516))
+- improve campaign/spam logs (particularly when `--report` is passed) ([#508](https://github.com/flashbots/contender/pull/508))
+- refactored `Contender` orchestrator to a typestate-based lifecycle — `Contender<Uninitialized>` vs `Contender<Initialized>` — eliminating all runtime lifecycle checks and enforcing correct usage at compile time ([#507](https://github.com/flashbots/contender/pull/507))
+- custom spam callbacks can now wrap a `LogCallback` via `LogCallback::with_callback` to inherit the tx-caching and FCU behavior that `contender report` depends on, removing the boilerplate that previously caused custom callbacks to silently break reporting ([#326](https://github.com/flashbots/contender/issues/326))
+- added contender server + some supporting (and internally-breaking) changes ([#494](https://github.com/flashbots/contender/pull/494/))
 
 ## [0.9.1](https://github.com/flashbots/contender/releases/tag/v0.9.1) - 2026-04-01
 

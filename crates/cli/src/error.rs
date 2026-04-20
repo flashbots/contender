@@ -66,6 +66,9 @@ pub enum CliError {
     #[error("setup error")]
     Setup(#[from] SetupError),
 
+    #[error("server failed to start up: {0}")]
+    ServerStartup(String),
+
     #[error("util error")]
     Util(#[from] UtilError),
 }

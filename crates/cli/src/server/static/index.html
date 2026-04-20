@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contender Server</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --border: #0f3460;
+    --accent: #e94560;
+    --text: #eee;
+    --muted: #888;
+    --input-bg: #0f3460;
+    --success: #4ecca3;
+    --error: #e94560;
+    --warning: #f0a500;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Menlo', 'Consolas', monospace;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 1.4rem; margin-bottom: 8px; }
+  h2 { font-size: 1rem; margin-bottom: 10px; color: var(--muted); }
+  .server-bar {
+    display: flex; gap: 8px; align-items: center; margin-bottom: 20px;
+  }
+  .server-bar input {
+    flex: 1; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--input-bg); color: var(--text); font-family: inherit; font-size: .85rem;
+  }
+  .columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  .column { min-width: 0; }
+  .cabinet {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+  .cabinet-header {
+    padding: 10px 14px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    user-select: none;
+  }
+  .cabinet-header:hover { background: var(--border); }
+  .cabinet-header .name { font-weight: bold; font-size: .95rem; }
+  .cabinet-header .meta { font-size: .78rem; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .cabinet-header .arrow { transition: transform .2s; }
+  .cabinet.open .cabinet-header .arrow { transform: rotate(90deg); }
+  .cabinet-body {
+    display: none;
+    padding: 14px;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+  }
+  .cabinet.open .cabinet-body { display: block; }
+  .field { margin-bottom: 10px; }
+  .field label { display: flex; align-items: center; gap: 4px; font-size: .75rem; color: var(--muted); margin-bottom: 3px; }
+  .tip { position: relative; display: inline-flex; }
+  .tip .tip-icon {
+    width: 14px; height: 14px; border-radius: 50%; background: var(--border); color: var(--text);
+    font-size: .65rem; font-weight: bold; text-align: center; line-height: 14px; cursor: help; flex-shrink: 0;
+  }
+  .tip .tip-text {
+    display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 4px;
+    padding: 6px 10px; font-size: .75rem; width: 260px; z-index: 100; line-height: 1.4;
+    box-shadow: 0 2px 8px rgba(0,0,0,.4);
+  }
+  .tip:hover .tip-text { display: block; }
+  .field input, .field select, .field textarea {
+    width: 100%; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--input-bg); color: var(--text); font-family: inherit; font-size: .85rem;
+  }
+  .field textarea { resize: vertical; min-height: 60px; }
+  .row { display: flex; gap: 8px; }
+  .row .field { flex: 1; }
+  button.send {
+    background: var(--accent); color: #fff; border: none; padding: 7px 18px;
+    border-radius: 4px; cursor: pointer; font-family: inherit; font-weight: bold;
+    font-size: .85rem;
+  }
+  button.send:hover { opacity: .85; }
+  button.send:disabled { opacity: .4; cursor: not-allowed; }
+  .result {
+    margin-top: 10px; padding: 8px 10px; border-radius: 4px;
+    font-size: .8rem; white-space: pre-wrap; word-break: break-all;
+    max-height: 200px; overflow-y: auto;
+  }
+  .result.ok { background: rgba(78,204,163,.12); border: 1px solid var(--success); }
+  .result.err { background: rgba(233,69,96,.12); border: 1px solid var(--error); }
+  .log-box {
+    background: #111; border: 1px solid var(--border); border-radius: 4px;
+    padding: 8px 10px; font-size: .78rem; max-height: 300px; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-all; color: var(--muted);
+  }
+  .log-box .line { color: var(--text); }
+  .log-controls { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .log-controls button {
+    background: var(--surface); color: var(--text); border: 1px solid var(--border);
+    padding: 4px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: .8rem;
+  }
+  .log-controls button:hover { background: var(--border); }
+  .status-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px;
+  }
+  .status-dot.connected { background: var(--success); }
+  .status-dot.disconnected { background: var(--error); }
+  .status-badge {
+    font-size: .72rem; padding: 2px 8px; border-radius: 3px; font-weight: bold;
+  }
+  .status-badge.initializing { background: var(--warning); color: #000; }
+  .status-badge.ready { background: var(--success); color: #000; }
+  .status-badge.spamming { background: var(--accent); color: #fff; }
+  .status-badge.failed { background: var(--error); color: #fff; }
+  .no-sessions { font-size: .85rem; color: var(--muted); padding: 20px 0; text-align: center; }
+  @keyframes rainbow-shift { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
+  .rainbow-border {
+    border-radius: 6px; overflow: hidden; padding: 2px; margin-bottom: 8px;
+    background: linear-gradient(90deg, #ff6b6b99, #ffa94d99, #ffd43b99, #69db7c99, #4dabf799, #9775fa99, #f0659599, #ff6b6b99);
+    background-size: 200% 100%;
+    animation: rainbow-shift 4s linear infinite;
+  }
+  .rainbow-border > .rb-inner { background: var(--bg); border-radius: 4px; overflow: hidden; }
+  .rainbow-border .cabinet { border: none; margin-bottom: 0; }
+</style>
+</head>
+<body>
+
+<div style="display: flex; flex-direction: row; align-items: baseline;">
+  <h1>Contender Dashboard</h1>
+  <span style="margin-left: auto;"><a style="color: antiquewhite;" href="/docs">RPC API Docs</a></span>
+</div>
+<div class="server-bar">
+  <label style="font-size:.8rem;color:var(--muted)">Server:</label>
+  <input id="server-url" value="http://localhost:3000" />
+  <span id="server-dot" class="status-dot disconnected"></span>
+  <span id="server-status" style="font-size:.78rem;color:var(--muted)">disconnected</span>
+</div>
+
+<div class="columns">
+  <div class="column" id="controls-col">
+    <h2>Controls</h2>
+  </div>
+  <div class="column" id="sessions-col">
+    <h2>Sessions</h2>
+    <div id="sessions-list"><div class="no-sessions">No sessions</div></div>
+  </div>
+</div>
+
+<div id="modal-overlay" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;">
+  <div id="modal-dialog" style="background:var(--surface);color:var(--text);padding:28px 24px 18px 24px;border-radius:8px;box-shadow:0 4px 32px #000a;max-width:340px;width:90vw;">
+    <div id="modal-message" style="margin-bottom:18px;font-size:1rem;"></div>
+    <div style="display:flex;gap:12px;justify-content:flex-end;">
+      <button id="modal-cancel" style="background:var(--muted);color:#fff;padding:6px 18px;border:none;border-radius:4px;cursor:pointer;font-size:.95rem;">Cancel</button>
+      <button id="modal-confirm" style="background:var(--error);color:#fff;padding:6px 18px;border:none;border-radius:4px;cursor:pointer;font-size:.95rem;font-weight:bold;">Remove</button>
+    </div>
+  </div>
+</div>
+<script src="./builtin_scenarios.js"></script>
+<script>
+const $ = (s, p) => (p || document).querySelector(s);
+const $$ = (s, p) => [...(p || document).querySelectorAll(s)];
+
+function serverUrl() { return $('#server-url').value.replace(/\/+$/, ''); }
+function wsUrl() { return serverUrl().replace(/^http/, 'ws'); }
+
+function isValidUrl(s) {
+  try { const u = new URL(s); return u.protocol === 'http:' || u.protocol === 'https:'; }
+  catch { return false; }
+}
+
+let rpcId = 1;
+async function rpc(method, params) {
+  const body = { jsonrpc: '2.0', method, params, id: rpcId++ };
+  const res = await fetch(serverUrl(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json();
+  if (json.error) throw json.error;
+  return json.result;
+}
+
+// ── server status ──
+
+let statusTimer = null;
+function setServerStatus(ok, text) {
+  const dot = $('#server-dot');
+  const label = $('#server-status');
+  dot.className = 'status-dot ' + (ok ? 'connected' : 'disconnected');
+  label.textContent = text;
+}
+
+async function pollSessions() {
+  const url = serverUrl();
+  if (!isValidUrl(url)) { setServerStatus(false, 'invalid URL'); return; }
+  try {
+    const sessions = await rpc('getAllSessions', []);
+    setServerStatus(true, `sessions: ${sessions.length}`);
+    renderSessions(sessions);
+  } catch {
+    setServerStatus(false, 'disconnected');
+  }
+}
+
+function restartStatusPoll() {
+  if (statusTimer) clearInterval(statusTimer);
+  pollSessions();
+  statusTimer = setInterval(pollSessions, 1000);
+}
+
+$('#server-url').addEventListener('input', restartStatusPoll);
+restartStatusPoll();
+
+// ── helpers ──
+
+function showResult(container, ok, data) {
+  let el = $('.result', container);
+  if (!el) { el = document.createElement('div'); el.className = 'result'; container.appendChild(el); }
+  el.className = 'result ' + (ok ? 'ok' : 'err');
+  el.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+}
+
+function makeCabinet(name, buildBody, opts = {}) {
+  const cab = document.createElement('div');
+  cab.className = 'cabinet';
+  const header = document.createElement('div');
+  header.className = 'cabinet-header';
+  const nameSpan = document.createElement('span');
+  nameSpan.className = 'name';
+  nameSpan.textContent = name;
+  const right = document.createElement('span');
+  right.className = 'meta';
+  if (opts.metaHtml) right.innerHTML = opts.metaHtml;
+  const arrow = document.createElement('span');
+  arrow.className = 'arrow';
+  arrow.innerHTML = '&#9654;';
+  right.appendChild(arrow);
+  header.appendChild(nameSpan);
+  header.appendChild(right);
+  header.onclick = () => {
+    const opening = !cab.classList.contains('open');
+    // Close sibling cabinets in the same parent
+    if (opening && cab.parentNode) {
+      for (const sib of cab.parentNode.querySelectorAll(':scope > .cabinet.open')) {
+        if (sib !== cab) sib.classList.remove('open');
+      }
+    }
+    cab.classList.toggle('open');
+    if (opts.onToggle) opts.onToggle(opening);
+  };
+  const body = document.createElement('div');
+  body.className = 'cabinet-body';
+  buildBody(body);
+  cab.appendChild(header);
+  cab.appendChild(body);
+  cab._nameSpan = nameSpan;
+  cab._metaRight = right;
+  return cab;
+}
+
+function field(label, type, attrs = {}) {
+  const d = document.createElement('div');
+  d.className = 'field';
+  const l = document.createElement('label');
+  l.textContent = label;
+  d.appendChild(l);
+  let input;
+  if (type === 'select') {
+    input = document.createElement('select');
+    for (const opt of attrs.options || []) {
+      const o = document.createElement('option');
+      o.value = opt; o.textContent = opt;
+      input.appendChild(o);
+    }
+  } else if (type === 'textarea') {
+    input = document.createElement('textarea');
+  } else {
+    input = document.createElement('input');
+    input.type = type || 'text';
+  }
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k !== 'options') input[k] = v;
+  }
+  d.appendChild(input);
+  return { container: d, input };
+}
+
+function sendBtn(text = 'Send') {
+  const b = document.createElement('button');
+  b.className = 'send';
+  b.textContent = text;
+  return b;
+}
+
+// ── sessions column ──
+
+// ── log storage ──
+
+const LOG_KEY_PREFIX = 'contender_logs_';
+
+function loadLogs(sessionId) {
+  try { return JSON.parse(localStorage.getItem(LOG_KEY_PREFIX + sessionId)) || []; }
+  catch { return []; }
+}
+
+function appendLog(sessionId, text) {
+  const logs = loadLogs(sessionId);
+  logs.push(text);
+  localStorage.setItem(LOG_KEY_PREFIX + sessionId, JSON.stringify(logs));
+}
+
+function clearLogs(sessionId) {
+  localStorage.removeItem(LOG_KEY_PREFIX + sessionId);
+}
+
+// Track per-session state: { ws, logBox, cab }
+const sessionState = {};
+
+function isRunForever(status) {
+  return status && typeof status === 'object' && status.Spamming && status.Spamming.runForever;
+}
+
+function sessionTitle(s) {
+  return `#${s.id} ${s.name} (${s.rpc_url})`;
+}
+
+function statusBadgeClass(status) {
+  if (typeof status === 'string') return status.toLowerCase();
+  if (status.Spamming) return 'spamming';
+  if (status.Failed) return 'failed';
+  return 'ready';
+}
+
+function statusText(status) {
+  if (typeof status === 'string') return status;
+  if (status.Spamming) {
+    const p = status.Spamming;
+    const type = p.spammer || 'timed';
+    const units = type === 'blockwise' ? ['tpb', 'blocks'] : ['tps', 'seconds'];
+    const forever = p.runForever ? ' (forever)' : '';
+    return `Spamming (${p.txsPerPeriod || 10} ${units[0]} for ${p.duration || 10} ${units[1]})${forever}`;
+  }
+  if (status.Failed) return `Failed: ${status.Failed}`;
+  return JSON.stringify(status);
+}
+
+function trimLogLine(text) {
+  // Extract timestamp and strip metadata prefix.
+  // The optional group strips a secondary prefix (e.g. line number "185: ").
+  // It requires whitespace after the colon so it won't eat into JSON values.
+  const m = text.match(/^(\S+Z)\s+\w+\s+\S+:\s*(?:\S+:\s+)?(.*)/s);
+  if (!m) return text;
+  const d = new Date(m[1]);
+  const ts = isNaN(d) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  return (ts ? `[${ts}] ` : '') + m[2];
+}
+
+function addLogLine(logBox, text) {
+  const atBottom = logBox.scrollHeight - logBox.scrollTop - logBox.clientHeight < 30;
+  const line = document.createElement('div');
+  line.className = 'line';
+  line.textContent = trimLogLine(text);
+  logBox.appendChild(line);
+  if (atBottom) logBox.scrollTop = logBox.scrollHeight;
+}
+
+function restoreLogs(sessionId, logBox) {
+  const logs = loadLogs(sessionId);
+  if (logs.length) {
+    logBox.textContent = '';
+    for (const text of logs) addLogLine(logBox, text);
+  }
+}
+
+function subscribeToSession(sessionId) {
+  const state = sessionState[sessionId];
+  if (!state || state.ws) return;
+
+  const ws = new WebSocket(wsUrl());
+  state.ws = ws;
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({
+      jsonrpc: '2.0', method: 'subscribeLogs',
+      params: [sessionId], id: rpcId++,
+    }));
+  };
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.method === 'session_log' && msg.params) {
+      const text = msg.params.result;
+      appendLog(sessionId, text);
+      addLogLine(state.logBox, text);
+    }
+  };
+  ws.onclose = () => { state.ws = null; };
+  ws.onerror = () => { state.ws = null; };
+}
+
+function unsubscribeFromSession(sessionId) {
+  const state = sessionState[sessionId];
+  if (!state || !state.ws) return;
+  state.ws.close();
+  state.ws = null;
+}
+
+function renderSessions(sessions) {
+  const list = $('#sessions-list');
+
+  if (sessions.length === 0) {
+    // Clean up all session state and WS connections
+    for (const id of Object.keys(sessionState)) {
+      unsubscribeFromSession(Number(id));
+      const wrap = sessionState[id].rainbowWrap || sessionState[id].cab;
+      if (wrap.parentNode) wrap.remove();
+      delete sessionState[id];
+    }
+    if (!$('.no-sessions', list)) {
+      list.innerHTML = '<div class="no-sessions">No sessions</div>';
+    }
+    return;
+  }
+
+  // Remove the "no sessions" placeholder
+  const placeholder = $('.no-sessions', list);
+  if (placeholder) placeholder.remove();
+
+  const currentIds = new Set(sessions.map(s => s.id));
+
+  // Remove cabinets for sessions that no longer exist
+  for (const id of Object.keys(sessionState)) {
+    if (!currentIds.has(Number(id))) {
+      unsubscribeFromSession(Number(id));
+      clearLogs(Number(id));
+      const wrap = sessionState[id].rainbowWrap || sessionState[id].cab;
+      if (wrap.parentNode) wrap.remove();
+      delete sessionState[id];
+    }
+  }
+
+  for (const s of sessions) {
+    const badgeClass = statusBadgeClass(s.status);
+    const badgeText = statusText(s.status);
+    const badgeHtml = `<span class="status-badge ${badgeClass}">${badgeText}</span>`;
+
+    if (sessionState[s.id]) {
+      // Update existing cabinet header
+      const state = sessionState[s.id];
+      state.cab._nameSpan.textContent = sessionTitle(s);
+      // Update badge (preserve arrow)
+      const arrow = state.cab._metaRight.querySelector('.arrow');
+      state.cab._metaRight.innerHTML = badgeHtml + ' ';
+      state.cab._metaRight.appendChild(arrow);
+      // Update stopButton visibility for live status
+      if (state.stopButton) {
+        state.stopButton.hidden = !(s.status && typeof s.status === 'object' && Object.keys(s.status).includes('Spamming'));
+      }
+      // Re-attach if cabinet was detached from the DOM
+      if (state.rainbowWrap && !state.rainbowWrap.parentNode) list.appendChild(state.rainbowWrap);
+      else if (!state.rainbowWrap && !state.cab.parentNode) list.appendChild(state.cab);
+    } else {
+      // Create new session cabinet
+      const logBox = document.createElement('div');
+      logBox.className = 'log-box';
+      logBox.textContent = 'Waiting for logs...';
+
+      // Restore any logs saved from a previous page load
+      restoreLogs(s.id, logBox);
+
+      const cab = makeCabinet(sessionTitle(s), body => {
+        const controls = document.createElement('div');
+        controls.className = 'log-controls';
+
+        const clearBtn = document.createElement('button');
+        clearBtn.textContent = 'Clear logs';
+        clearBtn.onclick = (e) => { e.stopPropagation(); logBox.textContent = ''; clearLogs(s.id); };
+
+        const stopButton = sendBtn('Stop spammer');
+        stopButton.onclick = async (e) => {
+          e.stopPropagation();
+          try {
+            await rpc("stop", [s.id]);
+          } catch (e) {
+            console.error("failed to stop session", e)
+          }
+        };
+        stopButton.hidden = !(s.status && typeof s.status === 'object' && Object.keys(s.status).includes('Spamming'));
+
+
+        const removeBtn = sendBtn('Remove session');
+        removeBtn.style.background = 'var(--error)';
+        removeBtn.onclick = (e) => {
+          e.stopPropagation();
+          showModal({
+            message: 'Are you sure you want to remove this session? All session data (metrics, deployed contract addresses) will be lost.',
+            onConfirm: async () => {
+              try {
+                await rpc('removeSession', [s.id]);
+                clearLogs(s.id);
+                pollSessions();
+              } catch (err) {
+                console.error('failed to remove session', err);
+              }
+            }
+          });
+        };
+
+        controls.appendChild(clearBtn);
+        controls.appendChild(stopButton);
+        controls.appendChild(removeBtn);
+
+        // ── Fund controls (drawer) ──
+        let fundDrawerOpen = false;
+
+        const fundBtn = sendBtn('Fund Accounts');
+        fundBtn.style.background = 'var(--success)';
+        fundBtn.style.color = '#000';
+        controls.appendChild(fundBtn);
+
+        const fundDrawer = document.createElement('div');
+        fundDrawer.style.cssText = 'display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .25s ease,opacity .2s ease;';
+        const fundDrawerInner = document.createElement('div');
+        fundDrawerInner.style.cssText = 'overflow:hidden;padding:0 1px;';
+        const fundDrawerContent = document.createElement('div');
+        fundDrawerContent.style.cssText = 'display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding-top:8px;';
+
+        const fundInput = document.createElement('input');
+        fundInput.type = 'text';
+        fundInput.placeholder = '1 eth';
+        fundInput.style.cssText = 'width:120px;padding:6px 10px;border-radius:4px;border:1px solid var(--border);background:var(--input-bg);color:var(--text);font-family:inherit;font-size:.85rem;';
+        fundInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); fundBtn.click(); } });
+
+        const fundAgentSelect = document.createElement('select');
+        fundAgentSelect.style.cssText = 'padding:6px 10px;border-radius:4px;border:1px solid var(--border);background:var(--input-bg);color:var(--text);font-family:inherit;font-size:.85rem;';
+        for (const opt of ['Spammer', 'Deployer', 'SetupSender']) {
+          const o = document.createElement('option');
+          o.value = opt; o.textContent = opt;
+          fundAgentSelect.appendChild(o);
+        }
+
+        const fundCloseBtn = document.createElement('button');
+        fundCloseBtn.textContent = '\u2715';
+        fundCloseBtn.style.cssText = 'background:none;border:1px solid var(--border);color:var(--muted);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:.85rem;font-family:inherit;';
+        fundCloseBtn.title = 'Cancel';
+
+        const fundMsg = document.createElement('div');
+        fundMsg.style.cssText = 'font-size:.78rem;color:var(--muted);width:100%;word-break:break-word;white-space:normal;';
+
+        fundDrawerContent.appendChild(fundInput);
+        fundDrawerContent.appendChild(fundAgentSelect);
+        fundDrawerContent.appendChild(fundCloseBtn);
+        fundDrawerContent.appendChild(fundMsg);
+        fundDrawerInner.appendChild(fundDrawerContent);
+        fundDrawer.appendChild(fundDrawerInner);
+
+        function openFundDrawer() {
+          fundDrawerOpen = true;
+          fundDrawer.style.gridTemplateRows = '1fr';
+          fundDrawer.style.opacity = '1';
+          fundMsg.textContent = '';
+          setTimeout(() => fundInput.focus(), 50);
+        }
+
+        function closeFundDrawer() {
+          fundDrawerOpen = false;
+          fundDrawer.style.gridTemplateRows = '0fr';
+          fundDrawer.style.opacity = '0';
+          fundMsg.textContent = '';
+          fundInput.value = '';
+        }
+
+        fundCloseBtn.onclick = (e) => { e.stopPropagation(); closeFundDrawer(); };
+
+        fundBtn.onclick = async (e) => {
+          e.stopPropagation();
+          if (!fundDrawerOpen) { openFundDrawer(); return; }
+          const amount = fundInput.value.trim();
+          if (!amount) { fundMsg.textContent = 'Enter an amount'; fundMsg.style.color = 'var(--warning)'; return; }
+          fundBtn.disabled = true;
+          fundMsg.textContent = 'Funding...';
+          fundMsg.style.color = 'var(--muted)';
+          try {
+            await rpc('fundAccounts', [{ sessionId: s.id, amount, agentClass: fundAgentSelect.value }]);
+            closeFundDrawer();
+          } catch (err) {
+            fundMsg.textContent = err && err.message ? err.message : JSON.stringify(err);
+            fundMsg.style.color = 'var(--error)';
+          } finally {
+            fundBtn.disabled = false;
+          }
+        };
+
+        body.appendChild(controls);
+        body.appendChild(fundDrawer);
+
+        // ── Modal logic ──
+        function showModal({ message, onConfirm }) {
+            const overlay = document.getElementById('modal-overlay');
+            const msg = document.getElementById('modal-message');
+            const confirmBtn = document.getElementById('modal-confirm');
+            const cancelBtn = document.getElementById('modal-cancel');
+            let confirmed = false;
+            msg.textContent = message;
+            overlay.style.display = 'flex';
+            function cleanup() {
+                overlay.style.display = 'none';
+                confirmBtn.onclick = null;
+                cancelBtn.onclick = null;
+            }
+            confirmBtn.onclick = () => {
+                confirmed = true;
+                cleanup();
+                if (onConfirm) onConfirm();
+            };
+            cancelBtn.onclick = () => { cleanup(); };
+            // Allow Esc to close
+            overlay.onkeydown = (e) => {
+                if (e.key === 'Escape') { cleanup(); }
+            };
+            overlay.focus();
+        }
+
+        body.appendChild(logBox);
+
+        // Store stopButton reference for live updates
+        if (!sessionState[s.id]) sessionState[s.id] = {};
+        sessionState[s.id].stopButton = stopButton;
+      }, {
+        metaHtml: badgeHtml + ' ',
+      });
+
+      sessionState[s.id] = { ...sessionState[s.id], ws: null, logBox, cab };
+
+      // Wrap session cabinet in a rainbow border
+      const rainbowWrap = document.createElement('div');
+      rainbowWrap.className = 'rainbow-border';
+      const rainbowInner = document.createElement('div');
+      rainbowInner.className = 'rb-inner';
+      rainbowInner.appendChild(cab);
+      rainbowWrap.appendChild(rainbowInner);
+      sessionState[s.id].rainbowWrap = rainbowWrap;
+      list.appendChild(rainbowWrap);
+
+      // Subscribe immediately so logs accumulate in the background
+      subscribeToSession(s.id);
+    }
+  }
+}
+
+// ── controls column ──
+
+const controls = $('#controls-col');
+
+// ========== add_session ==========
+controls.appendChild(makeCabinet('Add Session', body => {
+  const nameF = field('name', 'text', { placeholder: 'my-session' });
+  const urlF = field('rpc URL', 'text', { placeholder: 'http://localhost:8545' });
+  const configTypeF = field('config type', 'select', {
+    options: ['none (default uniV2)', 'builtin', 'toml', 'json']
+  });
+  const builtinF = field('builtin scenario', 'select', {
+    options: Object.keys(BUILTIN_SCENARIOS)
+  });
+  const paramsDiv = document.createElement('div');
+  paramsDiv.id = 'builtin-params';
+  const tomlF = field('Paste contents of TOML-encoded scenario file:', 'textarea', { placeholder: '[[spam]]\n[spam.tx]\nto = "..."' });
+  const jsonF = field('Paste contents of JSON-encoded scenario file:', 'textarea', { placeholder: '{ ... }' });
+
+  // ── Session options ──
+  const txTypeF = field('tx type', 'select', { options: ['default', 'legacy', 'eip1559', 'eip4844', 'eip7702'] });
+  const minBalanceF = field('min balance (wei)', 'text', { placeholder: '(optional) e.g. 1000000000000000000' });
+  const timeoutF = field('pending tx timeout (seconds)', 'number', { placeholder: '(optional)' });
+  const privateKeysF = field('private keys (one 0x-hex per line).', 'textarea', { placeholder: '(optional)' });
+  // Add tooltip to private keys label
+  const pkTip = document.createElement('span');
+  pkTip.className = 'tip';
+  pkTip.innerHTML = '<span class="tip-icon">?</span><span class="tip-text">The first key is used to fund spammers. Additional keys can be used as spammers by setting the \'from\' field in a scenario config.</span>';
+  privateKeysF.container.querySelector('label').appendChild(pkTip);
+  const createAccountsF = field('create accounts per agent', 'number', { placeholder: '1' });
+  const setupAccountsF = field('setup accounts per agent', 'number', { placeholder: '1' });
+  const spamAccountsF = field('spam accounts per agent', 'number', { placeholder: '10' });
+  const envF = field('env (KEY=VALUE per line)', 'textarea', { placeholder: '(optional)' });
+  const builderUrlF = field('builder rpc URL', 'text', { placeholder: '(optional)' });
+  const bundleTypeF = field('bundle type', 'select', { options: ['', 'l1', 'revertprotected'] });
+  const authJwtF = field('engine auth JWT secret (hex)', 'text', { placeholder: '(optional)' });
+  const authVersionF = field('engine message version', 'select', { options: ['', 'v1', 'v2', 'v3', 'v4'] });
+  const authUrlF = field('engine rpc URL', 'text', { placeholder: '(optional)' });
+  const authFcuF = field('call FCU', 'select', { options: ['false', 'true'] });
+  const authOpF = field('use OP (optimism)', 'select', { options: ['false', 'true'] });
+
+  body.appendChild(nameF.container);
+  body.appendChild(urlF.container);
+  body.appendChild(configTypeF.container);
+  body.appendChild(builtinF.container);
+  body.appendChild(paramsDiv);
+  body.appendChild(tomlF.container);
+  body.appendChild(jsonF.container);
+
+  // Options section (collapsible, closed by default)
+  const optionsWrap = document.createElement('div');
+  optionsWrap.style.cssText = 'margin-top:12px;margin-bottom:12px;border:1px dotted var(--muted);border-radius:6px;overflow:hidden;';
+  const optionsInner = optionsWrap;
+  const optionsHeader = document.createElement('div');
+  optionsHeader.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 12px;cursor:pointer;user-select:none;';
+  const optTitle = document.createElement('span');
+  optTitle.style.cssText = 'font-size:.8rem;font-weight:bold;color:var(--muted);';
+  optTitle.textContent = 'Session Options';
+  const optArrow = document.createElement('span');
+  optArrow.style.cssText = 'font-size:.75rem;transition:transform .2s;color:var(--muted);';
+  optArrow.textContent = '\u25B6';
+  optionsHeader.appendChild(optTitle);
+  optionsHeader.appendChild(optArrow);
+  const optionsBody = document.createElement('div');
+  optionsBody.style.cssText = 'display:none;padding:12px;';
+  optionsHeader.onclick = () => {
+    const open = optionsBody.style.display === 'none';
+    optionsBody.style.display = open ? 'block' : 'none';
+    optArrow.style.transform = open ? 'rotate(90deg)' : '';
+  };
+  optionsBody.appendChild(txTypeF.container);
+  const optRow1 = document.createElement('div'); optRow1.className = 'row';
+  optRow1.appendChild(minBalanceF.container);
+  optRow1.appendChild(timeoutF.container);
+  optionsBody.appendChild(optRow1);
+  optionsBody.appendChild(privateKeysF.container);
+  const agentsRow = document.createElement('div'); agentsRow.className = 'row';
+  agentsRow.appendChild(createAccountsF.container);
+  agentsRow.appendChild(setupAccountsF.container);
+  agentsRow.appendChild(spamAccountsF.container);
+  optionsBody.appendChild(agentsRow);
+  optionsBody.appendChild(envF.container);
+  const builderRow = document.createElement('div'); builderRow.className = 'row';
+  builderRow.appendChild(builderUrlF.container);
+  builderRow.appendChild(bundleTypeF.container);
+  optionsBody.appendChild(builderRow);
+  const authLabel = document.createElement('div');
+  authLabel.style.fontSize = '.75rem';
+  authLabel.style.color = 'var(--muted)';
+  authLabel.style.marginTop = '8px';
+  authLabel.style.marginBottom = '4px';
+  authLabel.textContent = 'Engine Auth';
+  optionsBody.appendChild(authLabel);
+  const authRow1 = document.createElement('div'); authRow1.className = 'row';
+  authRow1.appendChild(authJwtF.container);
+  authRow1.appendChild(authVersionF.container);
+  optionsBody.appendChild(authRow1);
+  optionsBody.appendChild(authUrlF.container);
+  const authRow2 = document.createElement('div'); authRow2.className = 'row';
+  authRow2.appendChild(authFcuF.container);
+  authRow2.appendChild(authOpF.container);
+  optionsBody.appendChild(authRow2);
+  optionsInner.appendChild(optionsHeader);
+  optionsInner.appendChild(optionsBody);
+  body.appendChild(optionsWrap);
+
+  let paramInputs = {};
+  function renderBuiltinParams() {
+    paramsDiv.innerHTML = '';
+    paramInputs = {};
+    const scenario = builtinF.input.value;
+    const specs = BUILTIN_SCENARIOS[scenario] || [];
+    for (const spec of specs) {
+      let f;
+      if (spec.type === 'bool') {
+        f = field(spec.name, 'select', { options: ['false', 'true'] });
+        if (spec.default) f.input.value = spec.default;
+      } else if (spec.type.startsWith('multi-select:')) {
+        const opts = spec.type.slice('multi-select:'.length).split(',');
+        f = field(spec.name, 'textarea', {
+          placeholder: opts.slice(0, 4).join(', ') + ', ...',
+          rows: 2,
+        });
+        if (spec.default) f.input.value = spec.default;
+      } else if (spec.type.startsWith('select:')) {
+        const opts = spec.type.slice('select:'.length).split(',');
+        f = field(spec.name, 'select', { options: opts });
+        if (spec.default) f.input.value = spec.default;
+      } else if (spec.type === 'number') {
+        f = field(spec.name, 'number', { value: spec.default || '' });
+      } else {
+        f = field(spec.name, 'text', { value: spec.default || '', placeholder: spec.optional ? '(optional)' : '' });
+      }
+      if (spec.help) f.input.title = spec.help;
+      paramsDiv.appendChild(f.container);
+      paramInputs[spec.name] = { input: f.input, spec };
+    }
+  }
+  builtinF.input.onchange = renderBuiltinParams;
+  renderBuiltinParams();
+
+  function updateVisibility() {
+    const v = configTypeF.input.value;
+    builtinF.container.style.display = v === 'builtin' ? '' : 'none';
+    paramsDiv.style.display = v === 'builtin' ? '' : 'none';
+    tomlF.container.style.display = v === 'toml' ? '' : 'none';
+    jsonF.container.style.display = v === 'json' ? '' : 'none';
+  }
+  configTypeF.input.onchange = () => { updateVisibility(); };
+  updateVisibility();
+
+  const btn = sendBtn('Add Session');
+  body.appendChild(btn);
+  btn.onclick = async () => {
+    const ct = configTypeF.input.value;
+    const defaultName = ct === 'builtin' ? builtinF.input.value : 'my-session';
+    const params = { name: nameF.input.value || defaultName, rpcUrl: urlF.input.value || 'http://localhost:8545' };
+    if (ct === 'builtin') {
+      const scenario = builtinF.input.value;
+      const args = {};
+      for (const [name, { input, spec }] of Object.entries(paramInputs)) {
+        const raw = input.value.trim();
+        if (!raw && spec.optional) continue;
+        if (spec.type === 'bool') {
+          args[name] = raw === 'true';
+        } else if (spec.type === 'number') {
+          args[name] = raw ? Number(raw) : null;
+        } else if (spec.type.startsWith('multi-select:')) {
+          args[name] = raw ? raw.split(',').map(s => s.trim()).filter(Boolean) : [];
+        } else {
+          args[name] = raw || null;
+        }
+      }
+      params.testConfig = { Builtin: { [scenario]: args } };
+    } else if (ct === 'toml') {
+      params.testConfig = { TomlBase64: btoa(tomlF.input.value) };
+    } else if (ct === 'json') {
+      try { params.testConfig = { Json: JSON.parse(jsonF.input.value) }; }
+      catch (e) { showResult(body, false, 'Invalid JSON: ' + e.message); return; }
+    }
+    // Build options object (only include non-empty fields)
+    const options = {};
+    if (txTypeF.input.value && txTypeF.input.value !== 'default') options.txType = txTypeF.input.value;
+    if (minBalanceF.input.value.trim()) options.minBalance = minBalanceF.input.value.trim();
+    if (timeoutF.input.value) options.timeoutSecs = { secs: parseInt(timeoutF.input.value), nanos: 0 };
+    if (privateKeysF.input.value.trim()) {
+      options.privateKeys = privateKeysF.input.value.trim().split('\n').map(k => k.trim()).filter(Boolean);
+    }
+    const agents = {};
+    if (createAccountsF.input.value) agents.createAccounts = parseInt(createAccountsF.input.value);
+    if (setupAccountsF.input.value) agents.setupAccounts = parseInt(setupAccountsF.input.value);
+    if (spamAccountsF.input.value) agents.spamAccounts = parseInt(spamAccountsF.input.value);
+    if (Object.keys(agents).length) options.agents = agents;
+    if (envF.input.value.trim()) {
+      const env = {};
+      for (const line of envF.input.value.trim().split('\n')) {
+        const eq = line.indexOf('=');
+        if (eq > 0) env[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+      }
+      if (Object.keys(env).length) options.env = env;
+    }
+    if (builderUrlF.input.value.trim() && bundleTypeF.input.value) {
+      options.builder = { rpcUrl: builderUrlF.input.value.trim(), bundleType: bundleTypeF.input.value };
+    }
+    if (authJwtF.input.value.trim() && authVersionF.input.value && authUrlF.input.value.trim()) {
+      options.auth = {
+        jwtSecret: authJwtF.input.value.trim(),
+        messageVersion: authVersionF.input.value,
+        rpcUrl: authUrlF.input.value.trim(),
+        callFcu: authFcuF.input.value === 'true',
+        useOp: authOpF.input.value === 'true',
+      };
+    }
+    if (Object.keys(options).length) params.options = options;
+
+    try {
+      const result = await rpc('addSession', [params]);
+      if (result && typeof result.id === 'number') {
+        clearLogs(result.id);
+        // Clear all input fields on success
+        nameF.input.value = '';
+        urlF.input.value = '';
+        configTypeF.input.value = configTypeF.input.options[0].value;
+        builtinF.input.value = builtinF.input.options[0].value;
+        tomlF.input.value = '';
+        jsonF.input.value = '';
+        txTypeF.input.selectedIndex = 0;
+        minBalanceF.input.value = '';
+        timeoutF.input.value = '';
+        privateKeysF.input.value = '';
+        createAccountsF.input.value = '';
+        setupAccountsF.input.value = '';
+        spamAccountsF.input.value = '';
+        envF.input.value = '';
+        builderUrlF.input.value = '';
+        bundleTypeF.input.selectedIndex = 0;
+        authJwtF.input.value = '';
+        authVersionF.input.selectedIndex = 0;
+        authUrlF.input.value = '';
+        authFcuF.input.selectedIndex = 0;
+        authOpF.input.selectedIndex = 0;
+        for (const { input } of Object.values(paramInputs)) {
+          if (input.type === 'select-one' || input.type === 'select') {
+            input.selectedIndex = 0;
+          } else {
+            input.value = '';
+          }
+        }
+        renderBuiltinParams();
+        updateVisibility();
+      }
+      showResult(body, true, result);
+      pollSessions();
+    }
+    catch (e) { showResult(body, false, e); }
+  };
+}));
+
+// ========== spam ==========
+controls.appendChild(makeCabinet('Spam', body => {
+  // Session dropdown will be populated dynamically
+  const idF = field('session id', 'select', { options: [] });
+  const tppF = field('txs per period', 'number', { value: '10', min: '1' });
+  const durF = field('duration (periods)', 'number', { value: '10', min: '1' });
+  const spammerF = field('spammer', 'select', { options: ['timed', 'blockwise'] });
+  const nameF = field('name (optional)', 'text', { placeholder: 'my-run' });
+  const receiptsF = field('save receipts', 'select', { options: ['false', 'true'] });
+  const runForeverF = field('run forever', 'select', { options: ['false', 'true'] });
+  const reportIntervalF = field('report interval (seconds; disabled if 0)', 'number', { value: '0', min: '0'})
+
+  body.appendChild(idF.container);
+  const row = document.createElement('div'); row.className = 'row';
+  row.appendChild(tppF.container);
+  row.appendChild(durF.container);
+  body.appendChild(row);
+  body.appendChild(spammerF.container);
+  body.appendChild(nameF.container);
+  const row2 = document.createElement('div'); row2.className = 'row';
+  row2.appendChild(receiptsF.container);
+  row2.appendChild(reportIntervalF.container);
+  body.appendChild(row2);
+  body.appendChild(runForeverF.container);
+
+  // Hide report interval when receipts are off (progress data depends on receipts)
+  function syncReportInterval() {
+    const enabled = receiptsF.input.value === 'true';
+    reportIntervalF.container.style.display = enabled ? '' : 'none';
+    if (!enabled) reportIntervalF.input.value = '0';
+  }
+  receiptsF.input.addEventListener('change', syncReportInterval);
+  syncReportInterval();
+
+  // Message element for feedback
+  const msg = document.createElement('div');
+  msg.style.margin = '10px 0';
+  msg.style.fontSize = '.9rem';
+  msg.style.color = 'var(--success)';
+  msg.style.display = 'none';
+  body.appendChild(msg);
+
+  const btn = sendBtn('Spam');
+  body.appendChild(btn);
+
+  // --- Spam button enable/disable logic ---
+  let lastSessions = [];
+  function updateSessionDropdown() {
+    // Save current selection
+    const prev = idF.input.value;
+    // Remove all options
+    idF.input.innerHTML = '';
+    for (const s of lastSessions) {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = `${s.name} (#${s.id})`;
+      idF.input.appendChild(opt);
+    }
+    // Restore previous selection if possible
+    if (prev && [...idF.input.options].some(o => o.value == prev)) {
+      idF.input.value = prev;
+    }
+  }
+
+  function updateSpamButton() {
+    const sessionId = idF.input.value;
+    const session = lastSessions.find(s => String(s.id) === String(sessionId));
+    if (session && session.status != "Ready") {
+      btn.disabled = true;
+      btn.title = 'This session is currently spamming.';
+    } else {
+      btn.disabled = false;
+      btn.title = '';
+    }
+  }
+  idF.input.addEventListener('change', updateSpamButton);
+
+  // Patch renderSessions to update dropdown and button
+  const origRenderSessions = window.renderSessions || renderSessions;
+  function patchedRenderSessions(sessions) {
+    lastSessions = sessions;
+    updateSessionDropdown();
+    updateSpamButton();
+    return origRenderSessions.apply(this, arguments);
+  }
+  window.renderSessions = patchedRenderSessions;
+
+  btn.onclick = async () => {
+    const sessionId = parseInt(idF.input.value);
+    const params = {
+      sessionId: sessionId,
+      txsPerPeriod: parseInt(tppF.input.value),
+      duration: parseInt(durF.input.value),
+      spammer: spammerF.input.value,
+      saveReceipts: receiptsF.input.value === 'true',
+      runForever: runForeverF.input.value === 'true',
+      reportIntervalSecs: reportIntervalF.input.value > 0 ? parseInt(reportIntervalF.input.value) : null,
+    };
+    if (nameF.input.value) params.name = nameF.input.value;
+    try {
+      await rpc('spam', [params]);
+      msg.textContent = `Spamming session ${sessionId}...`;
+      msg.style.display = '';
+      setTimeout(() => { msg.style.display = 'none'; }, 3000);
+      btn.disabled = true;
+      btn.title = 'This session is currently spamming.';
+
+      // Clear "name" field on success
+      nameF.input.value = '';
+    }
+    catch (e) {
+      msg.textContent = 'Error: ' + (e && e.message ? e.message : e);
+      msg.style.color = 'var(--error)';
+      msg.style.display = '';
+      setTimeout(() => { msg.style.display = 'none'; msg.style.color = 'var(--success)'; }, 4000);
+    }
+  };
+}));
+
+</script>
+</body>
+</html>
