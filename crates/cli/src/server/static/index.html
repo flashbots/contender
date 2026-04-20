@@ -684,7 +684,7 @@ controls.appendChild(makeCabinet('Add Session', body => {
 
   // ── Session options ──
   const txTypeF = field('tx type', 'select', { options: ['default', 'legacy', 'eip1559', 'eip4844', 'eip7702'] });
-  const minBalanceF = field('min balance (wei)', 'text', { placeholder: '(optional) e.g. 1000000000000000000' });
+  const minBalanceF = field('min balance (eth denominations or wei)', 'text', { placeholder: '0.01 eth' });
   const timeoutF = field('pending tx timeout (seconds)', 'number', { placeholder: '(optional)' });
   const privateKeysF = field('private keys (one 0x-hex per line).', 'textarea', { placeholder: '(optional)' });
   // Add tooltip to private keys label
