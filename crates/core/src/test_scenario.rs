@@ -603,8 +603,10 @@ where
             total_cost += cost;
         }
 
-        info!("setup simulation complete");
-        debug!("estimated setup cost: {}", format_ether(total_cost));
+        info!(
+            "setup simulation complete. estimated setup cost: {} ether",
+            format_ether(total_cost)
+        );
 
         // Shutdown the temporary simulation scenario to stop its actors
         scenario.shutdown().await;
