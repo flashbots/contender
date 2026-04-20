@@ -1,6 +1,5 @@
 pub mod agent_controller;
 pub mod buckets;
-mod constants;
 pub mod db;
 pub mod error;
 pub mod flashblocks;
