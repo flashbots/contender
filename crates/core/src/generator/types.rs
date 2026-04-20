@@ -1,4 +1,5 @@
 use super::named_txs::ExecutionRequest;
+use alloy::primitives::U256;
 use alloy::{network::AnyNetwork, providers::DynProvider};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -51,4 +52,15 @@ pub enum PlanType<F: Fn(NamedTxRequest) -> AsyncCallbackResult> {
     Setup(F),
     /// Spam with a number of txs and trigger a callback after each one is processed.
     Spam(u64, F),
+}
+
+/// Deserialization inferface for fields that can be represented as either:
+/// - a raw number (wei), or
+/// - a human-readable string with units (e.g. "1.5 ether")
+/// See [`util::deserialize_value`](crate::generator::util::deserialize_value) for an implementation example.
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum NumOrStr {
+    Num(U256),
+    Str(String),
 }

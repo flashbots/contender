@@ -38,7 +38,7 @@
       "SetCodeExecuteCliArgs": {"file":"crates/cli/src/default_scenarios/setcode/execute.rs","line":14},
       "SetCodeSubCommand": {"file":"crates/cli/src/default_scenarios/setcode/execute.rs","line":59},
       "SpamParams": {"file":"crates/cli/src/server/rpc_server/types.rs","line":124},
-      "SpamRequest": {"file":"crates/core/src/generator/types.rs","line":19},
+      "SpamRequest": {"file":"crates/core/src/generator/types.rs","line":20},
       "SpammerType": {"file":"crates/cli/src/server/rpc_server/types.rs","line":144},
       "StorageStressCliArgs": {"file":"crates/cli/src/default_scenarios/storage.rs","line":7},
       "StressCliArgs": {"file":"crates/cli/src/default_scenarios/stress.rs","line":19},

@@ -1,4 +1,7 @@
-use crate::generator::seeder::{SeedValue, Seeder};
+use crate::generator::{
+    seeder::{SeedValue, Seeder},
+    types::NumOrStr,
+};
 use alloy::{
     consensus::TxType,
     dyn_abi::{self, DynSolType, DynSolValue, JsonAbiExt},
@@ -172,12 +175,6 @@ pub fn generate_setcode_signer(seed: &impl Seeder) -> (PrivateKeySigner, [u8; 32
             .expect("failed to parse seed value into private key"),
         FixedBytes::from_slice(seed_bytes).0,
     )
-}
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum NumOrStr {
-    Num(U256),
-    Str(String),
 }
 
 /// Serde deserializer that parses a `U256` using [`parse_value`],
