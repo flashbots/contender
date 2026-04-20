@@ -5,6 +5,9 @@ use crate::{
     util::provider::AuthClient,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use contender_core::generator::util::{
+    deserialize_value as parse_value, deserialize_value_opt as parse_value_opt,
+};
 use contender_core::{
     agent_controller::AgentClass,
     alloy::{
@@ -20,7 +23,7 @@ use contender_core::{
 use contender_engine_provider::{AuthProvider, ControlChain};
 use contender_testfile::TestConfig;
 use op_alloy_network::Optimism;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, time::Duration};
 use tracing::debug;
 
@@ -231,7 +234,7 @@ pub struct BuilderParams {
 pub struct SessionOptions {
     pub auth: Option<AuthParams>,
     pub builder: Option<BuilderParams>,
-    #[serde(default, deserialize_with = "parse_value_optional")]
+    #[serde(default, deserialize_with = "parse_value_opt")]
     pub min_balance: Option<U256>,
     #[serde(rename = "timeoutSecs")]
     pub pending_tx_timeout: Option<Duration>,
@@ -262,34 +265,6 @@ impl From<AgentParams> for AgentSpec {
             spec = spec.spam_accounts(n);
         }
         spec
-    }
-}
-
-fn parse_value<'de, D: Deserializer<'de>>(deserializer: D) -> Result<U256, D::Error> {
-    let value = String::deserialize(deserializer)?;
-    contender_core::generator::util::parse_value(&value)
-        .map_err(|e| serde::de::Error::custom(format!("failed to parse value '{value}': {e}")))
-}
-
-/// Accepts either a plain-wei integer or a string like "0.1 eth" / "10 gwei" and
-/// routes through `parse_value`. `null` / missing deserializes to `None`.
-fn parse_value_optional<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<U256>, D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum NumOrStr {
-        Num(U256),
-        Str(String),
-    }
-
-    let value = Option::<NumOrStr>::deserialize(deserializer)?;
-    match value {
-        None => Ok(None),
-        Some(NumOrStr::Num(n)) => Ok(Some(n)),
-        Some(NumOrStr::Str(s)) => contender_core::generator::util::parse_value(&s)
-            .map(Some)
-            .map_err(|e| serde::de::Error::custom(format!("failed to parse value '{s}': {e}"))),
     }
 }
 
