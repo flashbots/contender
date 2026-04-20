@@ -5,6 +5,9 @@ use crate::{
     util::provider::AuthClient,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use contender_core::generator::util::{
+    deserialize_value as parse_value, deserialize_value_opt as parse_value_opt,
+};
 use contender_core::{
     agent_controller::AgentClass,
     alloy::{
@@ -20,7 +23,7 @@ use contender_core::{
 use contender_engine_provider::{AuthProvider, ControlChain};
 use contender_testfile::TestConfig;
 use op_alloy_network::Optimism;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, time::Duration};
 use tracing::debug;
 
@@ -231,6 +234,7 @@ pub struct BuilderParams {
 pub struct SessionOptions {
     pub auth: Option<AuthParams>,
     pub builder: Option<BuilderParams>,
+    #[serde(default, deserialize_with = "parse_value_opt")]
     pub min_balance: Option<U256>,
     #[serde(rename = "timeoutSecs")]
     pub pending_tx_timeout: Option<Duration>,
@@ -262,12 +266,6 @@ impl From<AgentParams> for AgentSpec {
         }
         spec
     }
-}
-
-fn parse_value<'de, D: Deserializer<'de>>(deserializer: D) -> Result<U256, D::Error> {
-    let value = String::deserialize(deserializer)?;
-    contender_core::generator::util::parse_value(&value)
-        .map_err(|e| serde::de::Error::custom(format!("failed to parse value '{value}': {e}")))
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -326,5 +324,58 @@ mod tests {
 
         let source: TestConfigSource = serde_json::from_value(json).unwrap();
         assert!(matches!(source, TestConfigSource::Builtin(_)));
+    }
+
+    #[test]
+    fn session_options_min_balance_parses_eth_string() {
+        let opts: SessionOptions = serde_json::from_value(serde_json::json!({
+            "minBalance": "0.1 eth"
+        }))
+        .expect("0.1 eth should parse");
+        assert_eq!(opts.min_balance, Some(U256::from(ETH_TO_WEI / 10)));
+    }
+
+    #[test]
+    fn session_options_min_balance_parses_gwei_string() {
+        let opts: SessionOptions = serde_json::from_value(serde_json::json!({
+            "minBalance": "10 gwei"
+        }))
+        .expect("10 gwei should parse");
+        assert_eq!(opts.min_balance, Some(U256::from(10u64 * 1_000_000_000)));
+    }
+
+    #[test]
+    fn session_options_min_balance_accepts_raw_wei_integer() {
+        // Backward compatibility: existing callers pass a plain integer (wei).
+        let opts: SessionOptions = serde_json::from_value(serde_json::json!({
+            "minBalance": 1_000_000_000_000_000_000u64
+        }))
+        .expect("raw wei integer should parse");
+        assert_eq!(opts.min_balance, Some(U256::from(ETH_TO_WEI)));
+    }
+
+    #[test]
+    fn session_options_min_balance_accepts_raw_wei_string() {
+        // Plain numeric string without units is interpreted as wei (mirrors parse_value).
+        let opts: SessionOptions = serde_json::from_value(serde_json::json!({
+            "minBalance": "1000000000000000000"
+        }))
+        .expect("raw wei string should parse");
+        assert_eq!(opts.min_balance, Some(U256::from(ETH_TO_WEI)));
+    }
+
+    #[test]
+    fn session_options_min_balance_missing_is_none() {
+        let opts: SessionOptions = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(opts.min_balance, None);
+    }
+
+    #[test]
+    fn session_options_min_balance_invalid_string_errors() {
+        let err = serde_json::from_value::<SessionOptions>(serde_json::json!({
+            "minBalance": "not a value"
+        }))
+        .unwrap_err();
+        assert!(err.to_string().contains("failed to parse value"));
     }
 }

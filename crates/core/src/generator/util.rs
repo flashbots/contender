@@ -1,4 +1,7 @@
-use crate::generator::seeder::{SeedValue, Seeder};
+use crate::generator::{
+    seeder::{SeedValue, Seeder},
+    types::NumOrStr,
+};
 use alloy::{
     consensus::TxType,
     dyn_abi::{self, DynSolType, DynSolValue, JsonAbiExt},
@@ -10,6 +13,7 @@ use alloy::{
     rpc::types::TransactionRequest,
     signers::{self, local::PrivateKeySigner},
 };
+use serde::Deserialize;
 use thiserror::Error;
 use tracing::info;
 
@@ -179,8 +183,12 @@ pub fn deserialize_value<'de, D>(deserializer: D) -> Result<U256, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let s: String = serde::Deserialize::deserialize(deserializer)?;
-    parse_value(&s).map_err(serde::de::Error::custom)
+    let s: NumOrStr = serde::Deserialize::deserialize(deserializer)?;
+    match s {
+        NumOrStr::Num(n) => Ok(n),
+        NumOrStr::Str(s) => parse_value(&s)
+            .map_err(|e| serde::de::Error::custom(format!("failed to parse value '{s}': {e}"))),
+    }
 }
 
 /// Like [`deserialize_value`] but for `Option<U256>`. Returns `None` if the field is absent or null.
@@ -188,10 +196,13 @@ pub fn deserialize_value_opt<'de, D>(deserializer: D) -> Result<Option<U256>, D:
 where
     D: serde::Deserializer<'de>,
 {
-    let s: Option<String> = serde::Deserialize::deserialize(deserializer)?;
-    match s {
-        Some(s) => parse_value(&s).map(Some).map_err(serde::de::Error::custom),
+    let value = Option::<NumOrStr>::deserialize(deserializer)?;
+    match value {
         None => Ok(None),
+        Some(NumOrStr::Num(n)) => Ok(Some(n)),
+        Some(NumOrStr::Str(s)) => parse_value(&s)
+            .map(Some)
+            .map_err(|e| serde::de::Error::custom(format!("failed to parse value '{s}': {e}"))),
     }
 }
 
