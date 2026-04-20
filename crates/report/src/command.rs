@@ -316,6 +316,19 @@ pub async fn report(
     let to_ms = |latency: f64| (latency * 1000.0).round_ties_even() as u64; // convert to ms
 
     let block_time_delta_std_dev = block_time_delta_std_dev.unwrap_or(0.0);
+
+    let total_txs = all_txs.len() as u64;
+    let failed_txs = all_txs.iter().filter(|tx| tx.error.is_some()).count() as u64;
+    let successful_txs = total_txs.saturating_sub(failed_txs);
+    let failure_rate_desc = if total_txs > 0 {
+        Some(format!(
+            "{:.2}%",
+            (failed_txs as f64 / total_txs as f64) * 100.0
+        ))
+    } else {
+        None
+    };
+
     let metrics = SpamRunMetrics {
         gas_quantiles: GasQuantiles {
             p50: gas_quantiles.p50,
@@ -352,6 +365,9 @@ pub async fn report(
             })
             .collect(),
         runtime_params: runtime_params_list,
+        total_txs: MetricDescriptor::new(total_txs, None),
+        successful_txs: MetricDescriptor::new(successful_txs, None),
+        failed_txs: MetricDescriptor::new(failed_txs, failure_rate_desc.as_deref()),
     };
 
     let heatmap = HeatMapChart::new(&cache_data.traces)?;
@@ -790,6 +806,9 @@ pub struct SpamRunMetrics {
     pub average_block_time_secs: MetricDescriptor<f64>,
     pub latency_quantiles: Vec<RpcLatencyQuantiles>,
     pub runtime_params: Vec<RuntimeParams>,
+    pub total_txs: MetricDescriptor<u64>,
+    pub successful_txs: MetricDescriptor<u64>,
+    pub failed_txs: MetricDescriptor<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
