@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-- report now includes total/successful/failed transaction counts with failure rate ([#516](https://github.com/flashbots/contender/issues/516))
+- (rpc): accept eth denominations (e.g. "1 eth") for min_balance ([#518](https://github.com/flashbots/contender/pull/518))
+- report now includes total/successful/failed transaction counts with failure rate ([#519](https://github.com/flashbots/contender/pull/519))
 - core logs: replaced "SIMULATING SETUP COST" banners with tracing spans ([#520](https://github.com/flashbots/contender/pull/520))
 - errors are now also saved to the DB when not collecting receipts ([#511](https://github.com/flashbots/contender/pull/511/changes))
 - improve campaign/spam logs (particularly when `--report` is passed) ([#508](https://github.com/flashbots/contender/pull/508))
