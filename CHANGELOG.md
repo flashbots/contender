@@ -5,7 +5,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Note: this file did not exist until after `v0.5.6`.
 
-## Unreleased
+## [0.10.0](https://github.com/flashbots/contender/releases/tag/v0.10.0) - 2026-04-20
 
 - (rpc): accept eth denominations (e.g. "1 eth") for min_balance ([#518](https://github.com/flashbots/contender/pull/518))
 - report now includes total/successful/failed transaction counts with failure rate ([#519](https://github.com/flashbots/contender/pull/519))
