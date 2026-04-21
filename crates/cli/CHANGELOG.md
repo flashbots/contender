@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- (rpc): accept eth denominations (e.g. "1 eth") for min_balance ([#518](https://github.com/flashbots/contender/pull/518/changes))
 - improve campaign/spam logs (particularly when `--report` is passed) ([#508](https://github.com/flashbots/contender/pull/508/changes))
 - updated session management to support typestate-based `Contender` lifecycle ([#507](https://github.com/flashbots/contender/pull/507/changes))
   - `ContenderSession.contender` now wraps a `SessionContender` enum (`Uninit` / `Init`)

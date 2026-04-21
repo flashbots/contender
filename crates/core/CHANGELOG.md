@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- refactor `utils::{parse_value, parse_value_opt}` to accept numbers or strings for deser ([#518](https://github.com/flashbots/contender/pull/518/changes))
 - logs: replaced "SIMULATING SETUP COST" banners with tracing spans ([#520](https://github.com/flashbots/contender/pull/520/changes))
 - save errors to db in NilCallback ([#511](https://github.com/flashbots/contender/pull/511/changes))
 - refactored `Contender` to use a typestate-based lifecycle instead of the runtime `ContenderState` enum ([#507](https://github.com/flashbots/contender/pull/507/changes))
