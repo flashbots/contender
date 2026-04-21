@@ -3,7 +3,7 @@
   "info": {
     "title": "Contender RPC Server",
     "description": "JSON-RPC API to remotely run contender sessions.",
-    "version": "0.9.1"
+    "version": "0.10.0"
   },
   "x-source": {
     "repository": "https://github.com/flashbots/contender",
