@@ -27,7 +27,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/escudo-cache
-          key: escudo-${{ github.run_id }}
+          key: escudo-${{ hashFiles('Cargo.lock') }}
           restore-keys: escudo-
 
       - name: Run supply chain audit
