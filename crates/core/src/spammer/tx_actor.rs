@@ -418,37 +418,34 @@ async fn flush_loop<D: DbOps + Send + Sync + 'static>(
     let mut stale_blocks: u64 = 0;
     let mut last_pending_count: usize = usize::MAX;
 
-    loop {
+    // Phase 1: Wait for context to be initialized.
+    // Avoids burning CPU with snapshot round-trips when no spam run is active.
+    let mut target_block = loop {
         interval.tick().await;
 
-        // Request snapshot from message handler
         let (reply_tx, reply_rx) = oneshot::channel();
         if flush_sender
             .send(FlushRequest::GetSnapshot { reply: reply_tx })
             .await
             .is_err()
         {
-            // Message handler shut down
-            break;
+            return;
         }
 
-        let (cache_snapshot, ctx) = match reply_rx.await {
-            Ok(data) => data,
-            Err(_) => continue,
-        };
-
-        let Some(ctx) = ctx else {
-            debug!("TxActor context not initialized.");
-            continue;
-        };
-
-        // If cancel_token is set (sending is done) and cache is empty, we're done.
-        if cancel_token.is_cancelled() && cache_snapshot.is_empty() {
-            info!("all receipts processed, shutting down receipt collection.");
-            break;
+        match reply_rx.await {
+            Ok((_, Some(ctx))) => break ctx.target_block,
+            Ok((_, None)) => {
+                debug!("TxActor context not initialized.");
+            }
+            Err(_) => return,
         }
+    };
 
-        // Get current block number
+    // Phase 2: Process blocks as they arrive.
+    loop {
+        interval.tick().await;
+
+        // Check for new blocks BEFORE requesting a snapshot to avoid unnecessary channel traffic.
         let new_block = match rpc.get_block_number().await {
             Ok(n) => n,
             Err(e) => {
@@ -457,16 +454,62 @@ async fn flush_loop<D: DbOps + Send + Sync + 'static>(
             }
         };
 
-        if ctx.target_block >= new_block {
+        if target_block >= new_block {
+            // No new blocks; if cancel is set, check whether the cache is already empty.
+            if cancel_token.is_cancelled() {
+                let (reply_tx, reply_rx) = oneshot::channel();
+                if flush_sender
+                    .send(FlushRequest::GetSnapshot { reply: reply_tx })
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+                if let Ok((snapshot, _)) = reply_rx.await {
+                    if snapshot.is_empty() {
+                        info!("all receipts processed, shutting down receipt collection.");
+                        break;
+                    }
+                }
+            }
             continue;
         }
 
-        // Process blocks one at a time, refreshing the snapshot after each
-        let mut cache_snapshot = cache_snapshot;
-        let run_id = ctx.run_id;
+        // New blocks available — request snapshot now.
+        let (reply_tx, reply_rx) = oneshot::channel();
+        if flush_sender
+            .send(FlushRequest::GetSnapshot { reply: reply_tx })
+            .await
+            .is_err()
+        {
+            break;
+        }
 
-        for bn in ctx.target_block..new_block {
-            match process_block_receipts(&cache_snapshot, &db, &rpc, run_id, bn).await {
+        let (mut cache_snapshot, ctx) = match reply_rx.await {
+            Ok((snapshot, Some(ctx))) => {
+                target_block = ctx.target_block;
+                (snapshot, ctx)
+            }
+            Ok((_, None)) => continue,
+            Err(_) => break,
+        };
+
+        // Re-check after context refresh.
+        if target_block >= new_block {
+            continue;
+        }
+
+        // If cancel_token is set and cache is empty, we're done.
+        if cancel_token.is_cancelled() && cache_snapshot.is_empty() {
+            info!("all receipts processed, shutting down receipt collection.");
+            break;
+        }
+
+        let blocks_start = target_block;
+
+        // Process blocks one at a time, refreshing the snapshot after each.
+        for bn in target_block..new_block {
+            match process_block_receipts(&cache_snapshot, &db, &rpc, ctx.run_id, bn).await {
                 Ok(confirmed) => {
                     let _ = flush_sender
                         .send(FlushRequest::RemoveConfirmed {
@@ -485,8 +528,9 @@ async fn flush_loop<D: DbOps + Send + Sync + 'static>(
                         return;
                     }
                     match reply_rx.await {
-                        Ok((new_snapshot, Some(_))) => {
+                        Ok((new_snapshot, Some(ctx))) => {
                             cache_snapshot = new_snapshot;
+                            target_block = ctx.target_block;
                         }
                         Ok((_, None)) => break,
                         Err(_) => break,
@@ -504,11 +548,14 @@ async fn flush_loop<D: DbOps + Send + Sync + 'static>(
             }
         }
 
+        // Ensure we advance past all processed blocks.
+        target_block = target_block.max(new_block);
+
         // Track stale blocks: if sending is done and pending count hasn't changed, increment.
         if cancel_token.is_cancelled() && !cache_snapshot.is_empty() {
             let current_count = cache_snapshot.len();
             if current_count == last_pending_count {
-                stale_blocks += new_block.saturating_sub(ctx.target_block).max(1);
+                stale_blocks += new_block.saturating_sub(blocks_start).max(1);
             } else {
                 stale_blocks = 0;
                 last_pending_count = current_count;
