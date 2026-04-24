@@ -380,29 +380,28 @@ where
             if self.status == ActorStatus::ShuttingDown {
                 break;
             }
-            println!("ahh im TxActor im doing somethiiiing");
 
             tokio::select! {
                 msg = self.receiver.recv() => {
-                    println!("TxActor received a message");
+                    tracing::trace!("TxActor received a message");
                     if let Some(msg) = msg {
-                        println!("message is Some, handling it");
+                        tracing::trace!("message is Some, handling it");
                         self.handle_message(msg)?;
                     }
                 }
 
                 req = self.flush_receiver.recv() => {
-                    println!("TxActor received a flush message");
+                    tracing::trace!("TxActor received a flush message");
                     if let Some(req) = req {
-                        println!("flush_request is Some, handling it");
+                        tracing::trace!("flush_request is Some, handling it");
                         self.handle_flush_request(req);
                     }
                 }
 
                 mark = self.flashblock_receiver.recv() => {
-                    println!("TxActor received a flashblock message");
+                    tracing::trace!("TxActor received a flashblock message");
                     if let Some(mark) = mark {
-                        println!("flashblock mark is Some, handling it");
+                        tracing::trace!("flashblock mark is Some, handling it");
                         self.handle_flashblock_mark(mark);
                     }
                 }
@@ -586,10 +585,10 @@ async fn process_block_receipts<D: DbOps + Send + Sync + 'static>(
     run_id: u64,
     target_block_num: u64,
 ) -> Result<Vec<TxHash>> {
-    info!("unconfirmed txs: {}", cache_snapshot.len());
-
     if cache_snapshot.is_empty() {
         return Ok(Vec::new());
+    } else {
+        info!("unconfirmed txs: {}", cache_snapshot.len());
     }
 
     // Wait for block to appear
