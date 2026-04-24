@@ -782,6 +782,10 @@ where
             handle.await_flush().await;
         }
 
+        // prepare for next run; resets cancel token & flush channels so they're ready for another run if desired.
+        // if another run is not desired, this operation is cheap; no need to do any checks, we'll just drop the handles.
+        scenario.prepare_for_run().await?;
+
         result
     }
 

@@ -860,12 +860,6 @@ impl TxActorHandle {
         self.fb_sender.is_closed()
     }
 
-    pub async fn close_fb_stream(&self) -> Result<()> {
-        // Dropping the sender will close the channel and stop the flashblock listener task.
-        drop(self.fb_sender.clone());
-        Ok(())
-    }
-
     pub async fn reopen_fb_stream(
         &mut self,
         ws_url: Url,
