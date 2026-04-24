@@ -23,7 +23,8 @@ contender_report = { workspace = true }
 nu-ansi-term = { workspace = true }
 console-subscriber = { workspace = true, optional = true }
 serde = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "tracing"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "tracing", "rt"] }
+tokio-metrics = { workspace = true, optional = true }
 tokio-util = { workspace = true }
 alloy = { workspace = true, features = [
     "full",
@@ -61,6 +62,7 @@ tempfile = "3.15.0"
 [features]
 default = []
 async-tracing = ["dep:console-subscriber"]
+tokio-metrics = ["dep:tokio-metrics"]
 
 [build-dependencies]
 syn = { version = "2", features = ["full"] }
