@@ -158,7 +158,7 @@ impl ContenderRpcServer for ContenderServer {
 
     async fn remove_session(&self, id: usize) -> jsonrpsee::core::RpcResult<()> {
         let mut sessions = self.sessions.write().await;
-        sessions.remove_session(id);
+        sessions.remove_session(id).await;
         Ok(())
     }
 
