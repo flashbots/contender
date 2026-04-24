@@ -380,22 +380,29 @@ where
             if self.status == ActorStatus::ShuttingDown {
                 break;
             }
+            println!("ahh im TxActor im doing somethiiiing");
 
             tokio::select! {
                 msg = self.receiver.recv() => {
+                    println!("TxActor received a message");
                     if let Some(msg) = msg {
+                        println!("message is Some, handling it");
                         self.handle_message(msg)?;
                     }
                 }
 
                 req = self.flush_receiver.recv() => {
+                    println!("TxActor received a flush message");
                     if let Some(req) = req {
+                        println!("flush_request is Some, handling it");
                         self.handle_flush_request(req);
                     }
                 }
 
                 mark = self.flashblock_receiver.recv() => {
+                    println!("TxActor received a flashblock message");
                     if let Some(mark) = mark {
+                        println!("flashblock mark is Some, handling it");
                         self.handle_flashblock_mark(mark);
                     }
                 }
@@ -693,6 +700,8 @@ fn get_tx_error(
 pub struct TxActorHandle {
     sender: mpsc::Sender<TxActorMessage>,
     flush_complete: std::sync::Mutex<CancellationToken>,
+    // we need to keep the sender side of the flashblock channel here to prevent it from being dropped.
+    fb_sender: mpsc::Sender<FlashblockMark>,
 }
 
 #[derive(Debug)]
@@ -743,6 +752,7 @@ impl TxActorHandle {
 
         // Spawn the flashblocks listener task if URL is provided
         if let Some(ws_url) = flashblocks_ws_url {
+            let fb_sender = fb_sender.clone();
             crate::spawn_with_session(async move {
                 if let Err(e) = FlashblocksClient::listen(&ws_url, fb_sender, cancel_token).await {
                     error!("{}", e);
@@ -753,6 +763,7 @@ impl TxActorHandle {
         Ok(Self {
             sender,
             flush_complete: std::sync::Mutex::new(flush_complete),
+            fb_sender,
         })
     }
 
@@ -843,6 +854,31 @@ impl TxActorHandle {
             .map_err(CallbackError::from)?;
         let cache_len = receiver.await.map_err(CallbackError::from)?;
         Ok(cache_len)
+    }
+
+    pub fn is_fb_stream_closed(&self) -> bool {
+        self.fb_sender.is_closed()
+    }
+
+    pub async fn close_fb_stream(&self) -> Result<()> {
+        // Dropping the sender will close the channel and stop the flashblock listener task.
+        drop(self.fb_sender.clone());
+        Ok(())
+    }
+
+    pub async fn reopen_fb_stream(
+        &mut self,
+        ws_url: Url,
+        cancel_token: CancellationToken,
+    ) -> Result<tokio::sync::mpsc::Receiver<FlashblockMark>> {
+        let (fb_sender, fb_receiver) = mpsc::channel(10_000);
+        self.fb_sender.clone_from(&fb_sender);
+        crate::spawn_with_session(async move {
+            if let Err(e) = FlashblocksClient::listen(&ws_url, fb_sender, cancel_token).await {
+                error!("{}", e);
+            }
+        });
+        Ok(fb_receiver)
     }
 
     /// Removes an existing tx in the cache.
