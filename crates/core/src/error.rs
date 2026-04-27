@@ -71,6 +71,9 @@ pub enum RuntimeErrorKind {
     #[error("no genesis block found")]
     GenesisBlockMissing,
 
+    #[error("contender initialization was cancelled by user")]
+    InitializationCancelled,
+
     #[error("NamedTxRequest requires a 'from' address: {0:?}")]
     NamedTxMissingFromAddress(Box<NamedTxRequest>),
 

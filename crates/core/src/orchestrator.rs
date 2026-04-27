@@ -6,6 +6,7 @@ use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 use crate::{
     agent_controller::AgentClass,
     db::{DbOps, MockDb, SpamDuration, SpamRunRequest},
+    error::RuntimeErrorKind,
     generator::{
         agent_pools::AgentSpec,
         seeder::{rand_seed::SeedGenerator, Seeder},
@@ -64,6 +65,8 @@ where
     pub rpc_batch_size: u64,
     pub scenario_label: Option<String>,
     pub send_raw_tx_sync: bool,
+    /// Cancellation token that can be used to cancel the entire scenario run, including setup and spam.
+    pub cancel_token: CancellationToken,
 }
 
 impl<P> ContenderCtx<MockDb, RandSeed, P>
@@ -233,6 +236,7 @@ where
             params,
             self.auth_provider.clone(),
             self.prometheus.clone(),
+            &self.cancel_token,
         )
         .await
     }
@@ -353,6 +357,7 @@ where
             rpc_batch_size: self.rpc_batch_size,
             scenario_label: self.scenario_label,
             send_raw_tx_sync: self.send_raw_tx_sync,
+            cancel_token: CancellationToken::new(),
         }
     }
 }
@@ -569,9 +574,30 @@ where
     /// Funds agent accounts, then runs contract deployments and setup transactions.
     ///
     /// Consumes the uninitialized `Contender` and returns an initialized one.
+    ///
+    /// If the cancellation token in `self.ctx` is triggered before initialization completes,
+    /// the process will be aborted and any in-progress tasks will be shutdown.
+    /// In this case, an error indicating that initialization was cancelled will be returned.
     pub async fn initialize(self) -> Result<Contender<D, S, P, Initialized<D, S, P>>> {
         let mut scenario = self.ctx.build_scenario().await?;
+        let cancel = self.ctx.cancel_token.clone();
 
+        tokio::select! {
+            res = self.initialize_inner(&mut scenario) => {
+                return res;
+            },
+            _ = cancel.cancelled() => {
+                // shutdown the scenario to stop any in-progress tasks
+                scenario.shutdown().await;
+                return Err(RuntimeErrorKind::InitializationCancelled.into())
+            }
+        }
+    }
+
+    async fn initialize_inner(
+        self,
+        scenario: &mut TestScenario<D, S, P>,
+    ) -> Result<Contender<D, S, P, Initialized<D, S, P>>> {
         // Estimate setup cost via Anvil simulation and error if funding is insufficient
         let setup_cost = scenario.estimate_setup_cost().await?;
         if self.ctx.funding < setup_cost {
@@ -601,7 +627,7 @@ where
         Ok(Contender {
             ctx: self.ctx,
             state: Initialized {
-                scenario: scenario.into(),
+                scenario: scenario.to_owned().into(),
             },
         })
     }
@@ -625,6 +651,15 @@ where
             .spam(spammer, callback, opts, cancel_token)
             .await?;
         Ok(contender)
+    }
+
+    /// Cancels the initialization process if it's still running. If initialization has already completed, this has no effect.
+    pub fn cancel(self) {
+        self.ctx.cancel_token.cancel();
+    }
+
+    pub fn cancel_token(&self) -> CancellationToken {
+        self.ctx.cancel_token.clone()
     }
 }
 

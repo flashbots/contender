@@ -73,6 +73,7 @@ mod tests {
     };
     use contender_bundle_provider::bundle::BundleType;
     use tokio::sync::OnceCell;
+    use tokio_util::sync::CancellationToken;
 
     use crate::{
         db::MockDb,
@@ -137,6 +138,7 @@ mod tests {
             },
             None,
             (&PROM, &HIST).into(),
+            &CancellationToken::new(),
         )
         .await
         .unwrap();

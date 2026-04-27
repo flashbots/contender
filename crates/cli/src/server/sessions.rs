@@ -109,11 +109,12 @@ impl ContenderSession {
             .create_contender(params.test_config, params.options)
             .await?;
         let (log_channel, _) = broadcast::channel(4096);
+        let cancel = contender.cancel_token();
         Ok(Self {
             info,
             contender: Some(SessionContender::Uninit(contender)),
             log_channel,
-            cancel: CancellationToken::new(),
+            cancel,
             spam_cancel: None,
             funder: None,
             agent_store: None,
@@ -301,12 +302,14 @@ impl ContenderSessionCache {
             if let Some(ref token) = session.spam_cancel {
                 token.cancel();
             }
-            // Cancel subscriber streams before dropping the session.
-            session.cancel.cancel();
 
             // If the session has an initialized Contender, take it and shut it down.
             let maybe_contender = match session.contender.take() {
                 Some(SessionContender::Init(c)) => Some(c),
+                Some(SessionContender::Uninit(c)) => {
+                    c.cancel();
+                    None
+                }
                 other => {
                     session.contender = other;
                     None
@@ -318,6 +321,9 @@ impl ContenderSessionCache {
                 let scenario = contender.scenario_mut();
                 scenario.shutdown().await;
             }
+
+            // Cancel subscriber streams before dropping the session.
+            session.cancel.cancel();
         }
         // Deregister the log sink.
         if let Ok(mut sinks) = self.log_sinks.try_write() {

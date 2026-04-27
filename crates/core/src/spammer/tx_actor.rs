@@ -9,7 +9,7 @@ use alloy::{
 };
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 use url::Url;
 
 use crate::{
@@ -102,6 +102,8 @@ where
     flush_receiver: mpsc::Receiver<FlushRequest>,
     /// Dedicated flashblock marks receiver (large buffer to handle high TPS)
     flashblock_receiver: mpsc::Receiver<FlashblockMark>,
+    /// dedicated stop signal receiver (separate from API messages to ensure it is always received)
+    stop_receiver: mpsc::Receiver<()>,
     db: Arc<D>,
     cache: HashMap<TxHash, PendingRunTx>,
     ctx: Option<ActorContext>,
@@ -189,12 +191,14 @@ where
         receiver: mpsc::Receiver<TxActorMessage>,
         flush_receiver: mpsc::Receiver<FlushRequest>,
         flashblock_receiver: mpsc::Receiver<FlashblockMark>,
+        stop_receiver: mpsc::Receiver<()>,
         db: Arc<D>,
     ) -> Self {
         Self {
             receiver,
             flush_receiver,
             flashblock_receiver,
+            stop_receiver,
             db,
             cache: HashMap::new(),
             ctx: None,
@@ -247,8 +251,13 @@ where
                 self.ctx = Some(ctx);
             }
             TxActorMessage::Stop { on_stop } => {
+                self.flashblock_receiver.close();
+                self.flush_receiver.close();
+                self.receiver.close();
                 self.status = ActorStatus::ShuttingDown;
-                on_stop.send(()).map_err(|_| CallbackError::Stop)?;
+                on_stop
+                    .send(())
+                    .map_err(|e| CallbackError::OneshotSend(format!("Stop: {:?}", e)))?;
             }
             TxActorMessage::SentRunTx {
                 tx_hash,
@@ -382,6 +391,14 @@ where
             }
 
             tokio::select! {
+                _ = self.stop_receiver.recv() => {
+                    // Received stop signal, begin shutdown process
+                    let (sender, receiver) = oneshot::channel();
+                    self.handle_message(TxActorMessage::Stop { on_stop: sender })?;
+                    // Wait for confirmation that shutdown message was processed
+                    let _ = receiver.await;
+                    debug!("TxActor has shut down.");
+                }
                 msg = self.receiver.recv() => {
                     tracing::trace!("TxActor received a message");
                     if let Some(msg) = msg {
@@ -441,7 +458,7 @@ async fn flush_loop<D: DbOps + Send + Sync + 'static>(
         match reply_rx.await {
             Ok((_, Some(ctx))) => break ctx.target_block,
             Ok((_, None)) => {
-                debug!("TxActor context not initialized.");
+                trace!("TxActor context not initialized.");
             }
             Err(_) => return,
         }
@@ -698,6 +715,7 @@ fn get_tx_error(
 #[derive(Debug)]
 pub struct TxActorHandle {
     sender: mpsc::Sender<TxActorMessage>,
+    stop_sender: mpsc::Sender<()>,
     flush_complete: std::sync::Mutex<CancellationToken>,
     // we need to keep the sender side of the flashblock channel here to prevent it from being dropped.
     fb_sender: mpsc::Sender<FlashblockMark>,
@@ -725,13 +743,22 @@ impl TxActorHandle {
             FlashblocksClient::preflight(ws_url).await?;
         }
 
+        // dedicated stop channel to signal shutdown (separate from API messages to ensure it is always received)
+        let (stop_sender, stop_receiver) = mpsc::channel(1);
+        // generic channel for API messages to the actor (cache updates, dump requests, etc.)
         let (sender, receiver) = mpsc::channel(bufsize);
         // Channel for flush task to communicate with message handler
         let (flush_sender, flush_receiver) = mpsc::channel(64);
         // Dedicated channel for flashblock marks (large buffer to handle high TPS)
         let (fb_sender, fb_receiver) = mpsc::channel(10_000);
 
-        let mut actor = TxActor::new(receiver, flush_receiver, fb_receiver, db.clone());
+        let mut actor = TxActor::new(
+            receiver,
+            flush_receiver,
+            fb_receiver,
+            stop_receiver,
+            db.clone(),
+        );
 
         // Spawn the message handler task (owns the cache)
         crate::spawn_with_session(async move {
@@ -763,6 +790,7 @@ impl TxActorHandle {
             sender,
             flush_complete: std::sync::Mutex::new(flush_complete),
             fb_sender,
+            stop_sender,
         })
     }
 
@@ -902,13 +930,10 @@ impl TxActorHandle {
 
     /// Stops the actor, terminating all pending tasks.
     pub async fn stop(&self) -> Result<()> {
-        let (sender, receiver) = oneshot::channel();
-        self.sender
-            .send(TxActorMessage::Stop { on_stop: sender })
+        self.stop_sender
+            .send(())
             .await
-            .map_err(Box::new)
-            .map_err(CallbackError::from)?;
-        Ok(receiver.await.map_err(CallbackError::OneshotReceive)?)
+            .map_err(|_| CallbackError::Stop.into())
     }
 
     pub async fn init_ctx(&self, ctx: ActorContext) -> Result<()> {
