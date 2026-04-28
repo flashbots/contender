@@ -842,3 +842,59 @@ where
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{generator::util::test::spawn_anvil, test_scenario::tests::MockConfig};
+
+    #[tokio::test]
+    async fn cancel_token_shuts_down_contender() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::{generator::RandSeed, Contender, ContenderCtx};
+
+        let anvil = spawn_anvil();
+        let ctx = ContenderCtx::builder(
+            MockConfig,
+            crate::db::MockDb,
+            RandSeed::new(),
+            anvil.endpoint(),
+        )
+        .build();
+        let cancel_token = ctx.cancel_token.clone();
+        let contender = Contender::new(ctx);
+
+        // run contender initialization in a separate task so we can cancel it while it's running
+        let init_handle = tokio::task::spawn(async {
+            let res = contender.initialize().await;
+            if res.is_err() {
+                return res;
+            }
+            let contender = res.unwrap();
+            println!("cancelled: {}", contender.ctx.cancel_token.is_cancelled());
+            Ok(contender)
+        });
+
+        // cancel whatever contender is doing
+        cancel_token.cancel();
+        assert!(cancel_token.is_cancelled());
+
+        // check initialization result; should have returned a specific error
+        let res = init_handle.await?;
+        assert!(res.is_err());
+        match res {
+            Err(e) => match e {
+                crate::Error::Runtime(err) => {
+                    assert!(
+                        matches!(err, crate::error::RuntimeErrorKind::InitializationCancelled),
+                        "unexpected error: {err}"
+                    );
+                }
+                _ => {
+                    panic!("Expected a Runtime error, got: {e}");
+                }
+            },
+            Ok(_) => panic!("Expected initialization to be cancelled, but it succeeded"),
+        }
+
+        Ok(())
+    }
+}
