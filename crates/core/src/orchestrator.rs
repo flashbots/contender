@@ -864,13 +864,8 @@ mod tests {
 
         // run contender initialization in a separate task so we can cancel it while it's running
         let init_handle = tokio::task::spawn(async {
-            let res = contender.initialize().await;
-            if res.is_err() {
-                return res;
-            }
-            let contender = res.unwrap();
-            println!("cancelled: {}", contender.ctx.cancel_token.is_cancelled());
-            Ok(contender)
+            let res = contender.initialize().await?;
+            Ok::<_, crate::Error>(res)
         });
 
         // cancel whatever contender is doing
