@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- (rpc): fix CPU usage bugs ([#527](https://github.com/flashbots/contender/pull/527/changes))
+
+### Breaking changes
+
+*from [#527](https://github.com/flashbots/contender/pull/527/changes):*
+
+- `TestScenario::new` added a param: `cancel_token: &CancellationToken`
+
 ## [0.10.0](https://github.com/flashbots/contender/releases/tag/v0.10.0) - 2026-04-20
 
 - refactor `utils::{parse_value, parse_value_opt}` to accept numbers or strings for deser ([#518](https://github.com/flashbots/contender/pull/518/changes))
