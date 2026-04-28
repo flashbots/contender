@@ -531,7 +531,7 @@ async fn flush_loop<D: DbOps + Send + Sync + 'static>(
         let blocks_start = target_block;
 
         // Process blocks one at a time, refreshing the snapshot after each.
-        for bn in target_block..new_block {
+        for bn in blocks_start..new_block {
             match process_block_receipts(&cache_snapshot, &db, &rpc, ctx.run_id, bn).await {
                 Ok(confirmed) => {
                     let _ = flush_sender

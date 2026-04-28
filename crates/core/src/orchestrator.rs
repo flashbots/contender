@@ -584,12 +584,12 @@ where
 
         tokio::select! {
             res = self.initialize_inner(&mut scenario) => {
-                return res;
+                res
             },
             _ = cancel.cancelled() => {
                 // shutdown the scenario to stop any in-progress tasks
                 scenario.shutdown().await;
-                return Err(RuntimeErrorKind::InitializationCancelled.into())
+                Err(RuntimeErrorKind::InitializationCancelled.into())
             }
         }
     }
