@@ -80,15 +80,14 @@ impl ContenderRpcServer for ContenderServer {
         params: AddSessionParams,
     ) -> jsonrpsee::core::RpcResult<ContenderSessionInfo> {
         let session_seed;
-        let info;
-        {
+        let info = {
             let mut sessions = self.sessions.write().await;
             session_seed = RandSeed::seed_from_bytes(&sessions.num_sessions().to_be_bytes());
             let session = sessions
                 .add_session(params.to_new_session_params(session_seed).await?)
                 .await?;
-            info = session.info.clone();
-        }
+            session.info.clone()
+        };
 
         let session_id = info.id;
         let sessions = Arc::clone(&self.sessions);
@@ -108,7 +107,6 @@ impl ContenderRpcServer for ContenderServer {
                         let mut lock = sessions.write().await;
                         lock.take_uninitialized(session_id)
                     };
-
                     let Some(contender) = contender else {
                         return;
                     };
@@ -123,7 +121,7 @@ impl ContenderRpcServer for ContenderServer {
                             }
                         }
                         Err(e) => {
-                            let msg = e.to_string();
+                            let msg = format!("{e:?}");
                             let mut lock = sessions.write().await;
                             if let Some(session) = lock.get_session_mut(session_id) {
                                 session.info.status = SessionStatus::Failed(msg.clone());
@@ -158,7 +156,7 @@ impl ContenderRpcServer for ContenderServer {
 
     async fn remove_session(&self, id: usize) -> jsonrpsee::core::RpcResult<()> {
         let mut sessions = self.sessions.write().await;
-        sessions.remove_session(id);
+        sessions.remove_session(id).await;
         Ok(())
     }
 
@@ -401,15 +399,16 @@ impl ContenderRpcServer for ContenderServer {
 
     async fn stop(&self, session_id: usize) -> jsonrpsee::core::RpcResult<String> {
         let span = tracing::info_span!("session_stop", id = session_id);
-        let sessions = self.sessions.read().await;
-        let Some(session) = sessions.get_session(session_id) else {
-            return Err(ContenderRpcError::SessionNotFound(session_id).into());
-        };
-        let Some(ref token) = session.spam_cancel else {
-            return Err(ContenderRpcError::SessionNotBusy(session_id).into());
-        };
-        token.cancel();
-        drop(sessions);
+        {
+            let sessions = self.sessions.read().await;
+            let Some(session) = sessions.get_session(session_id) else {
+                return Err(ContenderRpcError::SessionNotFound(session_id).into());
+            };
+            let Some(ref token) = session.spam_cancel else {
+                return Err(ContenderRpcError::SessionNotBusy(session_id).into());
+            };
+            token.cancel();
+        }
         {
             let _enter = span.enter();
             info!("Sent stop signal to session {session_id}");

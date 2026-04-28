@@ -109,11 +109,12 @@ impl ContenderSession {
             .create_contender(params.test_config, params.options)
             .await?;
         let (log_channel, _) = broadcast::channel(4096);
+        let cancel = contender.cancel_token();
         Ok(Self {
             info,
             contender: Some(SessionContender::Uninit(contender)),
             log_channel,
-            cancel: CancellationToken::new(),
+            cancel,
             spam_cancel: None,
             funder: None,
             agent_store: None,
@@ -294,12 +295,33 @@ impl ContenderSessionCache {
         }
     }
 
-    pub fn remove_session(&mut self, id: SessionId) {
-        if let Some(session) = self.get_session(id) {
+    pub async fn remove_session(&mut self, id: SessionId) {
+        // If the session exists and has an initialized Contender, shut it down first.
+        if let Some(session) = self.get_session_mut(id) {
             // Stop any running spam before tearing down.
             if let Some(ref token) = session.spam_cancel {
                 token.cancel();
             }
+
+            // If the session has an initialized Contender, take it and shut it down.
+            let maybe_contender = match session.contender.take() {
+                Some(SessionContender::Init(c)) => Some(c),
+                Some(SessionContender::Uninit(c)) => {
+                    c.cancel();
+                    None
+                }
+                other => {
+                    session.contender = other;
+                    None
+                }
+            };
+            if let Some(mut contender) = maybe_contender {
+                // Call shutdown on the scenario to stop all background actors.
+                // This is async, so we must await it.
+                let scenario = contender.scenario_mut();
+                scenario.shutdown().await;
+            }
+
             // Cancel subscriber streams before dropping the session.
             session.cancel.cancel();
         }
