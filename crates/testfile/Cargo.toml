@@ -1,13 +1,13 @@
 [package]
 name = "contender_testfile"
-version.workspace = true
+description = "Definitions for contender scenarios to be encoded as TOML files."
+version = "0.10.0"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 homepage.workspace = true
 repository.workspace = true
-description = "Definitions for contender scenarios to be encoded as TOML files."
 
 [dependencies]
 toml = { workspace = true }
