@@ -534,7 +534,7 @@ impl SpamCommandArgs {
         let params = TestScenarioParams {
             rpc_url: self.spam_args.eth_json_rpc_args.rpc_args.rpc_url.clone(),
             builder_rpc_url: builder_url.to_owned(),
-            send_raw_url: self.spam_args.eth_json_rpc_args.rpc_args.txs_url.clone(),
+            txs_rpc_url: self.spam_args.eth_json_rpc_args.rpc_args.txs_url.clone(),
             signers: user_signers.to_owned(),
             agent_spec,
             tx_type,

@@ -102,7 +102,7 @@ pub async fn setup(
     let params = TestScenarioParams {
         rpc_url: args.eth_json_rpc_args.rpc_url,
         builder_rpc_url: None,
-        send_raw_url: args.eth_json_rpc_args.txs_url,
+        txs_rpc_url: args.eth_json_rpc_args.txs_url,
         signers: user_signers_with_defaults,
         agent_spec,
         tx_type: tx_type.into(),
