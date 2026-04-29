@@ -122,6 +122,7 @@ mod tests {
             TestScenarioParams {
                 rpc_url: anvil.endpoint_url(),
                 builder_rpc_url: None,
+                send_raw_url: None,
                 signers: user_signers,
                 agent_spec: AgentSpec::default(),
                 tx_type,

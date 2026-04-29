@@ -304,6 +304,7 @@ pub mod tests {
             TestScenarioParams {
                 rpc_url: anvil.endpoint_url(),
                 builder_rpc_url: None,
+                send_raw_url: None,
                 signers: get_test_signers(),
                 agent_spec: Default::default(),
                 tx_type,
@@ -359,6 +360,7 @@ pub mod tests {
             TestScenarioParams {
                 rpc_url: anvil.endpoint_url(),
                 builder_rpc_url: None,
+                send_raw_url: None,
                 signers: signers.to_owned(),
                 agent_spec: Default::default(),
                 tx_type,
@@ -384,6 +386,7 @@ pub mod tests {
             TestScenarioParams {
                 rpc_url: anvil.endpoint_url(),
                 builder_rpc_url: None,
+                send_raw_url: None,
                 signers,
                 agent_spec: Default::default(),
                 tx_type,
@@ -485,6 +488,7 @@ value = \"1eth\"
         TestScenarioParams {
             rpc_url: anvil.endpoint_url(),
             builder_rpc_url: None,
+            send_raw_url: None,
             signers: get_test_signers(),
             agent_spec: Default::default(),
             tx_type: Default::default(),

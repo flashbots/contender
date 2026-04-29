@@ -158,9 +158,15 @@ where
     pub db: Arc<D>,
     pub rpc_url: Url,
     pub builder_rpc_url: Option<Url>,
+    /// URL to which `eth_sendRawTransaction(Sync)` calls are sent.
+    /// Equals `rpc_url` unless a dedicated endpoint was configured.
+    pub send_raw_url: Url,
     pub auth_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
     pub bundle_client: Option<Arc<BundleClient>>,
     pub rpc_client: Arc<AnyProvider>,
+    /// Provider used for `send_tx_envelope` (eth_sendRawTransaction).
+    /// Equals `rpc_client` unless a dedicated endpoint was configured.
+    pub send_raw_client: Arc<AnyProvider>,
     pub rand_seed: S,
     /// Signers explicitly given by the user
     pub signer_map: HashMap<Address, PrivateKeySigner>,
@@ -198,6 +204,9 @@ where
 pub struct TestScenarioParams {
     pub rpc_url: Url,
     pub builder_rpc_url: Option<Url>,
+    /// Optional dedicated endpoint for `eth_sendRawTransaction(Sync)` calls.
+    /// When `None`, falls back to `rpc_url`.
+    pub send_raw_url: Option<Url>,
     pub signers: Vec<PrivateKeySigner>,
     pub agent_spec: AgentSpec,
     pub tx_type: TxType,
@@ -270,6 +279,7 @@ where
         let TestScenarioParams {
             rpc_url,
             builder_rpc_url,
+            send_raw_url,
             signers,
             agent_spec,
             tx_type,
@@ -297,6 +307,24 @@ where
                 .network::<AnyNetwork>()
                 .connect_client(client),
         ));
+
+        // Build a dedicated provider for eth_sendRawTransaction(Sync) when an
+        // override URL is provided. Falls back to the primary rpc_client.
+        let (send_raw_url, send_raw_client) = match &send_raw_url {
+            Some(url) => {
+                info!("routing eth_sendRawTransaction(Sync) calls to dedicated endpoint: {url}");
+                let raw_client = ClientBuilder::default()
+                    .layer(LoggingLayer::new(prometheus.prom, prometheus.hist).await)
+                    .http(url.to_owned());
+                let provider = Arc::new(DynProvider::new(
+                    ProviderBuilder::new()
+                        .network::<AnyNetwork>()
+                        .connect_client(raw_client),
+                ));
+                (url.to_owned(), provider)
+            }
+            None => (rpc_url.to_owned(), rpc_client.clone()),
+        };
         let genesis_block = rpc_client.get_block(BlockId::earliest()).await?;
         if genesis_block.is_none() {
             return Err(RuntimeErrorKind::GenesisBlockMissing.into());
@@ -375,7 +403,9 @@ where
             config,
             db: db.clone(),
             rpc_url: rpc_url.to_owned(),
+            send_raw_url,
             rpc_client,
+            send_raw_client,
             bundle_client,
             builder_rpc_url,
             rand_seed: rand_seed.to_owned(),
@@ -545,6 +575,7 @@ where
             TestScenarioParams {
                 rpc_url: anvil.endpoint_url(),
                 builder_rpc_url: None,
+                send_raw_url: None,
                 signers: simulation_signers,
                 agent_spec: self.agent_spec.clone(),
                 tx_type: self.tx_type,
@@ -1130,6 +1161,7 @@ where
             for payload in payloads {
                 self.num_rpc_batches_sent += 1;
                 let rpc_client = self.rpc_client.clone();
+                let send_raw_client = self.send_raw_client.clone();
                 let bundle_client = self.bundle_client.clone();
                 let tx_handlers = self.msg_handles.clone();
                 let callback_handler = callback_handler.clone();
@@ -1139,7 +1171,7 @@ where
                 let cancel_token = self.ctx.cancel_token.clone();
                 let error_sender = error_sender.clone();
                 let http_client = self.http_client.clone();
-                let rpc_url = self.rpc_url.clone();
+                let send_raw_url = self.send_raw_url.clone();
                 let hist = self.prometheus.hist.get().cloned();
 
                 tasks.push(crate::spawn_with_session(async move {
@@ -1164,7 +1196,7 @@ where
                         let start_time = tokio::time::Instant::now();
                         let res = tokio::select! {
                             resp = http_client
-                                .post(rpc_url.as_str())
+                                .post(send_raw_url.as_str())
                                 .json(&request_body)
                                 .send() => Some(resp),
                             _ = cancel_token.cancelled() => None,
@@ -1230,7 +1262,7 @@ where
                     ExecutionPayload::SignedTx(signed_tx, req) => {
                         let tx_hash = signed_tx.tx_hash().to_owned();
                         let envelope = AnyTxEnvelope::Ethereum(*signed_tx);
-                        let res = retry_once(|| rpc_client.send_tx_envelope(envelope.clone()))
+                        let res = retry_once(|| send_raw_client.send_tx_envelope(envelope.clone()))
                             .await;
                         let ctx = SpamRunContext {
                             nonce_sender: &nonce_sender,
@@ -1353,7 +1385,7 @@ where
 
         // === json-rpc batch mode for SignedTx payloads ===
         let batch_size = self.rpc_batch_size as usize;
-        let rpc_url = self.rpc_url.clone();
+        let send_raw_url = self.send_raw_url.clone();
         let http_client = reqwest::Client::new();
 
         info!(
@@ -1370,7 +1402,7 @@ where
             let success_sender = success_sender.clone();
             let cancel_token = self.ctx.cancel_token.clone();
             let http_client = http_client.clone();
-            let rpc_url = rpc_url.clone();
+            let send_raw_url = send_raw_url.clone();
 
             let signed_chunk: Vec<_> = chunk
                 .iter()
@@ -1413,29 +1445,33 @@ where
                 });
 
                 let send_start = std::time::Instant::now();
-                let resp =
-                    match retry_once(|| http_client.post(rpc_url.clone()).json(&requests).send())
-                        .await
-                    {
-                        Ok(r) => {
-                            if let Some(t) = timer.take() {
-                                t.observe_duration()
-                            }
-                            let elapsed = send_start.elapsed();
-                            if elapsed > Duration::from_secs(1) {
-                                warn!("JSON-RPC batch took {elapsed:?}");
-                            }
-                            r
+                let resp = match retry_once(|| {
+                    http_client
+                        .post(send_raw_url.clone())
+                        .json(&requests)
+                        .send()
+                })
+                .await
+                {
+                    Ok(r) => {
+                        if let Some(t) = timer.take() {
+                            t.observe_duration()
                         }
-                        Err(e) => {
-                            if let Some(t) = timer.take() {
-                                t.observe_duration()
-                            }
-                            let elapsed = send_start.elapsed();
-                            warn!("failed to send JSON-RPC batch after retry ({elapsed:?}): {e:?}");
-                            return;
+                        let elapsed = send_start.elapsed();
+                        if elapsed > Duration::from_secs(1) {
+                            warn!("JSON-RPC batch took {elapsed:?}");
                         }
-                    };
+                        r
+                    }
+                    Err(e) => {
+                        if let Some(t) = timer.take() {
+                            t.observe_duration()
+                        }
+                        let elapsed = send_start.elapsed();
+                        warn!("failed to send JSON-RPC batch after retry ({elapsed:?}): {e:?}");
+                        return;
+                    }
+                };
 
                 let responses: Vec<serde_json::Value> = match resp.json().await {
                     Ok(v) => v,
@@ -1692,6 +1728,7 @@ where
             TestScenarioParams {
                 rpc_url: self.rpc_url.clone(),
                 builder_rpc_url: self.builder_rpc_url.clone(),
+                send_raw_url: None,
                 signers: user_signers.to_owned(),
                 agent_spec: self.agent_spec.clone(),
                 tx_type: self.tx_type,
@@ -2304,6 +2341,7 @@ pub mod tests {
             TestScenarioParams {
                 rpc_url: anvil.endpoint_url(),
                 builder_rpc_url: builder_anvil.map(|anvil| anvil.endpoint_url()),
+                send_raw_url: None,
                 signers: signers.to_owned(),
                 agent_spec: AgentSpec::default(),
                 tx_type,
@@ -2846,6 +2884,7 @@ pub mod tests {
             TestScenarioParams {
                 rpc_url: anvil.endpoint_url(),
                 builder_rpc_url: None,
+                send_raw_url: None,
                 signers: get_test_signers(),
                 agent_spec,
                 tx_type: alloy::consensus::TxType::Eip1559,

@@ -16,12 +16,12 @@
       "BuilderParams": {"file":"crates/cli/src/server/rpc_server/types.rs","line":227},
       "BuiltinScenarioCli": {"file":"crates/cli/src/default_scenarios/builtin.rs","line":33},
       "BundleCallDefinition": {"file":"crates/core/src/generator/function_def.rs","line":53},
-      "BundleTypeCli": {"file":"crates/cli/src/commands/common.rs","line":426},
+      "BundleTypeCli": {"file":"crates/cli/src/commands/common.rs","line":438},
       "CompiledContract": {"file":"crates/core/src/generator/create_def.rs","line":8},
       "ContenderSessionInfo": {"file":"crates/cli/src/server/sessions.rs","line":127},
       "CreateDefinition": {"file":"crates/core/src/generator/create_def.rs","line":65},
       "CustomContractCliArgs": {"file":"crates/cli/src/default_scenarios/custom_contract.rs","line":17},
-      "EngineMessageVersion": {"file":"crates/cli/src/commands/common.rs","line":268},
+      "EngineMessageVersion": {"file":"crates/cli/src/commands/common.rs","line":280},
       "Erc20CliArgs": {"file":"crates/cli/src/default_scenarios/erc20.rs","line":16},
       "EthFunctionsCliArgs": {"file":"crates/cli/src/default_scenarios/eth_functions/command.rs","line":15},
       "EthereumOpcode": {"file":"crates/cli/src/default_scenarios/eth_functions/opcodes.rs","line":10},
@@ -45,7 +45,7 @@
       "TestConfig": {"file":"crates/cli/src/server/rpc_server/types.rs","line":83},
       "TestConfigSource": {"file":"crates/cli/src/server/rpc_server/types.rs","line":83},
       "TransferStressCliArgs": {"file":"crates/cli/src/default_scenarios/transfers.rs","line":12},
-      "TxTypeCli": {"file":"crates/cli/src/commands/common.rs","line":395},
+      "TxTypeCli": {"file":"crates/cli/src/commands/common.rs","line":407},
       "UniV2CliArgs": {"file":"crates/cli/src/default_scenarios/uni_v2.rs","line":15}
     }
   },

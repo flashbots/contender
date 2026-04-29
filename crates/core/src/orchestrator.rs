@@ -64,6 +64,8 @@ where
     pub rpc_batch_size: u64,
     pub scenario_label: Option<String>,
     pub send_raw_tx_sync: bool,
+    /// Optional dedicated endpoint for `eth_sendRawTransaction(Sync)` calls.
+    pub send_raw_url: Option<Url>,
 }
 
 impl<P> ContenderCtx<MockDb, RandSeed, P>
@@ -129,6 +131,7 @@ where
             rpc_batch_size: 0,
             scenario_label: None,
             send_raw_tx_sync: false,
+            send_raw_url: None,
         }
     }
 }
@@ -204,6 +207,7 @@ where
             rpc_batch_size: 0,
             scenario_label: None,
             send_raw_tx_sync: false,
+            send_raw_url: None,
         }
     }
 
@@ -212,6 +216,7 @@ where
         let params = TestScenarioParams {
             rpc_url: self.rpc_url.clone(),
             builder_rpc_url: self.builder_rpc_url.clone(),
+            send_raw_url: self.send_raw_url.clone(),
             signers: self.user_signers.clone(),
             agent_spec: self.agent_spec.clone(),
             tx_type: self.tx_type,
@@ -268,6 +273,7 @@ where
     rpc_batch_size: u64,
     scenario_label: Option<String>,
     send_raw_tx_sync: bool,
+    send_raw_url: Option<Url>,
 }
 
 impl<D, S, P> ContenderCtxBuilder<D, S, P>
@@ -278,6 +284,10 @@ where
 {
     pub fn builder_rpc_url(mut self, url: Url) -> Self {
         self.builder_rpc_url = Some(url);
+        self
+    }
+    pub fn send_raw_url(mut self, url: Url) -> Self {
+        self.send_raw_url = Some(url);
         self
     }
     pub fn agent_spec(mut self, spec: AgentSpec) -> Self {
@@ -353,6 +363,7 @@ where
             rpc_batch_size: self.rpc_batch_size,
             scenario_label: self.scenario_label,
             send_raw_tx_sync: self.send_raw_tx_sync,
+            send_raw_url: self.send_raw_url,
         }
     }
 }
