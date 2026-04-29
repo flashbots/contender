@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 - replaced interval-based spammer refunding with a per-batch balance check, preventing over-funding on long `--forever` runs ([#514](https://github.com/flashbots/contender/issues/514))
+- (rpc): fix CPU usage bugs ([#527](https://github.com/flashbots/contender/pull/527/changes))
 
 ## [0.10.0](https://github.com/flashbots/contender/releases/tag/v0.10.0) - 2026-04-20
 

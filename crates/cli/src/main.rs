@@ -28,7 +28,28 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> miette::Result<()> {
+    init_tokio_metrics();
     run().await.map_err(|e| e.into())
+}
+
+/// Initializes tokio metrics collection/logging thread.
+/// No-op if the "tokio-metrics" feature is disabled.
+fn init_tokio_metrics() {
+    #[cfg(feature = "tokio-metrics")]
+    {
+        use std::time::Duration;
+        use tokio_metrics::RuntimeMonitor;
+        let handle = tokio::runtime::Handle::current();
+        let monitor = RuntimeMonitor::new(&handle);
+        tokio::spawn(async move {
+            for interval in monitor.intervals() {
+                // pretty-print the metric interval
+                println!("{:#?}", interval);
+                // wait
+                tokio::time::sleep(Duration::from_millis(1000)).await;
+            }
+        });
+    }
 }
 
 async fn run() -> Result<(), contender_cli::Error> {

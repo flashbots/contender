@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 - replaced timed `--forever` auto-funding with per-batch balance-checked funding: spammer accounts are now refilled at the end of each batch whenever any account drops within 25% of `--min-balance`, avoiding the gradual over-funding the interval-based approach caused on long runs ([#514](https://github.com/flashbots/contender/issues/514))
+- (rpc): fix CPU usage bugs ([#527](https://github.com/flashbots/contender/pull/527/changes))
 
 ## [0.10.0](https://github.com/flashbots/contender/releases/tag/v0.10.0) - 2026-04-20
 
