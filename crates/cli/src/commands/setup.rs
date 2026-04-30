@@ -8,7 +8,6 @@ use crate::{
     util::{check_private_keys, find_insufficient_balances, fund_accounts, load_seedfile},
     LATENCY_HIST as HIST, PROM,
 };
-use contender_core::util::get_block_time;
 use contender_core::{
     generator::{
         agent_pools::{AgentPools, AgentSpec},
@@ -16,6 +15,7 @@ use contender_core::{
     },
     test_scenario::{TestScenario, TestScenarioParams},
 };
+use contender_core::{util::get_block_time, CancellationToken};
 use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use contender_testfile::TestConfig;
 use std::{
@@ -99,9 +99,11 @@ pub async fn setup(
         .await?;
     }
 
+    let cancel_token = CancellationToken::new();
     let params = TestScenarioParams {
         rpc_url: args.eth_json_rpc_args.rpc_url,
         builder_rpc_url: None,
+        txs_rpc_url: args.eth_json_rpc_args.txs_url,
         signers: user_signers_with_defaults,
         agent_spec,
         tx_type: tx_type.into(),
@@ -123,6 +125,7 @@ pub async fn setup(
         params,
         engine_params.engine_provider,
         (&PROM, &HIST).into(),
+        &cancel_token,
     )
     .await?;
 
@@ -199,6 +202,7 @@ pub async fn setup(
 
         _ = tokio::signal::ctrl_c() => {
             warn!("Setup cancelled.");
+            cancel_token.cancel();
             is_done.store(true, Ordering::SeqCst);
         },
     }

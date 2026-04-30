@@ -158,9 +158,15 @@ where
     pub db: Arc<D>,
     pub rpc_url: Url,
     pub builder_rpc_url: Option<Url>,
+    /// URL to which `eth_sendRawTransaction(Sync)` calls are sent.
+    /// Equals `rpc_url` unless a dedicated endpoint was configured.
+    pub txs_rpc_url: Url,
     pub auth_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
     pub bundle_client: Option<Arc<BundleClient>>,
     pub rpc_client: Arc<AnyProvider>,
+    /// Provider used for `send_tx_envelope` (eth_sendRawTransaction).
+    /// Equals `rpc_client` unless a dedicated endpoint was configured.
+    pub txs_client: Arc<AnyProvider>,
     pub rand_seed: S,
     /// Signers explicitly given by the user
     pub signer_map: HashMap<Address, PrivateKeySigner>,
@@ -198,6 +204,9 @@ where
 pub struct TestScenarioParams {
     pub rpc_url: Url,
     pub builder_rpc_url: Option<Url>,
+    /// Optional dedicated endpoint for `eth_sendRawTransaction(Sync)` calls.
+    /// When `None`, falls back to `rpc_url`.
+    pub txs_rpc_url: Option<Url>,
     pub signers: Vec<PrivateKeySigner>,
     pub agent_spec: AgentSpec,
     pub tx_type: TxType,
@@ -259,6 +268,12 @@ where
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
+    /// Create a new `TestScenario` with generic parameters. Not recommended for general use.
+    /// See `orchestrator::ContenderCtx` instead.
+    ///
+    /// `cancel_token` is used to create a child token for internal use,
+    /// allowing the scenario to cancel its own internal tasks without affecting the parent context,
+    /// but the parent token can still cancel the child tasks if needed.
     pub async fn new(
         config: P,
         db: Arc<D>,
@@ -266,10 +281,14 @@ where
         params: TestScenarioParams,
         auth_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
         prometheus: PrometheusCollector,
+        cancel_token: &CancellationToken,
     ) -> Result<Self> {
+        // ensure we use a child token for any internal operations, to prevent interference with the parent context
+        let cancel_token = cancel_token.child_token();
         let TestScenarioParams {
             rpc_url,
             builder_rpc_url,
+            txs_rpc_url,
             signers,
             agent_spec,
             tx_type,
@@ -297,6 +316,24 @@ where
                 .network::<AnyNetwork>()
                 .connect_client(client),
         ));
+
+        // Build a dedicated provider for eth_sendRawTransaction(Sync) when an
+        // override URL is provided. Falls back to the primary rpc_client.
+        let (txs_rpc_url, txs_client) = match &txs_rpc_url {
+            Some(url) => {
+                info!("routing eth_sendRawTransaction(Sync) calls to dedicated endpoint: {url}");
+                let raw_client = ClientBuilder::default()
+                    .layer(LoggingLayer::new(prometheus.prom, prometheus.hist).await)
+                    .http(url.to_owned());
+                let provider = Arc::new(DynProvider::new(
+                    ProviderBuilder::new()
+                        .network::<AnyNetwork>()
+                        .connect_client(raw_client),
+                ));
+                (url.to_owned(), provider)
+            }
+            None => (rpc_url.to_owned(), rpc_client.clone()),
+        };
         let genesis_block = rpc_client.get_block(BlockId::earliest()).await?;
         if genesis_block.is_none() {
             return Err(RuntimeErrorKind::GenesisBlockMissing.into());
@@ -353,8 +390,6 @@ where
             return Err(RuntimeErrorKind::ChainIdMismatch(chain_id, chain_id_builder).into());
         }
 
-        let cancel_token = CancellationToken::new();
-
         // default msg_handle to handle txs sent on rpc_url
         let msg_handle = Arc::new(
             TxActorHandle::new(
@@ -375,7 +410,9 @@ where
             config,
             db: db.clone(),
             rpc_url: rpc_url.to_owned(),
+            txs_rpc_url,
             rpc_client,
+            txs_client,
             bundle_client,
             builder_rpc_url,
             rand_seed: rand_seed.to_owned(),
@@ -545,6 +582,7 @@ where
             TestScenarioParams {
                 rpc_url: anvil.endpoint_url(),
                 builder_rpc_url: None,
+                txs_rpc_url: None,
                 signers: simulation_signers,
                 agent_spec: self.agent_spec.clone(),
                 tx_type: self.tx_type,
@@ -560,6 +598,7 @@ where
             },
             None,
             (&PROM, &HIST).into(),
+            &self.ctx.cancel_token,
         )
         .await?;
 
@@ -588,10 +627,20 @@ where
         }
 
         debug!("deploying sim contracts...");
-        scenario.deploy_contracts().await?;
-        scenario.sync_nonces().await?;
-        debug!("sim contracts deployed, running setup...");
-        scenario.run_setup().await?;
+        tokio::select! {
+            res = async {
+                scenario.deploy_contracts().await?;
+                scenario.sync_nonces().await?;
+                debug!("sim contracts deployed, running setup...");
+                scenario.run_setup().await?;
+                Ok::<_, crate::Error>(())
+            } => res,
+            _ = self.ctx.cancel_token.cancelled() => {
+                info!("cancelling setup simulation...");
+                scenario.shutdown().await;
+                return Err(RuntimeErrorKind::InitializationCancelled.into());
+            }
+        }?;
 
         let mut total_cost = U256::ZERO;
         for (addr, start_balance) in &start_balances {
@@ -718,7 +767,7 @@ where
             .with_timeout(Some(Duration::from_secs(30)));
 
         // watch pending transaction
-        let receipt = res.get_receipt().await.expect("failed to get receipt");
+        let receipt = res.get_receipt().await?;
         let contract_address = receipt.contract_address.unwrap_or_default();
         debug!("contract address: {contract_address}");
 
@@ -1130,6 +1179,7 @@ where
             for payload in payloads {
                 self.num_rpc_batches_sent += 1;
                 let rpc_client = self.rpc_client.clone();
+                let txs_client = self.txs_client.clone();
                 let bundle_client = self.bundle_client.clone();
                 let tx_handlers = self.msg_handles.clone();
                 let callback_handler = callback_handler.clone();
@@ -1139,7 +1189,7 @@ where
                 let cancel_token = self.ctx.cancel_token.clone();
                 let error_sender = error_sender.clone();
                 let http_client = self.http_client.clone();
-                let rpc_url = self.rpc_url.clone();
+                let txs_rpc_url = self.txs_rpc_url.clone();
                 let hist = self.prometheus.hist.get().cloned();
 
                 tasks.push(crate::spawn_with_session(async move {
@@ -1164,7 +1214,7 @@ where
                         let start_time = tokio::time::Instant::now();
                         let res = tokio::select! {
                             resp = http_client
-                                .post(rpc_url.as_str())
+                                .post(txs_rpc_url.as_str())
                                 .json(&request_body)
                                 .send() => Some(resp),
                             _ = cancel_token.cancelled() => None,
@@ -1230,7 +1280,7 @@ where
                     ExecutionPayload::SignedTx(signed_tx, req) => {
                         let tx_hash = signed_tx.tx_hash().to_owned();
                         let envelope = AnyTxEnvelope::Ethereum(*signed_tx);
-                        let res = retry_once(|| rpc_client.send_tx_envelope(envelope.clone()))
+                        let res = retry_once(|| txs_client.send_tx_envelope(envelope.clone()))
                             .await;
                         let ctx = SpamRunContext {
                             nonce_sender: &nonce_sender,
@@ -1353,7 +1403,7 @@ where
 
         // === json-rpc batch mode for SignedTx payloads ===
         let batch_size = self.rpc_batch_size as usize;
-        let rpc_url = self.rpc_url.clone();
+        let txs_rpc_url = self.txs_rpc_url.clone();
         let http_client = reqwest::Client::new();
 
         info!(
@@ -1370,7 +1420,7 @@ where
             let success_sender = success_sender.clone();
             let cancel_token = self.ctx.cancel_token.clone();
             let http_client = http_client.clone();
-            let rpc_url = rpc_url.clone();
+            let txs_rpc_url = txs_rpc_url.clone();
 
             let signed_chunk: Vec<_> = chunk
                 .iter()
@@ -1413,29 +1463,30 @@ where
                 });
 
                 let send_start = std::time::Instant::now();
-                let resp =
-                    match retry_once(|| http_client.post(rpc_url.clone()).json(&requests).send())
-                        .await
-                    {
-                        Ok(r) => {
-                            if let Some(t) = timer.take() {
-                                t.observe_duration()
-                            }
-                            let elapsed = send_start.elapsed();
-                            if elapsed > Duration::from_secs(1) {
-                                warn!("JSON-RPC batch took {elapsed:?}");
-                            }
-                            r
+                let resp = match retry_once(|| {
+                    http_client.post(txs_rpc_url.clone()).json(&requests).send()
+                })
+                .await
+                {
+                    Ok(r) => {
+                        if let Some(t) = timer.take() {
+                            t.observe_duration()
                         }
-                        Err(e) => {
-                            if let Some(t) = timer.take() {
-                                t.observe_duration()
-                            }
-                            let elapsed = send_start.elapsed();
-                            warn!("failed to send JSON-RPC batch after retry ({elapsed:?}): {e:?}");
-                            return;
+                        let elapsed = send_start.elapsed();
+                        if elapsed > Duration::from_secs(1) {
+                            warn!("JSON-RPC batch took {elapsed:?}");
                         }
-                    };
+                        r
+                    }
+                    Err(e) => {
+                        if let Some(t) = timer.take() {
+                            t.observe_duration()
+                        }
+                        let elapsed = send_start.elapsed();
+                        warn!("failed to send JSON-RPC batch after retry ({elapsed:?}): {e:?}");
+                        return;
+                    }
+                };
 
                 let responses: Vec<serde_json::Value> = match resp.json().await {
                     Ok(v) => v,
@@ -1692,6 +1743,7 @@ where
             TestScenarioParams {
                 rpc_url: self.rpc_url.clone(),
                 builder_rpc_url: self.builder_rpc_url.clone(),
+                txs_rpc_url: None,
                 signers: user_signers.to_owned(),
                 agent_spec: self.agent_spec.clone(),
                 tx_type: self.tx_type,
@@ -1707,6 +1759,7 @@ where
             },
             None,
             (&PROM, &HIST).into(),
+            &self.ctx.cancel_token,
         )
         .await?;
 
@@ -1799,6 +1852,7 @@ where
         for msg_handle in self.msg_handles.values() {
             tokio::select! {
                 _ = self.ctx.cancel_token.cancelled() => {
+                    self.tx_actor().stop().await.ok();
                 }
                 _ = async {
                     let mut last_cache_len = usize::MAX;
@@ -1872,13 +1926,14 @@ where
     }
 
     pub async fn shutdown(&mut self) {
-        self.ctx.cancel_token.cancel();
         // Stop all actors
         for (name, handle) in &self.msg_handles {
             if let Err(e) = handle.stop().await {
                 debug!("Error stopping actor '{}': {:?}", name, e);
             }
         }
+
+        self.ctx.cancel_token.cancel();
     }
 
     pub async fn is_shutdown(&self) -> bool {
@@ -2111,6 +2166,7 @@ pub mod tests {
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::OnceCell;
+    use tokio_util::sync::CancellationToken;
 
     use super::{TestScenarioParams, SETUP_CONCURRENCY_LIMIT};
 
@@ -2304,6 +2360,7 @@ pub mod tests {
             TestScenarioParams {
                 rpc_url: anvil.endpoint_url(),
                 builder_rpc_url: builder_anvil.map(|anvil| anvil.endpoint_url()),
+                txs_rpc_url: None,
                 signers: signers.to_owned(),
                 agent_spec: AgentSpec::default(),
                 tx_type,
@@ -2319,6 +2376,7 @@ pub mod tests {
             },
             None,
             (&PROM, &HIST).into(),
+            &CancellationToken::new(),
         )
         .await?;
 
@@ -2846,6 +2904,7 @@ pub mod tests {
             TestScenarioParams {
                 rpc_url: anvil.endpoint_url(),
                 builder_rpc_url: None,
+                txs_rpc_url: None,
                 signers: get_test_signers(),
                 agent_spec,
                 tx_type: alloy::consensus::TxType::Eip1559,
@@ -2861,6 +2920,7 @@ pub mod tests {
             },
             None,
             (&PROM, &HIST).into(),
+            &CancellationToken::new(),
         )
         .await
         .unwrap();

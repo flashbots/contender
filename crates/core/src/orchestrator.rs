@@ -6,6 +6,7 @@ use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 use crate::{
     agent_controller::AgentClass,
     db::{DbOps, MockDb, SpamDuration, SpamRunRequest},
+    error::RuntimeErrorKind,
     generator::{
         agent_pools::AgentSpec,
         seeder::{rand_seed::SeedGenerator, Seeder},
@@ -64,6 +65,10 @@ where
     pub rpc_batch_size: u64,
     pub scenario_label: Option<String>,
     pub send_raw_tx_sync: bool,
+    /// Optional dedicated endpoint for `eth_sendRawTransaction(Sync)` calls.
+    pub txs_rpc_url: Option<Url>,
+    /// Cancellation token that can be used to cancel the entire scenario run, including setup and spam.
+    pub cancel_token: CancellationToken,
 }
 
 impl<P> ContenderCtx<MockDb, RandSeed, P>
@@ -129,6 +134,7 @@ where
             rpc_batch_size: 0,
             scenario_label: None,
             send_raw_tx_sync: false,
+            txs_rpc_url: None,
         }
     }
 }
@@ -204,6 +210,7 @@ where
             rpc_batch_size: 0,
             scenario_label: None,
             send_raw_tx_sync: false,
+            txs_rpc_url: None,
         }
     }
 
@@ -212,6 +219,7 @@ where
         let params = TestScenarioParams {
             rpc_url: self.rpc_url.clone(),
             builder_rpc_url: self.builder_rpc_url.clone(),
+            txs_rpc_url: self.txs_rpc_url.clone(),
             signers: self.user_signers.clone(),
             agent_spec: self.agent_spec.clone(),
             tx_type: self.tx_type,
@@ -233,6 +241,7 @@ where
             params,
             self.auth_provider.clone(),
             self.prometheus.clone(),
+            &self.cancel_token,
         )
         .await
     }
@@ -268,6 +277,7 @@ where
     rpc_batch_size: u64,
     scenario_label: Option<String>,
     send_raw_tx_sync: bool,
+    txs_rpc_url: Option<Url>,
 }
 
 impl<D, S, P> ContenderCtxBuilder<D, S, P>
@@ -278,6 +288,10 @@ where
 {
     pub fn builder_rpc_url(mut self, url: Url) -> Self {
         self.builder_rpc_url = Some(url);
+        self
+    }
+    pub fn txs_rpc_url(mut self, url: Url) -> Self {
+        self.txs_rpc_url = Some(url);
         self
     }
     pub fn agent_spec(mut self, spec: AgentSpec) -> Self {
@@ -353,6 +367,8 @@ where
             rpc_batch_size: self.rpc_batch_size,
             scenario_label: self.scenario_label,
             send_raw_tx_sync: self.send_raw_tx_sync,
+            txs_rpc_url: self.txs_rpc_url,
+            cancel_token: CancellationToken::new(),
         }
     }
 }
@@ -569,9 +585,30 @@ where
     /// Funds agent accounts, then runs contract deployments and setup transactions.
     ///
     /// Consumes the uninitialized `Contender` and returns an initialized one.
+    ///
+    /// If the cancellation token in `self.ctx` is triggered before initialization completes,
+    /// the process will be aborted and any in-progress tasks will be shutdown.
+    /// In this case, an error indicating that initialization was cancelled will be returned.
     pub async fn initialize(self) -> Result<Contender<D, S, P, Initialized<D, S, P>>> {
         let mut scenario = self.ctx.build_scenario().await?;
+        let cancel = self.ctx.cancel_token.clone();
 
+        tokio::select! {
+            res = self.initialize_inner(&mut scenario) => {
+                res
+            },
+            _ = cancel.cancelled() => {
+                // shutdown the scenario to stop any in-progress tasks
+                scenario.shutdown().await;
+                Err(RuntimeErrorKind::InitializationCancelled.into())
+            }
+        }
+    }
+
+    async fn initialize_inner(
+        self,
+        scenario: &mut TestScenario<D, S, P>,
+    ) -> Result<Contender<D, S, P, Initialized<D, S, P>>> {
         // Estimate setup cost via Anvil simulation and error if funding is insufficient
         let setup_cost = scenario.estimate_setup_cost().await?;
         if self.ctx.funding < setup_cost {
@@ -601,7 +638,7 @@ where
         Ok(Contender {
             ctx: self.ctx,
             state: Initialized {
-                scenario: scenario.into(),
+                scenario: scenario.to_owned().into(),
             },
         })
     }
@@ -625,6 +662,15 @@ where
             .spam(spammer, callback, opts, cancel_token)
             .await?;
         Ok(contender)
+    }
+
+    /// Cancels the initialization process if it's still running. If initialization has already completed, this has no effect.
+    pub fn cancel(self) {
+        self.ctx.cancel_token.cancel();
+    }
+
+    pub fn cancel_token(&self) -> CancellationToken {
+        self.ctx.cancel_token.clone()
     }
 }
 
@@ -782,6 +828,10 @@ where
             handle.await_flush().await;
         }
 
+        // prepare for next run; resets cancel token & flush channels so they're ready for another run if desired.
+        // if another run is not desired, this operation is cheap; no need to do any checks, we'll just drop the handles.
+        scenario.prepare_for_run().await?;
+
         result
     }
 
@@ -800,6 +850,57 @@ where
                 agent_class
             );
         }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{generator::util::test::spawn_anvil, test_scenario::tests::MockConfig};
+
+    #[tokio::test]
+    async fn cancel_token_shuts_down_contender() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::{generator::RandSeed, Contender, ContenderCtx};
+
+        let anvil = spawn_anvil();
+        let ctx = ContenderCtx::builder(
+            MockConfig,
+            crate::db::MockDb,
+            RandSeed::new(),
+            anvil.endpoint(),
+        )
+        .build();
+        let cancel_token = ctx.cancel_token.clone();
+        let contender = Contender::new(ctx);
+
+        // run contender initialization in a separate task so we can cancel it while it's running
+        let init_handle = tokio::task::spawn(async {
+            let res = contender.initialize().await?;
+            Ok::<_, crate::Error>(res)
+        });
+
+        // cancel whatever contender is doing
+        cancel_token.cancel();
+        assert!(cancel_token.is_cancelled());
+
+        // check initialization result; should have returned a specific error
+        let res = init_handle.await?;
+        assert!(res.is_err());
+        match res {
+            Err(e) => match e {
+                crate::Error::Runtime(err) => {
+                    assert!(
+                        matches!(err, crate::error::RuntimeErrorKind::InitializationCancelled),
+                        "unexpected error: {err}"
+                    );
+                }
+                _ => {
+                    panic!("Expected a Runtime error, got: {e}");
+                }
+            },
+            Ok(_) => panic!("Expected initialization to be cancelled, but it succeeded"),
+        }
+
         Ok(())
     }
 }

@@ -73,6 +73,7 @@ mod tests {
     };
     use contender_bundle_provider::bundle::BundleType;
     use tokio::sync::OnceCell;
+    use tokio_util::sync::CancellationToken;
 
     use crate::{
         db::MockDb,
@@ -122,6 +123,7 @@ mod tests {
             TestScenarioParams {
                 rpc_url: anvil.endpoint_url(),
                 builder_rpc_url: None,
+                txs_rpc_url: None,
                 signers: user_signers,
                 agent_spec: AgentSpec::default(),
                 tx_type,
@@ -137,6 +139,7 @@ mod tests {
             },
             None,
             (&PROM, &HIST).into(),
+            &CancellationToken::new(),
         )
         .await
         .unwrap();

@@ -39,3 +39,46 @@ op-alloy-consensus = { workspace = true }
 op-alloy-network = { workspace = true }
 op-alloy-rpc-types = { workspace = true }
 secp256k1 = { version = "0.30" }
+
+# ---------------------------------------------------------------------------
+# Transitive dependency pins for downstream consumers.
+#
+# These deps are never compiled (cfg(any()) is always false) but they constrain
+# cargo's version resolution so external crates that depend on contender_core
+# get the exact same versions that contender was built against. Without these,
+# cargo picks newer patch/minor versions with incompatible APIs.
+# ---------------------------------------------------------------------------
+[target.'cfg(any())'.dependencies]
+
+## vergen — reth-node-core build script uses vergen-git2 which depends on
+## vergen-lib; version 9.1.0 switched to a different vergen-lib major, causing
+## trait conflicts. Pin to the 9.0.x series used by reth v1.8.2.
+vergen = "=9.0.6"
+vergen-git2 = "=1.0.7"
+
+## alloy ecosystem — all pinned to exact versions from contender's Cargo.lock.
+alloy = "=1.0.41"
+alloy-consensus = { version = "=1.0.41", default-features = false }
+alloy-eips = { version = "=1.0.41", default-features = false }
+alloy-primitives = { version = "=1.4.1", default-features = false }
+alloy-json-rpc = { version = "=1.0.41", default-features = false }
+alloy-chains = { version = "=0.2.17", default-features = false }
+alloy-serde = { version = "=1.0.41", default-features = false }
+alloy-signer = { version = "=1.0.41", default-features = false }
+alloy-rpc-types-engine = { version = "=1.0.41", default-features = false }
+alloy-rpc-types-eth = { version = "=1.0.41", default-features = false }
+
+## These were resolving to newer versions with incompatible APIs:
+alloy-tx-macros = { version = "=1.0.41", default-features = false }
+alloy-rpc-types-debug = { version = "=1.0.41", default-features = false }
+alloy-sol-type-parser = { version = "=1.4.1", default-features = false }
+alloy-rlp = { version = "=0.3.12", default-features = false }
+alloy-rlp-derive = { version = "=0.3.12", default-features = false }
+alloy-eip2930 = { version = "=0.2.1", default-features = false }
+alloy-eip7702 = { version = "=0.6.1", default-features = false }
+alloy-trie = { version = "=0.9.1", default-features = false }
+
+## op-alloy — pinned to exact versions from contender's Cargo.lock.
+op-alloy-consensus = { version = "=0.20.0", default-features = false }
+op-alloy-network = { version = "=0.20.0", default-features = false }
+op-alloy-rpc-types = { version = "=0.20.0", default-features = false }
