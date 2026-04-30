@@ -268,6 +268,12 @@ where
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
+    /// Create a new `TestScenario` with generic parameters. Not recommended for general use.
+    /// See `orchestrator::ContenderCtx` instead.
+    ///
+    /// `cancel_token` is used to create a child token for internal use,
+    /// allowing the scenario to cancel its own internal tasks without affecting the parent context,
+    /// but the parent token can still cancel the child tasks if needed.
     pub async fn new(
         config: P,
         db: Arc<D>,
@@ -275,7 +281,10 @@ where
         params: TestScenarioParams,
         auth_provider: Option<Arc<dyn ControlChain + Send + Sync + 'static>>,
         prometheus: PrometheusCollector,
+        cancel_token: &CancellationToken,
     ) -> Result<Self> {
+        // ensure we use a child token for any internal operations, to prevent interference with the parent context
+        let cancel_token = cancel_token.child_token();
         let TestScenarioParams {
             rpc_url,
             builder_rpc_url,
@@ -380,8 +389,6 @@ where
         if chain_id != chain_id_builder {
             return Err(RuntimeErrorKind::ChainIdMismatch(chain_id, chain_id_builder).into());
         }
-
-        let cancel_token = CancellationToken::new();
 
         // default msg_handle to handle txs sent on rpc_url
         let msg_handle = Arc::new(
@@ -591,6 +598,7 @@ where
             },
             None,
             (&PROM, &HIST).into(),
+            &self.ctx.cancel_token,
         )
         .await?;
 
@@ -619,10 +627,20 @@ where
         }
 
         debug!("deploying sim contracts...");
-        scenario.deploy_contracts().await?;
-        scenario.sync_nonces().await?;
-        debug!("sim contracts deployed, running setup...");
-        scenario.run_setup().await?;
+        tokio::select! {
+            res = async {
+                scenario.deploy_contracts().await?;
+                scenario.sync_nonces().await?;
+                debug!("sim contracts deployed, running setup...");
+                scenario.run_setup().await?;
+                Ok::<_, crate::Error>(())
+            } => res,
+            _ = self.ctx.cancel_token.cancelled() => {
+                info!("cancelling setup simulation...");
+                scenario.shutdown().await;
+                return Err(RuntimeErrorKind::InitializationCancelled.into());
+            }
+        }?;
 
         let mut total_cost = U256::ZERO;
         for (addr, start_balance) in &start_balances {
@@ -749,7 +767,7 @@ where
             .with_timeout(Some(Duration::from_secs(30)));
 
         // watch pending transaction
-        let receipt = res.get_receipt().await.expect("failed to get receipt");
+        let receipt = res.get_receipt().await?;
         let contract_address = receipt.contract_address.unwrap_or_default();
         debug!("contract address: {contract_address}");
 
@@ -1741,6 +1759,7 @@ where
             },
             None,
             (&PROM, &HIST).into(),
+            &self.ctx.cancel_token,
         )
         .await?;
 
@@ -1833,6 +1852,7 @@ where
         for msg_handle in self.msg_handles.values() {
             tokio::select! {
                 _ = self.ctx.cancel_token.cancelled() => {
+                    self.tx_actor().stop().await.ok();
                 }
                 _ = async {
                     let mut last_cache_len = usize::MAX;
@@ -1906,13 +1926,14 @@ where
     }
 
     pub async fn shutdown(&mut self) {
-        self.ctx.cancel_token.cancel();
         // Stop all actors
         for (name, handle) in &self.msg_handles {
             if let Err(e) = handle.stop().await {
                 debug!("Error stopping actor '{}': {:?}", name, e);
             }
         }
+
+        self.ctx.cancel_token.cancel();
     }
 
     pub async fn is_shutdown(&self) -> bool {
@@ -2145,6 +2166,7 @@ pub mod tests {
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::OnceCell;
+    use tokio_util::sync::CancellationToken;
 
     use super::{TestScenarioParams, SETUP_CONCURRENCY_LIMIT};
 
@@ -2354,6 +2376,7 @@ pub mod tests {
             },
             None,
             (&PROM, &HIST).into(),
+            &CancellationToken::new(),
         )
         .await?;
 
@@ -2897,6 +2920,7 @@ pub mod tests {
             },
             None,
             (&PROM, &HIST).into(),
+            &CancellationToken::new(),
         )
         .await
         .unwrap();

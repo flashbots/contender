@@ -531,6 +531,7 @@ impl SpamCommandArgs {
             None
         };
 
+        let cancel_token = CancellationToken::new();
         let params = TestScenarioParams {
             rpc_url: self.spam_args.eth_json_rpc_args.rpc_args.rpc_url.clone(),
             builder_rpc_url: builder_url.to_owned(),
@@ -560,6 +561,7 @@ impl SpamCommandArgs {
             params,
             engine_params.engine_provider.clone(),
             (&PROM, &HIST).into(),
+            &cancel_token,
         )
         .await?;
 
@@ -574,6 +576,7 @@ impl SpamCommandArgs {
                 }
                 .into());
             }
+
             tokio::select! {
                 inner_res = async move {
                     if let Some(handle) = fcu_handle {
@@ -592,6 +595,14 @@ impl SpamCommandArgs {
                     Ok::<_, CliError>(())
                 } => {
                     inner_res
+                }
+                _ = cancel_token.cancelled() => {
+                    warn!("Setup cancelled.");
+                    return Err(
+                        CliError::Core(
+                            RuntimeErrorKind::InitializationCancelled.into()
+                        )
+                    );
                 }
             }?;
         }

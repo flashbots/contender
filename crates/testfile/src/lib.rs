@@ -320,6 +320,7 @@ pub mod tests {
             },
             None,
             (&PROM, &HIST).into(),
+            &Default::default(),
         )
         .await
         .unwrap();
@@ -376,6 +377,7 @@ pub mod tests {
             },
             None,
             (&PROM, &HIST).into(),
+            &Default::default(),
         )
         .await
         .unwrap();
@@ -402,6 +404,7 @@ pub mod tests {
             },
             None,
             (&PROM, &HIST).into(),
+            &Default::default(),
         )
         .await
         .unwrap();
@@ -512,6 +515,7 @@ value = \"1eth\"
             default_scenario_params(anvil),
             None,
             (&PROM, &HIST).into(),
+            &Default::default(),
         )
         .await
         .unwrap()
