@@ -2269,8 +2269,23 @@ name = "contender_engine_provider"
 version = "0.10.0"
 dependencies = [
  "alloy",
+ "alloy-chains",
+ "alloy-consensus",
+ "alloy-eip2930",
+ "alloy-eip7702",
+ "alloy-eips",
  "alloy-json-rpc",
+ "alloy-primitives",
+ "alloy-rlp",
+ "alloy-rlp-derive",
+ "alloy-rpc-types-debug",
  "alloy-rpc-types-engine",
+ "alloy-rpc-types-eth",
+ "alloy-serde",
+ "alloy-signer",
+ "alloy-sol-type-parser",
+ "alloy-trie",
+ "alloy-tx-macros",
  "async-trait",
  "futures",
  "op-alloy-consensus",
@@ -2285,6 +2300,8 @@ dependencies = [
  "tokio",
  "tower 0.5.2",
  "tracing",
+ "vergen",
+ "vergen-git2",
 ]
 
 [[package]]
