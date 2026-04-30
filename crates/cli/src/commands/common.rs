@@ -86,6 +86,18 @@ Flag may be specified multiple times.",
     )]
     pub rpc_url: Url,
 
+    /// Dedicated endpoint for `eth_sendRawTransaction(Sync)` calls.
+    #[arg(
+        env = "TXS_URL",
+        long = "txs-url",
+        long_help = "Optional dedicated endpoint for `eth_sendRawTransaction` and `eth_sendRawTransactionSync` calls. \
+                     When set, raw-tx submissions are routed here while all other `eth_` reads go to --rpc-url. \
+                     Useful when the spam target only accepts sendRawTransaction and a separate execution-layer node is used for chain queries.",
+        visible_aliases = ["txs-rpc-url"],
+        help_heading = HELP_HEADING_COMMON,
+    )]
+    pub txs_url: Option<Url>,
+
     /// Label to differentiate multiple deployments of the same scenario.
     #[arg(
         long = "scenario-label",
