@@ -128,19 +128,6 @@ undoVersionChange() {
         echo "Reverted $CRATE version back to $CURRENT_VERSION in $CARGO_TOML"
 }
 
-echo """Please confirm that the following tasks have been performed:
-        - run 1_change-version.sh for $CRATE
-        - check Cargo.lock to make sure the versions have been updated (run 'cargo build' if they haven't)
-        - push changes to a new 'release/' branch
-        - create & merge a PR w/ the new version changes
-        - ensure $CRATE version in Cargo.toml is $NEW_VERSION
-"""
-confirm "Have you completed all the above tasks?"
-if [ $confirmed -ne 1 ]; then
-    undoVersionChange
-    exit 1
-fi
-
 echo "Enter a message to attach to the tag. Press Enter twice to finish or CTRL-C to quit:"
 TAG_MESSAGE=""
 while true; do
@@ -154,7 +141,7 @@ done
 if [ -z "$TAG_MESSAGE" ]; then
         echo "No message entered. Aborting."
         undoVersionChange
-        exit 2
+        exit 1
 fi
 
 git tag -a "$TAG" -m "$(echo -e "$TAG_MESSAGE")"
@@ -164,7 +151,7 @@ if [ $confirmed -ne 1 ]; then
     git tag -d "$TAG"
     echo "Tag $TAG deleted locally. Aborting push."
     undoVersionChange
-    exit 3
+    exit 1
 fi
 
 git push origin "$TAG"
