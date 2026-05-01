@@ -6,7 +6,7 @@ name: release
 on:
   push:
     tags:
-      - v*
+      - contender_cli_v*
   workflow_dispatch:
     inputs:
       dry_run:
@@ -37,6 +37,12 @@ jobs:
         run: |
           vv="${GITHUB_REF_NAME}"
           vv="${vv//\//-}"
+          # Extract version part after the last underscore
+          vv="${vv##*_}"
+          # Ensure it starts with 'v'
+          if [[ "$vv" != v* ]]; then
+            vv="v$vv"
+          fi
           echo "VERSION=$vv" >> $GITHUB_OUTPUT
         id: extract_version
     outputs:
