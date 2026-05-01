@@ -531,6 +531,7 @@ impl SpamCommandArgs {
         let params = TestScenarioParams {
             rpc_url: self.spam_args.eth_json_rpc_args.rpc_args.rpc_url.clone(),
             builder_rpc_url: builder_url.to_owned(),
+            txs_rpc_url: self.spam_args.eth_json_rpc_args.rpc_args.txs_url.clone(),
             signers: user_signers.to_owned(),
             agent_spec,
             tx_type,
@@ -1077,6 +1078,7 @@ mod tests {
             testfile: Some(sf.to_str().unwrap().to_owned()),
             rpc_args: SendTxsCliArgsInner {
                 rpc_url: anvil.endpoint_url(),
+                txs_url: None,
                 seed: None,
                 private_keys: None,
                 min_balance: WEI_IN_ETHER * U256::from(10),
@@ -1302,6 +1304,7 @@ mod tests {
                 testfile: None,
                 rpc_args: SendTxsCliArgsInner {
                     rpc_url: rpc_url.clone(),
+                    txs_url: None,
                     seed: None,
                     private_keys: None,
                     min_balance: parse_value("0.001 eth").unwrap(),
