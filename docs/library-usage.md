@@ -35,7 +35,7 @@ use contender_testfile::TestConfig;
 async fn main() -> anyhow::Result<()> {
     let seed = RandSeed::new();
     let config = TestConfig::new().with_spam(vec![SpamRequest::new_tx(
-        &FunctionCallDefinition::new("_sender")
+        &FunctionCallDefinition::new("{_sender}")
             .with_signature("hello(string x)")
             .with_args(&["my friends"]),
     )]);
