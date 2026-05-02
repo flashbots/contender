@@ -1,13 +1,13 @@
 [package]
 name = "contender_core"
-version.workspace = true
+description = "Contender core library"
+version = "0.10.0"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 homepage.workspace = true
 repository.workspace = true
-description = "Contender core library"
 
 [dependencies]
 contender_bundle_provider = { workspace = true }
