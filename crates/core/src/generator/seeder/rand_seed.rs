@@ -20,7 +20,7 @@ fn fill_bytes(seed: &[u8], target: &mut [u8; 32]) {
 
 impl RandSeed {
     pub fn new() -> Self {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut seed = [0u8; 32];
         rng.fill(&mut seed);
         Self { seed }
