@@ -86,7 +86,7 @@ r2d2 = "0.8.10"
 toml = "0.8.19"
 
 ## report
-chrono = "0.4.39"
+chrono = "0.4.44"
 handlebars = "6.3.0"
 regex = "1.11.1"
 webbrowser = "1.0.3"
