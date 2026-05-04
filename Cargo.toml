@@ -1,12 +1,12 @@
 [workspace]
 members = [
     "crates/bundle_provider",
-    "crates/cli/",
-    "crates/core/",
+    "crates/cli",
+    "crates/core",
     "crates/engine_provider",
     "crates/report",
-    "crates/sqlite_db/",
-    "crates/testfile/",
+    "crates/sqlite_db",
+    "crates/testfile",
 ]
 
 resolver = "2"
@@ -21,12 +21,12 @@ repository = "https://github.com/flashbots/contender"
 
 [workspace.dependencies]
 contender_cli = { path = "crates/cli" }
-contender_core = { path = "crates/core/" }
-contender_sqlite = { path = "crates/sqlite_db/" }
-contender_testfile = { path = "crates/testfile/" }
-contender_bundle_provider = { path = "crates/bundle_provider/" }
-contender_engine_provider = { path = "crates/engine_provider/" }
-contender_report = { path = "crates/report/" }
+contender_core = { path = "crates/core" }
+contender_sqlite = { path = "crates/sqlite_db" }
+contender_testfile = { path = "crates/testfile" }
+contender_bundle_provider = { path = "crates/bundle_provider" }
+contender_engine_provider = { path = "crates/engine_provider" }
+contender_report = { path = "crates/report" }
 
 tokio = { version = "1.40.0" }
 tokio-metrics = { version = "0.5.0" }
