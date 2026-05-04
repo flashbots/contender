@@ -519,8 +519,8 @@ pub fn load_seedfile(data_dir: &Path) -> Result<String, CliError> {
     let seed_path = data_dir.join("seed");
     if !seed_path.exists() {
         info!("generating seed file at {seed_path:?}");
-        let mut rng = rand::thread_rng();
-        let seed: [u8; 32] = rng.gen();
+        let mut rng = rand::rng();
+        let seed: [u8; 32] = rng.random();
         let seed_hex = hex::encode(seed);
         std::fs::write(&seed_path, seed_hex)?;
     }
