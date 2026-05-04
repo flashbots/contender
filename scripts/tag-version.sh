@@ -172,7 +172,9 @@ done
 echo
 read -p "Push all tags to the remote origin? (y/N): " confirm_push
 if [[ "$confirm_push" =~ ^[Yy] ]]; then
-    git push origin --tags
+    for t in "${TAGS_CREATED[@]}"; do
+        git push origin "$t"
+    done
     echo "All tags pushed."
 else
     echo "Tags were created locally but not pushed."
