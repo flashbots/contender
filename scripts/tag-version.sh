@@ -1,9 +1,6 @@
 #!/bin/bash
 
-
 set -e
-
-
 
 # Enumerate crates by package name and map to their directory (POSIX-compatible)
 CRATES_DIR="/Users/brock/code/contender/crates"
@@ -44,7 +41,6 @@ select CRATE in "${PKG_ARR[@]}"; do
         break
     fi
 done
-
 
 
 # Extract current version
@@ -104,54 +100,80 @@ else
 fi
 echo "Updated $CRATE version to $NEW_VERSION in $CARGO_TOML"
 
-TAG="${CRATE}_v${NEW_VERSION}"
-echo "Will create tag: $TAG"
-
-confirmed=0
-
-confirm() {
-        read -p "$1 (y/N): " confirm
-        if [[ ! "$confirm" =~ ^[Yy] ]]; then
-                echo "Aborting."
-                confirmed=0
-        else
-                confirmed=1
-        fi
-}
-
-undoVersionChange() {
+UPDATED_DEPENDENTS=()
+# Scan all other crates for direct dependencies on the bumped crate and bump their patch version
+# POSIX-compatible dependency check and version bump
+for dep_dir in "$CRATES_DIR"/*/; do
+    dep_dir="${dep_dir%/}"
+    dep_toml="$dep_dir/Cargo.toml"
+    [ "$dep_toml" = "$CARGO_TOML" ] && continue
+    [ ! -f "$dep_toml" ] && continue
+    # Check for dependency on the bumped crate (workspace or path)
+    if grep "^$CRATE[[:space:]]*=[[:space:]]*{[[:space:]]*workspace[[:space:]]*=[[:space:]]*true" "$dep_toml" >/dev/null 2>&1 || \
+       grep "^$CRATE[[:space:]]*=[[:space:]]*{[[:space:]]*path[[:space:]]*=" "$dep_toml" >/dev/null 2>&1; then
+        # Extract current version
+        dep_version=$(grep '^version' "$dep_toml" | head -n1 | sed -E 's/version *= *"([0-9]+\.[0-9]+\.[0-9]+)"/\1/')
+        dep_major=$(echo "$dep_version" | awk -F. '{print $1}')
+        dep_minor=$(echo "$dep_version" | awk -F. '{print $2}')
+        dep_patch=$(echo "$dep_version" | awk -F. '{print $3}')
+        dep_patch=$((dep_patch + 1))
+        dep_new_version="$dep_major.$dep_minor.$dep_patch"
+        # Update version
         if [[ "$OSTYPE" == "darwin"* ]]; then
-                sed -i '' "s/^version = \".*\"/version = \"$CURRENT_VERSION\"/" "$CARGO_TOML"
+            sed -i '' "s/^version = \".*\"/version = \"$dep_new_version\"/" "$dep_toml"
         else
-                sed -i "s/^version = \".*\"/version = \"$CURRENT_VERSION\"/" "$CARGO_TOML"
+            sed -i "s/^version = \".*\"/version = \"$dep_new_version\"/" "$dep_toml"
         fi
-        echo "Reverted $CRATE version back to $CURRENT_VERSION in $CARGO_TOML"
-}
-
-echo "Enter a message to attach to the tag. Press Enter twice to finish or CTRL-C to quit:"
-TAG_MESSAGE=""
-while true; do
-        IFS= read -r line
-        if [ -z "$line" ]; then
-                break
-        fi
-        TAG_MESSAGE="${TAG_MESSAGE}${line}\n"
+        UPDATED_DEPENDENTS+=("$(basename "$dep_dir"): $dep_version → $dep_new_version")
+        echo "Bumped patch version of $(basename "$dep_dir") to $dep_new_version (due to dependency on $CRATE)"
+    fi
 done
 
-if [ -z "$TAG_MESSAGE" ]; then
-        echo "No message entered. Aborting."
-        undoVersionChange
-        exit 1
+
+TAG="${CRATE}-v${NEW_VERSION}"
+echo "Will create tag: $TAG"
+
+# Tag the main crate
+git tag "$TAG"
+TAGS_CREATED=($TAG)
+
+# Tag all updated dependents
+if [ ${#UPDATED_DEPENDENTS[@]} -gt 0 ]; then
+    echo "\nDependents updated:"
+    for dep in "${UPDATED_DEPENDENTS[@]}"; do
+        echo "  $dep"
+        dep_dir_name=$(echo "$dep" | cut -d: -f1)
+        dep_new_version=$(echo "$dep" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$')
+        # Find the full package name for this directory
+        dep_pkg_name=""
+        for i in "${!DIR_ARR[@]}"; do
+            if [ "${DIR_ARR[$i]}" = "$CRATES_DIR/$dep_dir_name" ]; then
+                dep_pkg_name="${PKG_ARR[$i]}"
+                break
+            fi
+        done
+        # Fallback to directory name if not found
+        [ -z "$dep_pkg_name" ] && dep_pkg_name="$dep_dir_name"
+        dep_tag="${dep_pkg_name}-v${dep_new_version}"
+        dep_toml="$CRATES_DIR/$dep_dir_name/Cargo.toml"
+        if [ -f "$dep_toml" ]; then
+            git tag "$dep_tag"
+            TAGS_CREATED+=("$dep_tag")
+            echo "Tagged $dep_pkg_name as $dep_tag"
+        fi
+    done
 fi
 
-git tag -a "$TAG" -m "$(echo -e "$TAG_MESSAGE")"
-
-confirm "Do you want to push this tag to the remote origin?"
-if [ $confirmed -ne 1 ]; then
-    git tag -d "$TAG"
-    echo "Tag $TAG deleted locally. Aborting push."
-    undoVersionChange
-    exit 1
+echo
+echo "The following tags were created:"
+for t in "${TAGS_CREATED[@]}"; do
+    echo "  $t"
+done
+echo
+read -p "Push all tags to the remote origin? (y/N): " confirm_push
+if [[ "$confirm_push" =~ ^[Yy] ]]; then
+    git push origin --tags
+    echo "All tags pushed."
+else
+    echo "Tags were created locally but not pushed."
 fi
-
-git push origin "$TAG"
