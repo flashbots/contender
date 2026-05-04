@@ -42,7 +42,7 @@ impl TxTraceReceipt {
             .0;
 
         // "for each account in this transaction trace"
-        for (_key, update) in account_map.iter() {
+        for update in account_map.values() {
             // for every storage slot in this frame, increment the count for the slot at this block number
             update.storage.iter().for_each(|(slot, _)| {
                 if let Some(slot_map) = updates_per_slot_per_block.get_mut(&block_num) {
