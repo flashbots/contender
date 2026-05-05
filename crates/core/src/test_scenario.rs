@@ -21,21 +21,24 @@ use crate::{
     Result,
 };
 use alloy::{
-    consensus::constants::{ETH_TO_WEI, GWEI_TO_WEI},
-    consensus::{Transaction, TxType},
-    eips::eip2718::Encodable2718,
-    eips::BlockId,
+    consensus::{
+        constants::{ETH_TO_WEI, GWEI_TO_WEI},
+        Transaction, TxType,
+    },
+    eips::{eip2718::Encodable2718, BlockId},
     hex::ToHexExt,
     network::{
-        AnyNetwork, AnyTxEnvelope, EthereumWallet, NetworkTransactionBuilder, ReceiptResponse,
-        TransactionBuilder,
+        AnyNetwork, AnyTxEnvelope, EthereumWallet, Network, NetworkTransactionBuilder,
+        ReceiptResponse, TransactionBuilder,
     },
     node_bindings::Anvil,
-    primitives::utils::{format_ether, format_units},
-    primitives::{keccak256, Address, Bytes, FixedBytes, TxKind, U256},
+    primitives::{
+        keccak256,
+        utils::{format_ether, format_units},
+        Address, Bytes, FixedBytes, TxKind, U256,
+    },
     providers::{DynProvider, PendingTransactionConfig, Provider, ProviderBuilder},
-    rpc::client::ClientBuilder,
-    rpc::types::TransactionRequest,
+    rpc::{client::ClientBuilder, types::TransactionRequest},
     serde::WithOtherFields,
     signers::local::{LocalSigner, PrivateKeySigner},
     transports::http::{reqwest, Http},
@@ -253,13 +256,13 @@ impl ExecutionContext {
     }
 }
 
-struct DeployContractParams<'a, D: DbOps> {
+struct DeployContractParams<'a, D: DbOps, N: Network = AnyNetwork> {
     db: &'a D,
     tx_req: &'a NamedTxRequest,
     extra_tx_params: ExtraTxParams,
     tx_type: TxType,
-    http_client: reqwest::Client,
     rpc_url: &'a Url,
+    provider: &'a dyn Provider<N>,
     signer: &'a PrivateKeySigner,
     genesis_hash: FixedBytes<32>,
     scenario_label: Option<String>,
@@ -670,6 +673,15 @@ where
         let gas_price = self.rpc_client.get_gas_price().await?;
         let blob_gas_price = self.fetch_blob_gas_price().await;
         let chain_id = self.rpc_client.get_chain_id().await?;
+        let http_client = self.http_client.clone();
+        let transport = Http::with_client(http_client, self.rpc_url.clone());
+        let rpc_client = ClientBuilder::default().transport(transport, false);
+        let provider = Arc::new(
+            ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .connect_client(rpc_client),
+        );
+        debug!("connected provider to rpc at {}", self.rpc_url);
 
         // we do everything in the callback so no need to actually capture the returned txs
         // we have to do this to populate the database with new named transaction after each deployment
@@ -683,7 +695,9 @@ where
                     "deploying contract: {:?}",
                     tx_req.name.as_ref().unwrap_or(&"".to_string())
                 );
-                let rpc_url = self.rpc_url.to_owned();
+
+                // clone data for the async task
+                let rpc_url = self.rpc_url.clone();
                 let tx_type = self.tx_type;
                 let wallet = self
                     .signer_map
@@ -691,16 +705,17 @@ where
                     .unwrap_or_else(|| panic!("couldn't find wallet for 'from' address {from}"))
                     .to_owned();
                 let db = self.db.clone();
-                let http_client = self.http_client.clone();
-
+                let provider = provider.clone();
                 let scenario_label = self.scenario_label.clone();
+
+                // spawn task to deploy contract
                 let handle = crate::spawn_with_session(async move {
                     Self::deploy_contract(DeployContractParams {
                         db: &db,
                         tx_req: &tx_req,
                         extra_tx_params: (gas_price, blob_gas_price, chain_id).into(),
                         tx_type,
-                        http_client,
+                        provider: &provider,
                         rpc_url: &rpc_url,
                         signer: &wallet,
                         genesis_hash,
@@ -727,24 +742,16 @@ where
             tx_req,
             extra_tx_params,
             tx_type,
-            http_client,
+            provider,
             rpc_url,
             signer,
             genesis_hash,
             scenario_label,
         } = params;
-        let wallet = EthereumWallet::from(signer.to_owned());
         println!(
             "deploying contract with wallet address: {}",
             signer.address()
         );
-        let transport = Http::with_client(http_client, rpc_url.to_owned());
-        let rpc_client = ClientBuilder::default().transport(transport, false);
-        let wallet_client = ProviderBuilder::new()
-            .wallet(&wallet)
-            .network::<AnyNetwork>()
-            .connect_client(rpc_client);
-        println!("connected wallet to rpc at {}", rpc_url);
 
         let ExtraTxParams {
             gas_price,
@@ -753,10 +760,10 @@ where
         } = extra_tx_params;
 
         // estimate gas limit
-        let gas_limit = wallet_client
+        let gas_limit = provider
             .estimate_gas(WithOtherFields::new(tx_req.tx.to_owned()))
             .await?;
-        println!("estimated gas limit: {gas_limit}");
+        debug!("estimated gas limit: {gas_limit}");
 
         // inject missing fields into tx_req.tx
         let mut tx = tx_req.tx.to_owned();
@@ -769,13 +776,17 @@ where
             chain_id,
             blob_gas_price,
         );
-        println!("completed tx request: {:#?}", tx);
 
-        let res = wallet_client
-            .send_transaction(tx.into())
+        // Sign the transaction manually using the signer, then send raw bytes.
+        // This avoids DynProvider's type-erased wallet filler which fails in alloy 2.0.
+        let wallet = EthereumWallet::from(signer.to_owned());
+        let signed_tx = tx.build(&wallet).await?;
+        let encoded = signed_tx.encoded_2718();
+        let res = provider
+            .send_raw_transaction(encoded.as_ref())
             .await?
             .with_timeout(Some(Duration::from_secs(30)));
-        println!("sent transaction, hash: {}", res.tx_hash());
+        debug!("sent transaction, hash: {}", res.tx_hash());
 
         // watch pending transaction
         let receipt = res.get_receipt().await?;
@@ -790,7 +801,7 @@ where
         let max_wait = Duration::from_secs(10);
         let start = Instant::now();
         loop {
-            let code = wallet_client
+            let code = provider
                 .get_code_at(contract_address)
                 .await
                 .unwrap_or_default();
@@ -835,6 +846,14 @@ where
         let blob_base_fee = self.fetch_blob_gas_price().await;
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(*SETUP_CONCURRENCY_LIMIT));
+        let transport = Http::with_client(self.http_client.clone(), self.rpc_url.to_owned());
+        let rpc_client = ClientBuilder::default().transport(transport, false);
+        let provider = Arc::new(
+            ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .connect_client(rpc_client),
+        );
+        debug!("connected provider to rpc at {}", self.rpc_url);
 
         let (_txs, updated_nonces) = self
             .load_txs(PlanType::Setup(|tx_req| {
@@ -858,18 +877,11 @@ where
                 let db = self.db.clone();
                 let rpc_url = self.rpc_url.clone();
                 let tx_type = self.tx_type;
-                let http_client = self.http_client.clone();
                 let sem = semaphore.clone();
+                let provider = provider.clone();
 
                 let handle = crate::spawn_with_session(async move {
                     let _permit = sem.acquire().await.expect("semaphore closed");
-                    let transport = Http::with_client(http_client, rpc_url.to_owned());
-                    let rpc_client = ClientBuilder::default().transport(transport, false);
-                    let wallet = ProviderBuilder::new()
-                        .wallet(signer)
-                        .network::<AnyNetwork>()
-                        .connect_client(rpc_client);
-                    debug!("connecting wallet to rpc at {}", rpc_url);
 
                     let tx_label = tx_req
                         .name
@@ -877,11 +889,11 @@ where
                         .or(tx_req.kind.as_deref())
                         .unwrap_or("")
                         .to_string();
-                    let gas_price = wallet.get_gas_price().await?;
+                    let gas_price = provider.get_gas_price().await?;
                     let gas_limit = if let Some(gas) = tx_req.tx.gas {
                         gas
                     } else {
-                        let res = wallet.estimate_gas(tx_req.tx.to_owned().into()).await;
+                        let res = provider.estimate_gas(tx_req.tx.to_owned().into()).await;
                         if let Ok(res) = res {
                             res
                         } else {
@@ -902,9 +914,13 @@ where
                         blob_base_fee,
                     );
 
-                    // wallet will assign nonce before sending
-                    let res = wallet
-                        .send_transaction(tx.into())
+                    // Sign the transaction manually using the signer, then send raw bytes.
+                    let wallet = EthereumWallet::from(signer.to_owned());
+                    let signed_tx = tx.build(&wallet).await?;
+                    let encoded = signed_tx.encoded_2718();
+
+                    let res = provider
+                        .send_raw_transaction(encoded.as_ref())
                         .await?
                         .with_timeout(Some(Duration::from_secs(30)));
 
