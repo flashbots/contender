@@ -274,6 +274,20 @@ where
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
+    /// Create a new RPC provider using the scenario's `rpc_url`, shared HTTP client, and prometheus metrics.
+    async fn new_provider(&self) -> AnyProvider {
+        let transport = Http::with_client(self.http_client.clone(), self.rpc_url.clone());
+        let rpc_client = ClientBuilder::default()
+            .layer(LoggingLayer::new(self.prometheus.prom, self.prometheus.hist).await)
+            .transport(transport, false);
+
+        DynProvider::new(
+            ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .connect_client(rpc_client),
+        )
+    }
+
     /// Create a new `TestScenario` with generic parameters. Not recommended for general use.
     /// See `orchestrator::ContenderCtx` instead.
     ///
@@ -620,12 +634,13 @@ where
             U256::from(1000 * ETH_TO_WEI)
         };
 
+        // check balances before funding.
+        // balance updates from the RPC might lag, so checking after could require additional waiting.
         let mut start_balances: HashMap<Address, U256> = HashMap::new();
         for addr in &addresses {
-            let bal = scenario.rpc_client.get_balance(*addr).await.unwrap();
+            let bal = scenario.rpc_client.get_balance(*addr).await?;
             start_balances.insert(*addr, bal + fund_amount);
         }
-
         for (_name, agent) in scenario.agent_store.all_agents() {
             agent
                 .fund_signers(&admin_signer, fund_amount, scenario.rpc_client.clone())
@@ -673,14 +688,8 @@ where
         let gas_price = self.rpc_client.get_gas_price().await?;
         let blob_gas_price = self.fetch_blob_gas_price().await;
         let chain_id = self.rpc_client.get_chain_id().await?;
-        let http_client = self.http_client.clone();
-        let transport = Http::with_client(http_client, self.rpc_url.clone());
-        let rpc_client = ClientBuilder::default().transport(transport, false);
-        let provider = Arc::new(
-            ProviderBuilder::new()
-                .network::<AnyNetwork>()
-                .connect_client(rpc_client),
-        );
+        // create new provider w/ dedicated http connection
+        let provider = self.new_provider().await;
         debug!("connected provider to rpc at {}", self.rpc_url);
 
         // we do everything in the callback so no need to actually capture the returned txs
@@ -846,13 +855,8 @@ where
         let blob_base_fee = self.fetch_blob_gas_price().await;
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(*SETUP_CONCURRENCY_LIMIT));
-        let transport = Http::with_client(self.http_client.clone(), self.rpc_url.to_owned());
-        let rpc_client = ClientBuilder::default().transport(transport, false);
-        let provider = Arc::new(
-            ProviderBuilder::new()
-                .network::<AnyNetwork>()
-                .connect_client(rpc_client),
-        );
+        // create new provider w/ dedicated http connection
+        let provider = Arc::new(self.new_provider().await);
         debug!("connected provider to rpc at {}", self.rpc_url);
 
         let (_txs, updated_nonces) = self
