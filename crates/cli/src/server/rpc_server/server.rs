@@ -187,8 +187,8 @@ impl ContenderRpcServer for ContenderServer {
                 tokio::select! {
                     result = rx.recv() => {
                         let Ok(msg) = result else { break };
-                        let sub_msg =
-                            SubscriptionMessage::from_json(&msg).expect("failed to serialize log message");
+                        let sub_msg = SubscriptionMessage::new(sink.method_name(), sink.subscription_id(), &msg)
+                            .expect("failed to serialize log message");
                         if sink.send(sub_msg).await.is_err() {
                             break;
                         }

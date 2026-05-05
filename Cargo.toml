@@ -59,7 +59,7 @@ tokio-stream = "0.1"
 ## core
 futures = "0.3.30"
 async-trait = "0.1.82"
-jsonrpsee = { version = "0.24" }
+jsonrpsee = { version = "0.26" }
 alloy-serde = { version = ">=0.5.4, <0.6", default-features = false }
 serde_json = "1.0.132"
 tower = "0.5.2"
