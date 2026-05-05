@@ -4,6 +4,7 @@ set -e
 
 # Enumerate crates by package name and map to their directory (POSIX-compatible)
 CRATES_DIR="/Users/brock/code/contender/crates"
+TAG_CACHE="/tmp/contender-tag-cache.txt"
 PKG_ARR=()
 DIR_ARR=()
 for dir in "$CRATES_DIR"/*/; do
@@ -131,13 +132,12 @@ done
 
 
 TAG="${CRATE}-v${NEW_VERSION}"
-echo "Will create tag: $TAG"
+echo "Will queue tag: $TAG"
 
-# Tag the main crate
-git tag "$TAG"
+# Create tag name for the main crate
 TAGS_CREATED=($TAG)
 
-# Tag all updated dependents
+# Create tag names for all updated dependents
 if [ ${#UPDATED_DEPENDENTS[@]} -gt 0 ]; then
     echo "\nDependents updated:"
     for dep in "${UPDATED_DEPENDENTS[@]}"; do
@@ -157,25 +157,27 @@ if [ ${#UPDATED_DEPENDENTS[@]} -gt 0 ]; then
         dep_tag="${dep_pkg_name}-v${dep_new_version}"
         dep_toml="$CRATES_DIR/$dep_dir_name/Cargo.toml"
         if [ -f "$dep_toml" ]; then
-            git tag "$dep_tag"
             TAGS_CREATED+=("$dep_tag")
             echo "Tagged $dep_pkg_name as $dep_tag"
         fi
     done
 fi
 
-echo
-echo "The following tags were created:"
+echo "Caching tag names in $TAG_CACHE"
+# clear out tag cache if it still exists from a previous run
+rm $TAG_CACHE
+# update tag cache file
 for t in "${TAGS_CREATED[@]}"; do
     echo "  $t"
+    echo "$t" >> $TAG_CACHE
 done
-echo
-read -p "Push all tags to the remote origin? (y/N): " confirm_push
-if [[ "$confirm_push" =~ ^[Yy] ]]; then
-    for t in "${TAGS_CREATED[@]}"; do
-        git push origin "$t"
-    done
-    echo "All tags pushed."
-else
-    echo "Tags were created locally but not pushed."
-fi
+# echo
+# read -p "Push all tags to the remote origin? (y/N): " confirm_push
+# if [[ "$confirm_push" =~ ^[Yy] ]]; then
+#     for t in "${TAGS_CREATED[@]}"; do
+#         git push origin "$t"
+#     done
+#     echo "All tags pushed."
+# else
+#     echo "Tags were created locally but not pushed."
+# fi
