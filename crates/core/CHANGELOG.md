@@ -5,9 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.10.1](https://github.com/flashbots/contender/releases/tag/v0.7.0) - 2026-05-05
 
+- update alloy dependencies ([#561](https://github.com/flashbots/contender/pull/561))
 - (rpc): fix CPU usage bugs ([#527](https://github.com/flashbots/contender/pull/527/changes))
+- send txs to custom endpoint with --txs-url ([#534](https://github.com/flashbots/contender/pull/534))
 
 ### Breaking changes
 
