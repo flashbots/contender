@@ -6,7 +6,7 @@ name: release
 on:
   push:
     tags:
-      - contender_cli_v*
+      - contender_cli-v*
   workflow_dispatch:
     inputs:
       dry_run:
