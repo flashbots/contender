@@ -2,7 +2,7 @@ use crate::commands::error::ArgsError;
 use crate::commands::Result;
 use crate::util::error::UtilError;
 use alloy::hex::{self, ToHexExt};
-use alloy::network::{EthereumWallet, TransactionBuilder};
+use alloy::network::{EthereumWallet, NetworkTransactionBuilder, TransactionBuilder};
 use alloy::primitives::{Address, U256};
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::rpc::types::BlockId;

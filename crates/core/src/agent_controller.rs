@@ -3,7 +3,9 @@ use crate::{
     Result,
 };
 use alloy::{
-    network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, TransactionBuilder},
+    network::{
+        AnyNetwork, AnyTxEnvelope, EthereumWallet, NetworkTransactionBuilder, TransactionBuilder,
+    },
     primitives::{utils::format_ether, Address, FixedBytes, TxKind, U256},
     rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,

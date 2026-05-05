@@ -9,7 +9,7 @@
     "repository": "https://github.com/flashbots/contender",
     "types": {
       "AddSessionParams": {"file":"crates/cli/src/server/rpc_server/types.rs","line":40},
-      "AgentClass": {"file":"crates/core/src/agent_controller.rs","line":42},
+      "AgentClass": {"file":"crates/core/src/agent_controller.rs","line":44},
       "AgentParams": {"file":"crates/cli/src/server/rpc_server/types.rs","line":249},
       "AuthParams": {"file":"crates/cli/src/server/rpc_server/types.rs","line":191},
       "BlobsCliArgs": {"file":"crates/cli/src/default_scenarios/blobs.rs","line":10},

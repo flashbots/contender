@@ -13,11 +13,11 @@ use alloy::{
 use alloy_rpc_types_engine::{
     ClientVersionV1, ExecutionPayloadBodiesV1, ExecutionPayloadEnvelopeV2,
     ExecutionPayloadEnvelopeV3, ExecutionPayloadEnvelopeV4, ExecutionPayloadInputV2,
-    ExecutionPayloadV1, ExecutionPayloadV3, ForkchoiceState, ForkchoiceUpdated, PayloadId,
-    PayloadStatus,
+    ExecutionPayloadV1, ExecutionPayloadV3, ExecutionPayloadV4, ForkchoiceState, ForkchoiceUpdated,
+    PayloadId, PayloadStatus,
 };
-use op_alloy_consensus::OpTypedTransaction;
-use reth_optimism_primitives::OpTransactionSigned;
+use op_alloy_consensus::{OpTxEnvelope, OpTypedTransaction};
+// use reth_optimism_primitives::OpTransactionSigned;
 use secp256k1::{Message, SecretKey, SECP256K1};
 use thiserror::Error;
 
@@ -60,7 +60,7 @@ pub trait EngineApi<N: NetworkAttributes>: Send + Sync {
     /// See also <https://github.com/ethereum/execution-apis/blob/03911ffc053b8b806123f1fc237184b0092a485a/src/engine/prague.md#engine_newpayloadv4>
     async fn new_payload_v4(
         &self,
-        payload: ExecutionPayloadV3,
+        payload: ExecutionPayloadV4,
         versioned_hashes: Vec<B256>,
         parent_beacon_block_root: B256,
         execution_requests: RequestsOrHash,
@@ -231,7 +231,7 @@ where
 
     async fn new_payload_v4(
         &self,
-        payload: ExecutionPayloadV3,
+        payload: ExecutionPayloadV4,
         versioned_hashes: Vec<B256>,
         parent_beacon_block_root: B256,
         execution_requests: RequestsOrHash,
@@ -406,17 +406,9 @@ impl Signer {
     pub fn sign_tx(
         &self,
         tx: OpTypedTransaction,
-    ) -> Result<Recovered<OpTransactionSigned>, secp256k1::Error> {
-        use OpTypedTransaction::*;
-        let signature_hash = match &tx {
-            Legacy(tx) => tx.signature_hash(),
-            Eip2930(tx) => tx.signature_hash(),
-            Eip1559(tx) => tx.signature_hash(),
-            Eip7702(tx) => tx.signature_hash(),
-            Deposit(_) => B256::ZERO,
-        };
-        let signature = self.sign_message(signature_hash)?;
-        let signed = OpTransactionSigned::new_unhashed(tx, signature);
+    ) -> Result<Recovered<OpTxEnvelope>, secp256k1::Error> {
+        let signature = self.sign_message(tx.signature_hash())?;
+        let signed = OpTxEnvelope::new_unhashed(tx, signature);
         Ok(Recovered::new_unchecked(signed, self.address))
     }
 

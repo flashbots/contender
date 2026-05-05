@@ -4,7 +4,7 @@ pub mod test {
 
     use alloy::{
         consensus::TxType,
-        network::{AnyTxEnvelope, EthereumWallet, TransactionBuilder},
+        network::{AnyTxEnvelope, EthereumWallet, NetworkTransactionBuilder},
         primitives::{Address, U256},
         providers::{PendingTransactionConfig, Provider},
         rpc::types::TransactionRequest,

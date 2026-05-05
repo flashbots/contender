@@ -53,7 +53,7 @@ pub trait BlockToPayload {
     async fn block_to_payload(&self, block_num: u64) -> AuthResult<ExecutionPayload>;
 }
 
-pub trait FcuDefault: reth_node_api::PayloadAttributes + Send + Sync {
+pub trait FcuDefault: Send + Sync {
     fn fcu_payload_attributes(timestamp: u64, op_params: Option<OpPayloadParams>) -> Self;
 }
 

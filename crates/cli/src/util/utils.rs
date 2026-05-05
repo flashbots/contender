@@ -5,7 +5,7 @@ use crate::{commands::common::EngineParams, util::error::UtilError};
 use alloy::{
     consensus::TxType,
     hex::{self, ToHexExt},
-    network::{AnyTxEnvelope, EthereumWallet, TransactionBuilder},
+    network::{AnyTxEnvelope, EthereumWallet, NetworkTransactionBuilder},
     primitives::{Address, U256},
     providers::{PendingTransactionConfig, Provider},
     rpc::types::TransactionRequest,
@@ -571,7 +571,7 @@ pub fn human_readable_duration(duration: Duration) -> String {
 }
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use crate::commands::common::EngineParams;
     use crate::error::CliError;
     use crate::util::error::UtilError;
@@ -595,11 +595,11 @@ mod test {
     use std::time::Duration;
 
     pub fn spawn_anvil() -> AnvilInstance {
-        Anvil::new().block_time_f64(0.25).spawn()
+        Anvil::new().block_time_f64(0.25).try_spawn().unwrap()
     }
 
     pub fn spawn_anvil_no_mining() -> AnvilInstance {
-        Anvil::new().args(["--no-mining"]).spawn()
+        Anvil::new().args(["--no-mining"]).try_spawn().unwrap()
     }
 
     pub fn init_tracing() {
