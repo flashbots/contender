@@ -114,7 +114,7 @@ dependencies = [
  "alloy-rpc-client",
  "alloy-rpc-types",
  "alloy-serde 1.8.3",
- "alloy-signer",
+ "alloy-signer 1.8.3",
  "alloy-signer-local",
  "alloy-transport",
  "alloy-transport-http",
@@ -397,7 +397,7 @@ dependencies = [
  "alloy-rpc-types-any",
  "alloy-rpc-types-eth",
  "alloy-serde 1.8.3",
- "alloy-signer",
+ "alloy-signer 1.8.3",
  "alloy-sol-types",
  "async-trait",
  "auto_impl",
@@ -431,7 +431,7 @@ dependencies = [
  "alloy-hardforks 0.2.13",
  "alloy-network",
  "alloy-primitives",
- "alloy-signer",
+ "alloy-signer 1.8.3",
  "alloy-signer-local",
  "k256",
  "rand 0.8.6",
@@ -521,7 +521,7 @@ dependencies = [
  "alloy-rpc-types-eth",
  "alloy-rpc-types-trace",
  "alloy-rpc-types-txpool",
- "alloy-signer",
+ "alloy-signer 1.8.3",
  "alloy-sol-types",
  "alloy-transport",
  "alloy-transport-http",
@@ -821,9 +821,24 @@ dependencies = [
 
 [[package]]
 name = "alloy-signer"
-version = "1.0.41"
+version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5772858492b26f780468ae693405f895d6a27dea6e3eab2c36b6217de47c2647"
+checksum = "43f447aefab0f1c0649f71edc33f590992d4e122bc35fb9cdbbf67d4421ace85"
+dependencies = [
+ "alloy-primitives",
+ "async-trait",
+ "auto_impl",
+ "either",
+ "elliptic-curve",
+ "k256",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "alloy-signer"
+version = "2.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41eb29f7a8adcd8941fbb8e134022a133e6f8dfd345f2e3b7109599f8a7dca08"
 dependencies = [
  "alloy-primitives",
  "async-trait",
@@ -843,7 +858,7 @@ dependencies = [
  "alloy-consensus",
  "alloy-network",
  "alloy-primitives",
- "alloy-signer",
+ "alloy-signer 1.8.3",
  "async-trait",
  "k256",
  "rand 0.8.6",
@@ -2305,7 +2320,7 @@ dependencies = [
  "alloy-rpc-types-engine",
  "alloy-rpc-types-eth",
  "alloy-serde 2.0.4",
- "alloy-signer",
+ "alloy-signer 2.0.4",
  "alloy-sol-type-parser",
  "alloy-trie",
  "alloy-tx-macros",
@@ -5353,7 +5368,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-provider",
  "alloy-rpc-types-eth",
- "alloy-signer",
+ "alloy-signer 1.8.3",
  "op-alloy-consensus",
  "op-alloy-rpc-types",
 ]
@@ -8257,7 +8272,7 @@ dependencies = [
  "alloy-rpc-types-trace",
  "alloy-rpc-types-txpool",
  "alloy-serde 1.8.3",
- "alloy-signer",
+ "alloy-signer 1.8.3",
  "alloy-signer-local",
  "async-trait",
  "derive_more",
@@ -8389,7 +8404,7 @@ dependencies = [
  "alloy-network",
  "alloy-primitives",
  "alloy-rpc-types-eth",
- "alloy-signer",
+ "alloy-signer 1.8.3",
  "auto_impl",
  "dyn-clone",
  "jsonrpsee-types",
