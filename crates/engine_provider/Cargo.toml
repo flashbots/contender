@@ -81,4 +81,4 @@ alloy-trie = { version = "=0.9.1", default-features = false }
 ## op-alloy — pinned to exact versions from contender's Cargo.lock.
 op-alloy-consensus = { version = "=0.20.0", default-features = false }
 op-alloy-network = { version = "=0.20.0", default-features = false }
-op-alloy-rpc-types = { version = "=0.20.0", default-features = false }
+op-alloy-rpc-types = { version = "=0.22.4", default-features = false }
