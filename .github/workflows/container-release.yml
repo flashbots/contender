@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'contender_cli_v*'
+      - 'contender_cli-v*'
 
 permissions:
   contents: write
