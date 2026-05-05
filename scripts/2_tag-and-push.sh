@@ -28,7 +28,8 @@ echo
 read -p "Create tags now? (y/N): " confirm_tag
 if [[ "$confirm_tag" =~ ^[Yy] ]]; then
     for t in "${TAGS[@]}"; do
-        git tag "$t"
+        # Checks if tag exists; if not, creates it
+        git rev-parse "$t" > /dev/null 2>&1 || git tag "$t"
         echo "Created tag: $t"
     done
 else
@@ -38,7 +39,7 @@ fi
 echo
 read -p "Push all tags to the remote origin? (y/N): " confirm_push
 if [[ "$confirm_push" =~ ^[Yy] ]]; then
-    for t in "${$TAGS[@]}"; do
+    for t in "${TAGS[@]}"; do
         echo "Pushing tag: $t"
         git push origin "$t"
     done
