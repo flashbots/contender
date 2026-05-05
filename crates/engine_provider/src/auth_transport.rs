@@ -58,10 +58,8 @@ impl InnerTransport {
         url: Url,
         jwt: JwtSecret,
     ) -> Result<(Self, Claims), AuthenticatedTransportError> {
+        // note: using reqwest w/ native-tls, should use system's certs by default
         let mut client_builder = reqwest::Client::builder();
-        if url.scheme() == "https" {
-            client_builder = client_builder.tls_backend_rustls();
-        }
         let mut headers = reqwest::header::HeaderMap::new();
 
         // Add the JWT to the headers if we can decode it.
