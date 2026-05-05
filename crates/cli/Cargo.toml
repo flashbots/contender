@@ -57,7 +57,7 @@ tower.workspace = true
 tower-http = { workspace = true, features = ["cors"] }
 
 [dev-dependencies]
-tempfile = "3.15.0"
+tempfile = "3.27.0"
 
 [features]
 default = []
