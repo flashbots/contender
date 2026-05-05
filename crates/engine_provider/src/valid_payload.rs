@@ -8,8 +8,8 @@ use alloy::primitives::B256;
 use alloy::providers::Network;
 use alloy::transports::TransportResult;
 use alloy_rpc_types_engine::{
-    ExecutionPayloadInputV2, ExecutionPayloadV1, ExecutionPayloadV3, ForkchoiceState,
-    ForkchoiceUpdated, PayloadStatus,
+    ExecutionPayloadInputV2, ExecutionPayloadV1, ExecutionPayloadV3, ExecutionPayloadV4,
+    ForkchoiceState, ForkchoiceUpdated, PayloadStatus,
 };
 use tracing::error;
 
@@ -43,7 +43,7 @@ pub trait EngineApiValidWaitExt<N: NetworkAttributes>: Send + Sync {
     /// versioned hashes, and execution requests, and waits until the response is VALID.
     async fn new_payload_v4_wait(
         &self,
-        payload: ExecutionPayloadV3,
+        payload: ExecutionPayloadV4,
         versioned_hashes: Vec<B256>,
         parent_beacon_block_root: B256,
         execution_requests: RequestsOrHash,
@@ -158,7 +158,7 @@ where
 
     async fn new_payload_v4_wait(
         &self,
-        payload: ExecutionPayloadV3,
+        payload: ExecutionPayloadV4,
         versioned_hashes: Vec<B256>,
         parent_beacon_block_root: B256,
         execution_requests: RequestsOrHash,

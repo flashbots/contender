@@ -232,7 +232,7 @@ where
             from: Some(funcdef.from),
             value,
             gas: funcdef.gas_limit,
-            sidecar: funcdef.sidecar.to_owned(),
+            sidecar: funcdef.sidecar.as_ref().map(|sc| sc.to_owned().into()),
             authorization_list: funcdef.authorization.to_owned(),
             ..Default::default()
         })

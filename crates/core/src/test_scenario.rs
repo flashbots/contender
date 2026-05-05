@@ -26,7 +26,10 @@ use alloy::{
     eips::eip2718::Encodable2718,
     eips::BlockId,
     hex::ToHexExt,
-    network::{AnyNetwork, AnyTxEnvelope, EthereumWallet, ReceiptResponse, TransactionBuilder},
+    network::{
+        AnyNetwork, AnyTxEnvelope, EthereumWallet, NetworkTransactionBuilder, ReceiptResponse,
+        TransactionBuilder,
+    },
     node_bindings::Anvil,
     primitives::utils::{format_ether, format_units},
     primitives::{keccak256, Address, Bytes, FixedBytes, TxKind, U256},
@@ -731,12 +734,17 @@ where
             scenario_label,
         } = params;
         let wallet = EthereumWallet::from(signer.to_owned());
+        println!(
+            "deploying contract with wallet address: {}",
+            signer.address()
+        );
         let transport = Http::with_client(http_client, rpc_url.to_owned());
         let rpc_client = ClientBuilder::default().transport(transport, false);
         let wallet_client = ProviderBuilder::new()
             .wallet(&wallet)
             .network::<AnyNetwork>()
             .connect_client(rpc_client);
+        println!("connected wallet to rpc at {}", rpc_url);
 
         let ExtraTxParams {
             gas_price,
@@ -748,6 +756,7 @@ where
         let gas_limit = wallet_client
             .estimate_gas(WithOtherFields::new(tx_req.tx.to_owned()))
             .await?;
+        println!("estimated gas limit: {gas_limit}");
 
         // inject missing fields into tx_req.tx
         let mut tx = tx_req.tx.to_owned();
@@ -760,11 +769,13 @@ where
             chain_id,
             blob_gas_price,
         );
+        println!("completed tx request: {:#?}", tx);
 
         let res = wallet_client
-            .send_transaction(WithOtherFields::new(tx))
+            .send_transaction(tx.into())
             .await?
             .with_timeout(Some(Duration::from_secs(30)));
+        println!("sent transaction, hash: {}", res.tx_hash());
 
         // watch pending transaction
         let receipt = res.get_receipt().await?;
@@ -1087,6 +1098,7 @@ where
                     new_req.tx = tx_req.to_owned();
 
                     // sign tx
+                    println!("signer address: {}", signer.default_signer().address());
                     let tx_envelope = tx_req.build(&signer).await?;
 
                     // log tx details

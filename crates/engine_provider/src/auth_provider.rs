@@ -28,8 +28,8 @@ use async_trait::async_trait;
 use op_alloy_consensus::{OpTypedTransaction, TxDeposit};
 use op_alloy_network::Ethereum;
 use op_alloy_network::{primitives::HeaderResponse, BlockResponse, Network, Optimism};
+use op_alloy_rpc_types_engine::OpPayloadAttributes;
 use reth_node_api::EngineApiMessageVersion;
-use reth_optimism_node::OpPayloadAttributes;
 use std::path::PathBuf;
 use std::time::Instant;
 use tracing::{debug, info};
@@ -52,12 +52,18 @@ where
 }
 
 pub trait NetworkAttributes {
-    type PayloadAttributes: reth_node_api::PayloadAttributes + FcuDefault + Send + Sync + Unpin;
+    type PayloadAttributes: serde::Serialize
+        + FcuDefault
+        + Send
+        + Sync
+        + Clone
+        + std::fmt::Debug
+        + Unpin;
     fn is_op() -> bool;
 }
 
 pub trait ProviderExt {
-    type PayloadAttributes: reth_node_api::PayloadAttributes + Send + Sync + Unpin;
+    type PayloadAttributes: serde::Serialize + Send + Sync + Clone + std::fmt::Debug + Unpin;
     fn is_op(&self) -> bool;
 }
 
@@ -120,6 +126,7 @@ where
         payload_attributes: Option<N::PayloadAttributes>,
     ) -> TransportResult<ForkchoiceUpdated> {
         match self.message_version {
+            EngineApiMessageVersion::V6 => todo!("V6 payloads not supported yet"),
             EngineApiMessageVersion::V5 => todo!("V5 payloads not supported yet"),
             EngineApiMessageVersion::V4 => {
                 self.inner
@@ -195,50 +202,41 @@ where
         execution_requests: Option<RequestsOrHash>,
     ) -> AuthResult<EngineApiMessageVersion> {
         match payload {
+            ExecutionPayload::V4(payload) => {
+                // We expect the caller
+                let parent_beacon_block_root =
+                    parent_beacon_block_root.ok_or(AuthProviderError::InvalidPayload(
+                        self.message_version,
+                        "parent_beacon_block_root is required for V4 payloads",
+                    ))?;
+                // ... and executionRequests
+                let execution_requests =
+                    execution_requests.ok_or(AuthProviderError::InvalidPayload(
+                        self.message_version,
+                        "execution_requests is required for V4 payloads",
+                    ))?;
+                self.inner
+                    .new_payload_v4_wait(
+                        payload,
+                        versioned_hashes,
+                        parent_beacon_block_root,
+                        execution_requests,
+                    )
+                    .await?;
+                Ok(EngineApiMessageVersion::V4)
+            }
             ExecutionPayload::V3(payload) => {
-                match self.message_version {
-                    EngineApiMessageVersion::V3 => {
-                        // We expect the caller
-                        let parent_beacon_block_root =
-                            parent_beacon_block_root.ok_or(AuthProviderError::InvalidPayload(
-                                self.message_version,
-                                "parent_beacon_block_root is required for V3 payloads",
-                            ))?;
-                        self.inner
-                            .new_payload_v3_wait(
-                                payload,
-                                versioned_hashes,
-                                parent_beacon_block_root,
-                            )
-                            .await?;
+                // We expect the caller
+                let parent_beacon_block_root =
+                    parent_beacon_block_root.ok_or(AuthProviderError::InvalidPayload(
+                        self.message_version,
+                        "parent_beacon_block_root is required for V3 payloads",
+                    ))?;
+                self.inner
+                    .new_payload_v3_wait(payload, versioned_hashes, parent_beacon_block_root)
+                    .await?;
 
-                        Ok(EngineApiMessageVersion::V3)
-                    }
-                    EngineApiMessageVersion::V4 => {
-                        // We expect the caller
-                        let parent_beacon_block_root =
-                            parent_beacon_block_root.ok_or(AuthProviderError::InvalidPayload(
-                                self.message_version,
-                                "parent_beacon_block_root is required for V4 payloads",
-                            ))?;
-                        // ... and executionRequests
-                        let execution_requests =
-                            execution_requests.ok_or(AuthProviderError::InvalidPayload(
-                                self.message_version,
-                                "execution_requests is required for V4 payloads",
-                            ))?;
-                        self.inner
-                            .new_payload_v4_wait(
-                                payload,
-                                versioned_hashes,
-                                parent_beacon_block_root,
-                                execution_requests,
-                            )
-                            .await?;
-                        Ok(EngineApiMessageVersion::V4)
-                    }
-                    _ => panic!("invalid message type for V3 payload"),
-                }
+                Ok(EngineApiMessageVersion::V3)
             }
             ExecutionPayload::V2(payload) => {
                 let input = ExecutionPayloadInputV2 {
@@ -273,6 +271,7 @@ impl FcuDefault for OpPayloadAttributes {
                 suggested_fee_recipient: Default::default(),
                 withdrawals: Some(vec![]),
                 parent_beacon_block_root: Some(B256::ZERO),
+                slot_number: None, // TODO: support slot_number
             },
             transactions,
             no_tx_pool: Some(false),
@@ -291,6 +290,7 @@ impl FcuDefault for PayloadAttributes {
             suggested_fee_recipient: Default::default(),
             withdrawals: Some(vec![]),
             parent_beacon_block_root: Some(B256::ZERO),
+            slot_number: None, // TODO: support slot_number
         }
     }
 }
@@ -395,6 +395,7 @@ impl<N: Network + NetworkAttributes> AdvanceChain for AuthProvider<N> {
                 );
             }
             EngineApiMessageVersion::V5 => todo!("V5 is not yet supported"),
+            EngineApiMessageVersion::V6 => todo!("V6 is not yet supported"),
         };
 
         Ok(())

@@ -5,7 +5,7 @@ use crate::{commands::common::EngineParams, util::error::UtilError};
 use alloy::{
     consensus::TxType,
     hex::{self, ToHexExt},
-    network::{AnyTxEnvelope, EthereumWallet, TransactionBuilder},
+    network::{AnyTxEnvelope, EthereumWallet, NetworkTransactionBuilder},
     primitives::{Address, U256},
     providers::{PendingTransactionConfig, Provider},
     rpc::types::TransactionRequest,
