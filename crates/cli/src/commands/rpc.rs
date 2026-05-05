@@ -755,15 +755,13 @@ fn print_latency_summary(method: &str) {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
+    use crate::util::test::spawn_anvil;
+
     use super::*;
-    use alloy::{node_bindings::Anvil, providers::Provider};
+    use alloy::providers::Provider;
     use contender_sqlite::SqliteDb;
     use std::str::FromStr;
-
-    fn spawn_anvil() -> alloy::node_bindings::AnvilInstance {
-        Anvil::new().block_time_f64(0.25).spawn()
-    }
 
     fn test_db() -> (SqliteDb, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
@@ -869,7 +867,7 @@ mod tests {
 
     #[tokio::test]
     async fn rpc_spam_send_transaction_high_rps() {
-        let anvil = Anvil::new().block_time_f64(0.25).spawn();
+        let anvil = spawn_anvil();
         let (db, dir) = test_db();
 
         let sender = anvil.addresses()[0];

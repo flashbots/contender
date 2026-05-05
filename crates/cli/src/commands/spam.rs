@@ -1043,10 +1043,11 @@ pub async fn spam<D: GenericDb>(
 #[cfg(test)]
 mod tests {
     use crate::commands::SetupCommandArgs;
+    use crate::util::test::spawn_anvil;
     use crate::{commands::common::AuthCliArgs, default_scenarios::fill_block::FillBlockArgs};
 
     use super::*;
-    use alloy::node_bindings::{Anvil, AnvilInstance, WEI_IN_ETHER};
+    use alloy::node_bindings::{AnvilInstance, WEI_IN_ETHER};
     use contender_core::generator::util::parse_value;
     use contender_sqlite::SqliteDb;
     use std::{
@@ -1173,7 +1174,7 @@ mod tests {
 
     /// Spin up a fresh anvil instance, DB, & seed, then run the scenario file given at `path`.
     async fn run_scenario_file(path: &Path) -> Result<()> {
-        let anvil = Anvil::new().block_time(1).spawn();
+        let anvil = spawn_anvil();
         let db = SqliteDb::new_memory();
         db.create_tables()?;
         let rand_seed = RandSeed::new();
@@ -1206,7 +1207,7 @@ mod tests {
 
         #[tokio::test]
         async fn funding_task_refunds_on_signal() {
-            let anvil = Anvil::new().block_time(1).try_spawn().unwrap();
+            let anvil = spawn_anvil();
             let rpc_url: Url = anvil.endpoint().parse().unwrap();
             let rpc_client = Arc::new(AnyProvider::new(
                 alloy::providers::ProviderBuilder::new()
@@ -1262,7 +1263,7 @@ mod tests {
 
     #[tokio::test]
     async fn spam_terminates_on_unrecoverable_error() -> Result<()> {
-        let anvil = Anvil::new().block_time_f64(0.5).spawn();
+        let anvil = spawn_anvil();
         let rpc_url: Url = anvil.endpoint().parse().unwrap();
 
         // Initialize tracing for test output

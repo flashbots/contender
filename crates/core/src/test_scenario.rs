@@ -568,8 +568,8 @@ where
         if !cfg!(test) {
             anvil = anvil
                 .fork(self.rpc_url.to_string())
-                .block_time_f64(1.0) // force anvil to produce a block every second
-                .timeout(60000) // 60s timeout for fork operation
+                .block_time_f64(0.5) // force anvil to produce a block every half-second
+                .timeout(30000) // 30s timeout for fork operation
                 ;
         }
 

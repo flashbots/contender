@@ -523,7 +523,7 @@ value = \"1eth\"
 
     #[tokio::test]
     async fn placeholders_work_in_from_field() {
-        let anvil = Anvil::new().spawn();
+        let anvil = spawn_anvil();
         let scenario = default_scenario(&anvil).await;
 
         let spam = scenario.get_spam_tx_chunks(1, 1).await.unwrap();
@@ -546,7 +546,7 @@ value = \"1eth\"
 
     #[tokio::test]
     async fn fncall_value_accepts_units_or_wei() -> Result<(), Box<dyn std::error::Error>> {
-        let anvil = Anvil::new().spawn();
+        let anvil = spawn_anvil();
         let mut scenario = default_scenario(&anvil).await;
 
         // change the spam directive's `value` field to show more supported styles
@@ -592,8 +592,9 @@ value = \"1eth\"
 
 #[cfg(test)]
 mod more_tests {
+    use crate::tests::spawn_anvil;
+
     use super::*;
-    use alloy::node_bindings::Anvil;
     use contender_core::{
         db::MockDb,
         generator::{types::SpamRequest, FunctionCallDefinition, RandSeed},
@@ -604,7 +605,7 @@ mod more_tests {
 
     #[tokio::test]
     async fn contender_ctx_builder_runs() -> std::result::Result<(), Box<dyn std::error::Error>> {
-        let anvil = Anvil::new().spawn();
+        let anvil = spawn_anvil();
 
         let config = TestConfig::new().with_spam(vec![SpamRequest::new_tx(
             &FunctionCallDefinition::new("{_sender}") // send tx to self
