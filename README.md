@@ -2,7 +2,6 @@
 
 ![Test Status](https://github.com/flashbots/contender/actions/workflows/test.yml/badge.svg)
 ![Lint Status](https://github.com/flashbots/contender/actions/workflows/lint.yml/badge.svg)
-[![License](https://img.shields.io/github/license/flashbots/contender)](./LICENSE)
 
 High-performance Ethereum transaction spammer and benchmarking tool.
 
