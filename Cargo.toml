@@ -28,7 +28,7 @@ contender_bundle_provider = { path = "crates/bundle_provider" }
 contender_engine_provider = { path = "crates/engine_provider" }
 contender_report = { path = "crates/report" }
 
-tokio = { version = "1.40.0" }
+tokio = { version = "1.50.0" }
 tokio-metrics = { version = "0.5.0" }
 tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
 tokio-util = "0.7"
