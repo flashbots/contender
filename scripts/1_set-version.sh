@@ -165,19 +165,9 @@ fi
 
 echo "Caching tag names in $TAG_CACHE"
 # clear out tag cache if it still exists from a previous run
-rm $TAG_CACHE
+rm -f $TAG_CACHE
 # update tag cache file
 for t in "${TAGS_CREATED[@]}"; do
     echo "  $t"
     echo "$t" >> $TAG_CACHE
 done
-# echo
-# read -p "Push all tags to the remote origin? (y/N): " confirm_push
-# if [[ "$confirm_push" =~ ^[Yy] ]]; then
-#     for t in "${TAGS_CREATED[@]}"; do
-#         git push origin "$t"
-#     done
-#     echo "All tags pushed."
-# else
-#     echo "Tags were created locally but not pushed."
-# fi
