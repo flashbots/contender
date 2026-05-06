@@ -1118,7 +1118,6 @@ where
                     new_req.tx = tx_req.to_owned();
 
                     // sign tx
-                    println!("signer address: {}", signer.default_signer().address());
                     let tx_envelope = tx_req.build(&signer).await?;
 
                     // log tx details
