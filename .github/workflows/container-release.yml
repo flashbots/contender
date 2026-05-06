@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'contender_cli-v*'
+      - 'contender_cli-v**'
 
 permissions:
   contents: write
@@ -25,6 +25,8 @@ jobs:
             runner: warp-ubuntu-latest-arm64-16x
     runs-on: ${{ matrix.config.runner }}
     steps:
+      - name: install cpp
+        run: sudo apt-get update && sudo apt-get install -y build-essential
       - name: Checkout sources
         uses: actions/checkout@v6
 
