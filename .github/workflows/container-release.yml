@@ -34,9 +34,9 @@ jobs:
         run: |
           platform=${{ matrix.config.platform }}
           echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
-          # Extract version part after last underscore
+          # Extract version part after last dash
           ver="${GITHUB_REF#refs/*/}"
-          ver="${ver##*_}"
+          ver="${ver##*-}"
           # Ensure it starts with 'v'
           if [[ "$ver" != v* ]]; then
             ver="v$ver"
