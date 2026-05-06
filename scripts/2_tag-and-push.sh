@@ -44,7 +44,6 @@ if [[ "$confirm_push" =~ ^[Yy] ]]; then
         git push origin "$t"
     done
     echo "All tags pushed."
-    rm $TAG_CACHE
 else
     echo "Tags were created locally but not pushed. To push later, run: git push origin <tag-name>"
 fi
