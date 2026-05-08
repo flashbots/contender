@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'contender_cli_v*'
+      - 'contender_cli-v**'
 
 permissions:
   contents: write
@@ -32,9 +32,9 @@ jobs:
         run: |
           platform=${{ matrix.config.platform }}
           echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
-          # Extract version part after last underscore
+          # Extract version from tag (e.g. "contender_cli-v0.10.1" -> "v0.10.1")
           ver="${GITHUB_REF#refs/*/}"
-          ver="${ver##*_}"
+          ver="${ver#contender_cli-}"
           # Ensure it starts with 'v'
           if [[ "$ver" != v* ]]; then
             ver="v$ver"
@@ -63,7 +63,7 @@ jobs:
         with:
           username: ${{ secrets.FLASHBOTS_DOCKERHUB_USERNAME }}
           password: ${{ secrets.FLASHBOTS_DOCKERHUB_TOKEN }}
-
+      
       - name: Build and push
         id: build
         uses: docker/build-push-action@v7
@@ -109,6 +109,25 @@ jobs:
           username: ${{ secrets.FLASHBOTS_DOCKERHUB_USERNAME }}
           password: ${{ secrets.FLASHBOTS_DOCKERHUB_TOKEN }}
 
+      - name: Check if prerelease
+        id: check
+        run: |
+          # Extract version from tag (e.g. "contender_cli-v0.10.1" -> "v0.10.1")
+          ver="${{ github.ref_name }}"
+          ver="${ver#contender_cli-}"
+          if [[ "$ver" != v* ]]; then
+            ver="v$ver"
+          fi
+          echo "version=$ver" >> $GITHUB_OUTPUT
+          # Strip leading 'v' for bare version (e.g. "0.10.1")
+          echo "bare_version=${ver#v}" >> $GITHUB_OUTPUT
+          dash_count=$(echo "${{ github.ref_name }}" | tr -cd '-' | wc -c)
+          if [ "$dash_count" -ge 2 ]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -119,9 +138,9 @@ jobs:
           images: ${{ env.REGISTRY_IMAGE }}
           tags: |
             type=sha
-            type=pep440,pattern={{version}}
-            type=pep440,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+            type=raw,value=${{ steps.check.outputs.bare_version }}
+            type=raw,value=${{ steps.check.outputs.version }}
+            type=raw,value=latest,enable=${{ steps.check.outputs.is_prerelease != 'true' }}
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
@@ -131,7 +150,7 @@ jobs:
 
       - name: Inspect image
         run: |
-          docker buildx imagetools inspect ${{ env.REGISTRY_IMAGE }}:${{ steps.meta.outputs.version }}
+          docker buildx imagetools inspect ${{ env.REGISTRY_IMAGE }}:${{ steps.check.outputs.bare_version }}
 
       - name: Login to GHCR
         uses: docker/login-action@v4
@@ -146,11 +165,11 @@ jobs:
       - name: Push to GHCR
         run: |
           regctl image copy \
-            ${{ env.REGISTRY_IMAGE }}:${{ steps.meta.outputs.version }} \
-            ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.version }}
+            ${{ env.REGISTRY_IMAGE }}:${{ steps.check.outputs.bare_version }} \
+            ghcr.io/${{ github.repository }}:${{ steps.check.outputs.bare_version }}
 
       - name: Push latest tag to GHCR
-        if: ${{ !contains(github.ref_name, '-') }}
+        if: ${{ steps.check.outputs.is_prerelease != 'true' }}
         run: |
           regctl image copy \
             ${{ env.REGISTRY_IMAGE }}:latest \
@@ -158,4 +177,4 @@ jobs:
 
       - name: Inspect image
         run: |
-          docker buildx imagetools inspect ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.version }}
+          docker buildx imagetools inspect ghcr.io/${{ github.repository }}:${{ steps.check.outputs.bare_version }}
