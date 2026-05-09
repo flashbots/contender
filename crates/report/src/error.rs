@@ -3,7 +3,7 @@ use alloy::{
     rpc::types::trace::geth::PreStateFrame,
     transports::{RpcError, TransportErrorKind},
 };
-use contender_core::db::DbError;
+use contender_core::{db::DbError, test_scenario::Url};
 use std::io;
 use thiserror::Error;
 use tokio::sync::mpsc;
@@ -48,6 +48,12 @@ pub enum Error {
     #[error("no runs found for campaign id {0}")]
     CampaignNotFound(String),
 
+    #[error("no runs found")]
+    NoRunsFound,
+
     #[error("serde_json error")]
     SerdeJson(#[from] serde_json::Error),
+
+    #[error("failed to parse URL: {0}")]
+    UrlParse(String),
 }

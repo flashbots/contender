@@ -4,6 +4,7 @@ pub mod chart;
 pub mod command;
 pub mod error;
 pub mod gen_html;
+pub mod report_data;
 pub mod util;
 
 pub use error::Error;

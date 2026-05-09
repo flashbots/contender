@@ -13,6 +13,7 @@ use crate::chart::{
     tx_gas_used::TxGasUsedChart,
 };
 use crate::gen_html::ChartData;
+use crate::report_data::{ReportData, RunDataAndParams};
 use crate::util::write_run_txs;
 use crate::{Error, Result};
 use alloy::network::AnyNetwork;
@@ -41,11 +42,11 @@ pub struct GasQuantiles {
 }
 
 pub struct ReportParams {
-    last_run_id: Option<u64>,
-    preceding_runs: u64,
-    use_json: bool,
-    skip_tx_traces: bool,
-    time_to_inclusion_bucket: u64,
+    pub last_run_id: Option<u64>,
+    pub preceding_runs: u64,
+    pub use_json: bool,
+    pub skip_tx_traces: bool,
+    pub time_to_inclusion_bucket: u64,
 }
 
 impl Default for ReportParams {
@@ -96,64 +97,19 @@ pub async fn report(
     data_dir: &Path,
     params: ReportParams,
 ) -> Result<()> {
-    let num_runs = db.num_runs().map_err(|e| e.into())?;
-
     let data_path = Path::new(data_dir).join("reports");
     if !data_path.exists() {
         fs::create_dir_all(data_path)?;
     }
 
-    if num_runs == 0 {
-        info!("No runs found in the database. Exiting.");
-        return Ok(());
-    }
+    let reporter = ReportData::new(db, &params, data_dir)?;
 
-    // if id is provided, check if it's valid
-    let end_run_id = if let Some(id) = params.last_run_id {
-        if id == 0 || id > num_runs {
-            return Err(Error::InvalidRunId(id));
-        }
-        id
-    } else {
-        // get latest run
-        info!("No run ID provided. Using latest run ID: {num_runs}");
-        num_runs
-    };
+    let RunDataAndParams {
+        run_data,
+        runtime_params,
+    } = reporter.get_run_data()?;
 
-    let rpc_url = db
-        .get_run(end_run_id)
-        .map_err(|e| e.into())?
-        .ok_or(Error::RunDoesNotExist(end_run_id))?
-        .rpc_url;
-
-    // collect CSV report for each run_id
-    let start_run_id = end_run_id - params.preceding_runs;
-    let mut all_txs = vec![];
-    let reports_dir = data_dir.join("reports");
-    for id in start_run_id..=end_run_id {
-        let txs = db.get_run_txs(id).map_err(|e| e.into())?;
-        all_txs.extend_from_slice(&txs);
-        save_csv_report(id, &txs, &reports_dir)?;
-    }
-
-    // get run data, filter by rpc_url
-    let mut run_data = vec![];
-    let mut runtime_params_list = Vec::new();
-    for id in start_run_id..=end_run_id {
-        let run = db.get_run(id).map_err(|e| e.into())?;
-        if let Some(run) = run {
-            if run.rpc_url != rpc_url {
-                continue;
-            }
-            runtime_params_list.push(RuntimeParams {
-                txs_per_duration: run.txs_per_duration,
-                duration_value: run.duration.value(),
-                duration_unit: run.duration.unit().to_owned(),
-                timeout: run.timeout,
-            });
-            run_data.push(run);
-        }
-    }
+    // if campaign_id is present, init campaign metadata
     let campaign_context = run_data.iter().rev().find_map(|run| {
         run.campaign_id
             .as_ref()
@@ -164,6 +120,7 @@ pub async fn report(
                 scenario: Some(run.scenario_name.clone()),
             })
     });
+
     // collect all unique scenario_name values from run_data
     let scenario_names: Vec<String> = run_data
         .iter()
@@ -182,12 +139,6 @@ pub async fn report(
         .unwrap_or_default();
 
     // get trace data for reports
-    let url = Url::from_str(&rpc_url).expect("Invalid URL");
-    let rpc_client = DynProvider::new(
-        ProviderBuilder::new()
-            .network::<AnyNetwork>()
-            .connect_http(url),
-    );
     let (trace_data, blocks) = if std::env::var("DEBUG_USEFILE").is_ok() {
         info!("DEBUG_USEFILE detected: using cached data");
         // load trace data from file
@@ -195,17 +146,17 @@ pub async fn report(
         (cache_data.traces, cache_data.blocks)
     } else {
         // run traces on RPC
-        let block_data = if all_txs.is_empty() {
+        let block_data = if reporter.all_txs.is_empty() {
             debug!("No transactions found, estimating blocks from DB runs");
-            estimate_block_data(start_run_id, end_run_id, &rpc_client, db).await?
+            reporter.estimate_block_data().await?
         } else {
-            get_block_data(&all_txs, &rpc_client).await?
+            reporter.get_block_data().await?
         };
         let trace_data = if params.skip_tx_traces {
             info!("Skipping per-transaction traces (--skip-tx-traces)");
             vec![]
         } else {
-            get_block_traces(&block_data, &rpc_client).await?
+            get_block_traces(&block_data, &reporter.rpc_client).await?
         };
         (trace_data, block_data)
     };
@@ -297,7 +248,7 @@ pub async fn report(
     for method in latency_methods {
         // collect latency data from DB for each relevant run
         let mut canonical_latency: Vec<Bucket> = vec![];
-        for run_id in start_run_id..=end_run_id {
+        for run_id in reporter.run_id_range() {
             let latencies = db
                 .get_latency_metrics(run_id, method)
                 .map_err(|e| e.into())?;
@@ -319,8 +270,12 @@ pub async fn report(
 
     let block_time_delta_std_dev = block_time_delta_std_dev.unwrap_or(0.0);
 
-    let total_txs = all_txs.len() as u64;
-    let failed_txs = all_txs.iter().filter(|tx| tx.error.is_some()).count() as u64;
+    let total_txs = reporter.all_txs.len() as u64;
+    let failed_txs = reporter
+        .all_txs
+        .iter()
+        .filter(|tx| tx.error.is_some())
+        .count() as u64;
     let successful_txs = total_txs.saturating_sub(failed_txs);
     let failure_rate_desc = if total_txs > 0 {
         Some(format!(
@@ -366,7 +321,7 @@ pub async fn report(
                 method: method.to_owned(),
             })
             .collect(),
-        runtime_params: runtime_params_list,
+        runtime_params,
         total_txs: MetricDescriptor::new(total_txs, None),
         successful_txs: MetricDescriptor::new(successful_txs, None),
         failed_txs: MetricDescriptor::new(failed_txs, failure_rate_desc.as_deref()),
@@ -374,11 +329,11 @@ pub async fn report(
 
     let heatmap = HeatMapChart::new(&cache_data.traces)?;
     let gas_per_block = GasPerBlockChart::new(&cache_data.blocks);
-    let tti = TimeToInclusionChart::new(&all_txs, params.time_to_inclusion_bucket);
+    let tti = TimeToInclusionChart::new(&reporter.all_txs, params.time_to_inclusion_bucket);
     let gas_used = TxGasUsedChart::new(&cache_data.traces, 4000);
-    let pending_txs = PendingTxsChart::new(&all_txs);
-    let flashblock_tti = FlashblockTimeToInclusionChart::new(&all_txs);
-    let flashblock_idx = FlashblockIndexChart::new(&all_txs);
+    let pending_txs = PendingTxsChart::new(&reporter.all_txs);
+    let flashblock_tti = FlashblockTimeToInclusionChart::new(&reporter.all_txs);
+    let flashblock_idx = FlashblockIndexChart::new(&reporter.all_txs);
     // Build latency charts for tx-sending methods that have data.
     // Methods like eth_sendRawTransaction and eth_sendRawTransactionSync get
     // dedicated latency histogram charts; methods with no data are skipped.
@@ -404,18 +359,21 @@ pub async fn report(
 
     // compile report
     info!(
-        "Generating report (run_ids: {start_run_id}-{end_run_id}) (blocks {} to {})",
-        start_block, end_block
+        "Generating report (run_ids: {}-{}) (blocks {} to {})",
+        reporter.run_id_range().start,
+        reporter.run_id_range().end,
+        start_block,
+        end_block
     );
     let mut blocks = cache_data.blocks;
     blocks.sort_by_key(|a| a.header.number);
     let report_metadata = ReportMetadata {
         scenario_name: scenario_title,
-        start_run_id,
-        end_run_id,
+        start_run_id: reporter.run_id_range().start,
+        end_run_id: reporter.run_id_range().end,
         start_block,
         end_block,
-        rpc_url: rpc_url.to_string(),
+        rpc_url: reporter.rpc_url.to_string(),
         metrics,
         chart_data: ChartData {
             heatmap: heatmap.echart_data(),
@@ -450,17 +408,6 @@ pub async fn report(
         return Ok(());
     }
     webbrowser::open(report_path.to_string_lossy().as_ref())?;
-
-    Ok(())
-}
-
-/// Saves RunTxs to `{reports_dir}/{id}.csv`.
-fn save_csv_report(id: u64, txs: &[RunTx], reports_dir: &Path) -> Result<()> {
-    let out_path = reports_dir.join(format!("{id}.csv"));
-
-    info!("Exporting report for run #{id:?} to {out_path:?}");
-    let mut writer = WriterBuilder::new().has_headers(true).from_path(out_path)?;
-    write_run_txs(&mut writer, txs)?;
 
     Ok(())
 }

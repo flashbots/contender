@@ -32,7 +32,7 @@ pub async fn estimate_block_data(
     start_run_id: u64,
     end_run_id: u64,
     rpc_client: &AnyProvider,
-    db: &(impl DbOps + Clone + Send + Sync + 'static),
+    db: &(impl DbOps),
 ) -> Result<Vec<AnyRpcBlock>> {
     let start_run = db
         .get_run(start_run_id)
