@@ -254,6 +254,37 @@ The `param` field picks out the argument to inject by the name given in `signatu
 
 > 💡 Note that we require `args` to be specified, even when `fuzz` will replace its value. This may change.
 
+#### fuzzing transaction-level fields
+
+In addition to function arguments and the tx `value`, you can fuzz `max_priority_fee_per_gas` (EIP-1559 priority fee, in wei) by setting the `max_priority_fee_per_gas` flag on a `fuzz` entry:
+
+```toml
+[spam.tx]
+to = "{SpamMe2}"
+from_pool = "redpool"
+signature = "consumeGas(uint256 gasAmount)"
+args = ["3000000"]
+fuzz = [
+    { param = "gasAmount", min = "1000000", max = "3000000" },
+    { max_priority_fee_per_gas = true, min = "0x2540be400", max = "0x4a817c800" },
+]
+```
+
+Exactly one of `param`, `value`, or `max_priority_fee_per_gas` must be set per `fuzz` entry; combining them is rejected at scenario-load time.
+
+#### setting a static priority fee
+
+You can also pin a per-tx priority fee without fuzzing by setting `max_priority_fee_per_gas` directly on the spam step. The value is in wei and may use a `{placeholder}`. If unset, contender falls back to its default (`gas_price / 10`).
+
+```toml
+[spam.tx]
+to = "{SpamMe2}"
+from_pool = "redpool"
+signature = "consumeGas(uint256 gasAmount)"
+args = ["3000000"]
+max_priority_fee_per_gas = "10000000000"  # 10 gwei
+```
+
 ## run it
 
 Once your scenario config is complete, pass it to contender:

@@ -119,6 +119,7 @@ impl ToTestConfig for Erc20Args {
                     func_def = func_def.with_fuzz(&[FuzzParam {
                         param: Some("guy".to_string()),
                         value: None,
+                        max_priority_fee_per_gas: None,
                         min: Some(U256::from(1)),
                         max: Some(
                             U256::from_str("0x0000000000ffffffffffffffffffffffffffffffff").unwrap(),

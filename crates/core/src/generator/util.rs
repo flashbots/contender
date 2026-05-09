@@ -118,7 +118,11 @@ pub fn complete_tx_request(
             tx_req.gas_price = Some(gas_price);
         }
         TxType::Eip1559 => {
-            tx_req.max_fee_per_gas = Some(gas_price);
+            // EIP-1559 requires max_fee_per_gas >= max_priority_fee_per_gas.
+            // If a fuzzed/explicit priority fee is higher than the sampled
+            // base+tip cap, raise the cap to keep the tx well-formed.
+            let max_fee = gas_price.max(priority_fee);
+            tx_req.max_fee_per_gas = Some(max_fee);
             tx_req.max_priority_fee_per_gas = Some(priority_fee);
             tx_req.chain_id = Some(chain_id);
         }
@@ -246,5 +250,54 @@ pub mod test {
 
     pub fn spawn_anvil() -> AnvilInstance {
         Anvil::new().block_time_f64(0.25).try_spawn().unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_tx_req() -> TransactionRequest {
+        TransactionRequest::default()
+    }
+
+    #[test]
+    fn complete_tx_request_eip1559_uses_gas_price_when_priority_fee_lower() {
+        let mut tx = empty_tx_req();
+        complete_tx_request(&mut tx, TxType::Eip1559, 1_000, 100, 21_000, 1, 0);
+        assert_eq!(tx.max_fee_per_gas, Some(1_000));
+        assert_eq!(tx.max_priority_fee_per_gas, Some(100));
+        assert_eq!(tx.chain_id, Some(1));
+        assert_eq!(tx.gas, Some(21_000));
+    }
+
+    #[test]
+    fn complete_tx_request_eip1559_raises_max_fee_when_priority_fee_higher() {
+        // EIP-1559 invariant: max_fee_per_gas >= max_priority_fee_per_gas.
+        // When a fuzzed/explicit priority fee exceeds the sampled gas_price
+        // cap, the cap must be raised so the tx remains well-formed.
+        let mut tx = empty_tx_req();
+        complete_tx_request(&mut tx, TxType::Eip1559, 1_000, 5_000, 21_000, 1, 0);
+        assert_eq!(tx.max_fee_per_gas, Some(5_000));
+        assert_eq!(tx.max_priority_fee_per_gas, Some(5_000));
+    }
+
+    #[test]
+    fn complete_tx_request_eip1559_handles_equal_fees() {
+        let mut tx = empty_tx_req();
+        complete_tx_request(&mut tx, TxType::Eip1559, 2_000, 2_000, 21_000, 1, 0);
+        assert_eq!(tx.max_fee_per_gas, Some(2_000));
+        assert_eq!(tx.max_priority_fee_per_gas, Some(2_000));
+    }
+
+    #[test]
+    fn complete_tx_request_eip4844_inherits_eip1559_priority_fee_cap() {
+        // Eip4844 recurses into Eip1559 for gas params; the same invariant
+        // (max_fee_per_gas >= max_priority_fee_per_gas) must hold.
+        let mut tx = empty_tx_req();
+        complete_tx_request(&mut tx, TxType::Eip4844, 1_000, 5_000, 21_000, 1, 7);
+        assert_eq!(tx.max_fee_per_gas, Some(5_000));
+        assert_eq!(tx.max_priority_fee_per_gas, Some(5_000));
+        assert_eq!(tx.max_fee_per_blob_gas, Some(7));
     }
 }

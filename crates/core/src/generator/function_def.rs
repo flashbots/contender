@@ -46,6 +46,11 @@ pub struct FunctionCallDefinition {
     /// Defaults to false (only runs for the first account).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub for_all_accounts: bool,
+    /// Optional EIP-1559 priority fee (wei) for this tx. May be a `{placeholder}`.
+    /// If unset, the spammer falls back to its default (`gas_price / 10`).
+    /// This field is also fuzzable via `FuzzParam::max_priority_fee_per_gas = true`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_priority_fee_per_gas: Option<String>,
 }
 
 /// User-facing definition of a function call to be executed.
@@ -70,6 +75,7 @@ impl FunctionCallDefinition {
             blob_data: None,
             authorization_address: None,
             for_all_accounts: false,
+            max_priority_fee_per_gas: None,
         }
     }
 
@@ -122,6 +128,10 @@ impl FunctionCallDefinition {
         self.for_all_accounts = for_all_accounts;
         self
     }
+    pub fn with_max_priority_fee_per_gas(mut self, fee_wei: impl AsRef<str>) -> Self {
+        self.max_priority_fee_per_gas = Some(fee_wei.as_ref().to_owned());
+        self
+    }
 
     pub fn sidecar_data(&self) -> Result<Option<BlobTransactionSidecar>, GeneratorError> {
         let sidecar_data = if let Some(data) = self.blob_data.as_ref() {
@@ -154,6 +164,7 @@ pub struct FunctionCallDefinitionStrict {
     pub fuzz: Vec<FuzzParam>,
     pub kind: Option<String>,
     pub gas_limit: Option<u64>,
+    pub max_priority_fee_per_gas: Option<String>, // may be a placeholder, so we can't use u128
     pub sidecar: Option<BlobTransactionSidecar>,
     pub authorization: Option<Vec<SignedAuthorization>>,
 }
@@ -164,6 +175,8 @@ pub struct FuzzParam {
     pub param: Option<String>,
     /// Fuzz the `value` field of the tx (ETH sent with the tx).
     pub value: Option<bool>,
+    /// Fuzz the `max_priority_fee_per_gas` field of the tx (EIP-1559 priority fee, in wei).
+    pub max_priority_fee_per_gas: Option<bool>,
     /// Minimum value fuzzer will use.
     pub min: Option<U256>,
     /// Maximum value fuzzer will use.
@@ -220,5 +233,54 @@ mod tests {
             .with_from_pool("test_pool")
             .with_for_all_accounts(false);
         assert!(!def.for_all_accounts);
+    }
+
+    #[test]
+    fn parses_max_priority_fee_per_gas_field() {
+        let toml = r#"
+            to = "0x1234567890123456789012345678901234567890"
+            from_pool = "p"
+            signature = "burn(uint256)"
+            max_priority_fee_per_gas = "10000000000"
+        "#;
+        let def: FunctionCallDefinition = toml::from_str(toml).unwrap();
+        assert_eq!(def.max_priority_fee_per_gas.as_deref(), Some("10000000000"));
+    }
+
+    #[test]
+    fn parses_fuzz_with_max_priority_fee_per_gas_flag() {
+        let toml = r#"
+            to = "0x1234567890123456789012345678901234567890"
+            from_pool = "p"
+            signature = "burn(uint256)"
+            fuzz = [{ max_priority_fee_per_gas = true, min = "0x2540be400", max = "0x4a817c800" }]
+        "#;
+        let def: FunctionCallDefinition = toml::from_str(toml).unwrap();
+        let fuzz = def.fuzz.expect("fuzz must parse");
+        assert_eq!(fuzz.len(), 1);
+        assert_eq!(fuzz[0].max_priority_fee_per_gas, Some(true));
+        assert!(fuzz[0].param.is_none());
+        assert!(fuzz[0].value.is_none());
+    }
+
+    #[test]
+    fn fuzz_with_priority_fee_and_param_parses_for_runtime_rejection() {
+        // Deserialization itself succeeds — the conflict between `param` and
+        // `max_priority_fee_per_gas` is caught later by `parse_map_key` when
+        // the fuzz map is built (see
+        // `parse_map_key_rejects_param_and_priority_fee` in trait.rs). This
+        // test only confirms the parser tolerates the combination so the
+        // runtime check has a chance to run with a useful error.
+        let toml = r#"
+            to = "0x1234567890123456789012345678901234567890"
+            from_pool = "p"
+            signature = "burn(uint256 n)"
+            fuzz = [{ param = "n", max_priority_fee_per_gas = true, min = "0x1", max = "0x2" }]
+        "#;
+        let def: FunctionCallDefinition =
+            toml::from_str(toml).expect("toml parses; conflict caught at runtime");
+        let fuzz = def.fuzz.expect("fuzz must parse");
+        assert!(fuzz[0].param.is_some());
+        assert_eq!(fuzz[0].max_priority_fee_per_gas, Some(true));
     }
 }

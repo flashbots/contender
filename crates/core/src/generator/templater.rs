@@ -225,6 +225,11 @@ where
             .as_ref()
             .map(|x| self.replace_placeholders(x, placeholder_map))
             .and_then(|s| s.parse::<U256>().ok());
+        let max_priority_fee_per_gas = funcdef
+            .max_priority_fee_per_gas
+            .as_ref()
+            .map(|x| self.replace_placeholders(x, placeholder_map))
+            .and_then(|s| s.parse::<u128>().ok());
 
         Ok(TransactionRequest {
             to: Some(TxKind::Call(to)),
@@ -232,6 +237,7 @@ where
             from: Some(funcdef.from),
             value,
             gas: funcdef.gas_limit,
+            max_priority_fee_per_gas,
             sidecar: funcdef.sidecar.as_ref().map(|sc| sc.to_owned().into()),
             authorization_list: funcdef.authorization.to_owned(),
             ..Default::default()
