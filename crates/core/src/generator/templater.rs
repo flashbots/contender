@@ -2,18 +2,15 @@ use crate::{
     db::{DbError, DbOps},
     generator::{
         constants::{SENDER_KEY, SETCODE_KEY},
-        function_def::{
-            AccessListDefinition, FunctionCallDefinition, FunctionCallDefinitionStrict,
-        },
+        function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict},
         util::{encode_calldata, scenario_db_key, UtilError},
         CreateDefinition,
     },
 };
 use alloy::{
-    eips::eip2930::{AccessList, AccessListItem},
     hex::{FromHex, ToHexExt},
-    primitives::{Address, Bytes, FixedBytes, TxKind, B256, U256},
-    rpc::types::TransactionRequest,
+    primitives::{Address, Bytes, FixedBytes, TxKind, U256},
+    rpc::types::{AccessList, TransactionRequest},
 };
 use std::collections::HashMap;
 use thiserror::Error;
@@ -35,9 +32,6 @@ pub enum TemplaterError {
 
     #[error("failed to parse address '{0}'")]
     ParseAddressFailed(String),
-
-    #[error("failed to parse storage key '{0}'")]
-    ParseStorageKeyFailed(String),
 
     #[error("templater util error")]
     Util(#[from] UtilError),
@@ -111,7 +105,7 @@ where
 
     /// Finds {placeholders} in `fncall` and looks them up in `db`,
     /// then inserts the values it finds into `placeholder_map`.
-    /// NOTE: only finds placeholders in `args`, `authorization_addr`, `access_list`, and `to` fields.
+    /// NOTE: only finds placeholders in `args`, `authorization_addr`, and `to` fields.
     fn find_fncall_placeholders(
         &self,
         fncall: &FunctionCallDefinition,
@@ -161,61 +155,7 @@ where
                 scenario_label,
             )?;
         }
-        if let Some(access_list) = &fncall.access_list {
-            for entry in access_list {
-                self.find_placeholder_values(
-                    &entry.address,
-                    placeholder_map,
-                    db,
-                    rpc_url,
-                    genesis_hash,
-                    scenario_label,
-                )?;
-                for storage_key in &entry.storage_keys {
-                    self.find_placeholder_values(
-                        storage_key,
-                        placeholder_map,
-                        db,
-                        rpc_url,
-                        genesis_hash,
-                        scenario_label,
-                    )?;
-                }
-            }
-        }
         Ok(())
-    }
-
-    fn template_access_list(
-        &self,
-        access_list: &[AccessListDefinition],
-        placeholder_map: &HashMap<K, String>,
-    ) -> Result<AccessList> {
-        access_list
-            .iter()
-            .map(|entry| {
-                let address = self.replace_placeholders(&entry.address, placeholder_map);
-                let address = address
-                    .parse::<Address>()
-                    .map_err(|_| TemplaterError::ParseAddressFailed(address))?;
-                let storage_keys = entry
-                    .storage_keys
-                    .iter()
-                    .map(|storage_key| {
-                        let storage_key = self.replace_placeholders(storage_key, placeholder_map);
-                        storage_key
-                            .parse::<B256>()
-                            .map_err(|_| TemplaterError::ParseStorageKeyFailed(storage_key))
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-
-                Ok(AccessListItem {
-                    address,
-                    storage_keys,
-                })
-            })
-            .collect::<Result<Vec<_>>>()
-            .map(AccessList::from)
     }
 
     /// Finds {placeholders} in create constructor args and updates the placeholder map.
@@ -285,11 +225,7 @@ where
             .as_ref()
             .map(|x| self.replace_placeholders(x, placeholder_map))
             .and_then(|s| s.parse::<U256>().ok());
-        let access_list = funcdef
-            .access_list
-            .as_deref()
-            .map(|list| self.template_access_list(list, placeholder_map))
-            .transpose()?;
+        let access_list = funcdef.access_list.to_owned().map(AccessList::from);
 
         Ok(TransactionRequest {
             to: Some(TxKind::Call(to)),
@@ -355,11 +291,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generator::{
-        function_def::{AccessListDefinition, FunctionCallDefinitionStrict},
-        util::complete_tx_request,
-    };
+    use crate::generator::{function_def::FunctionCallDefinitionStrict, util::complete_tx_request};
     use alloy::consensus::TxType;
+    use alloy::primitives::B256;
+    use alloy::rpc::types::AccessListItem;
     use std::collections::HashMap;
 
     struct TestTemplater;
@@ -405,12 +340,9 @@ mod tests {
         let templater = TestTemplater;
         let access_list_address = "0x4200000000000000000000000000000000000022";
         let storage_key = "0x0100000000000000000000000000000000000000000000000000000000000000";
-        let placeholder_storage_key =
+        let second_storage_key =
             "0x0300000000000000000000000000000000000000000000000000000000000000";
-        let placeholder_map = HashMap::from([(
-            "lookup_key".to_string(),
-            placeholder_storage_key.to_string(),
-        )]);
+        let placeholder_map = HashMap::new();
         let funcdef = FunctionCallDefinitionStrict {
             to: access_list_address.to_string(),
             from: Address::ZERO,
@@ -422,9 +354,12 @@ mod tests {
             gas_limit: Some(200_000),
             sidecar: None,
             authorization: None,
-            access_list: Some(vec![AccessListDefinition {
-                address: access_list_address.to_string(),
-                storage_keys: vec![storage_key.to_string(), "{lookup_key}".to_string()],
+            access_list: Some(vec![AccessListItem {
+                address: access_list_address.parse::<Address>().unwrap(),
+                storage_keys: vec![
+                    storage_key.parse::<B256>().unwrap(),
+                    second_storage_key.parse::<B256>().unwrap(),
+                ],
             }]),
         };
 
@@ -445,7 +380,7 @@ mod tests {
         );
         assert_eq!(
             access_list[0].storage_keys[1],
-            placeholder_storage_key.parse::<B256>().unwrap()
+            second_storage_key.parse::<B256>().unwrap()
         );
 
         complete_tx_request(&mut tx, TxType::Eip1559, 10, 1, 200_000, 1, 0);

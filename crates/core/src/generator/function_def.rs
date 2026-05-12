@@ -4,6 +4,7 @@ use alloy::{
     eips::eip7702::SignedAuthorization,
     hex::{FromHex, ToHexExt},
     primitives::{Address, Bytes, U256},
+    rpc::types::AccessListItem,
 };
 use serde::{Deserialize, Serialize};
 
@@ -44,20 +45,11 @@ pub struct FunctionCallDefinition {
     pub authorization_address: Option<String>,
     /// Optional EIP-2930 access list entries to include in the transaction.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub access_list: Option<Vec<AccessListDefinition>>,
+    pub access_list: Option<Vec<AccessListItem>>,
     /// If true and `from_pool` is set, run this setup transaction for all accounts in the pool.
     /// Defaults to false (only runs for the first account).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub for_all_accounts: bool,
-}
-
-/// User-facing EIP-2930 access list entry.
-#[derive(Clone, Deserialize, Debug, Eq, PartialEq, Serialize)]
-pub struct AccessListDefinition {
-    /// Account address to warm before execution.
-    pub address: String,
-    /// Storage keys to warm for `address`.
-    pub storage_keys: Vec<String>,
 }
 
 /// User-facing definition of a function call to be executed.
@@ -131,7 +123,7 @@ impl FunctionCallDefinition {
         self.authorization_address = Some(auth_addr.as_ref().to_owned());
         self
     }
-    pub fn with_access_list(mut self, access_list: Vec<AccessListDefinition>) -> Self {
+    pub fn with_access_list(mut self, access_list: Vec<AccessListItem>) -> Self {
         self.access_list = Some(access_list);
         self
     }
@@ -173,7 +165,7 @@ pub struct FunctionCallDefinitionStrict {
     pub gas_limit: Option<u64>,
     pub sidecar: Option<BlobTransactionSidecar>,
     pub authorization: Option<Vec<SignedAuthorization>>,
-    pub access_list: Option<Vec<AccessListDefinition>>,
+    pub access_list: Option<Vec<AccessListItem>>,
 }
 
 #[derive(Clone, Deserialize, Debug, Serialize)]
@@ -249,7 +241,7 @@ mod tests {
 
             [[access_list]]
             address = "0x4200000000000000000000000000000000000022"
-            storage_keys = [
+            storageKeys = [
                 "0x0100000000000000000000000000000000000000000000000000000000000000",
                 "0x0300000000000000000000000000000000000000000000000000000000000000",
             ]
@@ -259,7 +251,7 @@ mod tests {
 
         assert_eq!(access_list.len(), 1);
         assert_eq!(
-            access_list[0].address,
+            access_list[0].address.to_string(),
             "0x4200000000000000000000000000000000000022"
         );
         assert_eq!(access_list[0].storage_keys.len(), 2);

@@ -227,7 +227,7 @@ pub mod tests {
 
             [[spam.tx.access_list]]
             address = "0x4200000000000000000000000000000000000022"
-            storage_keys = [
+            storageKeys = [
                 "0x0100000000000000000000000000000000000000000000000000000000000000",
                 "0x0300000000000000000000000000000000000000000000000000000000000000",
             ]
@@ -241,7 +241,7 @@ pub mod tests {
                 let access_list = fncall.access_list.as_ref().unwrap();
                 assert_eq!(access_list.len(), 1);
                 assert_eq!(
-                    access_list[0].address,
+                    access_list[0].address.to_string(),
                     "0x4200000000000000000000000000000000000022"
                 );
                 assert_eq!(access_list[0].storage_keys.len(), 2);
