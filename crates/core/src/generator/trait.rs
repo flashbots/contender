@@ -327,6 +327,7 @@ where
             gas_limit: funcdef.gas_limit.to_owned(),
             sidecar: funcdef.sidecar_data()?,
             authorization: signed_auth.map(|a| vec![a]),
+            access_list: funcdef.access_list.to_owned(),
         })
     }
 

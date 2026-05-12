@@ -214,6 +214,42 @@ pub mod tests {
         }
     }
 
+    #[test]
+    fn parses_spam_tx_access_list_toml() {
+        let test_file = TestConfig::from_str(
+            r#"
+            [[spam]]
+            [spam.tx]
+            to = "0x4200000000000000000000000000000000000022"
+            from_pool = "spammers"
+            signature = "validate()"
+            gas_limit = 200000
+
+            [[spam.tx.access_list]]
+            address = "0x4200000000000000000000000000000000000022"
+            storage_keys = [
+                "0x0100000000000000000000000000000000000000000000000000000000000000",
+                "0x0300000000000000000000000000000000000000000000000000000000000000",
+            ]
+            "#,
+        )
+        .unwrap();
+        let spam = test_file.spam.unwrap();
+
+        match &spam[0] {
+            SpamRequest::Tx(fncall) => {
+                let access_list = fncall.access_list.as_ref().unwrap();
+                assert_eq!(access_list.len(), 1);
+                assert_eq!(
+                    access_list[0].address,
+                    "0x4200000000000000000000000000000000000022"
+                );
+                assert_eq!(access_list[0].storage_keys.len(), 2);
+            }
+            SpamRequest::Bundle(_) => panic!("expected SpamRequest::Tx"),
+        }
+    }
+
     fn repo_root_path() -> std::path::PathBuf {
         let mut dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         dir.pop(); // crates

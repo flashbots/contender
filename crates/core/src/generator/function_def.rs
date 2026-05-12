@@ -42,10 +42,22 @@ pub struct FunctionCallDefinition {
     /// Optional setCode data; tx type must be set to EIP7702 by spammer
     #[serde(skip_serializing_if = "Option::is_none")]
     pub authorization_address: Option<String>,
+    /// Optional EIP-2930 access list entries to include in the transaction.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_list: Option<Vec<AccessListDefinition>>,
     /// If true and `from_pool` is set, run this setup transaction for all accounts in the pool.
     /// Defaults to false (only runs for the first account).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub for_all_accounts: bool,
+}
+
+/// User-facing EIP-2930 access list entry.
+#[derive(Clone, Deserialize, Debug, Eq, PartialEq, Serialize)]
+pub struct AccessListDefinition {
+    /// Account address to warm before execution.
+    pub address: String,
+    /// Storage keys to warm for `address`.
+    pub storage_keys: Vec<String>,
 }
 
 /// User-facing definition of a function call to be executed.
@@ -69,6 +81,7 @@ impl FunctionCallDefinition {
             gas_limit: None,
             blob_data: None,
             authorization_address: None,
+            access_list: None,
             for_all_accounts: false,
         }
     }
@@ -118,6 +131,10 @@ impl FunctionCallDefinition {
         self.authorization_address = Some(auth_addr.as_ref().to_owned());
         self
     }
+    pub fn with_access_list(mut self, access_list: Vec<AccessListDefinition>) -> Self {
+        self.access_list = Some(access_list);
+        self
+    }
     pub fn with_for_all_accounts(mut self, for_all_accounts: bool) -> Self {
         self.for_all_accounts = for_all_accounts;
         self
@@ -156,6 +173,7 @@ pub struct FunctionCallDefinitionStrict {
     pub gas_limit: Option<u64>,
     pub sidecar: Option<BlobTransactionSidecar>,
     pub authorization: Option<Vec<SignedAuthorization>>,
+    pub access_list: Option<Vec<AccessListDefinition>>,
 }
 
 #[derive(Clone, Deserialize, Debug, Serialize)]
@@ -220,5 +238,30 @@ mod tests {
             .with_from_pool("test_pool")
             .with_for_all_accounts(false);
         assert!(!def.for_all_accounts);
+    }
+
+    #[test]
+    fn access_list_parses_from_toml() {
+        let toml = r#"
+            to = "0x1234567890123456789012345678901234567890"
+            from_pool = "test_pool"
+            signature = "test()"
+
+            [[access_list]]
+            address = "0x4200000000000000000000000000000000000022"
+            storage_keys = [
+                "0x0100000000000000000000000000000000000000000000000000000000000000",
+                "0x0300000000000000000000000000000000000000000000000000000000000000",
+            ]
+        "#;
+        let def: FunctionCallDefinition = toml::from_str(toml).unwrap();
+        let access_list = def.access_list.unwrap();
+
+        assert_eq!(access_list.len(), 1);
+        assert_eq!(
+            access_list[0].address,
+            "0x4200000000000000000000000000000000000022"
+        );
+        assert_eq!(access_list[0].storage_keys.len(), 2);
     }
 }
