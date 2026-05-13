@@ -1,4 +1,4 @@
-use crate::generator::error::GeneratorError;
+use crate::generator::{error::GeneratorError, util::deserialize_value_opt};
 use alloy::{
     consensus::{BlobTransactionSidecar, SidecarBuilder, SimpleCoder},
     eips::eip7702::SignedAuthorization,
@@ -46,9 +46,12 @@ pub struct FunctionCallDefinition {
     /// Defaults to false (only runs for the first account).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub for_all_accounts: bool,
-    /// Optional EIP-1559 priority fee (wei) for this tx. May be a `{placeholder}`.
-    /// If unset, the spammer falls back to its default (`gas_price / 10`).
-    /// This field is also fuzzable via `FuzzParam::max_priority_fee_per_gas = true`.
+    /// Optional EIP-1559 priority fee for this tx. Accepts raw wei
+    /// (`"10000000000"`), hex (`"0x2540be400"`), or a unit string
+    /// (`"10 gwei"`, `"0.001 eth"`). May also be a `{placeholder}` that
+    /// resolves to one of those forms. If unset, the spammer falls back to
+    /// its default (`gas_price / 10`). This field is also fuzzable via
+    /// `FuzzParam::max_priority_fee_per_gas = true`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_priority_fee_per_gas: Option<String>,
 }
@@ -128,8 +131,8 @@ impl FunctionCallDefinition {
         self.for_all_accounts = for_all_accounts;
         self
     }
-    pub fn with_max_priority_fee_per_gas(mut self, fee_wei: impl AsRef<str>) -> Self {
-        self.max_priority_fee_per_gas = Some(fee_wei.as_ref().to_owned());
+    pub fn with_max_priority_fee_per_gas(mut self, fee: impl AsRef<str>) -> Self {
+        self.max_priority_fee_per_gas = Some(fee.as_ref().to_owned());
         self
     }
 
@@ -177,9 +180,13 @@ pub struct FuzzParam {
     pub value: Option<bool>,
     /// Fuzz the `max_priority_fee_per_gas` field of the tx (EIP-1559 priority fee, in wei).
     pub max_priority_fee_per_gas: Option<bool>,
-    /// Minimum value fuzzer will use.
+    /// Minimum value fuzzer will use. Accepts raw wei (`"100"`), hex
+    /// (`"0x2540be400"`), or unit strings (`"10 gwei"`, `"0.001 eth"`).
+    #[serde(default, deserialize_with = "deserialize_value_opt")]
     pub min: Option<U256>,
-    /// Maximum value fuzzer will use.
+    /// Maximum value fuzzer will use. Accepts raw wei (`"100"`), hex
+    /// (`"0x2540be400"`), or unit strings (`"10 gwei"`, `"0.001 eth"`).
+    #[serde(default, deserialize_with = "deserialize_value_opt")]
     pub max: Option<U256>,
 }
 
@@ -235,32 +242,79 @@ mod tests {
         assert!(!def.for_all_accounts);
     }
 
-    #[test]
-    fn parses_max_priority_fee_per_gas_field() {
-        let toml = r#"
-            to = "0x1234567890123456789012345678901234567890"
-            from_pool = "p"
-            signature = "burn(uint256)"
-            max_priority_fee_per_gas = "10000000000"
-        "#;
-        let def: FunctionCallDefinition = toml::from_str(toml).unwrap();
-        assert_eq!(def.max_priority_fee_per_gas.as_deref(), Some("10000000000"));
+    /// Build a `FunctionCallDefinition` toml fragment with the given static
+    /// priority-fee literal so a single test can sweep every accepted format
+    /// (raw wei, hex, unit string).
+    fn def_toml_with_static_fee(fee_literal: &str) -> String {
+        format!(
+            r#"
+                to = "0x1234567890123456789012345678901234567890"
+                from_pool = "p"
+                signature = "burn(uint256)"
+                max_priority_fee_per_gas = "{fee_literal}"
+            "#
+        )
+    }
+
+    /// Build a `FunctionCallDefinition` toml fragment with a single fuzz entry
+    /// whose `min`/`max` use the given literals. Parsing is exercised; the
+    /// resulting `U256` values are returned to the test for assertion.
+    fn def_toml_with_fuzz_range(min_literal: &str, max_literal: &str) -> String {
+        format!(
+            r#"
+                to = "0x1234567890123456789012345678901234567890"
+                from_pool = "p"
+                signature = "burn(uint256)"
+                fuzz = [{{ max_priority_fee_per_gas = true, min = "{min_literal}", max = "{max_literal}" }}]
+            "#
+        )
     }
 
     #[test]
-    fn parses_fuzz_with_max_priority_fee_per_gas_flag() {
-        let toml = r#"
-            to = "0x1234567890123456789012345678901234567890"
-            from_pool = "p"
-            signature = "burn(uint256)"
-            fuzz = [{ max_priority_fee_per_gas = true, min = "0x2540be400", max = "0x4a817c800" }]
-        "#;
-        let def: FunctionCallDefinition = toml::from_str(toml).unwrap();
-        let fuzz = def.fuzz.expect("fuzz must parse");
-        assert_eq!(fuzz.len(), 1);
-        assert_eq!(fuzz[0].max_priority_fee_per_gas, Some(true));
-        assert!(fuzz[0].param.is_none());
-        assert!(fuzz[0].value.is_none());
+    fn parses_max_priority_fee_per_gas_field_in_every_format() {
+        // The raw string is preserved as-is on the model; downstream code
+        // (templater) is what resolves it. We assert every format round-trips
+        // through deserialization unchanged.
+        for fee in ["10000000000", "0x2540be400", "10 gwei", "0.00000001 eth"] {
+            let def: FunctionCallDefinition = toml::from_str(&def_toml_with_static_fee(fee))
+                .unwrap_or_else(|e| panic!("toml must parse for fee={fee:?}: {e}"));
+            assert_eq!(def.max_priority_fee_per_gas.as_deref(), Some(fee));
+        }
+    }
+
+    #[test]
+    fn parses_fuzz_with_max_priority_fee_per_gas_flag_in_every_format() {
+        // `min`/`max` go through `deserialize_value_opt`, which accepts wei,
+        // hex, and unit strings — all three should parse to identical U256
+        // values when they represent the same amount.
+        let ten_gwei = U256::from(10_000_000_000u128);
+        let twenty_gwei = U256::from(20_000_000_000u128);
+        let cases: [(&str, &str); 3] = [
+            ("10000000000", "20000000000"),
+            ("0x2540be400", "0x4a817c800"),
+            ("10 gwei", "20 gwei"),
+        ];
+        for (min_literal, max_literal) in cases {
+            let def: FunctionCallDefinition =
+                toml::from_str(&def_toml_with_fuzz_range(min_literal, max_literal)).unwrap_or_else(
+                    |e| panic!("toml must parse for min={min_literal:?}, max={max_literal:?}: {e}"),
+                );
+            let fuzz = def.fuzz.expect("fuzz must parse");
+            assert_eq!(fuzz.len(), 1);
+            assert_eq!(fuzz[0].max_priority_fee_per_gas, Some(true));
+            assert!(fuzz[0].param.is_none());
+            assert!(fuzz[0].value.is_none());
+            assert_eq!(
+                fuzz[0].min,
+                Some(ten_gwei),
+                "min mismatch for {min_literal:?}"
+            );
+            assert_eq!(
+                fuzz[0].max,
+                Some(twenty_gwei),
+                "max mismatch for {max_literal:?}"
+            );
+        }
     }
 
     #[test]
