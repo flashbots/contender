@@ -1938,6 +1938,18 @@ where
                 tx_req.max_fee_per_blob_gas = Some(blob_gas_price);
                 tx_req.blob_versioned_hashes = Some(sidecar.versioned_hashes().collect());
             }
+            // estimate_gas simulates the tx, so it enforces EIP-1559's
+            // max_fee_per_gas >= max_priority_fee_per_gas invariant. When the
+            // scenario set a priority fee (statically or via fuzz), max_fee_per_gas
+            // is still unset here (complete_tx_request runs later), so without
+            // this lift the node rejects the estimation call. The real fee cap
+            // is applied later in complete_tx_request.
+            if let Some(priority_fee) = tx_req.max_priority_fee_per_gas {
+                let current_max = tx_req.max_fee_per_gas.unwrap_or(0);
+                if current_max < priority_fee {
+                    tx_req.max_fee_per_gas = Some(priority_fee);
+                }
+            }
             let gas_limit = if let Some(gas) = tx_req.gas {
                 gas
             } else {
@@ -2186,7 +2198,7 @@ pub mod tests {
         PlanConfig,
     };
     use crate::spammer::util::test::get_test_signers;
-    use crate::spammer::{BlockwiseSpammer, NilCallback, Spammer};
+    use crate::spammer::{BlockwiseSpammer, ExecutionPayload, NilCallback, Spammer};
     use crate::test_scenario::{read_setup_concurrency_limit, TestScenario};
     use crate::Error;
     use crate::Result;
@@ -2512,6 +2524,51 @@ pub mod tests {
             }
             _ => panic!("expected tx"),
         }
+    }
+
+    /// Regression test: when a spam tx specifies `max_priority_fee_per_gas`
+    /// (statically or via fuzz) higher than the chain's gas price, gas
+    /// estimation used to fail with
+    /// "max priority fee per gas higher than max fee per gas" because
+    /// `complete_tx_request` ran after `estimate_gas`. `update_gas_map` now
+    /// lifts `max_fee_per_gas` to the priority fee on the estimation copy.
+    #[tokio::test]
+    async fn high_priority_fee_does_not_break_gas_estimation(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let anvil = spawn_anvil();
+        let mut scenario = get_test_scenario(&anvil, None, None).await?;
+        scenario.deploy_contracts().await?;
+        scenario.run_setup().await?;
+
+        // 10 gwei priority fee — well above anvil's near-zero gas price, so
+        // without the fix `estimate_gas` rejects the simulated tx.
+        let high_priority_fee: u128 = 10 * GWEI_TO_WEI as u128;
+
+        let mut chunks = scenario.get_spam_tx_chunks(1, 1).await?;
+        let chunk = chunks.first_mut().expect("at least one spam chunk");
+        let spam_req = chunk.first_mut().expect("at least one spam tx");
+        match spam_req {
+            ExecutionRequest::Tx(tx) => {
+                tx.tx.max_priority_fee_per_gas = Some(high_priority_fee);
+            }
+            ExecutionRequest::Bundle(_) => panic!("expected non-bundle spam tx"),
+        }
+
+        let payloads = scenario.prepare_spam(chunk).await?;
+        let payload = payloads.first().expect("one prepared payload");
+        match payload {
+            ExecutionPayload::SignedTx(_envelope, req) => {
+                let max_priority = req.tx.max_priority_fee_per_gas.unwrap();
+                let max_fee = req.tx.max_fee_per_gas.unwrap();
+                assert_eq!(max_priority, high_priority_fee);
+                assert!(
+                    max_fee >= max_priority,
+                    "EIP-1559 invariant violated: max_fee_per_gas ({max_fee}) < max_priority_fee_per_gas ({max_priority})",
+                );
+            }
+            ExecutionPayload::SignedTxBundle(_, _) => panic!("expected non-bundle payload"),
+        }
+        Ok(())
     }
 
     #[tokio::test]
