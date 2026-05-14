@@ -1,6 +1,6 @@
 use super::{SeedValue, Seeder};
 use alloy::primitives::{keccak256, U256};
-use rand::Rng;
+use rand::RngExt;
 
 /// Default seed generator, using a random 32-byte seed.
 #[derive(Debug, Clone)]

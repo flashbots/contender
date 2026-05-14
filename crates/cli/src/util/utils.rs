@@ -21,7 +21,7 @@ use contender_core::{
 use contender_engine_provider::DEFAULT_BLOCK_TIME;
 use contender_testfile::TestConfig;
 use nu_ansi_term::{AnsiGenericString, Style as ANSIStyle};
-use rand::Rng;
+use rand::RngExt;
 use std::path::{Path, PathBuf};
 use std::{str::FromStr, sync::Arc, time::Duration};
 use tokio::sync::Semaphore;
