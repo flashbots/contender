@@ -3,7 +3,7 @@ use crate::{
     generator::{
         constants::{SENDER_KEY, SETCODE_KEY},
         function_def::{FunctionCallDefinition, FunctionCallDefinitionStrict},
-        util::{encode_calldata, scenario_db_key, UtilError},
+        util::{encode_calldata, parse_value, scenario_db_key, UtilError},
         CreateDefinition,
     },
 };
@@ -32,6 +32,9 @@ pub enum TemplaterError {
 
     #[error("failed to parse address '{0}'")]
     ParseAddressFailed(String),
+
+    #[error("failed to parse max_priority_fee_per_gas '{input}': {reason}")]
+    ParsePriorityFeeFailed { input: String, reason: String },
 
     #[error("templater util error")]
     Util(#[from] UtilError),
@@ -225,6 +228,29 @@ where
             .as_ref()
             .map(|x| self.replace_placeholders(x, placeholder_map))
             .and_then(|s| s.parse::<U256>().ok());
+        // Accept plain wei ("10000000000"), hex ("0x2540be400"), or unit
+        // strings ("10 gwei", "0.001 eth"). The string may also be a
+        // `{placeholder}` that resolves to one of those forms. We surface a
+        // hard error on a malformed value rather than silently dropping it
+        // — a misconfigured fee field used to become `None`, which looked
+        // valid in TOML but quietly disabled the override.
+        let max_priority_fee_per_gas = funcdef
+            .max_priority_fee_per_gas
+            .as_ref()
+            .map(|raw| {
+                let resolved = self.replace_placeholders(raw, placeholder_map);
+                let parsed = parse_value(&resolved).map_err(|err| {
+                    TemplaterError::ParsePriorityFeeFailed {
+                        input: resolved.clone(),
+                        reason: err.to_string(),
+                    }
+                })?;
+                u128::try_from(parsed).map_err(|_| TemplaterError::ParsePriorityFeeFailed {
+                    input: resolved,
+                    reason: "value exceeds u128::MAX".to_owned(),
+                })
+            })
+            .transpose()?;
 
         Ok(TransactionRequest {
             to: Some(TxKind::Call(to)),
@@ -232,6 +258,7 @@ where
             from: Some(funcdef.from),
             value,
             gas: funcdef.gas_limit,
+            max_priority_fee_per_gas,
             sidecar: funcdef.sidecar.as_ref().map(|sc| sc.to_owned().into()),
             authorization_list: funcdef.authorization.to_owned(),
             ..Default::default()
@@ -283,5 +310,122 @@ where
             ..Default::default()
         };
         Ok(tx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::generator::function_def::FunctionCallDefinitionStrict;
+
+    /// Minimal `Templater<String>` mirroring the production `{key}` syntax,
+    /// used so the priority-fee parsing path can be exercised in isolation.
+    struct CurlyBraceTemplater;
+
+    impl Templater<String> for CurlyBraceTemplater {
+        fn replace_placeholders(
+            &self,
+            input: &str,
+            template_map: &HashMap<String, String>,
+        ) -> String {
+            let mut output = input.to_owned();
+            for (key, value) in template_map.iter() {
+                output = output.replace(&format!("{{{key}}}"), value);
+            }
+            output
+        }
+
+        fn terminator_start(&self, input: &str) -> Option<usize> {
+            input.find('{')
+        }
+
+        fn terminator_end(&self, input: &str) -> Option<usize> {
+            input.find('}')
+        }
+
+        fn num_placeholders(&self, input: &str) -> usize {
+            input.chars().filter(|&c| c == '{').count()
+        }
+
+        fn copy_end(&self, input: &str, last_end: usize) -> String {
+            input.split_at(last_end).1.to_owned()
+        }
+
+        fn find_key(&self, input: &str) -> Option<(String, usize)> {
+            let start = self.terminator_start(input)?;
+            let end = self.terminator_end(input)?;
+            Some((input[start + 1..end].to_owned(), end))
+        }
+    }
+
+    /// Build a strict call definition whose only meaningful field for the
+    /// priority-fee tests is `max_priority_fee_per_gas`. Everything else gets
+    /// a uniform default so each test's `#[case]`-like row stays short.
+    fn strict_def_with_priority_fee(priority_fee: Option<&str>) -> FunctionCallDefinitionStrict {
+        FunctionCallDefinitionStrict {
+            to: "0x0000000000000000000000000000000000000001".to_owned(),
+            from: Address::ZERO,
+            signature: String::new(),
+            args: vec![],
+            value: None,
+            fuzz: vec![],
+            kind: None,
+            gas_limit: None,
+            max_priority_fee_per_gas: priority_fee.map(|s| s.to_owned()),
+            sidecar: None,
+            authorization: None,
+        }
+    }
+
+    #[test]
+    fn priority_fee_accepts_wei_hex_and_unit_strings() {
+        // Same expected u128 (10 gwei) produced from three accepted formats,
+        // plus a no-fee baseline to confirm `None` round-trips.
+        let cases: &[(Option<&str>, Option<u128>)] = &[
+            (None, None),
+            (Some("10000000000"), Some(10_000_000_000)),
+            (Some("0x2540be400"), Some(10_000_000_000)),
+            (Some("10 gwei"), Some(10_000_000_000)),
+            (Some("0.00000001 eth"), Some(10_000_000_000)),
+        ];
+        for (input, expected) in cases {
+            let templater = CurlyBraceTemplater;
+            let strict = strict_def_with_priority_fee(*input);
+            let tx = templater
+                .template_function_call(&strict, &HashMap::new())
+                .unwrap_or_else(|e| panic!("templater must succeed for input={input:?}: {e}"));
+            assert_eq!(
+                tx.max_priority_fee_per_gas, *expected,
+                "priority fee mismatch for input={input:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn priority_fee_resolves_placeholder_before_parsing() {
+        let templater = CurlyBraceTemplater;
+        let strict = strict_def_with_priority_fee(Some("{fee}"));
+        let placeholders = HashMap::from([("fee".to_owned(), "10 gwei".to_owned())]);
+        let tx = templater
+            .template_function_call(&strict, &placeholders)
+            .expect("templater must resolve placeholder then parse");
+        assert_eq!(tx.max_priority_fee_per_gas, Some(10_000_000_000));
+    }
+
+    #[test]
+    fn priority_fee_returns_error_for_malformed_string() {
+        // Previously these would silently become `None`; now they must error
+        // so misconfiguration is visible at scenario-load time.
+        for bad in ["banana", "10 banana", "abc gwei"] {
+            let templater = CurlyBraceTemplater;
+            let strict = strict_def_with_priority_fee(Some(bad));
+            let err = templater
+                .template_function_call(&strict, &HashMap::new())
+                .expect_err(&format!("expected error for input={bad:?}"));
+            assert!(
+                matches!(err, TemplaterError::ParsePriorityFeeFailed { .. }),
+                "wrong error variant for input={bad:?}: {err:?}",
+            );
+        }
     }
 }

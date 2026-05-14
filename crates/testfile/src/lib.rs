@@ -91,6 +91,7 @@ pub mod tests {
                 .with_fuzz(&[FuzzParam {
                     param: Some("x".to_string()),
                     value: None,
+                    max_priority_fee_per_gas: None,
                     min: None,
                     max: None,
                 }])

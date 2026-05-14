@@ -1,4 +1,5 @@
 pub const VALUE_KEY: &str = "__tx_value_contender__";
+pub const MAX_PRIORITY_FEE_KEY: &str = "__tx_max_priority_fee_contender__";
 pub const SENDER_KEY: &str = "_sender";
 pub const SETCODE_KEY: &str = "_setCodeSender";
 
