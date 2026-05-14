@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- added `FunctionCallDefinition::max_priority_fee_per_gas` for setting a static (or `{placeholder}`-driven) per-tx EIP-1559 priority fee
+- added `FuzzParam::max_priority_fee_per_gas` (a bool flag mirroring `FuzzParam::value`) so the priority fee can be fuzzed per-tx alongside function args and `value`
+- `complete_tx_request` now raises `max_fee_per_gas` to match `max_priority_fee_per_gas` when the priority fee exceeds the sampled cap, preserving the EIP-1559 invariant
+- gas-param strings now accept human-readable units: `FunctionCallDefinition::max_priority_fee_per_gas` and `FuzzParam::min` / `FuzzParam::max` all parse raw wei, hex (`"0x..."`), and unit strings (`"10 gwei"`, `"0.001 eth"`)
+- a malformed static `max_priority_fee_per_gas` now errors at template time via `TemplaterError::ParsePriorityFeeFailed` instead of silently becoming `None`
+- `update_gas_map` lifts `max_fee_per_gas` to the priority fee on the estimation copy so `estimate_gas` no longer rejects txs whose priority fee was set (statically or by fuzz) before `complete_tx_request` runs
+
 ## [0.11.0](https://github.com/flashbots/contender/releases/tag/contender_core-v0.11.0) - 2026-05-06
 
 - update alloy dependencies ([#561](https://github.com/flashbots/contender/pull/561))
