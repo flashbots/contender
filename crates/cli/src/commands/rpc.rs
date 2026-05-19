@@ -4,6 +4,7 @@ use alloy::{
     primitives::{Address, Bytes, B256, U256},
     providers::{DynProvider, Provider, ProviderBuilder},
     rpc::client::ClientBuilder,
+    transports::layers::RetryBackoffLayer,
 };
 use clap::{Args, Subcommand};
 use contender_core::{
@@ -593,6 +594,7 @@ pub async fn run_rpc_spam(
     data_dir: &Path,
 ) -> Result<(), CliError> {
     let client = ClientBuilder::default()
+        .layer(RetryBackoffLayer::new(50, 1000, 100))
         .layer(LoggingLayer::new(&PROM, &LATENCY_HIST).await)
         .http(args.rpc_url.clone());
     let provider = DynProvider::new(

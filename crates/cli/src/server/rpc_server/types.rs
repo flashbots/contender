@@ -4,6 +4,8 @@ use crate::{
     default_scenarios::{BuiltinOptions, BuiltinScenarioCli},
     util::provider::AuthClient,
 };
+use alloy::rpc::client::ClientBuilder;
+use alloy::transports::layers::RetryBackoffLayer;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use contender_core::generator::util::{
     deserialize_value as parse_value, deserialize_value_opt as parse_value_opt,
@@ -50,10 +52,13 @@ impl AddSessionParams {
         seed: RandSeed,
     ) -> Result<NewSessionParams, ContenderRpcError> {
         let test_config = if let Some(config) = self.test_config {
+            let client = ClientBuilder::default()
+                .layer(RetryBackoffLayer::new(50, 1000, 100))
+                .http(self.rpc_url.clone());
             let provider = DynProvider::new(
                 ProviderBuilder::new()
                     .network::<AnyNetwork>()
-                    .connect_http(self.rpc_url.clone()),
+                    .connect_client(client),
             );
             config
                 .to_testconfig(

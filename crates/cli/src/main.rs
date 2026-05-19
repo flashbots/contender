@@ -2,6 +2,7 @@ use alloy::{
     network::AnyNetwork,
     providers::{DynProvider, ProviderBuilder},
     rpc::client::ClientBuilder,
+    transports::layers::RetryBackoffLayer,
 };
 use contender_cli::commands;
 use contender_cli::{
@@ -110,7 +111,9 @@ async fn run() -> Result<(), contender_cli::Error> {
                 ..
             } = *args.to_owned();
 
-            let client = ClientBuilder::default().http(rpc_args.rpc_url.clone());
+            let client = ClientBuilder::default()
+                .layer(RetryBackoffLayer::new(50, 1000, 100))
+                .http(rpc_args.rpc_url.clone());
             let provider = DynProvider::new(
                 ProviderBuilder::new()
                     .network::<AnyNetwork>()

@@ -11,6 +11,7 @@ use alloy::eips::eip7685::RequestsOrHash;
 use alloy::primitives::map::HashMap;
 use alloy::signers::k256::sha2::Digest;
 use alloy::signers::k256::sha2::Sha256;
+use alloy::transports::layers::RetryBackoffLayer;
 use alloy::{
     consensus::BlockHeader,
     eips::{BlockId, Encodable2718},
@@ -88,6 +89,7 @@ where
         let auth_transport =
             AuthenticatedTransportConnect::new(auth_rpc_url.to_owned(), jwt_secret);
         let client = ClientBuilder::default()
+            .layer(RetryBackoffLayer::new(50, 1000, 100))
             .connect_with(auth_transport)
             .await
             .map_err(AuthProviderError::TransportError)?;

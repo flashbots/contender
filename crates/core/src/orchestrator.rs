@@ -25,8 +25,9 @@ use alloy::{
     node_bindings::WEI_IN_ETHER,
     primitives::U256,
     providers::{DynProvider, Provider},
+    rpc::client::ClientBuilder,
     signers::local::PrivateKeySigner,
-    transports::http::reqwest::Url,
+    transports::{http::reqwest::Url, layers::RetryBackoffLayer},
 };
 use contender_bundle_provider::bundle::BundleType;
 use contender_engine_provider::ControlChain;
@@ -527,10 +528,13 @@ where
 
     /// Produce a web3 provider connected to the current instance's RPC URL.
     pub fn provider(&self) -> AnyProvider {
+        let client = ClientBuilder::default()
+            .layer(RetryBackoffLayer::new(50, 1000, 100))
+            .http(self.ctx.rpc_url.clone());
         DynProvider::new(
             alloy::providers::ProviderBuilder::new()
                 .network::<AnyNetwork>()
-                .connect_http(self.ctx.rpc_url.clone()),
+                .connect_client(client),
         )
     }
 

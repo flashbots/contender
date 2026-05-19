@@ -9,7 +9,9 @@ use crate::util::get_signers_with_defaults;
 use alloy::consensus::TxType;
 use alloy::primitives::U256;
 use alloy::providers::{DynProvider, ProviderBuilder};
+use alloy::rpc::client::ClientBuilder;
 use alloy::signers::local::PrivateKeySigner;
+use alloy::transports::layers::RetryBackoffLayer;
 use contender_core::generator::util::parse_value;
 use contender_core::test_scenario::Url;
 use contender_core::BundleType;
@@ -187,10 +189,13 @@ impl SendTxsCliArgsInner {
 
     pub fn new_rpc_provider(&self) -> Result<DynProvider<AnyNetwork>, ArgsError> {
         info!("connecting to {}", self.rpc_url);
+        let client = ClientBuilder::default()
+            .layer(RetryBackoffLayer::new(50, 1000, 100))
+            .http(self.rpc_url.clone());
         Ok(DynProvider::new(
             ProviderBuilder::new()
                 .network::<AnyNetwork>()
-                .connect_http(self.rpc_url.clone()),
+                .connect_client(client),
         ))
     }
 

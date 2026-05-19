@@ -41,7 +41,10 @@ use alloy::{
     rpc::{client::ClientBuilder, types::TransactionRequest},
     serde::WithOtherFields,
     signers::local::{LocalSigner, PrivateKeySigner},
-    transports::http::{reqwest, Http},
+    transports::{
+        http::{reqwest, Http},
+        layers::RetryBackoffLayer,
+    },
 };
 use contender_bundle_provider::{
     bundle::BundleType, bundle_provider::new_basic_bundle,
@@ -121,8 +124,8 @@ pub static SETUP_CONCURRENCY_LIMIT: LazyLock<usize> = LazyLock::new(read_setup_c
 
 #[derive(Clone)]
 pub struct PrometheusCollector {
-    prom: &'static OnceCell<prometheus::Registry>,
-    hist: &'static OnceCell<prometheus::HistogramVec>,
+    pub prom: &'static OnceCell<prometheus::Registry>,
+    pub hist: &'static OnceCell<prometheus::HistogramVec>,
 }
 
 impl Default for PrometheusCollector {
@@ -313,9 +316,15 @@ where
         let (setcode_signer, _) = generate_setcode_signer(&rand_seed);
         debug!("setCode signer address: {}", setcode_signer.address());
 
+        // retry layer params (TODO: make these available to the user)
+        let max_retry = 50; // maximum number of retries for rate limit errors
+        let backoff = 1000; // initial backoff in milliseconds
+        let cups = 100; // number of compute units per second for this provider
+
         // use custom logging layer to log sendRawTransaction request IDs
         let client = ClientBuilder::default()
             .layer(LoggingLayer::new(prometheus.prom, prometheus.hist).await)
+            .layer(RetryBackoffLayer::new(max_retry, backoff, cups))
             .http(rpc_url.to_owned());
         let rpc_client = Arc::new(DynProvider::new(
             ProviderBuilder::new()
@@ -330,6 +339,7 @@ where
                 info!("routing eth_sendRawTransaction(Sync) calls to dedicated endpoint: {url}");
                 let raw_client = ClientBuilder::default()
                     .layer(LoggingLayer::new(prometheus.prom, prometheus.hist).await)
+                    .layer(RetryBackoffLayer::new(max_retry, backoff, cups))
                     .http(url.to_owned());
                 let provider = Arc::new(DynProvider::new(
                     ProviderBuilder::new()
@@ -380,6 +390,7 @@ where
         let bundle_client = if let Some(builder_url) = &builder_rpc_url {
             let client = ClientBuilder::default()
                 .layer(LoggingLayer::new(prometheus.prom, prometheus.hist).await)
+                .layer(RetryBackoffLayer::new(max_retry, backoff, cups))
                 .http(builder_url.to_owned());
             Some(Arc::new(BundleClient::from_client(client)))
         } else {
@@ -459,6 +470,7 @@ where
         let transport = Http::with_client(self.http_client.clone(), self.rpc_url.clone());
         let rpc_client = ClientBuilder::default()
             .layer(LoggingLayer::new(self.prometheus.prom, self.prometheus.hist).await)
+            .layer(RetryBackoffLayer::new(50, 1000, 100))
             .transport(transport, false);
 
         DynProvider::new(

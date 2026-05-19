@@ -17,6 +17,8 @@ use crate::util::write_run_txs;
 use crate::{Error, Result};
 use alloy::network::AnyNetwork;
 use alloy::providers::DynProvider;
+use alloy::rpc::client::ClientBuilder;
+use alloy::transports::layers::RetryBackoffLayer;
 use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
 use contender_core::buckets::{Bucket, BucketsExt};
 use contender_core::db::SpamRun;
@@ -183,10 +185,13 @@ pub async fn report(
 
     // get trace data for reports
     let url = Url::from_str(&rpc_url).expect("Invalid URL");
+    let client = ClientBuilder::default()
+        .layer(RetryBackoffLayer::new(50, 1000, 100))
+        .http(url);
     let rpc_client = DynProvider::new(
         ProviderBuilder::new()
             .network::<AnyNetwork>()
-            .connect_http(url),
+            .connect_client(client),
     );
     let (trace_data, blocks) = if std::env::var("DEBUG_USEFILE").is_ok() {
         info!("DEBUG_USEFILE detected: using cached data");
