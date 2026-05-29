@@ -4,8 +4,21 @@ use alloy::{
     eips::eip7702::SignedAuthorization,
     hex::{FromHex, ToHexExt},
     primitives::{Address, Bytes, U256},
+    rpc::types::AccessListItem,
 };
 use serde::{Deserialize, Serialize};
+
+/// User-facing access list entry. Address and storage keys are kept as strings
+/// so they can contain `{placeholder}` references that are resolved when the
+/// loose definition is converted to its strict form.
+#[derive(Clone, Deserialize, Debug, Serialize)]
+pub struct LooseAccessListItem {
+    /// Address of the contract. May be a `{placeholder}`.
+    pub address: String,
+    /// Storage keys to prewarm. Each may be a `{placeholder}`.
+    #[serde(rename = "storageKeys")]
+    pub storage_keys: Vec<String>,
+}
 
 /// User-facing definition of a function call to be executed.
 #[derive(Clone, Deserialize, Debug, Serialize)]
@@ -42,6 +55,11 @@ pub struct FunctionCallDefinition {
     /// Optional setCode data; tx type must be set to EIP7702 by spammer
     #[serde(skip_serializing_if = "Option::is_none")]
     pub authorization_address: Option<String>,
+    /// Optional EIP-2930 access list entries to include in the transaction.
+    /// Address and storage keys may contain `{placeholder}` references that are
+    /// resolved when the loose definition is converted to its strict form.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_list: Option<Vec<LooseAccessListItem>>,
     /// If true and `from_pool` is set, run this setup transaction for all accounts in the pool.
     /// Defaults to false (only runs for the first account).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -77,6 +95,7 @@ impl FunctionCallDefinition {
             gas_limit: None,
             blob_data: None,
             authorization_address: None,
+            access_list: None,
             for_all_accounts: false,
             max_priority_fee_per_gas: None,
         }
@@ -127,6 +146,10 @@ impl FunctionCallDefinition {
         self.authorization_address = Some(auth_addr.as_ref().to_owned());
         self
     }
+    pub fn with_access_list(mut self, access_list: Vec<LooseAccessListItem>) -> Self {
+        self.access_list = Some(access_list);
+        self
+    }
     pub fn with_for_all_accounts(mut self, for_all_accounts: bool) -> Self {
         self.for_all_accounts = for_all_accounts;
         self
@@ -170,6 +193,7 @@ pub struct FunctionCallDefinitionStrict {
     pub max_priority_fee_per_gas: Option<String>, // may be a placeholder, so we can't use u128
     pub sidecar: Option<BlobTransactionSidecar>,
     pub authorization: Option<Vec<SignedAuthorization>>,
+    pub access_list: Option<Vec<AccessListItem>>,
 }
 
 #[derive(Clone, Deserialize, Debug, Serialize)]
@@ -336,5 +360,52 @@ mod tests {
         let fuzz = def.fuzz.expect("fuzz must parse");
         assert!(fuzz[0].param.is_some());
         assert_eq!(fuzz[0].max_priority_fee_per_gas, Some(true));
+    }
+
+    #[test]
+    fn access_list_parses_from_toml() {
+        let toml = r#"
+            to = "0x1234567890123456789012345678901234567890"
+            from_pool = "test_pool"
+            signature = "test()"
+
+            [[access_list]]
+            address = "0x4200000000000000000000000000000000000022"
+            storageKeys = [
+                "0x0100000000000000000000000000000000000000000000000000000000000000",
+                "0x0300000000000000000000000000000000000000000000000000000000000000",
+            ]
+        "#;
+        let def: FunctionCallDefinition = toml::from_str(toml).unwrap();
+        let access_list = def.access_list.unwrap();
+
+        assert_eq!(access_list.len(), 1);
+        assert_eq!(
+            access_list[0].address.to_string(),
+            "0x4200000000000000000000000000000000000022"
+        );
+        assert_eq!(access_list[0].storage_keys.len(), 2);
+    }
+
+    #[test]
+    fn access_list_parses_placeholders_from_toml() {
+        let toml = r#"
+            to = "0x1234567890123456789012345678901234567890"
+            from_pool = "test_pool"
+            signature = "test()"
+
+            [[access_list]]
+            address = "{SpamMe5}"
+            storageKeys = ["{testkey1}", "{testkey2}"]
+        "#;
+        let def: FunctionCallDefinition = toml::from_str(toml).unwrap();
+        let access_list = def.access_list.unwrap();
+
+        assert_eq!(access_list.len(), 1);
+        assert_eq!(access_list[0].address, "{SpamMe5}");
+        assert_eq!(
+            access_list[0].storage_keys,
+            vec!["{testkey1}".to_string(), "{testkey2}".to_string()]
+        );
     }
 }
