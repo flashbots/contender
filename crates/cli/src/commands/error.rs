@@ -78,6 +78,9 @@ pub enum ArgsError {
 
     #[error("failed to parse url")]
     UrlParse(#[from] url::ParseError),
+
+    #[error("{0}")]
+    Custom(String),
 }
 
 #[derive(Debug, Error)]

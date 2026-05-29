@@ -8,6 +8,7 @@ pub mod replay;
 pub mod rpc;
 mod setup;
 mod spam;
+pub mod spam_stream;
 
 use clap::{Parser, ValueEnum};
 use contender_core::db::DbOps;
