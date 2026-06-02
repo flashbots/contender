@@ -24,6 +24,7 @@ use alloy::{
 use clap::Args;
 use contender_core::{
     agent_controller::{AgentClass, AgentStore},
+    db::{DbOps, SpamDuration, SpamRunRequest},
     generator::{
         agent_pools::AgentSpec, seeder::rand_seed::SeedGenerator, templater::Templater,
         FunctionCallDefinition, Generator, PlanConfig, RandSeed,
@@ -36,12 +37,13 @@ use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
 use serde::Serialize;
 use std::{
+    collections::HashMap,
     path::PathBuf,
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-    io::{AsyncBufReadExt, BufReader},
+    io::{AsyncBufRead, AsyncBufReadExt, BufReader},
     sync::mpsc,
 };
 use tokio_util::sync::CancellationToken;
@@ -54,6 +56,9 @@ const STREAM_BUFFER: usize = 256;
 /// Schema version of the structured stdout output. Bump when the envelope
 /// shape changes in a backward-incompatible way.
 const OUTPUT_VERSION: u32 = 1;
+/// How often to refresh the cached gas price during the stream loop. Avoids an
+/// RPC round-trip on every single tx.
+const GAS_REFRESH_INTERVAL: Duration = Duration::from_secs(6);
 
 /// Versioned, tagged envelope written to stdout (one JSON line per event) so
 /// downstream consumers can evolve with the schema. The `version` field pins
@@ -83,6 +88,10 @@ enum StreamPayload {
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
+    /// Buffer saturated; the reader is blocking. Signals the producer to slow down.
+    Backpressure { queued: usize, capacity: usize },
+    /// Emitted once when the stream finishes (EOF or cancellation).
+    Summary { sent: usize, failed: usize },
 }
 
 impl StreamEvent {
@@ -182,30 +191,29 @@ pub fn spawn_stream_reader(
     from: &str,
     tx: mpsc::Sender<FunctionCallDefinition>,
 ) -> Result<tokio::task::JoinHandle<()>> {
-    let handle: tokio::task::JoinHandle<()> = if from == "stdin" {
-        tokio::spawn(async move {
-            let reader = BufReader::new(tokio::io::stdin());
-            forward_lines(reader, tx).await;
-        })
-    } else {
-        let path = PathBuf::from(from);
-        if !path.exists() {
-            return Err(CliError::Args(ArgsError::Custom(format!(
-                "stream source file not found: {}",
-                path.display()
-            ))));
-        }
-        tokio::spawn(async move {
-            match tokio::fs::File::open(&path).await {
-                Ok(f) => {
-                    let reader = BufReader::new(f);
-                    forward_lines(reader, tx).await;
+    // Validate file existence eagerly so a bad path is a clean CLI error rather
+    // than a silent warning from inside the spawned task.
+    if from != "stdin" && !PathBuf::from(from).exists() {
+        return Err(CliError::Args(ArgsError::Custom(format!(
+            "stream source file not found: {from}"
+        ))));
+    }
+
+    let from = from.to_owned();
+    Ok(tokio::spawn(async move {
+        let reader: Box<dyn AsyncBufRead + Unpin + Send> = if from == "stdin" {
+            Box::new(BufReader::new(tokio::io::stdin()))
+        } else {
+            match tokio::fs::File::open(&from).await {
+                Ok(f) => Box::new(BufReader::new(f)),
+                Err(e) => {
+                    warn!("failed to open stream source {from}: {e}");
+                    return;
                 }
-                Err(e) => warn!("failed to open stream source {}: {e}", path.display()),
             }
-        })
-    };
-    Ok(handle)
+        };
+        forward_lines(reader, tx).await;
+    }))
 }
 
 async fn forward_lines<R>(reader: R, tx: mpsc::Sender<FunctionCallDefinition>)
@@ -214,6 +222,8 @@ where
 {
     let mut lines = reader.lines();
     let mut line_no: u64 = 0;
+    // Emit the backpressure event once per saturation episode, not per blocked send.
+    let mut backpressured = false;
     loop {
         match lines.next_line().await {
             Ok(Some(line)) => {
@@ -223,12 +233,24 @@ where
                     continue;
                 }
                 match serde_json::from_str::<FunctionCallDefinition>(trimmed) {
-                    Ok(spec) => {
-                        if tx.send(spec).await.is_err() {
-                            // receiver dropped — stop reading
-                            return;
+                    Ok(spec) => match tx.try_send(spec) {
+                        Ok(()) => backpressured = false,
+                        Err(mpsc::error::TrySendError::Full(spec)) => {
+                            if !backpressured {
+                                backpressured = true;
+                                let capacity = tx.max_capacity();
+                                StreamEvent::emit(StreamPayload::Backpressure {
+                                    queued: capacity.saturating_sub(tx.capacity()),
+                                    capacity,
+                                });
+                            }
+                            // Block until a slot frees, applying real backpressure.
+                            if tx.send(spec).await.is_err() {
+                                return; // receiver dropped
+                            }
                         }
-                    }
+                        Err(mpsc::error::TrySendError::Closed(_)) => return,
+                    },
                     Err(e) => warn!("stream: skipping malformed line {line_no}: {e}"),
                 }
             }
@@ -258,11 +280,10 @@ fn build_pool_agent_store(from_pool: &str, pool_size: usize, seed: &RandSeed) ->
 async fn drive_stream<S, P>(
     scenario: &mut TestScenario<SqliteDb, S, P>,
     mut rx: mpsc::Receiver<FunctionCallDefinition>,
-    run_id: u64,
     fallback_pool: String,
     tps: u64,
     cancel: CancellationToken,
-) -> Result<usize>
+) -> Result<(usize, usize)>
 where
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
@@ -277,9 +298,14 @@ where
         None
     };
 
+    // Cache the gas price instead of fetching it per tx; refreshed below.
+    let mut gas_price = scenario.rpc_client.get_gas_price().await?;
+    let mut last_gas_refresh = Instant::now();
+
     let mut sent: usize = 0;
+    let mut failed: usize = 0;
     let mut idx: usize = 0;
-    let placeholder_map = std::collections::HashMap::<String, String>::new();
+    let placeholder_map = HashMap::<String, String>::new();
 
     loop {
         tokio::select! {
@@ -303,18 +329,27 @@ where
                     int.tick().await;
                 }
 
-                match send_one(scenario, &spec, idx, &placeholder_map, run_id).await {
-                    Ok(()) => {
-                        sent += 1;
+                if last_gas_refresh.elapsed() >= GAS_REFRESH_INTERVAL {
+                    if let Ok(gp) = scenario.rpc_client.get_gas_price().await {
+                        gas_price = gp;
                     }
-                    Err(e) => warn!("stream: failed to send tx (idx {idx}): {e}"),
+                    last_gas_refresh = Instant::now();
+                }
+
+                match send_one(scenario, &spec, idx, &placeholder_map, gas_price).await {
+                    Ok(true) => sent += 1,
+                    Ok(false) => failed += 1,
+                    Err(e) => {
+                        failed += 1;
+                        warn!("stream: failed to send tx (idx {idx}): {e}");
+                    }
                 }
                 idx += 1;
             }
         }
     }
 
-    Ok(sent)
+    Ok((sent, failed))
 }
 
 /// Build a single transaction from a stream spec, sign it, send it, and cache
@@ -323,13 +358,21 @@ async fn send_one<S, P>(
     scenario: &mut TestScenario<SqliteDb, S, P>,
     spec: &FunctionCallDefinition,
     idx: usize,
-    placeholder_map: &std::collections::HashMap<String, String>,
-    _run_id: u64,
-) -> Result<()>
+    placeholder_map: &HashMap<String, String>,
+    gas_price: u128,
+) -> Result<bool>
 where
     S: SeedGenerator + Send + Sync + Clone,
     P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
 {
+    // Stream mode only builds EIP-1559 txs (no blob gas price, no auth list), so
+    // reject blob (4844) / setCode (7702) specs up front instead of silently
+    // producing an invalid tx.
+    if spec.blob_data.is_some() || spec.authorization_address.is_some() {
+        warn!("stream tx[{idx}]: blob/7702 specs are unsupported in stream mode; skipping");
+        return Ok(false);
+    }
+
     // 1. Resolve `from`/`from_pool` and access list against the scenario's
     //    agent store + templater. This produces a strict FunctionCallDefinition.
     let strict = scenario
@@ -343,8 +386,7 @@ where
         .template_function_call(&strict, placeholder_map)
         .map_err(contender_core::Error::Templater)?;
 
-    // 3. Fetch a gas price and assign nonce/gas-limit + sign.
-    let gas_price = scenario.rpc_client.get_gas_price().await?;
+    // 3. Assign nonce/gas-limit + sign using the cached gas price.
     let (prepared, wallet) = scenario.prepare_tx_request(&tx_req, gas_price, 0).await?;
     // Build & sign via the alloy Ethereum network. The op-alloy-network re-export
     // can create trait-resolution ambiguity, so we fully-qualify the trait
@@ -379,6 +421,8 @@ where
         }
     };
 
+    let submitted = error.is_none();
+
     // 5. Emit a structured result line to stdout (mirrors the input stream so
     //    reactive callers can correlate sends with their specs).
     StreamEvent::emit(StreamPayload::TxResult {
@@ -401,7 +445,7 @@ where
         })
         .await?;
 
-    Ok(())
+    Ok(submitted)
 }
 
 /// Top-level entry point invoked from `main.rs`.
@@ -511,9 +555,31 @@ pub async fn spam_stream(db: &SqliteDb, args: SpamStreamCliArgs) -> Result<()> {
         }
     }
 
+    // Register a run row so receipts dump under a real run_id; run_txs has a FK
+    // into runs, so a bogus id (e.g. 0) would orphan them.
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as usize;
+    let run = SpamRunRequest {
+        timestamp,
+        tx_count: 0, // unbounded stream; the real count lands as txs flush
+        scenario_name: format!("stream-{}", args.from_pool),
+        campaign_id: None,
+        campaign_name: None,
+        stage_name: None,
+        rpc_url: args.rpc_url.to_string(),
+        txs_per_duration: args.tps,
+        duration: SpamDuration::Seconds(0),
+        pending_timeout: Duration::from_secs(60),
+    };
+    let run_id = db
+        .insert_run(&run)
+        .map_err(|e| contender_core::Error::Db(e.into()))?;
+    info!(run_id, "created stream run");
+
     // Set up tx_actor context so cached txs flush to the DB.
     let start_block = scenario.rpc_client.get_block_number().await?;
-    let run_id = 0u64;
     let actor_ctx =
         ActorContext::new(start_block, run_id).with_pending_tx_timeout(Duration::from_secs(60));
     scenario.tx_actor().init_ctx(actor_ctx).await?;
@@ -522,19 +588,24 @@ pub async fn spam_stream(db: &SqliteDb, args: SpamStreamCliArgs) -> Result<()> {
     let (tx, rx) = mpsc::channel::<FunctionCallDefinition>(STREAM_BUFFER);
     let _reader = spawn_stream_reader(&args.from, tx)?;
 
-    let drive_cancel = cancel.clone();
-    let sent = tokio::select! {
-        res = drive_stream(&mut scenario, rx, run_id, args.from_pool.clone(), args.tps, drive_cancel) => {
-            res?
-        }
-        _ = tokio::signal::ctrl_c() => {
-            info!("CTRL-C: stopping stream loop");
-            cancel.cancel();
-            0
-        }
-    };
+    // CTRL-C cancels the loop; drive_stream observes the token and returns its counts.
+    let ctrlc_cancel = cancel.clone();
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        ctrlc_cancel.cancel();
+    });
 
-    info!("stream complete: {sent} tx(s) sent; draining pending receipts...");
+    let (sent, failed) = drive_stream(
+        &mut scenario,
+        rx,
+        args.from_pool.clone(),
+        args.tps,
+        cancel.clone(),
+    )
+    .await?;
+    StreamEvent::emit(StreamPayload::Summary { sent, failed });
+
+    info!("stream complete: {sent} sent, {failed} failed; draining pending receipts...");
 
     tokio::select! {
         _ = scenario.dump_tx_cache(run_id) => {}
@@ -572,6 +643,31 @@ mod tests {
         assert_eq!(json["kind"], "validate");
         // `error` is omitted when None.
         assert!(json.get("error").is_none());
+    }
+
+    #[test]
+    fn summary_and_backpressure_envelopes_are_tagged() {
+        let summary = serde_json::to_value(StreamEvent {
+            version: OUTPUT_VERSION,
+            payload: StreamPayload::Summary { sent: 9, failed: 1 },
+        })
+        .unwrap();
+        assert_eq!(summary["version"], 1);
+        assert_eq!(summary["type"], "summary");
+        assert_eq!(summary["sent"], 9);
+        assert_eq!(summary["failed"], 1);
+
+        let backpressure = serde_json::to_value(StreamEvent {
+            version: OUTPUT_VERSION,
+            payload: StreamPayload::Backpressure {
+                queued: 256,
+                capacity: 256,
+            },
+        })
+        .unwrap();
+        assert_eq!(backpressure["type"], "backpressure");
+        assert_eq!(backpressure["queued"], 256);
+        assert_eq!(backpressure["capacity"], 256);
     }
 
     #[test]

@@ -121,9 +121,14 @@ consumers:
 ```
 
 - `version` pins the schema (bump on breaking changes).
-- `type` discriminates the event kind (currently only `tx_result`).
+- `type` discriminates the event kind: `tx_result`, `backpressure`, or `summary`.
 - One `tx_result` is emitted per input spec after the send attempt; `error` is
   present only when the send RPC call failed.
+- A `backpressure` event is emitted when the input buffer saturates and the
+  reader blocks, so the producer can slow down:
+  `{"version":1,"type":"backpressure","queued":256,"capacity":256}`
+- A single `summary` event closes the stream (on EOF or CTRL-C):
+  `{"version":1,"type":"summary","sent":42,"failed":3}`
 
 ## Reuse vs. new code
 
@@ -154,22 +159,21 @@ In scope:
 - Same `FunctionCallDefinition` schema as scenario TOML (incl. `access_list`,
   `gas_limit`, `signature`, `args`, `value`, `from`, `from_pool`, `kind`).
 - Pool funding from `--priv-key` before spam begins.
-- Receipt tracking + DB persistence via the existing tx_actor flush loop.
+- Receipt tracking + DB persistence via the existing tx_actor flush loop,
+  recorded under a real `run_id` so dumped receipts are queryable.
 - Graceful CTRL-C and stream EOF handling (drain pending receipts before exit).
 
 Out of scope (future work):
 
 - Bundle support (`[[spam.bundle]]` analogue in the stream).
 - Blob transactions (EIP-4844) and authorization transactions (EIP-7702) —
-  the `FunctionCallDefinition` fields are deserialized but not exercised in
-  prototype tests.
+  specs carrying `blob_data` or `authorization_address` are rejected up front
+  rather than silently producing an invalid tx.
 - Fuzzing in stream mode — fuzz happens upstream of the stream.
 - Gas-bump / nonce-shift retry logic from the regular spammer's
   `handle_tx_outcome`. The stream loop currently logs send errors and moves
   on; the upstream is expected to resubmit if it cares.
 - `--rpc-batch-size`, `--send-raw-tx-sync` integration.
-- Recording the run in the `spam_runs` table — stream runs use `run_id = 0`
-  and rely on the tx_actor's cache only.
 - A generic `SpamSource` trait so `TimedSpammer` can consume a stream too.
 
 ## Validation
@@ -202,7 +206,8 @@ to fund the executor pool.
    "Structured output" above.
 3. ~~How should errors propagate back to the upstream producer?~~ **Resolved:**
    `spam-stream` emits a structured `tx_result` event per spec on stdout
-   (including send errors), in addition to the DB + logs.
+   (including send errors), plus `backpressure` and a terminal `summary` event,
+   in addition to the DB + logs.
 4. Should `--tps 0` (drain-as-fast) bound concurrency by pool size, or is
    "one in flight at a time" acceptable for the relayer case? *(Deferred:
    parallel sends judged not worth the effort for the prototype.)*
