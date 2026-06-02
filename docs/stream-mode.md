@@ -102,12 +102,28 @@ Code map:
 
 - [`crates/cli/src/commands/spam_stream.rs`](../crates/cli/src/commands/spam_stream.rs)
   is the new subcommand. All logic lives there.
-- A "decoy" one-step `TestConfig` is constructed so the existing
-  `AgentPools::build_agent_store` produces a pool with the requested name and
-  size. The decoy spam step is never executed; we bypass `load_txs` entirely.
+- The scenario starts from an empty `TestConfig`; the executor pool is
+  provisioned directly via `AgentStore::add_new_agent` and its signers are
+  registered with the scenario, then nonces are synced from the RPC.
 - The reader task is a small wrapper around `tokio::io::BufReader::lines()`
   that forwards parsed specs over an mpsc channel and exits on EOF.
 - The drive loop honors `--tps` via `tokio::time::interval`.
+
+## Structured output
+
+`spam-stream` writes a structured, newline-delimited JSON event stream to
+**stdout** (human-readable logs go to stderr via `tracing`). Each event is a
+versioned, tagged envelope so the schema can evolve without breaking
+consumers:
+
+```json
+{"version":1,"type":"tx_result","idx":0,"tx_hash":"0x...","start_timestamp_ms":1733155200000,"kind":"validate","error":null}
+```
+
+- `version` pins the schema (bump on breaking changes).
+- `type` discriminates the event kind (currently only `tx_result`).
+- One `tx_result` is emitted per input spec after the send attempt; `error` is
+  present only when the send RPC call failed.
 
 ## Reuse vs. new code
 
@@ -178,10 +194,15 @@ to fund the executor pool.
 
 1. Should stream mode get its own `Spammer` impl in `contender_core` so
    campaigns can reuse it? Today the prototype lives entirely in `cli/`.
-2. Is the JSON spec the right shape, or should we standardize on something
-   like a tagged envelope (`{"v":1,"tx":{...}}`) so we can evolve it later?
-3. How should errors propagate back to the upstream producer? Currently the
-   only feedback is the DB + logs. A structured response stream (stdout JSON
-   lines mirroring the input) would be valuable for reactive callers.
+   *(Deferred to a follow-up: refactoring the `Spammer` trait is out of scope
+   for the prototype.)*
+2. ~~Is the JSON spec the right shape, or should we standardize on a tagged
+   envelope so we can evolve it later?~~ **Resolved:** the stdout output is now
+   a versioned, tagged envelope (`{"version":1,"type":"tx_result",...}`). See
+   "Structured output" above.
+3. ~~How should errors propagate back to the upstream producer?~~ **Resolved:**
+   `spam-stream` emits a structured `tx_result` event per spec on stdout
+   (including send errors), in addition to the DB + logs.
 4. Should `--tps 0` (drain-as-fast) bound concurrency by pool size, or is
-   "one in flight at a time" acceptable for the relayer case?
+   "one in flight at a time" acceptable for the relayer case? *(Deferred:
+   parallel sends judged not worth the effort for the prototype.)*

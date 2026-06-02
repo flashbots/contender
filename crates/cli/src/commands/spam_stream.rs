@@ -23,9 +23,10 @@ use alloy::{
 };
 use clap::Args;
 use contender_core::{
+    agent_controller::{AgentClass, AgentStore},
     generator::{
         agent_pools::AgentSpec, seeder::rand_seed::SeedGenerator, templater::Templater,
-        types::SpamRequest, FunctionCallDefinition, Generator, PlanConfig, RandSeed,
+        FunctionCallDefinition, Generator, PlanConfig, RandSeed,
     },
     spammer::tx_actor::{ActorContext, CacheTx},
     test_scenario::{TestScenario, TestScenarioParams},
@@ -33,6 +34,7 @@ use contender_core::{
 };
 use contender_sqlite::SqliteDb;
 use contender_testfile::TestConfig;
+use serde::Serialize;
 use std::{
     path::PathBuf,
     sync::Arc,
@@ -49,6 +51,52 @@ use tracing::{debug, info, warn};
 const DEFAULT_POOL: &str = "executors";
 /// Channel buffer between the reader task and the spam loop.
 const STREAM_BUFFER: usize = 256;
+/// Schema version of the structured stdout output. Bump when the envelope
+/// shape changes in a backward-incompatible way.
+const OUTPUT_VERSION: u32 = 1;
+
+/// Versioned, tagged envelope written to stdout (one JSON line per event) so
+/// downstream consumers can evolve with the schema. The `version` field pins
+/// the schema and the `type` tag (via `payload`) discriminates event kinds.
+#[derive(Debug, Serialize)]
+struct StreamEvent {
+    version: u32,
+    #[serde(flatten)]
+    payload: StreamPayload,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum StreamPayload {
+    /// Emitted once per input spec after the send attempt.
+    TxResult {
+        /// Zero-based index of the spec in the stream.
+        idx: usize,
+        /// Transaction hash (present even when the send RPC call failed).
+        tx_hash: String,
+        /// Unix-epoch milliseconds when the send was attempted.
+        start_timestamp_ms: u128,
+        /// Optional `kind` carried over from the input spec.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        kind: Option<String>,
+        /// Send-time error from the RPC, if any.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+}
+
+impl StreamEvent {
+    fn emit(payload: StreamPayload) {
+        let event = StreamEvent {
+            version: OUTPUT_VERSION,
+            payload,
+        };
+        // Serialization of these fixed-shape payloads cannot fail.
+        if let Ok(line) = serde_json::to_string(&event) {
+            println!("{line}");
+        }
+    }
+}
 
 #[derive(Clone, Debug, Args)]
 pub struct SpamStreamCliArgs {
@@ -193,18 +241,16 @@ where
     }
 }
 
-/// Build a one-step `TestConfig` that references `from_pool`, so the scenario
-/// builds an agent store containing that pool with `pool_size` signers.
-/// The decoy entry is never executed; we bypass `load_txs` entirely.
-fn build_decoy_config(from_pool: &str) -> TestConfig {
-    let decoy = FunctionCallDefinition::new("0x0000000000000000000000000000000000000000")
-        .with_from_pool(from_pool);
-    TestConfig {
-        env: None,
-        create: None,
-        setup: None,
-        spam: Some(vec![SpamRequest::Tx(Box::new(decoy))]),
+/// Build an `AgentStore` holding a single spam pool named `from_pool` with
+/// `pool_size` signers, derived from `seed`. Stream mode provisions the pool
+/// directly instead of round-tripping through a scenario `TestConfig`, since
+/// it never executes any pre-defined spam steps.
+fn build_pool_agent_store(from_pool: &str, pool_size: usize, seed: &RandSeed) -> AgentStore {
+    let mut store = AgentStore::new();
+    if pool_size > 0 {
+        store.add_new_agent(from_pool, pool_size, seed, AgentClass::Spammer);
     }
+    store
 }
 
 /// Drive the stream loop: pull specs, build/sign/send txs, cache in the
@@ -333,7 +379,17 @@ where
         }
     };
 
-    // 5. Cache in the tx_actor so its flush loop polls for the receipt.
+    // 5. Emit a structured result line to stdout (mirrors the input stream so
+    //    reactive callers can correlate sends with their specs).
+    StreamEvent::emit(StreamPayload::TxResult {
+        idx,
+        tx_hash: tx_hash.to_string(),
+        start_timestamp_ms: start_ms,
+        kind: spec.kind.clone(),
+        error: error.clone(),
+    });
+
+    // 6. Cache in the tx_actor so its flush loop polls for the receipt.
     scenario
         .tx_actor()
         .cache_run_tx(CacheTx {
@@ -356,9 +412,11 @@ pub async fn spam_stream(db: &SqliteDb, args: SpamStreamCliArgs) -> Result<()> {
         RandSeed::new()
     };
 
-    // Build a decoy TestConfig + agent store so the scenario sets up the
-    // requested pool with the requested number of signers.
-    let config = build_decoy_config(&args.from_pool);
+    // Provision the executor pool directly. Stream mode never runs pre-defined
+    // create/setup/spam steps, so the scenario starts from an empty config and
+    // we inject the pool's signers below.
+    let config = TestConfig::new();
+    let pool_store = build_pool_agent_store(&args.from_pool, args.pool_size, &seed);
     let agent_spec = AgentSpec::default()
         .create_accounts(0)
         .setup_accounts(0)
@@ -413,6 +471,16 @@ pub async fn spam_stream(db: &SqliteDb, args: SpamStreamCliArgs) -> Result<()> {
         &cancel,
     )
     .await?;
+
+    // Register the pool's signers with the scenario so it can sign with them
+    // and track their nonces, then sync nonces from the RPC.
+    for (_name, store) in pool_store.all_agents() {
+        for signer in &store.signers {
+            scenario.signer_map.insert(signer.address(), signer.clone());
+        }
+    }
+    scenario.agent_store = pool_store;
+    scenario.sync_nonces().await?;
 
     // Fund the pool from the funder key if provided.
     if !args.skip_funding {
@@ -482,6 +550,29 @@ pub async fn spam_stream(db: &SqliteDb, args: SpamStreamCliArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tx_result_envelope_is_versioned_and_tagged() {
+        let event = StreamEvent {
+            version: OUTPUT_VERSION,
+            payload: StreamPayload::TxResult {
+                idx: 3,
+                tx_hash: "0xabc".to_string(),
+                start_timestamp_ms: 1_733_155_200_000,
+                kind: Some("validate".to_string()),
+                error: None,
+            },
+        };
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
+        assert_eq!(json["version"], 1);
+        assert_eq!(json["type"], "tx_result");
+        assert_eq!(json["idx"], 3);
+        assert_eq!(json["tx_hash"], "0xabc");
+        assert_eq!(json["kind"], "validate");
+        // `error` is omitted when None.
+        assert!(json.get("error").is_none());
+    }
 
     #[test]
     fn parses_minimal_spec() {
