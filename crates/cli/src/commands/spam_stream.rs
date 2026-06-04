@@ -497,7 +497,13 @@ pub async fn spam_stream(db: &SqliteDb, args: SpamStreamCliArgs) -> Result<()> {
         bundle_type: BundleType::default(),
         pending_tx_timeout: Duration::from_secs(60),
         extra_msg_handles: None,
-        sync_nonces_after_batch: false,
+        // Must be true: gates TestScenario::sync_nonces(). With it false the
+        // explicit sync_nonces() calls below are silent no-ops, leaving the
+        // pool accounts' nonces unset, so prepare_tx_request fails every send
+        // with NonceMissing ("core error"). Stream mode sends one tx at a time
+        // and never hits the post-batch sync path, so enabling this only makes
+        // the initial pool-nonce sync actually run.
+        sync_nonces_after_batch: true,
         rpc_batch_size: 0,
         gas_price: None,
         scenario_label: Some(format!("stream-{}", args.from_pool)),
