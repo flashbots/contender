@@ -422,6 +422,16 @@ where
     };
 
     let submitted = error.is_none();
+    if !submitted {
+        // prepare_tx_request already advanced this account's local nonce, but
+        // the tx never entered the mempool (e.g. rejected by an interop access
+        // -list filter). Reclaim the nonce so the next send from this account
+        // doesn't leave a gap that stalls every later tx behind it. The stream
+        // sends serially, so nothing else has touched this account meanwhile.
+        if let Some(n) = scenario.nonces.get_mut(&strict.from) {
+            *n = n.saturating_sub(1);
+        }
+    }
 
     // 5. Emit a structured result line to stdout (mirrors the input stream so
     //    reactive callers can correlate sends with their specs).
