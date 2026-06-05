@@ -9,6 +9,7 @@ use crate::default_scenarios::BuiltinScenarioCli;
 
 use super::admin::AdminCommand;
 use super::spam::SpamCliArgs;
+use super::spam_stream::SpamStreamCliArgs;
 use super::ReportFormat;
 
 #[derive(Debug, Subcommand)]
@@ -32,6 +33,16 @@ pub enum ContenderSubcommand {
 
         #[command(subcommand, name = "builtin-scenario")]
         builtin_scenario_config: Option<BuiltinScenarioCli>,
+    },
+
+    #[command(
+        name = "spam-stream",
+        long_about = "Read newline-delimited JSON tx specs from stdin or a file and spam them. \
+                      Each line is a FunctionCallDefinition (same fields as scenario TOML `[[spam.tx]]`)."
+    )]
+    SpamStream {
+        #[command(flatten)]
+        args: Box<SpamStreamCliArgs>,
     },
 
     #[command(
