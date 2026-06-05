@@ -214,7 +214,7 @@ where
         let conf = self.get_plan_conf();
         let env = conf.get_env().unwrap_or_default();
         let mut placeholder_map = HashMap::<K, String>::new();
-        placeholder_map.extend(env.into_iter());
+        placeholder_map.extend(env);
 
         let from_address: Address = if let Some(from_pool) = &funcdef.from_pool {
             let agent = agents
@@ -385,7 +385,7 @@ where
         let templater = self.get_templater();
 
         let mut placeholder_map = HashMap::<K, String>::new();
-        placeholder_map.extend(env.into_iter());
+        placeholder_map.extend(env);
 
         let mut txs: Vec<ExecutionRequest> = vec![];
 
