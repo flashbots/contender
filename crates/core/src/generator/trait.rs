@@ -211,6 +211,10 @@ where
         idx: usize,
     ) -> Result<FunctionCallDefinitionStrict> {
         let agents = self.get_agent_store();
+        let conf = self.get_plan_conf();
+        let env = conf.get_env().unwrap_or_default();
+        let mut placeholder_map = HashMap::<K, String>::new();
+        placeholder_map.extend(env.into_iter());
 
         let from_address: Address = if let Some(from_pool) = &funcdef.from_pool {
             let agent = agents
@@ -254,7 +258,6 @@ where
         let to_address = special_replace(&funcdef.to);
 
         let signed_auth = if let Some(auth_address) = &funcdef.authorization_address {
-            let mut placeholder_map = HashMap::<K, String>::new();
             let templater = self.get_templater();
             templater.find_fncall_placeholders(
                 funcdef,
@@ -319,7 +322,6 @@ where
         // Resolve {placeholders} in the optional access list, then parse each
         // entry into alloy's strict `AccessListItem` type.
         let access_list = if let Some(loose_list) = &funcdef.access_list {
-            let mut placeholder_map = HashMap::<K, String>::new();
             let templater = self.get_templater();
             templater.find_fncall_placeholders(
                 funcdef,
@@ -383,9 +385,7 @@ where
         let templater = self.get_templater();
 
         let mut placeholder_map = HashMap::<K, String>::new();
-        for (key, value) in env.iter() {
-            placeholder_map.insert(key.to_owned(), value.to_owned());
-        }
+        placeholder_map.extend(env.into_iter());
 
         let mut txs: Vec<ExecutionRequest> = vec![];
 
