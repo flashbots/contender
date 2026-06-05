@@ -141,7 +141,7 @@ async fn run() -> Result<(), contender_cli::Error> {
         }
 
         ContenderSubcommand::SpamStream { args } => {
-            contender_cli::commands::spam_stream::spam_stream(&db, *args).await?;
+            contender_cli::commands::spam_stream::spam_stream(&db, *args, &data_dir).await?;
         }
 
         ContenderSubcommand::Server => {

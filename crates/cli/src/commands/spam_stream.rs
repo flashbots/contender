@@ -11,7 +11,7 @@ use crate::{
         Result,
     },
     error::CliError,
-    util::fund_accounts,
+    util::{fund_accounts, load_seedfile},
     LATENCY_HIST as HIST, PROM,
 };
 use alloy::{
@@ -38,7 +38,7 @@ use contender_testfile::TestConfig;
 use serde::Serialize;
 use std::{
     collections::HashMap,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -467,12 +467,15 @@ where
 }
 
 /// Top-level entry point invoked from `main.rs`.
-pub async fn spam_stream(db: &SqliteDb, args: SpamStreamCliArgs) -> Result<()> {
-    let seed = if let Some(s) = &args.seed {
-        RandSeed::seed_from_str(s)
-    } else {
-        RandSeed::new()
-    };
+pub async fn spam_stream(db: &SqliteDb, args: SpamStreamCliArgs, data_dir: &Path) -> Result<()> {
+    // Fall back to the persisted seedfile (not a fresh random seed) when --seed
+    // is unset, matching `spam`/`setup`/`campaign`. This keeps the executor
+    // pool's addresses stable across invocations, so a pool funded in one run
+    // is still funded for a later `--skip-funding` run.
+    let seed = RandSeed::seed_from_str(&match &args.seed {
+        Some(s) => s.clone(),
+        None => load_seedfile(data_dir)?,
+    });
 
     // Provision the executor pool directly. Stream mode never runs pre-defined
     // create/setup/spam steps, so the scenario starts from an empty config and
@@ -701,6 +704,23 @@ mod tests {
         // Default must round-trip through value_parser to 0.01 ETH = 1e16 wei.
         let args = parse_args(&[]);
         assert_eq!(args.min_balance, U256::from(10_000_000_000_000_000u128));
+    }
+
+    #[test]
+    fn pool_addresses_are_deterministic_for_a_seed() {
+        // The --skip-funding bug was that a fresh random seed each run produced
+        // different pool addresses, so a pool funded in run 1 looked unfunded in
+        // run 2. Pin the invariant the fix relies on: a given seed always yields
+        // the same pool addresses, and different seeds yield different ones.
+        let seed_a = RandSeed::seed_from_str("0xabc");
+        let s1 = build_pool_agent_store("executors", 5, &seed_a);
+        let s2 = build_pool_agent_store("executors", 5, &seed_a);
+        assert_eq!(s1.all_signer_addresses(), s2.all_signer_addresses());
+        assert_eq!(s1.all_signer_addresses().len(), 5);
+
+        let seed_b = RandSeed::seed_from_str("0xdef");
+        let s3 = build_pool_agent_store("executors", 5, &seed_b);
+        assert_ne!(s1.all_signer_addresses(), s3.all_signer_addresses());
     }
 
     #[test]
