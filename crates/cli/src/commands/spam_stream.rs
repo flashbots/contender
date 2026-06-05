@@ -157,6 +157,11 @@ pub struct SpamStreamCliArgs {
     /// can be parsed".
     #[arg(
         long,
+        long_help = "Target transactions per second. This paces how fast specs are pulled \
+            off the input stream, NOT how many txs are duplicated: each input spec is sent \
+            exactly once. With `0` (the default) specs are sent as fast as they arrive. If \
+            the stream supplies fewer specs per second than `--tps`, the rate is bounded by \
+            the stream, so a one-line input sends a single tx regardless of the value.",
         default_value_t = 0,
         help_heading = HELP_HEADING_RUNTIME,
     )]
@@ -637,6 +642,37 @@ pub async fn spam_stream(db: &SqliteDb, args: SpamStreamCliArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Command;
+
+    /// `SpamStreamCliArgs` derives `Args` (not `Parser`), so build a throwaway
+    /// `Command` from it to introspect the argument configuration in tests.
+    fn args_command() -> Command {
+        SpamStreamCliArgs::augment_args(Command::new("spam-stream"))
+    }
+
+    #[test]
+    fn args_config_is_valid() {
+        // Catches clap misconfiguration (conflicting attrs, bad value_parser, etc.).
+        args_command().debug_assert();
+    }
+
+    #[test]
+    fn tps_flag_has_long_help() {
+        // The review asked for long_help clarifying that --tps paces the stream
+        // rather than duplicating txs. Assert it's wired up and mentions the
+        // single-spec behavior so the explanation can't silently regress.
+        let cmd = args_command();
+        let tps = cmd
+            .get_arguments()
+            .find(|a| a.get_id() == "tps")
+            .expect("tps arg exists");
+        let long_help = tps
+            .get_long_help()
+            .expect("tps has long_help")
+            .to_string();
+        assert!(long_help.contains("once"), "long_help: {long_help}");
+        assert!(long_help.contains("stream"), "long_help: {long_help}");
+    }
 
     #[test]
     fn tx_result_envelope_is_versioned_and_tagged() {
