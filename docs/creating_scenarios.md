@@ -207,6 +207,30 @@ args = ["1350000"]
 gas_limit = 1350000
 ```
 
+### access lists
+
+Spam transactions can include EIP-2930 access-list entries. This is useful for workloads that already know which account and storage keys need to be warm, while still sending EIP-1559 transactions by default.
+
+```toml
+[[spam]]
+
+[spam.tx]
+to = "0x1111111111111111111111111111111111111111"
+from_pool = "bluepool"
+signature = "touch(bytes32 lookupKey)"
+args = [
+    "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+]
+gas_limit = 200000
+
+[[spam.tx.access_list]]
+address = "0x1111111111111111111111111111111111111111"
+storageKeys = [
+    "0x0100000000000000000000000000000000000000000000000000000000000000",
+    "0x0300000000000000000000000000000000000000000000000000000000000000",
+]
+```
+
 ### sending bundles
 
 The `[spam.tx]` directive sends a mempool transaction using `eth_sendRawTransaction`, but Contender also supports bundles.

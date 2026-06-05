@@ -10,7 +10,7 @@ use crate::{
 use alloy::{
     hex::{FromHex, ToHexExt},
     primitives::{Address, Bytes, FixedBytes, TxKind, U256},
-    rpc::types::TransactionRequest,
+    rpc::types::{AccessList, TransactionRequest},
 };
 use std::collections::HashMap;
 use thiserror::Error;
@@ -108,7 +108,7 @@ where
 
     /// Finds {placeholders} in `fncall` and looks them up in `db`,
     /// then inserts the values it finds into `placeholder_map`.
-    /// NOTE: only finds placeholders in `args`, `authorization_addr`, and `to` fields.
+    /// NOTE: scans `args`, `from`, `to`, `authorization_address`, and `access_list` fields.
     fn find_fncall_placeholders(
         &self,
         fncall: &FunctionCallDefinition,
@@ -157,6 +157,28 @@ where
                 genesis_hash,
                 scenario_label,
             )?;
+        }
+        if let Some(access_list) = &fncall.access_list {
+            for item in access_list.iter() {
+                self.find_placeholder_values(
+                    &item.address,
+                    placeholder_map,
+                    db,
+                    rpc_url,
+                    genesis_hash,
+                    scenario_label,
+                )?;
+                for key in &item.storage_keys {
+                    self.find_placeholder_values(
+                        key,
+                        placeholder_map,
+                        db,
+                        rpc_url,
+                        genesis_hash,
+                        scenario_label,
+                    )?;
+                }
+            }
         }
         Ok(())
     }
@@ -251,6 +273,7 @@ where
                 })
             })
             .transpose()?;
+        let access_list = funcdef.access_list.to_owned().map(AccessList::from);
 
         Ok(TransactionRequest {
             to: Some(TxKind::Call(to)),
@@ -261,6 +284,7 @@ where
             max_priority_fee_per_gas,
             sidecar: funcdef.sidecar.as_ref().map(|sc| sc.to_owned().into()),
             authorization_list: funcdef.authorization.to_owned(),
+            access_list,
             ..Default::default()
         })
     }
@@ -316,7 +340,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generator::function_def::FunctionCallDefinitionStrict;
+    use crate::generator::{function_def::FunctionCallDefinitionStrict, util::complete_tx_request};
+    use alloy::consensus::TxType;
+    use alloy::primitives::B256;
+    use alloy::rpc::types::AccessListItem;
 
     /// Minimal `Templater<String>` mirroring the production `{key}` syntax,
     /// used so the priority-fee parsing path can be exercised in isolation.
@@ -374,6 +401,7 @@ mod tests {
             max_priority_fee_per_gas: priority_fee.map(|s| s.to_owned()),
             sidecar: None,
             authorization: None,
+            access_list: None,
         }
     }
 
@@ -427,5 +455,62 @@ mod tests {
                 "wrong error variant for input={bad:?}: {err:?}",
             );
         }
+    }
+
+    #[test]
+    fn template_function_call_threads_access_list_into_request() {
+        let templater = CurlyBraceTemplater;
+        let access_list_address = "0x4200000000000000000000000000000000000022";
+        let storage_key = "0x0100000000000000000000000000000000000000000000000000000000000000";
+        let second_storage_key =
+            "0x0300000000000000000000000000000000000000000000000000000000000000";
+        let placeholder_map = HashMap::new();
+        let funcdef = FunctionCallDefinitionStrict {
+            to: access_list_address.to_string(),
+            from: Address::ZERO,
+            signature: "validate()".to_string(),
+            args: vec![],
+            value: None,
+            fuzz: vec![],
+            kind: None,
+            gas_limit: Some(200_000),
+            max_priority_fee_per_gas: None,
+            sidecar: None,
+            authorization: None,
+            access_list: Some(vec![AccessListItem {
+                address: access_list_address.parse::<Address>().unwrap(),
+                storage_keys: vec![
+                    storage_key.parse::<B256>().unwrap(),
+                    second_storage_key.parse::<B256>().unwrap(),
+                ],
+            }]),
+        };
+
+        let mut tx = templater
+            .template_function_call(&funcdef, &placeholder_map)
+            .unwrap();
+        let access_list = tx.access_list.as_ref().unwrap();
+
+        assert_eq!(access_list.len(), 1);
+        assert_eq!(
+            access_list[0].address,
+            access_list_address.parse::<Address>().unwrap()
+        );
+        assert_eq!(access_list[0].storage_keys.len(), 2);
+        assert_eq!(
+            access_list[0].storage_keys[0],
+            storage_key.parse::<B256>().unwrap()
+        );
+        assert_eq!(
+            access_list[0].storage_keys[1],
+            second_storage_key.parse::<B256>().unwrap()
+        );
+
+        complete_tx_request(&mut tx, TxType::Eip1559, 10, 1, 200_000, 1, 0);
+
+        assert_eq!(tx.access_list.unwrap().len(), 1);
+        assert_eq!(tx.max_fee_per_gas, Some(10));
+        assert_eq!(tx.max_priority_fee_per_gas, Some(1));
+        assert_eq!(tx.chain_id, Some(1));
     }
 }

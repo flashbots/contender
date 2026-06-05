@@ -17,9 +17,9 @@ use crate::{
 use alloy::{
     eips::eip7702::SignedAuthorization,
     hex::ToHexExt,
-    primitives::{keccak256, Address, FixedBytes, U256},
+    primitives::{keccak256, Address, FixedBytes, B256, U256},
     providers::Provider,
-    rpc::types::Authorization,
+    rpc::types::{AccessListItem, Authorization},
     signers::{local::PrivateKeySigner, SignerSync},
 };
 use async_trait::async_trait;
@@ -211,6 +211,10 @@ where
         idx: usize,
     ) -> Result<FunctionCallDefinitionStrict> {
         let agents = self.get_agent_store();
+        let conf = self.get_plan_conf();
+        let env = conf.get_env().unwrap_or_default();
+        let mut placeholder_map = HashMap::<K, String>::new();
+        placeholder_map.extend(env);
 
         let from_address: Address = if let Some(from_pool) = &funcdef.from_pool {
             let agent = agents
@@ -254,7 +258,6 @@ where
         let to_address = special_replace(&funcdef.to);
 
         let signed_auth = if let Some(auth_address) = &funcdef.authorization_address {
-            let mut placeholder_map = HashMap::<K, String>::new();
             let templater = self.get_templater();
             templater.find_fncall_placeholders(
                 funcdef,
@@ -316,6 +319,42 @@ where
             None
         };
 
+        // Resolve {placeholders} in the optional access list, then parse each
+        // entry into alloy's strict `AccessListItem` type.
+        let access_list = if let Some(loose_list) = &funcdef.access_list {
+            let templater = self.get_templater();
+            templater.find_fncall_placeholders(
+                funcdef,
+                self.get_db(),
+                &mut placeholder_map,
+                &self.get_rpc_url(),
+                self.get_genesis_hash(),
+                self.get_scenario_label(),
+            )?;
+            let mut items = Vec::with_capacity(loose_list.len());
+            for item in loose_list.iter() {
+                let resolved_addr = templater.replace_placeholders(&item.address, &placeholder_map);
+                let address = resolved_addr
+                    .parse::<Address>()
+                    .map_err(|_| GeneratorError::address_not_found(&item.address))?;
+                let mut storage_keys = Vec::with_capacity(item.storage_keys.len());
+                for key in &item.storage_keys {
+                    let resolved_key = templater.replace_placeholders(key, &placeholder_map);
+                    let parsed = resolved_key
+                        .parse::<B256>()
+                        .map_err(|_| GeneratorError::address_not_found(key))?;
+                    storage_keys.push(parsed);
+                }
+                items.push(AccessListItem {
+                    address,
+                    storage_keys,
+                });
+            }
+            Some(items)
+        } else {
+            None
+        };
+
         Ok(FunctionCallDefinitionStrict {
             to: to_address,
             from: from_address,
@@ -328,6 +367,7 @@ where
             max_priority_fee_per_gas: funcdef.max_priority_fee_per_gas.to_owned(),
             sidecar: funcdef.sidecar_data()?,
             authorization: signed_auth.map(|a| vec![a]),
+            access_list,
         })
     }
 
@@ -345,9 +385,7 @@ where
         let templater = self.get_templater();
 
         let mut placeholder_map = HashMap::<K, String>::new();
-        for (key, value) in env.iter() {
-            placeholder_map.insert(key.to_owned(), value.to_owned());
-        }
+        placeholder_map.extend(env);
 
         let mut txs: Vec<ExecutionRequest> = vec![];
 
