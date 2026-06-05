@@ -27,7 +27,7 @@ use contender_core::{
     db::{DbOps, SpamDuration, SpamRunRequest},
     generator::{
         agent_pools::AgentSpec, seeder::rand_seed::SeedGenerator, templater::Templater,
-        FunctionCallDefinition, Generator, PlanConfig, RandSeed,
+        util::parse_value, FunctionCallDefinition, Generator, PlanConfig, RandSeed,
     },
     spammer::tx_actor::{ActorContext, CacheTx},
     test_scenario::{TestScenario, TestScenarioParams},
@@ -167,10 +167,13 @@ pub struct SpamStreamCliArgs {
     )]
     pub tps: u64,
 
-    /// Minimum balance to keep in each pool account, in wei.
+    /// Minimum balance to keep in each pool account.
     #[arg(
         long,
-        default_value_t = U256::from(10_000_000_000_000_000u128),
+        long_help = "The minimum balance to keep in each pool account, with units \
+            (e.g. \"10 eth\", \"0.5 ether\", \"100 gwei\"). A plain number is parsed as wei.",
+        default_value = "0.01 ether",
+        value_parser = parse_value,
         help_heading = HELP_HEADING_RUNTIME,
     )]
     pub min_balance: U256,
@@ -642,7 +645,7 @@ pub async fn spam_stream(db: &SqliteDb, args: SpamStreamCliArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::Command;
+    use clap::{Command, FromArgMatches};
 
     /// `SpamStreamCliArgs` derives `Args` (not `Parser`), so build a throwaway
     /// `Command` from it to introspect the argument configuration in tests.
@@ -672,6 +675,32 @@ mod tests {
             .to_string();
         assert!(long_help.contains("once"), "long_help: {long_help}");
         assert!(long_help.contains("stream"), "long_help: {long_help}");
+    }
+
+    /// Parse CLI args from a token list, the way clap would at runtime, so we
+    /// can assert how value strings are coerced into `SpamStreamCliArgs`.
+    fn parse_args(tokens: &[&str]) -> SpamStreamCliArgs {
+        let matches = args_command().get_matches_from(
+            std::iter::once("spam-stream").chain(tokens.iter().copied()),
+        );
+        SpamStreamCliArgs::from_arg_matches(&matches).expect("from_arg_matches")
+    }
+
+    #[test]
+    fn min_balance_accepts_unit_strings() {
+        // The review asked --min-balance to accept unit-value strings via parse_value.
+        let eth = parse_args(&["--min-balance", "10 eth"]);
+        assert_eq!(eth.min_balance, U256::from(10_000_000_000_000_000_000u128)); // 10e18
+        // A plain number is still wei (parse_value's fallback).
+        let wei = parse_args(&["--min-balance", "12345"]);
+        assert_eq!(wei.min_balance, U256::from(12345u64));
+    }
+
+    #[test]
+    fn min_balance_default_is_point_zero_one_ether() {
+        // Default must round-trip through value_parser to 0.01 ETH = 1e16 wei.
+        let args = parse_args(&[]);
+        assert_eq!(args.min_balance, U256::from(10_000_000_000_000_000u128));
     }
 
     #[test]
