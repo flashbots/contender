@@ -672,10 +672,7 @@ mod tests {
             .get_arguments()
             .find(|a| a.get_id() == "tps")
             .expect("tps arg exists");
-        let long_help = tps
-            .get_long_help()
-            .expect("tps has long_help")
-            .to_string();
+        let long_help = tps.get_long_help().expect("tps has long_help").to_string();
         assert!(long_help.contains("once"), "long_help: {long_help}");
         assert!(long_help.contains("stream"), "long_help: {long_help}");
     }
@@ -683,17 +680,17 @@ mod tests {
     /// Parse CLI args from a token list, the way clap would at runtime, so we
     /// can assert how value strings are coerced into `SpamStreamCliArgs`.
     fn parse_args(tokens: &[&str]) -> SpamStreamCliArgs {
-        let matches = args_command().get_matches_from(
-            std::iter::once("spam-stream").chain(tokens.iter().copied()),
-        );
+        let matches = args_command()
+            .get_matches_from(std::iter::once("spam-stream").chain(tokens.iter().copied()));
         SpamStreamCliArgs::from_arg_matches(&matches).expect("from_arg_matches")
     }
 
     #[test]
     fn min_balance_accepts_unit_strings() {
         // The review asked --min-balance to accept unit-value strings via parse_value.
+        // 10 eth == 10e18 wei.
         let eth = parse_args(&["--min-balance", "10 eth"]);
-        assert_eq!(eth.min_balance, U256::from(10_000_000_000_000_000_000u128)); // 10e18
+        assert_eq!(eth.min_balance, U256::from(10_000_000_000_000_000_000u128));
         // A plain number is still wei (parse_value's fallback).
         let wei = parse_args(&["--min-balance", "12345"]);
         assert_eq!(wei.min_balance, U256::from(12345u64));
