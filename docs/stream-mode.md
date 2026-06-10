@@ -40,8 +40,8 @@ Key flags:
 | `-p, --priv-key` | none | Funder key (funds the pool before spam starts). |
 | `--from` | `stdin` | `stdin` or a file path. |
 | `--from-pool` | `executors` | Pool name. Specs that omit `from`/`from_pool` use this pool. |
-| `--pool-size` | `10` | Accounts generated in the pool. |
-| `--tps` | `0` | `0` = consume as fast as channel emits. |
+| `--pool-size` | `10` | Accounts generated in the pool. Also sets send concurrency: one worker per signer sends in parallel (pool of 1 = serial). |
+| `--tps` | `0` | `0` = consume as fast as channel emits (sends run concurrently across the pool). |
 | `--min-balance` | `0.01 ETH` (wei) | Min pool-account balance during funding. |
 | `--skip-funding` | `false` | Skip pre-spam funding. |
 | `--seed` | random | Deterministic pool generation. |
@@ -200,20 +200,8 @@ echo '{"to":"0xdeAD000000000000000000000000000000000000","value":"1","gas_limit"
 The tx should land on the target chain; the funder needs at least enough ETH
 to fund the executor pool.
 
-## Open questions
+## Follow-ups
 
-1. Should stream mode get its own `Spammer` impl in `contender_core` so
-   campaigns can reuse it? Today the prototype lives entirely in `cli/`.
-   *(Deferred to a follow-up: refactoring the `Spammer` trait is out of scope
-   for the prototype.)*
-2. ~~Is the JSON spec the right shape, or should we standardize on a tagged
-   envelope so we can evolve it later?~~ **Resolved:** the stdout output is now
-   a versioned, tagged envelope (`{"version":1,"type":"tx_result",...}`). See
-   "Structured output" above.
-3. ~~How should errors propagate back to the upstream producer?~~ **Resolved:**
-   `spam-stream` emits a structured `tx_result` event per spec on stdout
-   (including send errors), plus `backpressure` and a terminal `summary` event,
-   in addition to the DB + logs.
-4. Should `--tps 0` (drain-as-fast) bound concurrency by pool size, or is
-   "one in flight at a time" acceptable for the relayer case? *(Deferred:
-   parallel sends judged not worth the effort for the prototype.)*
+- Stream mode could grow its own `Spammer` impl in `contender_core` so campaigns
+  can reuse it (today it lives entirely in `cli/`); this needs a generic
+  `SpamSource` abstraction across the existing spammers. See "Reuse vs. new code".
