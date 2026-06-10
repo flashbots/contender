@@ -16,9 +16,10 @@ use crate::{
 };
 use alloy::{
     consensus::TxType,
-    network::{AnyTxEnvelope, Ethereum, NetworkTransactionBuilder},
+    network::{AnyTxEnvelope, Ethereum, EthereumWallet, NetworkTransactionBuilder},
     primitives::{utils::format_ether, U256},
     providers::Provider,
+    signers::local::PrivateKeySigner,
     transports::http::reqwest::Url,
 };
 use clap::Args;
@@ -26,8 +27,11 @@ use contender_core::{
     agent_controller::{AgentClass, AgentStore},
     db::{DbOps, SpamDuration, SpamRunRequest},
     generator::{
-        agent_pools::AgentSpec, seeder::rand_seed::SeedGenerator, templater::Templater,
-        util::parse_value, FunctionCallDefinition, Generator, PlanConfig, RandSeed,
+        agent_pools::AgentSpec,
+        seeder::rand_seed::SeedGenerator,
+        templater::Templater,
+        util::{complete_tx_request, parse_value},
+        FunctionCallDefinition, Generator, PlanConfig, RandSeed,
     },
     spammer::tx_actor::{ActorContext, CacheTx},
     test_scenario::{TestScenario, TestScenarioParams},
@@ -39,7 +43,10 @@ use serde::Serialize;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
@@ -59,6 +66,9 @@ const OUTPUT_VERSION: u32 = 1;
 /// How often to refresh the cached gas price during the stream loop. Avoids an
 /// RPC round-trip on every single tx.
 const GAS_REFRESH_INTERVAL: Duration = Duration::from_secs(6);
+/// Gas limit used when a stream spec doesn't set one (stream mode doesn't
+/// estimate per tx; relay specs always carry an explicit gas_limit).
+const DEFAULT_STREAM_GAS_LIMIT: u64 = 200_000;
 
 /// Versioned, tagged envelope written to stdout (one JSON line per event) so
 /// downstream consumers can evolve with the schema. The `version` field pins
@@ -283,19 +293,61 @@ fn build_pool_agent_store(from_pool: &str, pool_size: usize, seed: &RandSeed) ->
     store
 }
 
-/// Drive the stream loop: pull specs, build/sign/send txs, cache in the
-/// tx_actor for receipt tracking. Returns when the stream channel closes.
+/// Drive the stream loop with per-signer concurrency. One worker is spawned per
+/// pool signer; each spec is routed (round-robin by idx, matching
+/// `make_strict_call`'s signer selection) to the worker that owns its signer, and
+/// workers send concurrently. Because each signer's sends stay serial within its
+/// worker, nonce assignment and reclaim-on-bounce remain correct with no shared
+/// nonce state. Concurrency == pool size; a pool of 1 reproduces serial sending.
 async fn drive_stream<S, P>(
-    scenario: &mut TestScenario<SqliteDb, S, P>,
+    scenario: Arc<TestScenario<SqliteDb, S, P>>,
     mut rx: mpsc::Receiver<FunctionCallDefinition>,
     fallback_pool: String,
     tps: u64,
     cancel: CancellationToken,
 ) -> Result<(usize, usize)>
 where
-    S: SeedGenerator + Send + Sync + Clone,
-    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+    S: SeedGenerator + Send + Sync + Clone + 'static,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone + 'static,
 {
+    // Shared, periodically-refreshed gas price: one RPC per interval rather than
+    // one per tx (the per-tx fetch was part of the serial throughput ceiling).
+    let gas_price = Arc::new(AtomicU64::new(
+        scenario.rpc_client.get_gas_price().await? as u64,
+    ));
+    let mut last_gas_refresh = Instant::now();
+
+    // One worker per pool signer; route so signer k is only ever touched by
+    // worker k (matches make_strict_call's `idx % signers.len()` selection), so
+    // each signer's nonce + reclaim stay serial and race-free.
+    let signers = scenario
+        .agent_store
+        .get_agent(&fallback_pool)
+        .map(|a| a.signers.clone())
+        .unwrap_or_default();
+    if signers.is_empty() {
+        return Err(CliError::Args(ArgsError::Custom(format!(
+            "pool '{fallback_pool}' has no signers"
+        ))));
+    }
+    let n_workers = signers.len();
+
+    let mut worker_txs = Vec::with_capacity(n_workers);
+    let mut worker_handles = Vec::with_capacity(n_workers);
+    for signer in signers.into_iter() {
+        let (wtx, wrx) = mpsc::channel::<(usize, FunctionCallDefinition)>(64);
+        let nonce = scenario.nonces.get(&signer.address()).copied().unwrap_or(0);
+        let handle = tokio::spawn(send_worker(
+            scenario.clone(),
+            wrx,
+            signer,
+            nonce,
+            gas_price.clone(),
+        ));
+        worker_txs.push(wtx);
+        worker_handles.push(handle);
+    }
+
     // Rate limiter: only ticks when tps > 0.
     let mut ticker = if tps > 0 {
         let period = Duration::from_secs_f64(1.0 / tps as f64);
@@ -306,15 +358,7 @@ where
         None
     };
 
-    // Cache the gas price instead of fetching it per tx; refreshed below.
-    let mut gas_price = scenario.rpc_client.get_gas_price().await?;
-    let mut last_gas_refresh = Instant::now();
-
-    let mut sent: usize = 0;
-    let mut failed: usize = 0;
     let mut idx: usize = 0;
-    let placeholder_map = HashMap::<String, String>::new();
-
     loop {
         tokio::select! {
             _ = cancel.cancelled() => {
@@ -339,131 +383,159 @@ where
 
                 if last_gas_refresh.elapsed() >= GAS_REFRESH_INTERVAL {
                     if let Ok(gp) = scenario.rpc_client.get_gas_price().await {
-                        gas_price = gp;
+                        gas_price.store(gp as u64, Ordering::Relaxed);
                     }
                     last_gas_refresh = Instant::now();
                 }
 
-                match send_one(scenario, &spec, idx, &placeholder_map, gas_price).await {
-                    Ok(true) => sent += 1,
-                    Ok(false) => failed += 1,
-                    Err(e) => {
-                        failed += 1;
-                        warn!("stream: failed to send tx (idx {idx}): {e}");
-                    }
+                // Route to the worker that owns this idx's signer.
+                let w = idx % n_workers;
+                if worker_txs[w].send((idx, spec)).await.is_err() {
+                    break;
                 }
                 idx += 1;
             }
         }
     }
 
+    // Close worker inputs and join; sum their tallies.
+    drop(worker_txs);
+    let mut sent = 0usize;
+    let mut failed = 0usize;
+    for handle in worker_handles {
+        if let Ok((s, f)) = handle.await {
+            sent += s;
+            failed += f;
+        }
+    }
     Ok((sent, failed))
 }
 
-/// Build a single transaction from a stream spec, sign it, send it, and cache
-/// it in the tx_actor for receipt tracking.
-async fn send_one<S, P>(
-    scenario: &mut TestScenario<SqliteDb, S, P>,
-    spec: &FunctionCallDefinition,
-    idx: usize,
-    placeholder_map: &HashMap<String, String>,
-    gas_price: u128,
-) -> Result<bool>
+/// Per-signer send worker: pulls `(idx, spec)` for one signer, builds + signs
+/// with that signer using a locally-tracked nonce, and sends. Serial within the
+/// signer (so the nonce counter and reclaim are race-free); concurrency comes
+/// from running one worker per signer. On a send rejection the nonce is reused
+/// (not advanced), matching the serial path's reclaim — no gap, no stall.
+async fn send_worker<S, P>(
+    scenario: Arc<TestScenario<SqliteDb, S, P>>,
+    mut rx: mpsc::Receiver<(usize, FunctionCallDefinition)>,
+    signer: PrivateKeySigner,
+    mut nonce: u64,
+    gas_price: Arc<AtomicU64>,
+) -> (usize, usize)
 where
-    S: SeedGenerator + Send + Sync + Clone,
-    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone,
+    S: SeedGenerator + Send + Sync + Clone + 'static,
+    P: PlanConfig<String> + Templater<String> + Send + Sync + Clone + 'static,
 {
-    // Stream mode only builds EIP-1559 txs (no blob gas price, no auth list), so
-    // reject blob (4844) / setCode (7702) specs up front instead of silently
-    // producing an invalid tx.
-    if spec.blob_data.is_some() || spec.authorization_address.is_some() {
-        warn!("stream tx[{idx}]: blob/7702 specs are unsupported in stream mode; skipping");
-        return Ok(false);
-    }
+    let wallet = EthereumWallet::from(signer);
+    let placeholder_map = HashMap::<String, String>::new();
+    let mut sent = 0usize;
+    let mut failed = 0usize;
 
-    // 1. Resolve `from`/`from_pool` and access list against the scenario's
-    //    agent store + templater. This produces a strict FunctionCallDefinition.
-    let strict = scenario
-        .make_strict_call(spec, idx)
-        .map_err(contender_core::Error::Generator)?;
+    while let Some((idx, spec)) = rx.recv().await {
+        // Stream mode only builds EIP-1559 txs; reject blob/7702 specs.
+        if spec.blob_data.is_some() || spec.authorization_address.is_some() {
+            warn!("stream tx[{idx}]: blob/7702 specs are unsupported in stream mode; skipping");
+            failed += 1;
+            continue;
+        }
 
-    // 2. Render the strict definition into a TransactionRequest (encodes
-    //    calldata, threads access_list, sets value/gas_limit).
-    let tx_req = scenario
-        .get_templater()
-        .template_function_call(&strict, placeholder_map)
-        .map_err(contender_core::Error::Templater)?;
+        let strict = match scenario.make_strict_call(&spec, idx) {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("stream tx[{idx}]: build failed: {e}");
+                failed += 1;
+                continue;
+            }
+        };
+        let tx_req = match scenario
+            .get_templater()
+            .template_function_call(&strict, &placeholder_map)
+        {
+            Ok(t) => t,
+            Err(e) => {
+                warn!("stream tx[{idx}]: template failed: {e}");
+                failed += 1;
+                continue;
+            }
+        };
 
-    // 3. Assign nonce/gas-limit + sign using the cached gas price.
-    let (prepared, wallet) = scenario.prepare_tx_request(&tx_req, gas_price, 0).await?;
-    // Build & sign via the alloy Ethereum network. The op-alloy-network re-export
-    // can create trait-resolution ambiguity, so we fully-qualify the trait
-    // method and convert the error string-ly instead of relying on From.
-    let envelope =
-        <alloy::rpc::types::TransactionRequest as NetworkTransactionBuilder<Ethereum>>::build(
-            prepared, &wallet,
-        )
+        // Build + sign with a worker-local nonce (no &mut scenario, no shared
+        // nonce map), using the spec's gas limit instead of a per-tx estimate.
+        let gp = gas_price.load(Ordering::Relaxed) as u128;
+        let gas_limit = tx_req.gas.unwrap_or(DEFAULT_STREAM_GAS_LIMIT);
+        let priority_fee = tx_req.max_priority_fee_per_gas.unwrap_or(gp / 10);
+        let mut full_tx = tx_req;
+        full_tx.nonce = Some(nonce);
+        complete_tx_request(
+            &mut full_tx,
+            scenario.tx_type,
+            gp,
+            priority_fee,
+            gas_limit,
+            scenario.chain_id,
+            0,
+        );
+        let envelope = match <alloy::rpc::types::TransactionRequest as NetworkTransactionBuilder<
+            Ethereum,
+        >>::build(full_tx, &wallet)
         .await
-        .map_err(|e| CliError::Args(ArgsError::Custom(format!("build envelope: {e}"))))?;
-    let tx_hash = envelope.tx_hash().to_owned();
-
-    // 4. Send via the same txs_client the regular spammer uses.
-    let any_envelope = AnyTxEnvelope::Ethereum(envelope);
-    let start_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let res = scenario.txs_client.send_tx_envelope(any_envelope).await;
-    let error = match res {
-        Ok(_) => {
-            info!("stream tx[{idx}]: {tx_hash} sent");
-            None
-        }
-        Err(e) => {
-            let msg = e
-                .as_error_resp()
-                .map(|err| err.message.to_string())
-                .unwrap_or_else(|| format!("{e}"));
-            warn!("stream tx[{idx}]: {tx_hash} failed: {msg}");
-            Some(msg)
-        }
-    };
-
-    let submitted = error.is_none();
-    if !submitted {
-        // prepare_tx_request already advanced this account's local nonce, but
-        // the tx never entered the mempool (e.g. rejected by an interop access
-        // -list filter). Reclaim the nonce so the next send from this account
-        // doesn't leave a gap that stalls every later tx behind it. The stream
-        // sends serially, so nothing else has touched this account meanwhile.
-        if let Some(n) = scenario.nonces.get_mut(&strict.from) {
-            *n = n.saturating_sub(1);
-        }
+        {
+            Ok(e) => e,
+            Err(e) => {
+                warn!("stream tx[{idx}]: build envelope failed: {e}");
+                failed += 1;
+                continue;
+            }
+        };
+        let tx_hash = envelope.tx_hash().to_owned();
+        let start_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let res = scenario
+            .txs_client
+            .send_tx_envelope(AnyTxEnvelope::Ethereum(envelope))
+            .await;
+        let error = match res {
+            Ok(_) => {
+                info!("stream tx[{idx}]: {tx_hash} sent");
+                nonce += 1;
+                sent += 1;
+                None
+            }
+            Err(e) => {
+                let msg = e
+                    .as_error_resp()
+                    .map(|err| err.message.to_string())
+                    .unwrap_or_else(|| format!("{e}"));
+                warn!("stream tx[{idx}]: {tx_hash} failed: {msg}");
+                // Send rejected → tx never entered the mempool → reuse this nonce
+                // (don't advance) so the next send fills the slot without a gap.
+                failed += 1;
+                Some(msg)
+            }
+        };
+        StreamEvent::emit(StreamPayload::TxResult {
+            idx,
+            tx_hash: tx_hash.to_string(),
+            start_timestamp_ms: start_ms,
+            kind: spec.kind.clone(),
+            error: error.clone(),
+        });
+        let _ = scenario
+            .tx_actor()
+            .cache_run_tx(CacheTx {
+                tx_hash,
+                start_timestamp_ms: start_ms,
+                end_timestamp_ms: None,
+                kind: spec.kind.clone(),
+                error,
+            })
+            .await;
     }
 
-    // 5. Emit a structured result line to stdout (mirrors the input stream so
-    //    reactive callers can correlate sends with their specs).
-    StreamEvent::emit(StreamPayload::TxResult {
-        idx,
-        tx_hash: tx_hash.to_string(),
-        start_timestamp_ms: start_ms,
-        kind: spec.kind.clone(),
-        error: error.clone(),
-    });
-
-    // 6. Cache in the tx_actor so its flush loop polls for the receipt.
-    scenario
-        .tx_actor()
-        .cache_run_tx(CacheTx {
-            tx_hash,
-            start_timestamp_ms: start_ms,
-            end_timestamp_ms: None,
-            kind: spec.kind.clone(),
-            error,
-        })
-        .await?;
-
-    Ok(submitted)
+    (sent, failed)
 }
 
 /// Top-level entry point invoked from `main.rs`.
@@ -622,8 +694,11 @@ pub async fn spam_stream(db: &SqliteDb, args: SpamStreamCliArgs, data_dir: &Path
         ctrlc_cancel.cancel();
     });
 
+    // Share the now-fully-initialized scenario across the per-signer send
+    // workers. All &mut setup (nonce sync, funding, actor ctx) is already done.
+    let scenario = Arc::new(scenario);
     let (sent, failed) = drive_stream(
-        &mut scenario,
+        scenario.clone(),
         rx,
         args.from_pool.clone(),
         args.tps,
@@ -633,6 +708,14 @@ pub async fn spam_stream(db: &SqliteDb, args: SpamStreamCliArgs, data_dir: &Path
     StreamEvent::emit(StreamPayload::Summary { sent, failed });
 
     info!("stream complete: {sent} sent, {failed} failed; draining pending receipts...");
+
+    // drive_stream has joined all workers, so their Arc clones are dropped and we
+    // can reclaim exclusive ownership for the receipt drain + shutdown.
+    let mut scenario = Arc::try_unwrap(scenario).map_err(|_| {
+        CliError::Args(ArgsError::Custom(
+            "scenario still shared after drive_stream returned".into(),
+        ))
+    })?;
 
     tokio::select! {
         _ = scenario.dump_tx_cache(run_id) => {}
