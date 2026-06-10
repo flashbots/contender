@@ -90,12 +90,18 @@ stdin/file -> reader task -> mpsc<FunctionCallDefinition>
                               drive_stream loop
                                        |
                                        v
-        for each spec:
+        drive_stream routes each spec round-robin to one worker per pool signer
+        (worker k owns signer k); workers send concurrently. Per worker:
           scenario.make_strict_call          (Generator trait, resolves from_pool + access_list)
-          scenario.config.template_function_call  (Templater, builds TransactionRequest)
-          scenario.prepare_tx_request        (assigns nonce, gas limit, signs key from pool)
-          scenario.txs_client.send_tx_envelope
+          template_function_call             (Templater, builds TransactionRequest)
+          build w/ worker-local nonce + complete_tx_request, sign with signer k
+          scenario.txs_client.send_tx_envelope   (concurrent across signers)
           scenario.tx_actor().cache_run_tx   (queues for receipt polling)
+
+        Each signer's sends stay serial within its worker, so nonce assignment
+        and reclaim-on-rejection (reuse the nonce, no gap) are race-free with no
+        shared nonce state or locks. Concurrency == --pool-size; --pool-size 1
+        reproduces the original serial sending.
 ```
 
 Code map:
@@ -137,7 +143,7 @@ consumers:
 | `TestScenario` constructor (signer map, nonce sync, txs_client) | yes |
 | `Generator::make_strict_call` (resolves `from_pool`, access list, EIP-7702) | yes |
 | `Templater::template_function_call` (calldata encoding, access list threading) | yes |
-| `TestScenario::prepare_tx_request` (nonce, gas limit, complete_tx_request) | yes |
+| `complete_tx_request` (gas fields) | yes — per-signer workers build directly with a worker-local nonce instead of `prepare_tx_request`, so each signer's nonce stays serial under concurrency |
 | Pool generation via `AgentPools::build_agent_store` | yes |
 | `TxActorHandle::cache_run_tx` + flush loop (DB writes, receipt polling) | yes |
 | `fund_accounts` helper | yes |

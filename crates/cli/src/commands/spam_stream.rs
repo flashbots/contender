@@ -293,6 +293,27 @@ fn build_pool_agent_store(from_pool: &str, pool_size: usize, seed: &RandSeed) ->
     store
 }
 
+/// Worker (and pool-signer) index for a stream index. Specs are assigned
+/// round-robin across the pool, matching `make_strict_call`'s `idx %
+/// signers.len()` signer selection, so routing spec `idx` to `worker_index(idx,
+/// n)` guarantees each signer is only ever touched by one worker — which is what
+/// keeps that signer's nonce handling serial and correct.
+fn worker_index(idx: usize, n_workers: usize) -> usize {
+    idx % n_workers
+}
+
+/// Next local nonce after a send attempt. Advances on an accepted send; on a
+/// rejected send the tx never entered the mempool, so the nonce is reused
+/// (returned unchanged) to avoid a gap that would stall every later tx from the
+/// signer. Correct only because each signer's sends are serial within its worker.
+fn next_nonce(nonce: u64, submitted: bool) -> u64 {
+    if submitted {
+        nonce + 1
+    } else {
+        nonce
+    }
+}
+
 /// Drive the stream loop with per-signer concurrency. One worker is spawned per
 /// pool signer; each spec is routed (round-robin by idx, matching
 /// `make_strict_call`'s signer selection) to the worker that owns its signer, and
@@ -389,7 +410,7 @@ where
                 }
 
                 // Route to the worker that owns this idx's signer.
-                let w = idx % n_workers;
+                let w = worker_index(idx, n_workers);
                 if worker_txs[w].send((idx, spec)).await.is_err() {
                     break;
                 }
@@ -497,10 +518,10 @@ where
             .txs_client
             .send_tx_envelope(AnyTxEnvelope::Ethereum(envelope))
             .await;
+        let submitted = res.is_ok();
         let error = match res {
             Ok(_) => {
                 info!("stream tx[{idx}]: {tx_hash} sent");
-                nonce += 1;
                 sent += 1;
                 None
             }
@@ -510,12 +531,14 @@ where
                     .map(|err| err.message.to_string())
                     .unwrap_or_else(|| format!("{e}"));
                 warn!("stream tx[{idx}]: {tx_hash} failed: {msg}");
-                // Send rejected → tx never entered the mempool → reuse this nonce
-                // (don't advance) so the next send fills the slot without a gap.
                 failed += 1;
                 Some(msg)
             }
         };
+        // Advance the nonce only on an accepted send; a rejected send never
+        // entered the mempool, so reuse the nonce (no gap that would stall the
+        // signer behind it).
+        nonce = next_nonce(nonce, submitted);
         StreamEvent::emit(StreamPayload::TxResult {
             idx,
             tx_hash: tx_hash.to_string(),
@@ -902,5 +925,59 @@ mod tests {
             received.push(spec);
         }
         assert_eq!(received.len(), 1);
+    }
+
+    #[test]
+    fn worker_index_is_round_robin_and_per_signer_stable() {
+        // The per-signer concurrency model is correct only if each signer is
+        // touched by exactly one worker. With n workers: one full cycle hits
+        // every worker once, idx and idx+n return to the same worker (so the
+        // same signer), and adjacent specs spread across workers.
+        let n = 4;
+        let mut cycle: Vec<usize> = (0..n).map(|i| worker_index(i, n)).collect();
+        cycle.sort_unstable();
+        cycle.dedup();
+        assert_eq!(
+            cycle,
+            vec![0, 1, 2, 3],
+            "a full cycle hits each worker once"
+        );
+        for idx in 0..10 {
+            assert_eq!(worker_index(idx, n), worker_index(idx + n, n));
+        }
+        assert_ne!(worker_index(0, n), worker_index(1, n));
+    }
+
+    #[test]
+    fn worker_routing_matches_pool_signer_selection() {
+        // Routing must pick the same index make_strict_call uses for the signer
+        // (idx % signers.len()), so worker k always owns pool signer k.
+        let seed = RandSeed::seed_from_str("0xabc");
+        let store = build_pool_agent_store("executors", 5, &seed);
+        let agent = store.get_agent("executors").expect("pool exists");
+        let n = agent.signers.len();
+        assert_eq!(n, 5);
+        for idx in 0..23usize {
+            assert_eq!(worker_index(idx, n), idx % agent.signers.len());
+        }
+    }
+
+    #[test]
+    fn next_nonce_reuses_on_rejection() {
+        // Accepted send advances the nonce; rejected send reuses it (no gap).
+        assert_eq!(next_nonce(7, true), 8);
+        assert_eq!(next_nonce(7, false), 7);
+    }
+
+    #[test]
+    fn pool_signers_are_distinct() {
+        // Per-signer workers require the pool to have distinct signers.
+        let seed = RandSeed::seed_from_str("0xfeed");
+        let store = build_pool_agent_store("executors", 8, &seed);
+        let mut addrs = store.all_signer_addresses();
+        assert_eq!(addrs.len(), 8);
+        addrs.sort_unstable();
+        addrs.dedup();
+        assert_eq!(addrs.len(), 8, "pool signers must be distinct");
     }
 }
