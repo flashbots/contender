@@ -199,9 +199,3 @@ echo '{"to":"0xdeAD000000000000000000000000000000000000","value":"1","gas_limit"
 
 The tx should land on the target chain; the funder needs at least enough ETH
 to fund the executor pool.
-
-## Follow-ups
-
-- Stream mode could grow its own `Spammer` impl in `contender_core` so campaigns
-  can reuse it (today it lives entirely in `cli/`); this needs a generic
-  `SpamSource` abstraction across the existing spammers. See "Reuse vs. new code".
