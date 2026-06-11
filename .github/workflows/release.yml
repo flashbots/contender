@@ -62,7 +62,10 @@ jobs:
         run: |
           tag="${{ needs.extract-version.outputs.VERSION }}"
           tag=${tag#v}
-          cargo_ver=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          # WARNING: VERY SHITTY VERSION EXTRACTION, PLEASE FIX
+          # packages[1] is contender_cli, which is the primary user-facing crate.
+          # For this check, we focus on this crate only. Probably needs to be more robust, though.
+          cargo_ver=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[1].version')
           [[ "$tag" == "$cargo_ver"* ]] || { echo "Tag $tag doesn’t match the Cargo version $cargo_ver"; exit 1; }
 
   build:
