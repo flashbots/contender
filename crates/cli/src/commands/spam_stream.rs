@@ -355,6 +355,7 @@ where
 
     let mut worker_txs = Vec::with_capacity(n_workers);
     let mut worker_handles = Vec::with_capacity(n_workers);
+    let mut worker_backpressured = vec![false; n_workers];
     for signer in signers.into_iter() {
         let (wtx, wrx) = mpsc::channel::<(usize, FunctionCallDefinition)>(64);
         let nonce = scenario.nonces.get(&signer.address()).copied().unwrap_or(0);
@@ -411,8 +412,22 @@ where
 
                 // Route to the worker that owns this idx's signer.
                 let w = worker_index(idx, n_workers);
-                if worker_txs[w].send((idx, spec)).await.is_err() {
-                    break;
+                match worker_txs[w].try_send((idx, spec)) {
+                    Ok(()) => worker_backpressured[w] = false,
+                    Err(mpsc::error::TrySendError::Full((idx, spec))) => {
+                        if !worker_backpressured[w] {
+                            worker_backpressured[w] = true;
+                            let capacity = worker_txs[w].max_capacity();
+                            StreamEvent::emit(StreamPayload::Backpressure {
+                                queued: capacity.saturating_sub(worker_txs[w].capacity()),
+                                capacity,
+                            });
+                        }
+                        if worker_txs[w].send((idx, spec)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(mpsc::error::TrySendError::Closed(_)) => break,
                 }
                 idx += 1;
             }
@@ -424,9 +439,12 @@ where
     let mut sent = 0usize;
     let mut failed = 0usize;
     for handle in worker_handles {
-        if let Ok((s, f)) = handle.await {
-            sent += s;
-            failed += f;
+        match handle.await {
+            Ok((s, f)) => {
+                sent += s;
+                failed += f;
+            }
+            Err(e) => warn!("stream: send worker panicked: {e}"),
         }
     }
     Ok((sent, failed))

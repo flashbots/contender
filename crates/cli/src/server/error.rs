@@ -13,16 +13,16 @@ pub enum ContenderRpcError {
     SessionNotFound(usize),
 
     #[error("Session {} is not initialized", _0.id)]
-    SessionNotInitialized(ContenderSessionInfo),
+    SessionNotInitialized(Box<ContenderSessionInfo>),
 
     #[error("Session {} failed: {error}", info.id)]
     SessionFailed {
-        info: ContenderSessionInfo,
+        info: Box<ContenderSessionInfo>,
         error: String,
     },
 
     #[error("Session {} is currently busy: {:?}", _0.id, _0.status)]
-    SessionBusy(ContenderSessionInfo),
+    SessionBusy(Box<ContenderSessionInfo>),
 
     #[error("Session {0} is not currently spamming")]
     SessionNotBusy(usize),
