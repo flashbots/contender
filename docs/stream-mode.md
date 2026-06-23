@@ -40,8 +40,8 @@ Key flags:
 | `-p, --priv-key` | none | Funder key (funds the pool before spam starts). |
 | `--from` | `stdin` | `stdin` or a file path. |
 | `--from-pool` | `executors` | Pool name. Specs that omit `from`/`from_pool` use this pool. |
-| `--pool-size` | `10` | Accounts generated in the pool. |
-| `--tps` | `0` | `0` = consume as fast as channel emits. |
+| `--pool-size` | `10` | Accounts generated in the pool. Also sets send concurrency: one worker per signer sends in parallel (pool of 1 = serial). |
+| `--tps` | `0` | `0` = consume as fast as channel emits (sends run concurrently across the pool). |
 | `--min-balance` | `0.01 ETH` (wei) | Min pool-account balance during funding. |
 | `--skip-funding` | `false` | Skip pre-spam funding. |
 | `--seed` | random | Deterministic pool generation. |
@@ -90,12 +90,18 @@ stdin/file -> reader task -> mpsc<FunctionCallDefinition>
                               drive_stream loop
                                        |
                                        v
-        for each spec:
+        drive_stream routes each spec round-robin to one worker per pool signer
+        (worker k owns signer k); workers send concurrently. Per worker:
           scenario.make_strict_call          (Generator trait, resolves from_pool + access_list)
-          scenario.config.template_function_call  (Templater, builds TransactionRequest)
-          scenario.prepare_tx_request        (assigns nonce, gas limit, signs key from pool)
-          scenario.txs_client.send_tx_envelope
+          template_function_call             (Templater, builds TransactionRequest)
+          build w/ worker-local nonce + complete_tx_request, sign with signer k
+          scenario.txs_client.send_tx_envelope   (concurrent across signers)
           scenario.tx_actor().cache_run_tx   (queues for receipt polling)
+
+        Each signer's sends stay serial within its worker, so nonce assignment
+        and reclaim-on-rejection (reuse the nonce, no gap) are race-free with no
+        shared nonce state or locks. Concurrency == --pool-size; --pool-size 1
+        reproduces the original serial sending.
 ```
 
 Code map:
@@ -137,7 +143,7 @@ consumers:
 | `TestScenario` constructor (signer map, nonce sync, txs_client) | yes |
 | `Generator::make_strict_call` (resolves `from_pool`, access list, EIP-7702) | yes |
 | `Templater::template_function_call` (calldata encoding, access list threading) | yes |
-| `TestScenario::prepare_tx_request` (nonce, gas limit, complete_tx_request) | yes |
+| `complete_tx_request` (gas fields) | yes — per-signer workers build directly with a worker-local nonce instead of `prepare_tx_request`, so each signer's nonce stays serial under concurrency |
 | Pool generation via `AgentPools::build_agent_store` | yes |
 | `TxActorHandle::cache_run_tx` + flush loop (DB writes, receipt polling) | yes |
 | `fund_accounts` helper | yes |
@@ -193,21 +199,3 @@ echo '{"to":"0xdeAD000000000000000000000000000000000000","value":"1","gas_limit"
 
 The tx should land on the target chain; the funder needs at least enough ETH
 to fund the executor pool.
-
-## Open questions
-
-1. Should stream mode get its own `Spammer` impl in `contender_core` so
-   campaigns can reuse it? Today the prototype lives entirely in `cli/`.
-   *(Deferred to a follow-up: refactoring the `Spammer` trait is out of scope
-   for the prototype.)*
-2. ~~Is the JSON spec the right shape, or should we standardize on a tagged
-   envelope so we can evolve it later?~~ **Resolved:** the stdout output is now
-   a versioned, tagged envelope (`{"version":1,"type":"tx_result",...}`). See
-   "Structured output" above.
-3. ~~How should errors propagate back to the upstream producer?~~ **Resolved:**
-   `spam-stream` emits a structured `tx_result` event per spec on stdout
-   (including send errors), plus `backpressure` and a terminal `summary` event,
-   in addition to the DB + logs.
-4. Should `--tps 0` (drain-as-fast) bound concurrency by pool size, or is
-   "one in flight at a time" acceptable for the relayer case? *(Deferred:
-   parallel sends judged not worth the effort for the prototype.)*

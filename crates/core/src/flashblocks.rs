@@ -28,7 +28,7 @@ impl FlashblocksClient {
             .await
             .map_err(|e| FlashblocksError::ConnectionFailed {
                 url: ws_url.to_owned(),
-                err: e,
+                err: Box::new(e),
             })?;
         Ok((ws_stream, response))
     }
@@ -47,7 +47,8 @@ impl FlashblocksClient {
         let timeout_duration = Duration::from_secs(10);
         let preflight_result: String = tokio::time::timeout(timeout_duration, async {
             while let Some(msg_result) = ws_stream.next().await {
-                let res = msg_result.map_err(FlashblocksError::PreflightRequestFailed)?;
+                let res = msg_result
+                    .map_err(|e| FlashblocksError::PreflightRequestFailed(Box::new(e)))?;
                 if let Some(text) = ws_message_to_text(res) {
                     return Ok(text);
                 }
@@ -93,7 +94,7 @@ impl FlashblocksClient {
         while let Some(msg_result) = read.next().await {
             let msg = msg_result.map_err(|e| {
                 cancel_token.cancel();
-                FlashblocksError::ConnectionLost(e)
+                FlashblocksError::ConnectionLost(Box::new(e))
             })?;
 
             if matches!(msg, Message::Close(_)) {
@@ -183,18 +184,18 @@ pub enum FlashblocksError {
 
     #[error("Failed to connect to flashblocks WS endpoint {url}: {err}")]
     ConnectionFailed {
-        err: tokio_tungstenite::tungstenite::Error,
+        err: Box<tokio_tungstenite::tungstenite::Error>,
         url: Url,
     },
 
     #[error("Flashblocks WS connection lost")]
-    ConnectionLost(tungstenite::Error),
+    ConnectionLost(Box<tungstenite::Error>),
 
     #[error("Flashblocks WS connection closed during preflight")]
     PreflightConnectionClosed,
 
     #[error("Flashblocks WS connection error during preflight")]
-    PreflightRequestFailed(tokio_tungstenite::tungstenite::Error),
+    PreflightRequestFailed(Box<tokio_tungstenite::tungstenite::Error>),
 
     #[error("Flashblocks WS endpoint did not send any data within {} seconds", _0.as_secs())]
     PreflightTimeout(std::time::Duration),
@@ -203,7 +204,7 @@ pub enum FlashblocksError {
     PreflightInvalidResult(String),
 
     #[error("Failed to close write stream for Flashblocks WS endpoint")]
-    WriteStreamClose(tokio_tungstenite::tungstenite::Error),
+    WriteStreamClose(Box<tokio_tungstenite::tungstenite::Error>),
 }
 
 /// Flashblock mark from the WS listener (separate channel to avoid backpressure on flush)
