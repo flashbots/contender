@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.3](https://github.com/flashbots/contender/releases/tag/v0.10.3) - 2026-06-23
+
+- `spam-stream`: send stream specs concurrently across the signer pool, with one worker per signer and serial nonce handling per signer; `--pool-size` now controls send concurrency ([#590](https://github.com/flashbots/contender/pull/590))
+- `spam-stream`: emit backpressure events when a per-signer worker queue saturates, instead of silently stalling the dispatch loop ([#590](https://github.com/flashbots/contender/pull/590))
+- `spam-stream`: add tests for signer routing and nonce reuse invariants, and document the per-signer worker model ([#590](https://github.com/flashbots/contender/pull/590))
+
 ## [0.10.2](https://github.com/flashbots/contender/releases/tag/v0.10.2) - 2026-06-11
 
 - Add scenario access list support with placeholder resolution ([#588](https://github.com/flashbots/contender/pull/588))
