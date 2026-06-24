@@ -1,0 +1,152 @@
+name = "full-spectrum"
+description = "4-stage campaign covering all scenario categories: warmup with simple ops, ramp into DeFi, peak with full protocol mix, cooldown"
+
+[spam]
+mode = "tps"
+rate = 100
+duration = 120
+seed = 42
+
+# ──────────────────────────────────────────────────────────────
+# Stage 1: Warmup — simple token operations
+# ──────────────────────────────────────────────────────────────
+[[spam.stage]]
+name = "warmup"
+rate = 50
+duration = 60
+
+[[spam.stage.mix]]
+scenario = "erc20"
+share_pct = 30.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/erc721.toml"
+share_pct = 25.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/erc1155.toml"
+share_pct = 25.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/stablecoin.toml"
+share_pct = 20.0
+
+# ──────────────────────────────────────────────────────────────
+# Stage 2: Ramp — DeFi protocols come online
+# ──────────────────────────────────────────────────────────────
+[[spam.stage]]
+name = "defi-ramp"
+rate = 150
+duration = 120
+
+[[spam.stage.mix]]
+scenario = "scenarios/simpleAMM.toml"
+share_pct = 25.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/lending.toml"
+share_pct = 20.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/staking.toml"
+share_pct = 15.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/erc4626vault.toml"
+share_pct = 15.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/orderBook.toml"
+share_pct = 15.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/bridge.toml"
+share_pct = 10.0
+
+# ──────────────────────────────────────────────────────────────
+# Stage 3: Peak — everything at once, max diversity
+# ──────────────────────────────────────────────────────────────
+[[spam.stage]]
+name = "full-load"
+rate = 300
+duration = 180
+
+[[spam.stage.mix]]
+scenario = "scenarios/simpleAMM.toml"
+share_pct = 15.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/lending.toml"
+share_pct = 12.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/orderBook.toml"
+share_pct = 10.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/staking.toml"
+share_pct = 8.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/erc4626vault.toml"
+share_pct = 8.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/governance.toml"
+share_pct = 7.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/multisig.toml"
+share_pct = 7.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/bridge.toml"
+share_pct = 7.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/dutchAuction.toml"
+share_pct = 5.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/nameRegistry.toml"
+share_pct = 5.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/precompiles/hashPrecompiles.toml"
+share_pct = 5.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/stablecoin.toml"
+share_pct = 5.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/erc721.toml"
+share_pct = 3.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/erc1155.toml"
+share_pct = 3.0
+
+# ──────────────────────────────────────────────────────────────
+# Stage 4: Cooldown — light governance + staking tail
+# ──────────────────────────────────────────────────────────────
+[[spam.stage]]
+name = "cooldown"
+rate = 30
+duration = 60
+
+[[spam.stage.mix]]
+scenario = "scenarios/governance.toml"
+share_pct = 30.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/staking.toml"
+share_pct = 30.0
+
+[[spam.stage.mix]]
+scenario = "scenarios/nameRegistry.toml"
+share_pct = 20.0
+
+[[spam.stage.mix]]
+scenario = "erc20"
+share_pct = 20.0
