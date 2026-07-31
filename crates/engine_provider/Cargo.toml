@@ -38,7 +38,7 @@ op-alloy-consensus = { workspace = true }
 op-alloy-network = { workspace = true }
 op-alloy-rpc-types = { workspace = true }
 op-alloy-rpc-types-engine = { workspace = true, features = ["serde"] }
-secp256k1 = { version = "0.30" }
+secp256k1 = { version = "0.31" }
 
 # ---------------------------------------------------------------------------
 # Transitive dependency pins for downstream consumers.
