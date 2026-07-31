@@ -84,7 +84,7 @@ rusqlite = "0.32.1"
 r2d2 = "0.8.10"
 
 ## testfile
-toml = "0.8.19"
+toml = "0.9.12"
 
 ## report
 chrono = "0.4.44"
