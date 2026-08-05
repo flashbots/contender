@@ -1,0 +1,95 @@
+# SimpleGovernance scenario
+# Simulates on-chain governance voting with realistic gas patterns:
+# storage writes for vote tracking, event emission, and require checks.
+# source: /tmp/governance.sol (Solidity 0.8.26, optimized with 200 runs)
+
+## Deploy the governance contract
+[[create]]
+name = "SimpleGovernance"
+bytecode = "0x6080604052348015600e575f80fd5b5061052a8061001c5f395ff3fe608060405234801561000f575f80fd5b5060043610610060575f3560e01c8063013cf08b1461006457806343859632146100b157806349c2a1a6146100ee578063c7f758a81461010f578063c9d27afe14610122578063da35c66414610137575b5f80fd5b610091610072366004610391565b600160208190525f918252604090912080549181015460029091015483565b604080519384526020840192909252908201526060015b60405180910390f35b6100de6100bf3660046103a8565b600260209081525f928352604080842090915290825290205460ff1681565b60405190151581526020016100a8565b6101016100fc3660046103f5565b61013f565b6040519081526020016100a8565b61009161011d366004610391565b6101b9565b6101356101303660046104a8565b610231565b005b6101015f5481565b5f8054825160208085019190912082845260019182905260408420556101669082906104cf565b5f908155818152600160205260409081902054905182917fb1e570e4094a5f87a5572e3e718941fb3822dd7fdc7a5d6d6d0d905b6c524271916101ab91815260200190565b60405180910390a292915050565b5f805f8054841061020b5760405162461bcd60e51b8152602060048201526017602482015276141c9bdc1bdcd85b08191bd95cc81b9bdd08195e1a5cdd604a1b60448201526064015b60405180910390fd5b5050505f8181526001602081905260409091208054918101546002909101549193909250565b5f54821061027b5760405162461bcd60e51b8152602060048201526017602482015276141c9bdc1bdcd85b08191bd95cc81b9bdd08195e1a5cdd604a1b6044820152606401610202565b5f82815260026020908152604080832033845290915290205460ff16156102d45760405162461bcd60e51b815260206004820152600d60248201526c105b1c9958591e481d9bdd1959609a1b6044820152606401610202565b5f8281526002602090815260408083203384529091529020805460ff19166001179055801561032b576001805f8481526020019081526020015f206001015f82825461032091906104cf565b909155506103549050565b6001805f8481526020019081526020015f206002015f82825461034e91906104cf565b90915550505b6040518115158152339083907fe71fcdac32df1877c1700e7bda2a03157e20993363a28fc35ac495cefc76e4d49060200160405180910390a35050565b5f602082840312156103a1575f80fd5b5035919050565b5f80604083850312156103b9575f80fd5b8235915060208301356001600160a01b03811681146103d6575f80fd5b809150509250929050565b634e487b7160e01b5f52604160045260245ffd5b5f60208284031215610405575f80fd5b813567ffffffffffffffff81111561041b575f80fd5b8201601f8101841361042b575f80fd5b803567ffffffffffffffff811115610445576104456103e1565b604051601f8201601f19908116603f0116810167ffffffffffffffff81118282101715610474576104746103e1565b60405281815282820160200186101561048b575f80fd5b816020840160208301375f91810160200191909152949350505050565b5f80604083850312156104b9575f80fd5b82359150602083013580151581146103d6575f80fd5b808201808211156104ee57634e487b7160e01b5f52601160045260245ffd5b9291505056fea2646970667358221220f3fd7b44fea17aed2b4c0dadc3b0f06673c0aa8aeb37ef7ee4cb714c7f17dd9d64736f6c634300081a0033"
+
+
+## Setup: create 10 proposals (IDs 0-9) from admin
+[[setup]]
+kind = "create_proposal_0"
+to = "{SimpleGovernance}"
+signature = "function createProposal(string memory description) external returns (uint256)"
+args = ["Proposal 0: Increase staking rewards"]
+
+[[setup]]
+kind = "create_proposal_1"
+to = "{SimpleGovernance}"
+signature = "function createProposal(string memory description) external returns (uint256)"
+args = ["Proposal 1: Reduce validator bond"]
+
+[[setup]]
+kind = "create_proposal_2"
+to = "{SimpleGovernance}"
+signature = "function createProposal(string memory description) external returns (uint256)"
+args = ["Proposal 2: Upgrade protocol to v2"]
+
+[[setup]]
+kind = "create_proposal_3"
+to = "{SimpleGovernance}"
+signature = "function createProposal(string memory description) external returns (uint256)"
+args = ["Proposal 3: Fund ecosystem grants"]
+
+[[setup]]
+kind = "create_proposal_4"
+to = "{SimpleGovernance}"
+signature = "function createProposal(string memory description) external returns (uint256)"
+args = ["Proposal 4: Adjust fee parameters"]
+
+[[setup]]
+kind = "create_proposal_5"
+to = "{SimpleGovernance}"
+signature = "function createProposal(string memory description) external returns (uint256)"
+args = ["Proposal 5: Add new oracle provider"]
+
+[[setup]]
+kind = "create_proposal_6"
+to = "{SimpleGovernance}"
+signature = "function createProposal(string memory description) external returns (uint256)"
+args = ["Proposal 6: Modify governance quorum"]
+
+[[setup]]
+kind = "create_proposal_7"
+to = "{SimpleGovernance}"
+signature = "function createProposal(string memory description) external returns (uint256)"
+args = ["Proposal 7: Treasury diversification"]
+
+[[setup]]
+kind = "create_proposal_8"
+to = "{SimpleGovernance}"
+signature = "function createProposal(string memory description) external returns (uint256)"
+args = ["Proposal 8: Enable cross-chain bridge"]
+
+[[setup]]
+kind = "create_proposal_9"
+to = "{SimpleGovernance}"
+signature = "function createProposal(string memory description) external returns (uint256)"
+args = ["Proposal 9: Update token emission schedule"]
+
+
+## Spam: create new proposals (ongoing proposal creation load)
+[[spam]]
+[spam.tx]
+kind = "create_proposal"
+to = "{SimpleGovernance}"
+from_pool = "proposers"
+signature = "function createProposal(string memory description) external returns (uint256)"
+args = ["Spam proposal: stress test governance"]
+
+## Spam: vote on existing proposals (IDs 0-9)
+# Votes may revert if the sender has already voted on that proposal
+[[spam]]
+[spam.tx]
+kind = "cast_vote"
+to = "{SimpleGovernance}"
+from_pool = "voters"
+signature = "function vote(uint256 proposalId, bool support) external"
+args = ["0", "true"]
+gas_limit = 120000
+fuzz = [
+    { param = "proposalId", min = "0", max = "9" },
+]
