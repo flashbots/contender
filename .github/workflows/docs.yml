@@ -1,0 +1,16 @@
+name: Docs
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  docs-review:
+    name: Automated docs review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate docs examples and crate tags
+        run: python3 scripts/check-docs.py
